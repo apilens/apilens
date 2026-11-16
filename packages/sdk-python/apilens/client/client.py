@@ -34,18 +34,36 @@ logger = logging.getLogger("apilens")
 DROP_QUEUE_FULL = "queue_full"  # record-count cap (max_queue_size) hit
 DROP_QUEUE_BYTES = "queue_bytes"  # memory cap (max_queue_bytes) hit
 DROP_NON_RETRYABLE = "non_retryable"  # ingest rejected the batch with a 4xx
-DROP_RETRIES_EXHAUSTED = "retries_exhausted"  # batch still failing after max_retries
-DROP_REASONS = (DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED)
+DROP_RETRIES_EXHAUSTED = "retries_exhausted"  # still failing after max_retry_seconds
+DROP_INVALID = "invalid"  # ingest accepted the batch but refused these records
+DROP_SHUTDOWN = "shutdown"  # still queued when the client shut down
+DROP_REASONS = (
+    DROP_QUEUE_FULL,
+    DROP_QUEUE_BYTES,
+    DROP_NON_RETRYABLE,
+    DROP_RETRIES_EXHAUSTED,
+    DROP_INVALID,
+    DROP_SHUTDOWN,
+)
 # Not a drop: a single record over ``max_batch_bytes`` was cut down (payloads
 # first) and still delivered. Reported by ``drop_counts()`` but not counted in
 # ``dropped_count``.
 DROP_TRUNCATED = "truncated"
+# Reasons not reported in the heartbeat's ``dropped``: truncated records were
+# delivered, and ingest already counts the records it refused as invalid.
+_UNREPORTED_REASONS = frozenset({DROP_TRUNCATED, DROP_INVALID})
+# Signal name of each queue in the heartbeat's ``dropped`` field.
+SIGNAL_REQUESTS = "requests"
+SIGNAL_SPANS = "spans"
+SIGNAL_LOGS = "logs"
 
 # Floor for ``max_batch_bytes``: room for one record with its variable-length
 # fields truncated (ids, scalars and field names stay intact).
 MIN_BATCH_BYTES = 16 * 1024
-# Appended to a string field cut down to fit ``max_batch_bytes``.
-TRUNCATION_MARKER = "...[truncated]"
+# Put in the middle of a string field cut down to fit ``max_batch_bytes``
+# (D4): the head and the tail survive, so an exception keeps both the raised
+# error and its root cause. ``{n}`` is the number of characters removed.
+TRUNCATION_MARKER = "\n…[{n} chars truncated]…\n"
 # Wire fields shrunk first when one record exceeds ``max_batch_bytes``, in
 # order; then attribute maps, then any other string field (largest first).
 _TRUNCATE_FIRST = (
@@ -94,9 +112,12 @@ RECORD_OVERHEAD_BYTES = 512
 GZIP_LEVEL = 5
 
 
-# Retry policy (see ``ApiLensClient._send_batch_with_retry``).
+# Retry policy (see ``ApiLensClient._flush_queue``).
 # 408 / 429 / 5xx and network errors are retried; any other 4xx drops the batch.
 RETRYABLE_4XX = frozenset({408, 429})
+# A failed record is retried for this long after its first failed attempt
+# (``ApiLensConfig.max_retry_seconds``) before it is dropped.
+DEFAULT_MAX_RETRY_SECONDS = 300.0
 # A server-sent Retry-After is honoured up to this many seconds.
 RETRY_AFTER_MAX_SECONDS = 60.0
 # A non-retryable status logs its response body at most once per window.
@@ -288,14 +309,28 @@ def _envelope(key: str, records: list) -> bytes:
     return b'{"' + key.encode("ascii") + b'":[' + b",".join(items) + b"]}"
 
 
+def _marker_bytes(marker: str) -> int:
+    return len(_dumps(marker)) - 2  # without the quotes
+
+
 def _shrink(value: str, excess: int) -> str:
-    """Cut ``value`` so its JSON encoding loses at least ``excess`` bytes.
-    Every character encodes to >= 1 byte, so dropping ``excess`` characters
-    (plus room for the marker) is always enough."""
-    keep = len(value) - excess - len(TRUNCATION_MARKER)
+    """Cut the middle of ``value`` so its JSON encoding loses at least
+    ``excess`` bytes, keeping the head and the tail around a
+    ``TRUNCATION_MARKER``. Every character encodes to >= 1 byte, so removing
+    ``excess`` characters plus the marker's encoded size is always enough."""
+    removed = excess
+    while True:
+        marker = TRUNCATION_MARKER.format(n=removed)
+        needed = excess + _marker_bytes(marker)
+        if removed >= needed:
+            break
+        removed = needed
+    keep = len(value) - removed
     if keep <= 0:
         return ""
-    return value[:keep] + TRUNCATION_MARKER
+    head = (keep + 1) // 2
+    tail = keep - head
+    return value[:head] + marker + (value[len(value) - tail :] if tail else "")
 
 
 def _truncate_wire(wire: dict, budget: int) -> bytes:
@@ -405,7 +440,17 @@ class ApiLensConfig:
     # queued records). Either limit drops the oldest records first.
     max_queue_size: int = 10_000
     max_queue_bytes: int = 64 * 1024 * 1024
-    max_retries: int = 3
+    # A batch that fails with 408/429/5xx or a network error goes back to the
+    # front of its queue and is retried with full-jitter backoff (or after
+    # the server's Retry-After) until this many seconds have passed since its
+    # first failed attempt; then it is dropped as ``retries_exhausted``. New
+    # records keep queueing meanwhile, under the queue caps.
+    max_retry_seconds: float = DEFAULT_MAX_RETRY_SECONDS
+    # Deprecated alias of ``max_retry_seconds``: when set, the window is the
+    # longest time this many backoff retries used to wait
+    # (``sum(min(retry_backoff_max, retry_backoff_base * 2**i))``, so ``0``
+    # never retries) and it wins over ``max_retry_seconds``.
+    max_retries: int | None = None
     # gzip each batch body (``Content-Encoding: gzip``) on the flush thread.
     # Falls back to plain JSON if compression fails; ``False`` always sends plain JSON.
     compress: bool = True
@@ -494,6 +539,20 @@ class ApiLensClient:
         }
         self._bytes_by_queue: dict[int, int] = dict.fromkeys(self._sizes, 0)
         self._queued_bytes = 0
+        self._signals: dict[int, str] = {
+            id(self._queue): SIGNAL_REQUESTS,
+            id(self._span_queue): SIGNAL_SPANS,
+            id(self._log_queue): SIGNAL_LOGS,
+        }
+        # Retry state. id(record) -> monotonic time of its first failed
+        # attempt, for records put back after a failure; per queue: when it
+        # may be sent again and how many attempts in a row have failed.
+        self._failed_at: dict[int, float] = {}
+        self._retry_at: dict[int, float] = dict.fromkeys(self._sizes, 0.0)
+        self._retry_attempt: dict[int, int] = dict.fromkeys(self._sizes, 0)
+        # Drops not yet acknowledged by a heartbeat: (app_id, signal, reason) -> records.
+        self._unreported_drops: dict[tuple[str, str, str], int] = {}
+        self._invalid_logged_at: float | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._wakeup = threading.Event()
@@ -549,9 +608,16 @@ class ApiLensClient:
         self._thread.start()
 
     def shutdown(self, *, flush: bool = True, timeout: float = 10.0) -> None:
+        """Deliver what is queued, then send the final heartbeat.
+
+        With ``flush`` the queues are drained, waiting out retry backoffs for
+        at most ``timeout`` minus one request ``timeout`` (room for the final
+        heartbeat). Whatever is still queued then is counted as dropped
+        (``shutdown``) so the final heartbeat reports it."""
         if flush:
-            self.flush_all()
+            self._drain(max(0.0, timeout - self.config.timeout))
         if self.config.enabled:
+            self._drop_leftovers()
             self.send_heartbeat(final=True)
 
         self._stop.set()
@@ -708,6 +774,34 @@ class ApiLensClient:
 
     def heartbeat_payload(self, app_id: str, environment: str = "", *, final: bool = False) -> dict:
         """The ``POST /v1/heartbeat`` body for one app."""
+        return self._heartbeat_body(app_id, environment, final=final)[0]
+
+    def _drop_snapshot(self, app_id: str) -> dict[tuple[str, str, str], int]:
+        """Unreported drops of ``app_id``; the first registered app also
+        carries drops of apps that send no heartbeat of their own."""
+        with self._heartbeat_lock:
+            registered = [a for a, _env in self._heartbeat_due]
+        primary = registered[0] if registered else app_id
+        with self._lock:
+            return {
+                key: n
+                for key, n in self._unreported_drops.items()
+                if n > 0 and (key[0] == app_id or (app_id == primary and key[0] not in registered))
+            }
+
+    def _ack_drops(self, snapshot: dict[tuple[str, str, str], int]) -> None:
+        """A heartbeat carrying ``snapshot`` was accepted: forget those drops."""
+        with self._lock:
+            for key, n in snapshot.items():
+                left = self._unreported_drops.get(key, 0) - n
+                if left > 0:
+                    self._unreported_drops[key] = left
+                else:
+                    self._unreported_drops.pop(key, None)
+
+    def _heartbeat_body(
+        self, app_id: str, environment: str = "", *, final: bool = False
+    ) -> tuple[dict, dict[tuple[str, str, str], int]]:
         self._check_fork()
         body: dict = {
             "app_id": app_id,
@@ -728,7 +822,14 @@ class ApiLensClient:
             body["commit"] = self.config.commit
         if final:
             body["final"] = True
-        return body
+        snapshot = self._drop_snapshot(app_id)
+        if snapshot:
+            dropped: dict[str, dict[str, int]] = {}
+            for (_app, signal, reason), n in snapshot.items():
+                by_reason = dropped.setdefault(signal, {})
+                by_reason[reason] = by_reason.get(reason, 0) + n
+            body["dropped"] = dropped
+        return body, snapshot
 
     def send_heartbeat(self, *, final: bool = False) -> bool:
         """Send a heartbeat for every registered app now; ``True`` when all
@@ -763,7 +864,8 @@ class ApiLensClient:
         key = (app_id, environment)
         interval = self.config.heartbeat_interval
         try:
-            body = _strip_api_key_fields(self.heartbeat_payload(app_id, environment, final=final))
+            body, drops = self._heartbeat_body(app_id, environment, final=final)
+            body = _strip_api_key_fields(body)
             raw = self._post_body(self.config.heartbeat_path, _dumps(body), read_response=True)
         except _IngestError as exc:
             retry_after = exc.retry_after
@@ -775,6 +877,7 @@ class ApiLensClient:
             logger.debug("API Lens heartbeat failed: %s", exc, exc_info=True)
             return False
         self._schedule_heartbeat(key, interval)
+        self._ack_drops(drops)
         self._apply_heartbeat_response(raw, app_id)
         return True
 
@@ -823,8 +926,11 @@ class ApiLensClient:
 
     def drop_counts(self) -> dict[str, int]:
         """Records dropped so far, by reason: ``queue_full``, ``queue_bytes``,
-        ``non_retryable`` and ``retries_exhausted``; plus ``truncated``, the
-        records cut down to fit ``max_batch_bytes`` (sent, not dropped)."""
+        ``non_retryable``, ``retries_exhausted``, ``invalid`` (refused by a
+        partial accept) and ``shutdown`` (still queued at shutdown); plus
+        ``truncated``, the records cut down to fit ``max_batch_bytes`` (sent,
+        not dropped). Drops other than ``truncated`` and ``invalid`` are also
+        reported to ingest in the next heartbeat's ``dropped`` field."""
         with self._lock:
             return dict(self._drops)
 
@@ -1017,19 +1123,19 @@ class ApiLensClient:
             if size > max_bytes:
                 # A single record over the whole budget would evict everything
                 # and still not fit: shed it instead.
-                self._drops[DROP_QUEUE_BYTES] += 1
+                self._count_drops_locked(DROP_QUEUE_BYTES, queue, [record])
                 return
-            if len(queue) >= self.config.max_queue_size:
-                self._popleft_locked(queue)
-                self._drops[DROP_QUEUE_FULL] += 1
+            while len(queue) >= self.config.max_queue_size:
+                # ``while``: records put back after a failed send may have
+                # pushed the queue past its cap.
+                self._count_drops_locked(DROP_QUEUE_FULL, queue, [self._popleft_locked(queue)])
             while self._queued_bytes + size > max_bytes:
                 # Drop oldest from this queue first; once it is empty, from
                 # whichever other queue holds the most bytes.
                 victim = queue if queue else self._largest_queue()
                 if victim is None:  # pragma: no cover - accounting invariant
                     break
-                self._popleft_locked(victim)
-                self._drops[DROP_QUEUE_BYTES] += 1
+                self._count_drops_locked(DROP_QUEUE_BYTES, victim, [self._popleft_locked(victim)])
             queue.append(record)
             self._sizes[id(queue)].append(size)
             self._bytes_by_queue[id(queue)] += size
@@ -1039,36 +1145,182 @@ class ApiLensClient:
         if queue_size >= self.config.batch_size:
             self._wakeup.set()
 
+    def _count_drops_locked(self, reason: str, queue: deque, records: list) -> None:
+        """Count dropped ``records`` of ``queue``: in ``drop_counts()`` and,
+        per app and signal, for the next heartbeat's ``dropped`` field."""
+        self._drops[reason] += len(records)
+        if reason in _UNREPORTED_REASONS:
+            return
+        signal = self._signals[id(queue)]
+        for record in records:
+            key = ((getattr(record, "app_id", "") or "").strip(), signal, reason)
+            self._unreported_drops[key] = self._unreported_drops.get(key, 0) + 1
+
     def _popleft_locked(self, queue: deque):
         record = queue.popleft()
         size = self._sizes[id(queue)].popleft()
         self._bytes_by_queue[id(queue)] -= size
         self._queued_bytes -= size
+        self._failed_at.pop(id(record), None)
         return record
+
+    def _queues(self) -> tuple[deque, deque, deque]:
+        return (self._queue, self._span_queue, self._log_queue)
 
     def _largest_queue(self) -> deque | None:
         best: deque | None = None
         best_bytes = -1
-        for q in (self._queue, self._span_queue, self._log_queue):
+        for q in self._queues():
             if q and self._bytes_by_queue[id(q)] > best_bytes:
                 best, best_bytes = q, self._bytes_by_queue[id(q)]
         return best
 
+    def retry_window(self) -> float:
+        """Seconds a failed record keeps being retried after its first failed
+        attempt: ``max_retry_seconds``, or the legacy ``max_retries`` mapped
+        to the backoff that many retries used to wait at most."""
+        cfg = self.config
+        if cfg.max_retries is None:
+            return max(0.0, float(cfg.max_retry_seconds))
+        return float(
+            sum(
+                min(cfg.retry_backoff_max, cfg.retry_backoff_base * (2**i))
+                for i in range(max(0, int(cfg.max_retries)))
+            )
+        )
+
     def flush_once(self) -> int:
-        total = 0
-        size = self.config.batch_size
-        for popped, key, send in (
-            (self._pop_batch(size), "requests", self._send_batch),
-            (self._pop_span_batch(size), "spans", self._send_span_batch),
-            (self._pop_log_batch(size), "logs", self._send_log_batch),
+        """One pass over the request, span and log queues: send one batch of
+        each queue that is not waiting out a retry backoff. Returns the
+        number of records delivered."""
+        return sum(
+            self._flush_queue(queue, key, send)
+            for queue, key, send in (
+                (self._queue, "requests", self._send_batch),
+                (self._span_queue, "spans", self._send_span_batch),
+                (self._log_queue, "logs", self._send_log_batch),
+            )
+        )
+
+    def _flush_queue(self, queue: deque, key: str, send) -> int:
+        """Send one batch of ``queue``; return the records delivered.
+
+        A 408/429/5xx/network failure puts the unsent records back at the
+        front of the queue and holds the queue for a full-jitter backoff (or
+        the server's ``Retry-After``, capped at 60 s); a record still failing
+        ``retry_window()`` seconds after its first failure is dropped
+        (``retries_exhausted``). Any other 4xx drops the chunk at once
+        (``non_retryable``). Records a 2xx names as invalid (partial accept)
+        are counted (``invalid``) and never retried."""
+        qid = id(queue)
+        if time.monotonic() < self._retry_at[qid]:
+            return 0
+        # The pop is bounded by the size estimate; the exact JSON split below
+        # guarantees no body exceeds max_batch_bytes.
+        chunks = self._split_by_bytes(self._pop_entries(queue, self.config.batch_size), key)
+        delivered = 0
+        for i, (encoded, entries) in enumerate(chunks):
+            try:
+                raw = send(encoded)
+            except _NonRetryableIngestError as exc:
+                with self._lock:
+                    self._count_drops_locked(DROP_NON_RETRYABLE, queue, [e[0] for e in entries])
+                    self._failed_batches += 1
+                    self._last_error = _describe_error(exc)
+                self._log_non_retryable(exc, len(entries))
+                continue
+            except Exception as exc:
+                self._retry_later(queue, [e for _enc, more in chunks[i:] for e in more], exc)
+                return delivered
+            invalid = self._invalid_count(raw, len(entries))
+            with self._lock:
+                self._sent_batches += 1
+                self._sent_records += len(entries) - invalid
+                self._last_success_at = datetime.now(tz=timezone.utc)
+                self._retry_attempt[qid] = 0
+                self._drops[DROP_INVALID] += invalid
+            delivered += len(entries)
+        return delivered
+
+    def _retry_later(self, queue: deque, entries: list, exc: Exception) -> None:
+        """Put the ``entries`` still inside the retry window back at the front
+        of ``queue`` and hold the queue for the backoff; drop the others."""
+        qid = id(queue)
+        now = time.monotonic()
+        window = self.retry_window()
+        keep: list = []
+        expired: list = []
+        for record, size, failed_at in entries:
+            first = now if failed_at is None else failed_at
+            (expired if now - first >= window else keep).append((record, size, first))
+        retry_after = getattr(exc, "retry_after", None)
+        with self._lock:
+            self._last_error = _describe_error(exc)
+            attempt = self._retry_attempt[qid]
+            self._retry_attempt[qid] = attempt + 1
+            if retry_after is None:
+                delay = backoff_delay(
+                    attempt, self.config.retry_backoff_base, self.config.retry_backoff_max
+                )
+            else:
+                delay = retry_after
+            self._retry_at[qid] = now + delay
+            if expired:
+                self._count_drops_locked(DROP_RETRIES_EXHAUSTED, queue, [e[0] for e in expired])
+                self._failed_batches += 1
+            sizes = self._sizes[qid]
+            for record, size, first in reversed(keep):
+                queue.appendleft(record)
+                sizes.appendleft(size)
+                self._bytes_by_queue[qid] += size
+                self._queued_bytes += size
+                self._failed_at[id(record)] = first
+        if expired:
+            logger.warning(
+                "API Lens ingest still failing after max_retry_seconds=%g; dropping %d %s "
+                "record(s): %s",
+                window,
+                len(expired),
+                self._signals[qid],
+                exc,
+            )
+        if keep:
+            logger.debug(
+                "API Lens ingest attempt %d failed (%s); retrying in %.2fs",
+                attempt + 1,
+                exc,
+                delay,
+            )
+
+    def _invalid_count(self, raw, sent: int) -> int:
+        """Records a 2xx answer refused as invalid (partial accept:
+        ``{"invalid": n, "errors": [{"index": i, "reason": "..."}]}``)."""
+        if not raw:
+            return 0
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return 0
+        invalid = data.get("invalid") if isinstance(data, dict) else None
+        if not isinstance(invalid, int) or isinstance(invalid, bool) or invalid <= 0:
+            return 0
+        invalid = min(invalid, sent)
+        now = time.monotonic()
+        if (
+            self._invalid_logged_at is None
+            or now - self._invalid_logged_at >= NON_RETRYABLE_LOG_INTERVAL_SECONDS
         ):
-            # The pop is bounded by the size estimate; the exact JSON split
-            # below guarantees no body exceeds max_batch_bytes. A failed chunk
-            # is dropped and logged by _send_batch_with_retry.
-            for chunk in self._split_by_bytes(popped, key):
-                if self._send_batch_with_retry(chunk, send):
-                    total += len(chunk)
-        return total
+            self._invalid_logged_at = now
+            errors = data.get("errors")
+            first = errors[0] if isinstance(errors, list) and errors else None
+            reason = str(first.get("reason", "")) if isinstance(first, dict) else ""
+            logger.warning(
+                "API Lens ingest refused %d of %d record(s) as invalid (not retried)%s",
+                invalid,
+                sent,
+                f": {reason[:MAX_LOGGED_BODY_BYTES]}" if reason else "",
+            )
+        return invalid
 
     def flush(self) -> int:
         """Deliver everything queued now, synchronously; return the number of
@@ -1079,8 +1331,9 @@ class ApiLensClient:
         sent, and code without a middleware (a Lambda handler, a script)
         calls it at the end of each invocation. It also sends any heartbeat
         that is due and the periodic stats report, which the flush thread
-        handles in ``thread`` mode. Never raises for delivery failures (they
-        are retried, then dropped and counted like on the flush thread).
+        handles in ``thread`` mode. Never raises for delivery failures: they
+        stay queued for a later flush, and are dropped and counted once
+        ``max_retry_seconds`` has passed.
         """
         total = self.flush_all()
         if self.inline and self.config.enabled and self._inline_upkeep_lock.acquire(blocking=False):
@@ -1095,6 +1348,8 @@ class ApiLensClient:
         return total
 
     def flush_all(self) -> int:
+        """Send batches until the queues are empty or every non-empty queue
+        is waiting out a retry backoff."""
         total = 0
         while True:
             n = self.flush_once()
@@ -1102,6 +1357,35 @@ class ApiLensClient:
                 break
             total += n
         return total
+
+    def _drain(self, budget: float) -> None:
+        """``flush_all``, waiting out retry backoffs for at most ``budget`` seconds."""
+        deadline = time.monotonic() + budget
+        while True:
+            self.flush_all()
+            with self._lock:
+                waiting = [self._retry_at[id(q)] for q in self._queues() if q]
+            if not waiting:
+                return
+            wait = max(0.0, min(waiting) - time.monotonic())
+            if time.monotonic() + wait >= deadline:
+                return
+            self._sleep(wait)
+
+    def _drop_leftovers(self) -> None:
+        """Count what is still queued at shutdown as dropped (``shutdown``)."""
+        left_total = 0
+        with self._lock:
+            for queue in self._queues():
+                left = [self._popleft_locked(queue) for _ in range(len(queue))]
+                if left:
+                    self._count_drops_locked(DROP_SHUTDOWN, queue, left)
+                    left_total += len(left)
+        if left_total:
+            logger.warning(
+                "API Lens shut down with %d record(s) undelivered; counted as dropped (shutdown)",
+                left_total,
+            )
 
     def _run_loop(self) -> None:
         self._safe_heartbeat()
@@ -1135,32 +1419,41 @@ class ApiLensClient:
         return self._pop_from(self._log_queue, size)
 
     def _pop_from(self, queue: deque, size: int) -> list:
+        return [entry[0] for entry in self._pop_entries(queue, size)]
+
+    def _pop_entries(self, queue: deque, size: int) -> list[tuple]:
         """Pop up to ``size`` records whose estimated sizes fit in
-        ``max_batch_bytes`` (always at least one record)."""
+        ``max_batch_bytes`` (always at least one record), as
+        ``(record, estimated size, first failed attempt or None)``."""
         max_bytes = self.config.max_batch_bytes
         with self._lock:
             sizes = self._sizes[id(queue)]
-            batch: list = []
+            batch: list[tuple] = []
             used = 0
             while queue and len(batch) < size:
-                if batch and used + sizes[0] > max_bytes:
+                record_size = sizes[0]
+                if batch and used + record_size > max_bytes:
                     break
-                used += sizes[0]
-                batch.append(self._popleft_locked(queue))
+                used += record_size
+                failed_at = self._failed_at.get(id(queue[0]))
+                batch.append((self._popleft_locked(queue), record_size, failed_at))
             return batch
 
-    def _split_by_bytes(self, batch: list, key: str) -> list[list[bytes]]:
-        """Encode ``batch`` and group it into chunks whose JSON body
-        (``{"<key>":[...]}``) is at most ``max_batch_bytes``. A record that
-        cannot fit even alone is truncated (``truncated`` counter)."""
-        if not batch:
+    def _split_by_bytes(self, entries: list[tuple], key: str) -> list[tuple[list[bytes], list[tuple]]]:
+        """Encode the popped ``entries`` and group them into chunks whose JSON
+        body (``{"<key>":[...]}``) is at most ``max_batch_bytes``, as
+        ``(encoded records, entries)``. A record that cannot fit even alone
+        is truncated, head and tail kept (``truncated`` counter)."""
+        if not entries:
             return []
         max_bytes = self.config.max_batch_bytes
         envelope = len(_envelope(key, []))
-        chunks: list[list[bytes]] = []
+        chunks: list[tuple[list[bytes], list[tuple]]] = []
         current: list[bytes] = []
+        current_entries: list[tuple] = []
         used = envelope
-        for record in batch:
+        for entry in entries:
+            record = entry[0]
             encoded = _dumps(record.to_wire())
             if envelope + len(encoded) > max_bytes:
                 encoded = _truncate_wire(record.to_wire(), max_bytes - envelope)
@@ -1173,68 +1466,15 @@ class ApiLensClient:
                 )
             extra = len(encoded) + (1 if current else 0)  # "," separator
             if current and used + extra > max_bytes:
-                chunks.append(current)
-                current, used = [], envelope
+                chunks.append((current, current_entries))
+                current, current_entries, used = [], [], envelope
                 extra = len(encoded)
             current.append(encoded)
+            current_entries.append(entry)
             used += extra
         if current:
-            chunks.append(current)
+            chunks.append((current, current_entries))
         return chunks
-
-    def _send_batch_with_retry(self, batch, send=None) -> bool:
-        """Send ``batch``; ``True`` on 2xx. 408/429/5xx/network errors retry up
-        to ``max_retries`` with full-jitter backoff, or after the server's
-        ``Retry-After`` (capped at 60 s) when present. Any other 4xx drops the
-        batch at once (``non_retryable``)."""
-        send = send or self._send_batch
-        last_error: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                send(batch)
-                with self._lock:
-                    self._sent_batches += 1
-                    self._sent_records += len(batch)
-                    self._last_success_at = datetime.now(tz=timezone.utc)
-                return True
-            except _NonRetryableIngestError as exc:
-                with self._lock:
-                    self._drops[DROP_NON_RETRYABLE] += len(batch)
-                    self._failed_batches += 1
-                    self._last_error = _describe_error(exc)
-                self._log_non_retryable(exc, len(batch))
-                return False
-            except Exception as exc:
-                last_error = exc
-                with self._lock:
-                    self._last_error = _describe_error(exc)
-                if attempt >= self.config.max_retries:
-                    break
-                retry_after = getattr(exc, "retry_after", None)
-                if retry_after is None:
-                    delay = backoff_delay(
-                        attempt, self.config.retry_backoff_base, self.config.retry_backoff_max
-                    )
-                else:
-                    delay = retry_after
-                logger.debug(
-                    "API Lens ingest attempt %d failed (%s); retrying in %.2fs",
-                    attempt + 1,
-                    exc,
-                    delay,
-                )
-                self._sleep(delay)
-
-        with self._lock:
-            self._drops[DROP_RETRIES_EXHAUSTED] += len(batch)
-            self._failed_batches += 1
-        logger.warning(
-            "API Lens ingest failed after %d attempt(s); dropping batch of %d records: %s",
-            self.config.max_retries + 1,
-            len(batch),
-            last_error,
-        )
-        return False
 
     def _sleep(self, seconds: float) -> None:
         if seconds > 0:
@@ -1267,15 +1507,18 @@ class ApiLensClient:
         )
 
     # ``batch`` is a list of records, or of already-encoded records (bytes)
-    # as produced by ``_split_by_bytes`` on the flush path.
-    def _send_batch(self, batch: list[RequestRecord] | list[bytes]) -> None:
-        self._post_body(self.config.ingest_path, _envelope("requests", batch))
+    # as produced by ``_split_by_bytes`` on the flush path. They return the
+    # response body (a partial accept names the records refused as invalid).
+    def _send_batch(self, batch: list[RequestRecord] | list[bytes]) -> bytes:
+        return self._post_body(
+            self.config.ingest_path, _envelope("requests", batch), read_response=True
+        )
 
-    def _send_span_batch(self, batch: list[SpanRecord] | list[bytes]) -> None:
-        self._post_body(self.config.spans_path, _envelope("spans", batch))
+    def _send_span_batch(self, batch: list[SpanRecord] | list[bytes]) -> bytes:
+        return self._post_body(self.config.spans_path, _envelope("spans", batch), read_response=True)
 
-    def _send_log_batch(self, batch: list[LogRecord] | list[bytes]) -> None:
-        self._post_body(self.config.logs_path, _envelope("logs", batch))
+    def _send_log_batch(self, batch: list[LogRecord] | list[bytes]) -> bytes:
+        return self._post_body(self.config.logs_path, _envelope("logs", batch), read_response=True)
 
     def _post_body(self, path: str, body: bytes, *, read_response: bool = False) -> bytes:
         """POST ``body`` to ``path``; returns the response body when

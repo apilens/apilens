@@ -34,7 +34,8 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `ca_bundle_path` | `""` | Custom CA bundle for private CAs. |
 | `max_queue_size` | `10_000` | Per-queue cap; oldest records are dropped when full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues; oldest records are dropped once exceeded. |
-| `max_retries` | `3` | Delivery attempts per batch. |
+| `max_retry_seconds` | `300.0` | How long a failed batch (408, 429, 5xx, network error) is retried before it is dropped. |
+| `max_retries` | `None` | Deprecated alias of `max_retry_seconds` (the window that many backoff retries used to cover). |
 | `retry_backoff_base` | `0.25` | Exponential backoff base (seconds). |
 | `retry_backoff_max` | `5.0` | Backoff ceiling (seconds). |
 | `compress` | `True` | gzip each batch (`Content-Encoding: gzip`); `False` sends plain JSON. |
@@ -207,8 +208,8 @@ handler = Mangum(app, lifespan="off")
 ```
 
 Mangum returns the response to Lambda when the app returns, so on Lambda the
-flush adds the ingest round-trip to the invocation. Keep `timeout` and
-`max_retries` low. The Django middleware does not flush inline; call
+flush adds the ingest round-trip to the invocation. Keep `timeout` low; a
+failed batch stays queued for the next invocation. The Django middleware does not flush inline; call
 `client.flush()` yourself (e.g. from a `request_finished` signal).
 
 **CronJobs and scripts.** Use the client as a context manager

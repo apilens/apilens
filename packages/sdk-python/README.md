@@ -485,7 +485,8 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `timeout` | `5.0` | Per-request HTTP timeout, in seconds. |
 | `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `max_retries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
+| `max_retry_seconds` | `300.0` | How long a batch that failed with 408, 429, 5xx or a network error keeps being retried (it goes back to the front of its queue; full-jitter exponential backoff, or the server's `Retry-After`) before it is dropped as `retries_exhausted`. |
+| `max_retries` | `None` | Deprecated alias of `max_retry_seconds`: when set, the window is the longest wait that many backoff retries used to take (`0` never retries). |
 | `compress` | `True` | gzip each batch (level 5, `Content-Encoding: gzip`) on the background flush thread; falls back to plain JSON if compression fails. `False` sends plain JSON. |
 | `verify_tls` | `True` | Verify the ingest server's TLS certificate. |
 | `ca_bundle_path` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
@@ -849,8 +850,14 @@ serverless and proxies are covered end to end in the
   | `queue_full` | The queue reached `max_queue_size`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `max_queue_bytes`; the oldest record(s) were dropped (or a single record larger than the whole budget was shed). |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `max_retries`. |
-  | `truncated` | Not a drop: one record was larger than `max_batch_bytes` on its own, so its payloads (then headers, message, attributes) were cut and marked `...[truncated]` before sending. Not counted in `dropped_count`. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) `max_retry_seconds` after its first failed attempt. |
+  | `invalid` | Ingest accepted the batch but refused these records (partial accept); they are not retried. |
+  | `shutdown` | Still queued when the client shut down. |
+  | `truncated` | Not a drop: one record was larger than `max_batch_bytes` on its own, so its payloads (then headers, message, attributes) were cut in the middle, keeping the head and the tail around `…[N chars truncated]…`, before sending. Not counted in `dropped_count`. |
+
+  Every drop except `truncated` and `invalid` (which ingest already counts) is
+  reported to ingest in the next heartbeat, per signal and reason, and shows as
+  **Dropped by the SDK** in Ingest health.
 - **Size-bounded batches.** A POST is cut at `batch_size` records or
   `max_batch_bytes` (default 4 MB, measured on the uncompressed JSON, which is
   what the ingest edge limits to 16 MB), whichever comes first, so a backlog of
@@ -862,8 +869,9 @@ serverless and proxies are covered end to end in the
   request, well under the edge limit and cheap to retry; typical records with
   small bodies still fill the 100-record batch. Without bodies the defaults
   (200 records / 4 MB) rarely reach the byte cap.
-- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
-  `max_retries` times with full-jitter exponential backoff (a random wait between
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors put the
+  batch back at the front of its queue and retry it for up to
+  `max_retry_seconds` (default 300) with full-jitter exponential backoff (a random wait between
   0 and `0.25s × 2^attempt`, capped at 5s), so many workers do not retry in
   lockstep. A `Retry-After` header (seconds or HTTP date) takes precedence, capped
   at 60s. Any other 4xx drops the batch immediately and logs the response body at
@@ -888,7 +896,7 @@ so it is fine to call from a health or metrics endpoint.
 | `queued_records` | Records waiting in the request, span and log queues. |
 | `queued_bytes` | Estimated size of those records (bounded by `max_queue_bytes`). |
 | `sent_batches` / `sent_records` | Batches and records ingest accepted (2xx), since start. |
-| `failed_batches` | Batches dropped after a non-retryable 4xx or after `max_retries`. |
+| `failed_batches` | Batches dropped after a non-retryable 4xx or after `max_retry_seconds`. |
 | `drop_counts` | Records dropped, by reason (same keys as `client.drop_counts()`). |
 | `dropped` | Sum of `drop_counts`, excluding `truncated` (those were still sent). |
 | `last_error` | The most recent ingest failure (including retried attempts); empty until one happens. |
@@ -975,7 +983,7 @@ show the SDK config the app actually runs with.
     "exclude_user_agents": ["...built-ins"],
     "sample_rate": 1.0, "parametrize_paths": true,
     "batch_size": 200, "flush_interval": 3.0, "max_queue_size": 10000,
-    "max_queue_bytes": 67108864, "max_batch_bytes": 4194304, "max_retries": 3,
+    "max_queue_bytes": 67108864, "max_batch_bytes": 4194304, "max_retry_seconds": 300.0,
     "compress": true, "proxy": false, "custom_ca": false, "verify_tls": true,
     "callbacks": {"mask_request_body": true, "mask_response_body": false,
                   "mask_log_record": false, "get_consumer": false, "on_stats": false}
@@ -1106,7 +1114,7 @@ handler = Mangum(app, lifespan="off")
 Mangum hands the response to Lambda when the ASGI app returns, so on Lambda the
 flush adds the ingest round-trip to the invocation: that is the last point at
 which the runtime is guaranteed to run it. Keep `timeout` (per-POST HTTP
-timeout) and `max_retries` low so a slow ingest cannot stretch an invocation.
+timeout) low so a slow ingest cannot stretch an invocation.
 The Django middleware does not flush inline: call `client.flush()` yourself, for
 example from a `request_finished` signal.
 
