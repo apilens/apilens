@@ -109,6 +109,7 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "log_response_body": parse_bool,
     "max_payload_bytes": parse_int,
     "capture_validation_errors": parse_bool,
+    "capture_locals": parse_bool,
     "capture_content_types": parse_list,
     "redact_query_params": parse_list,
     "redact_headers": parse_list,

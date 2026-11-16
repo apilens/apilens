@@ -42,7 +42,7 @@ from .client.middleware import (
     track_consumer,
 )
 from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
-from .client._profile import normalize_profile, profile_defaults
+from .client._profile import effective_capture_locals, normalize_profile, profile_defaults
 from .client._validation import MAX_VALIDATION_BODY_BYTES, parse_validation_errors
 from .client.log_handler import install_log_handler, normalize_capture_logs
 from .client.spans import (
@@ -258,6 +258,12 @@ class ApiLensDjangoMiddleware:
         # Parse Django Ninja 422 bodies into ``validation_errors``.
         self.capture_validation_errors = bool(
             _setting(settings, "CAPTURE_VALIDATION_ERRORS", preset.get("capture_validation_errors", True), env)
+        )
+        # Opt-in frame locals in exception traces (innermost 10 frames, 20
+        # names, 256 chars each, masked). Forced off under the ``metadata``
+        # and ``redacted`` profiles.
+        self.capture_locals = effective_capture_locals(
+            _setting(settings, "CAPTURE_LOCALS", False, env), self.capture_profile
         )
         # PII redaction — regexes matched (case-insensitive) against query
         # parameter / header / JSON body field names; matched values are stored
@@ -611,6 +617,8 @@ class ApiLensDjangoMiddleware:
                 client=self.client,
                 app_id=self.app_id,
                 environment=self.environment,
+                capture_locals=getattr(self, "capture_locals", False),
+                redactor=self.redactor,
             )
             capture_response(
                 self.client,
