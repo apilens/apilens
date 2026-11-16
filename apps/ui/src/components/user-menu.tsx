@@ -9,9 +9,11 @@ import { signOut } from "@/lib/sign-out";
 import { Icon, type IconName } from "./icons";
 import { PopMenu } from "./pop-menu";
 
-const THEMES: { value: "dark" | "light"; label: string; icon: IconName }[] = [
-  { value: "dark", label: "Dark", icon: "moon" },
+// "system" follows the OS colour scheme, and is what a new browser starts on.
+const THEMES: { value: "light" | "dark" | "system"; label: string; icon: IconName }[] = [
   { value: "light", label: "Light", icon: "sun" },
+  { value: "dark", label: "Dark", icon: "moon" },
+  { value: "system", label: "System", icon: "monitor" },
 ];
 
 /**
