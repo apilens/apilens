@@ -160,6 +160,7 @@ export function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
     maxRetrySeconds: config.maxRetrySeconds,
     flushOnShutdown: config.flushOnShutdown,
     shutdownTimeoutMs: config.shutdownTimeoutMs,
+    captureUnhandled: config.captureUnhandled,
     retryBackoffBaseMs: config.retryBackoffBaseMs,
     retryBackoffMaxMs: config.retryBackoffMaxMs,
     enabled: config.enabled,

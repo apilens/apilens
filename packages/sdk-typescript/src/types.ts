@@ -122,6 +122,18 @@ export type ApiLensLogRecord = {
   commit: string;
 };
 
+/** Options for `captureException`. */
+export type CaptureExceptionOptions = {
+  /** ERROR (default) or WARN, for an error the app caught and handled. */
+  level?: "ERROR" | "WARN";
+  /**
+   * How the error was caught, sent as the `exception.mechanism` attribute
+   * (default `captureException`; the process listeners use
+   * `uncaughtException` / `unhandledRejection`).
+   */
+  mechanism?: string;
+};
+
 /** How the client delivers: from timers, or once per request (see `flushMode`). */
 export type ApiLensFlushMode = "background" | "inline";
 
@@ -196,6 +208,14 @@ export type ApiLensClientConfig = {
   flushOnShutdown?: boolean;
   /** Upper bound on the flush at shutdown or exit, in ms (default 5000). */
   shutdownTimeoutMs?: number;
+  /**
+   * Capture `uncaughtException` and `unhandledRejection` (Node, background
+   * flush mode) as ERROR exception logs and flush them before the process
+   * exits. Default true. Node's exit behaviour is kept: an error that would
+   * have crashed the process still crashes it (exit code 1) after the flush,
+   * bounded by `shutdownTimeoutMs`; an app listener stays in charge.
+   */
+  captureUnhandled?: boolean;
   /** Full-jitter exponential backoff for 408/429/5xx/network errors. */
   retryBackoffBaseMs?: number;
   retryBackoffMaxMs?: number;
