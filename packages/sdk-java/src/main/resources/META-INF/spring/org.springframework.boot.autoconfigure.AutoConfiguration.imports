@@ -2,3 +2,4 @@ ai.apilens.spring.ApiLensAutoConfiguration
 ai.apilens.spring.ApiLensMetricsAutoConfiguration
 ai.apilens.spring.ApiLensWebFluxAutoConfiguration
 ai.apilens.spring.ApiLensLoggingAutoConfiguration
+ai.apilens.spring.ApiLensWebMvcAutoConfiguration
