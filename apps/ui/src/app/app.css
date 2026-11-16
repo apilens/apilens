@@ -70,7 +70,7 @@
 .ob-mlogo { display: none; }
 .ob-mlogo { align-items: center; }
 .ob-in input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; }
-.ob-in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ob-in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ob-in.bad { border-color: var(--error); }
 .ob-below { font-size: 13px; padding: 20px 0 28px; margin: 0; border-top: 1px solid var(--border); }
 .ob-pick { width: 100%; text-align: left; font: inherit; color: inherit; }
@@ -94,7 +94,7 @@
 .ob-toast { margin: 0; box-shadow: var(--shadow-frame); pointer-events: auto; }
 .ob-code6 { position: relative; }
 .ob-code6 input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
-.ob-code6:focus-within span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ob-code6:focus-within span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ob-code6 span.cur:not(:empty)::after { display: none; }
 .ob-code6.is-shake { animation: obShake 0.36s ease-in-out; }
 .ob-code6.is-locked span { opacity: 0.5; }
@@ -218,6 +218,11 @@ button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
 .ah-btn--secondary:active { background: var(--border); border-color: var(--border-strong); }
 .ah-btn--primary:active { filter: brightness(.94); }
 .ah-btn--ghost:active { background: var(--border); }
+/* A disabled primary button goes neutral (#999): an indigo fill at any opacity still reads as
+   "press me". Loading buttons are disabled too but keep their fill and spinner. */
+.ah-btn.ah-btn--primary:disabled:not(.is-loading), .ah-btn.ah-btn--primary[aria-disabled="true"] {
+  background: var(--surface-2); border-color: var(--border); color: var(--ink-muted); opacity: 1; filter: none; transform: none;
+}
 
 @media (hover: none) {
   .cp-home:hover { opacity: 1; }
@@ -614,7 +619,7 @@ button.cp-av--btn:active { background: var(--border-strong); }
 .nvx-b .nvx-link.on:hover { background: var(--surface-2); }
 
 /* C · tinted */
-.nvx-c .nvx-link.on, .nvx-c .nvx-link.on:hover { background: var(--ok-soft); color: var(--accent-ink); }
+.nvx-c .nvx-link.on, .nvx-c .nvx-link.on:hover { background: var(--accent-soft); color: var(--accent-ink); }
 .nvx-c .nvx-link.on .nav-ic { color: var(--accent-ink); }
 
 /* D · dense */

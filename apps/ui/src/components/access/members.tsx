@@ -12,11 +12,11 @@ import {
   SOURCE_PARAM,
   accessSummary,
   addedBy,
-  defaultAccessText,
   filterMembers,
   isRestrictedAndEmpty,
   lastActive,
   matchLine,
+  orgRoleNote,
   parseMemberFilters,
   sourceLines,
 } from "@/lib/access-members";
@@ -74,6 +74,8 @@ export function AccessMembersLoading() {
  * is null when they could not be loaded; `now` is the server's clock so the first render matches.
  * `invitations` are the project's pending invitations (#809), listed under the table: undefined
  * for people without `access.manage` (the section is left out), null when they could not be loaded.
+ * `defaultAccess` is the project's default access line (#808), placed under the table (#999) so
+ * the list and "Add people" lead on a phone.
  */
 export function AccessMembers({
   project,
@@ -84,6 +86,7 @@ export function AccessMembers({
   candidates = null,
   org,
   invitations,
+  defaultAccess,
 }: {
   project: string;
   projectName: string;
@@ -93,6 +96,7 @@ export function AccessMembers({
   candidates?: Candidate[] | null;
   org: OrgRef;
   invitations?: Invitation[] | null;
+  defaultAccess?: ReactNode;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -121,7 +125,6 @@ export function AccessMembers({
     <>
       <div className="am-summary">
         <p className="am-summary__count">{accessSummary(members)}</p>
-        <p className="am-summary__def">{defaultAccessText(data.defaultAccess)}</p>
       </div>
 
       {isRestrictedAndEmpty(data.defaultAccess, members) ? (
@@ -212,6 +215,7 @@ export function AccessMembers({
                   </th>
                   <td data-label="Role">
                     <span className={`am-role am-role--${m.effective_role}`}>{ROLE_LABELS[m.effective_role]}</span>
+                    {orgRoleNote(m) ? <span className="am-role-note"> {orgRoleNote(m)}</span> : null}
                   </td>
                   <td data-label="Source" className="am-src">
                     <ul className="am-src__list">
@@ -248,6 +252,8 @@ export function AccessMembers({
           <Pagination pathname={pathname} params={list.params} total={window.total} label="Members pages" className="ls-pages" />
         </div>
       )}
+
+      {defaultAccess}
 
       {invitations !== undefined ? <PendingInvitations project={project} projectName={projectName} org={org} invitations={invitations} now={now} announce={announce} /> : null}
     </>

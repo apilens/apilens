@@ -86,6 +86,14 @@ export function sourceLines(member: Pick<AccessMember, "sources">): SourceLine[]
   return sources.map((s) => ({ kind: s.kind, text: sourceText(s), ...(many ? { role: ROLE_LABELS[s.role] } : {}) }));
 }
 
+/**
+ * The note beside an organization owner's role (#999): owners are Admin on every project, so
+ * "Admin" alone hid who owns the organization. Null for everyone else.
+ */
+export function orgRoleNote(member: Pick<AccessMember, "sources">): string | null {
+  return (member.sources ?? []).some((s) => s.kind === "org_role" && s.org_role === "owner") ? "Org owner" : null;
+}
+
 /** How many people hold each effective role. */
 export function roleCounts(members: readonly Pick<AccessMember, "effective_role">[]): Record<ProjectRole, number> {
   const out: Record<ProjectRole, number> = { admin: 0, editor: 0, viewer: 0 };

@@ -52,7 +52,7 @@ test("shows the details and identifiers with copy controls", async ({ page }) =>
   await expect(ids.getByText(SHOP_ID)).toBeVisible();
   await expect(ids.getByRole("button", { name: "Copy slug" })).toBeVisible();
   await expect(ids.getByRole("button", { name: "Copy project ID" })).toBeVisible();
-  await expect(ids).toContainText("Olive Owner ·");
+  await expect(ids.locator("dd").last()).toHaveText(/^[A-Z][a-z]{2} \d{1,2}, \d{4} by Olive Owner$/);
   await expect(page.getByRole("region", { name: "Ingest is paused" })).toHaveCount(0);
 });
 
@@ -107,6 +107,13 @@ test("an empty description reads as such for a viewer", async ({ page }) => {
   await seedProject({ project: { description: "" } });
   await signIn(page, VIEWER);
   await expect(details(page).getByText("No description yet.")).toBeVisible();
+});
+
+test("an unrecorded creator leaves just the date in the Created row", async ({ page }) => {
+  await seedProject({ project: { created_by: null } });
+  await signIn(page, VIEWER);
+  await expect(identifiers(page).locator("dd").last()).toHaveText(/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+  await expect(identifiers(page)).not.toContainText("Not recorded");
 });
 
 test("a paused project shows a notice and an admin resumes it", async ({ page }) => {

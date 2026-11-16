@@ -7,6 +7,7 @@ import {
   isRestrictedAndEmpty,
   lastActive,
   matchLine,
+  orgRoleNote,
   parseMemberFilters,
   roleCounts,
   sourceLines,
@@ -95,5 +96,17 @@ describe("cells", () => {
     expect(lastActive("2026-11-12T10:00:00Z", Date.parse("2026-11-13T10:00:00Z"))).toBe("Yesterday");
     expect(addedBy(tom)).toBe("Ada Admin");
     expect(addedBy(max)).toBe("—");
+  });
+});
+
+describe("orgRoleNote", () => {
+  it("marks the organization owner", () => {
+    expect(orgRoleNote(olive)).toBe("Org owner");
+  });
+  it("is null for org admins and people whose role comes from the default or a direct grant", () => {
+    expect(orgRoleNote(person("Ada Admin", "ada@example.com", "admin", [{ kind: "org_role", role: "admin", org_role: "admin" }]))).toBeNull();
+    expect(orgRoleNote(max)).toBeNull();
+    expect(orgRoleNote(tom)).toBeNull();
+    expect(orgRoleNote({ sources: null })).toBeNull();
   });
 });

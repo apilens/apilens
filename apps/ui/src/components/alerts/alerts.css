@@ -87,7 +87,7 @@ a.al-name:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 
 .al-form .ob-f { margin-top: var(--space-4); min-width: 0; }
 .al-form .ob-in { height: 40px; font-size: 14px; }
 .al-form textarea { width: 100%; min-height: 72px; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); color: var(--ink); font: 400 14px/20px var(--font-sans); resize: vertical; }
-.al-form textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.al-form textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .al-form textarea:disabled { background: var(--surface-2); color: var(--ink-muted); }
 .al-form .om-select { width: 100%; height: 40px; font-size: 14px; }
 .al-unit { flex: none; font: 400 13px/1 var(--font-sans); color: var(--ink-muted); }

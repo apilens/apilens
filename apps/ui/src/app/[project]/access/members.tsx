@@ -85,10 +85,17 @@ async function MembersList({ ctx }: { ctx: SectionContext }) {
   const orgName = found?.name ?? "the organization";
   const org = { slug: found?.slug ?? "", name: orgName };
   return (
-    <>
-      {data ? <DefaultAccessCard project={ctx.project} projectName={ctx.projectName} orgName={orgName} defaultAccess={data.defaultAccess} members={data.members} /> : null}
-      <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} candidates={candidates} org={org} invitations={invitations} />
-    </>
+    <AccessMembers
+      project={ctx.project}
+      projectName={ctx.projectName}
+      data={data}
+      params={ctx.search}
+      now={Date.now()}
+      candidates={candidates}
+      org={org}
+      invitations={invitations}
+      defaultAccess={data ? <DefaultAccessCard project={ctx.project} projectName={ctx.projectName} orgName={orgName} defaultAccess={data.defaultAccess} members={data.members} /> : null}
+    />
   );
 }
 
