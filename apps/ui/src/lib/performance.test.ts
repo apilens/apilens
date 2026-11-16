@@ -17,16 +17,19 @@ import {
   thresholdError,
 } from "./performance";
 
+const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+
 describe("performance URL state", () => {
   it("reads range, env and app, falling back to the defaults", () => {
     expect(parsePerformanceQuery({})).toEqual({ range: "24h", env: "", app: "" });
-    expect(parsePerformanceQuery({ range: "1h", env: " production ", app: "billing" })).toEqual({ range: "1h", env: "production", app: "billing" });
-    expect(parsePerformanceQuery({ range: "30d", env: "x".repeat(65), app: ["a", "b"] })).toEqual({ range: "24h", env: "", app: "a" });
+    // The app is an app id (#976), lower-cased; a slug or anything else means all apps.
+    expect(parsePerformanceQuery({ range: "1h", env: " production ", app: ` ${BILLING.toUpperCase()} ` })).toEqual({ range: "1h", env: "production", app: BILLING });
+    expect(parsePerformanceQuery({ range: "30d", env: "x".repeat(65), app: "billing" })).toEqual({ range: "24h", env: "", app: "" });
   });
 
   it("builds the page URL leaving defaults out", () => {
     expect(performanceHref("shop", { range: "24h", env: "", app: "" })).toBe("/shop/performance");
-    expect(performanceHref("shop", { range: "7d", env: "prod eu", app: "billing" })).toBe("/shop/performance?range=7d&env=prod+eu&app=billing");
+    expect(performanceHref("shop", { range: "7d", env: "prod eu", app: BILLING })).toBe(`/shop/performance?range=7d&env=prod+eu&app=${BILLING}`);
   });
 
   it("opens an endpoint's Response times tab keeping the scope", () => {
@@ -35,11 +38,14 @@ describe("performance URL state", () => {
     expect(endpointLatencyHref("shop", { method: "GET", path: "/orders/{id}" }, { ...q, range: "1h", env: "production" })).toBe(
       "/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=1h&env=production&tab=latency",
     );
+    // A row is one app's endpoint (#976): its link opens scoped to that app.
+    expect(endpointLatencyHref("shop", { app_id: BILLING, method: "GET", path: "/charge" }, q)).toBe(`/shop/endpoints/GET/%2Fcharge?app=${BILLING}&tab=latency`);
   });
 
   it("puts the scope in words", () => {
     expect(perfScopeText({ range: "6h", env: "", app: "" })).toBe("the last 6 hours");
     expect(perfScopeText({ range: "1h", env: "production", app: "" })).toBe("the last 1 hour in production");
+    expect(perfScopeText({ range: "1h", env: "production", app: BILLING }, "Billing")).toBe("the last 1 hour in production for Billing");
   });
 });
 

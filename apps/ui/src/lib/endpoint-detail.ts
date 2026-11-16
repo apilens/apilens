@@ -3,7 +3,7 @@
 // formatting, settings input), unit-tested in endpoint-detail.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import type { EndpointSettings, LatencyBucket, PutEndpointSettingsRequest, QueryRange, SizeBucket, StatusClass } from "./identity";
-import { DEFAULT_RANGE, TRAFFIC_RANGES } from "./traffic";
+import { DEFAULT_RANGE, TRAFFIC_RANGES, parseAppParam } from "./traffic";
 
 export const ENDPOINT_TABS = [
   { slug: "requests", label: "Requests" },
@@ -16,16 +16,15 @@ const DEFAULT_TAB: EndpointTab = "requests";
 
 export const STATUS_CLASSES: readonly StatusClass[] = ["all", "2xx", "3xx", "4xx", "5xx"];
 
-/** The longest environment name, consumer id and app slug the API takes. */
+/** The longest environment name and consumer id the API takes. */
 const MAX_ENV = 64;
 const MAX_CONSUMER = 128;
-const MAX_APP = 63;
 /** The longest route template the API takes. */
 const MAX_PATH = 1024;
 
 /**
  * The page's state, all of it in the URL: `?tab=&range=&env=&status=&consumer=&app=`. Empty
- * env and consumer mean all; `app` picks the app whose settings the menu edits (else the first).
+ * env, consumer and app (an app id, #976) mean all.
  */
 export interface EndpointState {
   tab: EndpointTab;
@@ -60,7 +59,7 @@ export function parseEndpointQuery(params: SearchParams): EndpointState {
     env: capped(params.env, MAX_ENV),
     status: STATUS_CLASSES.includes(status as StatusClass) ? (status as StatusClass) : "all",
     consumer: capped(params.consumer, MAX_CONSUMER),
-    app: capped(params.app, MAX_APP),
+    app: parseAppParam(params.app),
   };
 }
 
@@ -99,9 +98,12 @@ export function endpointPageHref(project: string, ep: EndpointRef, q: Partial<En
 /** Whether a tab's read takes the status filter (the errors read does not). */
 export const tabTakesStatus = (tab: EndpointTab) => tab !== "errors";
 
-/** The scope in words: `the last 24 hours in production, 5xx responses, consumer acme`. */
-export function endpointScopeText(q: EndpointState, consumerLabel?: string): string {
-  const parts = [`the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`];
+/** The page state with the name of the app in scope (#976), for the scope in words. */
+export type EndpointScope = EndpointState & { appLabel?: string };
+
+/** The scope in words: `the last 24 hours in production for Billing, 5xx responses, consumer acme`. */
+export function endpointScopeText(q: EndpointScope, consumerLabel?: string): string {
+  const parts = [`the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}${q.app && q.appLabel ? ` for ${q.appLabel}` : ""}`];
   if (q.status !== "all" && tabTakesStatus(q.tab)) parts.push(`${q.status} responses`);
   if (q.consumer) parts.push(`consumer ${consumerLabel || q.consumer}`);
   return parts.join(", ");

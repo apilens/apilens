@@ -45,12 +45,14 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
   const found = findProject(context, project);
   if (!found) notFound();
 
-  const scope = { range: q.range, env: q.env };
+  // `?app=` (#976) narrows every read to one app; without it they count all apps.
+  const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
   const [summary, series, endpoints, apps, envs] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
-    // The apps whose endpoint settings the row menus edit (#600); without them the rows have no menu.
+    // The app filter and App column (#976) and the apps whose endpoint settings the row menus edit
+    // (#600); without them there is no filter and the rows have no menu.
     read<ProjectApps>(next, (o) => identity().projectApps(project, o)),
     // The picker follows Project settings › Environments (#816): their order, hidden ones left out.
     read<EnvironmentsList>(next, (o) => identity().listEnvironments(project, o)),

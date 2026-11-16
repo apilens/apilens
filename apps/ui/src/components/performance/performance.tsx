@@ -13,7 +13,7 @@ import {
   performanceHref,
 } from "@/lib/performance";
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
-import { TRAFFIC_RANGES, formatApdex, formatLatency } from "@/lib/traffic";
+import { TRAFFIC_RANGES, appName, appOptions, formatApdex, formatLatency } from "@/lib/traffic";
 import { Histogram, LinesChart } from "../endpoint/charts";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
@@ -26,11 +26,15 @@ import "../traffic/traffic.css";
 import "../endpoint/endpoint.css";
 import "./performance.css";
 
-/** The project's apps (null when the API could not answer), the app in scope and its threshold. */
+/**
+ * The project's apps (null when the API could not answer), the app the settings dialog opens on
+ * and its threshold, and whether that app is the page's whole scope (#976).
+ */
 export interface AppThresholdLoad {
   apps: NamedApp[] | null;
   app: NamedApp | null;
   settings: AppSettings | null;
+  scoped: boolean;
 }
 
 /**
@@ -63,8 +67,10 @@ export function PerformanceView({
   const href = (patch: Partial<PerformanceState>) => performanceHref(project, { ...q, ...patch });
   // A shared link may name an environment the project no longer lists; keep it selectable.
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
-  const { app, settings } = threshold;
-  const explanation = apdexExplanation(app && settings ? { name: app.name, thresholdMs: settings.apdex_threshold_ms } : null);
+  const { apps, app, settings, scoped } = threshold;
+  // Only an app that is the page's whole scope names its threshold: across apps T differs (#976).
+  const explanation = apdexExplanation(scoped && app && settings ? { name: app.name, thresholdMs: settings.apdex_threshold_ms } : null);
+  const scope = perfScopeText(q, q.app ? appName(apps, q.app) : undefined);
 
   return (
     <div className="page tr pf">
@@ -88,12 +94,12 @@ export function PerformanceView({
             value={q.env}
             options={[{ value: "", label: "All environments", href: href({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: href({ env: e }) }))]}
           />
-          {threshold.apps && threshold.apps.length > 1 && app ? (
-            <ScopeSelect label="App" value={app.slug} options={threshold.apps.map((a) => ({ value: a.slug, label: a.name, href: href({ app: a.slug }) }))} />
+          {apps && (apps.length > 1 || q.app) ? (
+            <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: href({ app: o.value }) }))} />
           ) : null}
         </div>
         <div className="pf-bar__end">
-          {app && settings ? <AppThresholdMenu key={app.id} project={project} app={app} settings={settings} /> : null}
+          {apps && app && settings ? <AppThresholdMenu key={app.id} project={project} apps={apps} app={app} settings={settings} /> : null}
           <LiveControl />
         </div>
       </div>
@@ -108,7 +114,7 @@ export function PerformanceView({
       ) : latency.summary.requests === 0 ? (
         <div className="tr-notice" role="status">
           <ObIcon name="info" />
-          <p>No requests in {perfScopeText(q)}. Once your app reports requests through the SDK, their response times show up here.</p>
+          <p>No requests in {scope}. Once your app reports requests through the SDK, their response times show up here.</p>
         </div>
       ) : (
         <>
@@ -117,7 +123,7 @@ export function PerformanceView({
             <h2 id="pf-over-time">Response time over time</h2>
             <LinesChart
               label="Response time percentiles"
-              summary={`p50 ${formatLatency(latency.summary.p50_ms)}, p75 ${formatLatency(latency.summary.p75_ms)} and p95 ${formatLatency(latency.summary.p95_ms)} in ${perfScopeText(q)}.`}
+              summary={`p50 ${formatLatency(latency.summary.p50_ms)}, p75 ${formatLatency(latency.summary.p75_ms)} and p95 ${formatLatency(latency.summary.p95_ms)} in ${scope}.`}
               rows={latency.points ?? []}
               series={[
                 { key: "p50_ms", label: "p50", className: "ep-c-p50" },
@@ -141,7 +147,7 @@ export function PerformanceView({
           {endpoints === null ? (
             <LoadFailed text={PERF_ENDPOINTS_LOAD_FAILED} href={href({})} />
           ) : (
-            <EndpointsTable project={project} q={q} endpoints={byP95(endpoints)} params={params} />
+            <EndpointsTable project={project} q={q} scope={scope} endpoints={byP95(endpoints)} apps={apps && apps.length > 1 && !q.app ? apps : null} params={params} />
           )}
         </section>
       ) : null}
@@ -202,11 +208,27 @@ function HistogramCard({ latency }: { latency: TrafficLatency }) {
   );
 }
 
-function EndpointsTable({ project, q, endpoints: all, params }: { project: string; q: PerformanceState; endpoints: EndpointTraffic[]; params: SearchParams }) {
+function EndpointsTable({
+  project,
+  q,
+  scope,
+  endpoints: all,
+  apps,
+  params,
+}: {
+  project: string;
+  q: PerformanceState;
+  /** The scope in words, for the empty state. */
+  scope: string;
+  endpoints: EndpointTraffic[];
+  /** The project's apps when the table shows the App column (#976); null leaves it out. */
+  apps: NamedApp[] | null;
+  params: SearchParams;
+}) {
   if (all.length === 0) {
     return (
       <p className="tr-empty" role="status">
-        No endpoints with requests in {perfScopeText(q)}.
+        No endpoints with requests in {scope}.
       </p>
     );
   }
@@ -218,6 +240,7 @@ function EndpointsTable({ project, q, endpoints: all, params }: { project: strin
         <thead>
           <tr>
             <th scope="col">Endpoint</th>
+            {apps ? <th scope="col">App</th> : null}
             <th scope="col" className="tr-num">
               Requests
             </th>
@@ -240,6 +263,11 @@ function EndpointsTable({ project, q, endpoints: all, params }: { project: strin
                   <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
                 </a>
               </td>
+              {apps ? (
+                <td className="tr-app" data-label="App">
+                  {appName(apps, ep.app_id)}
+                </td>
+              ) : null}
               <td className="tr-num" data-label="Requests">
                 {formatCount(ep.requests)}
               </td>

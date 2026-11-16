@@ -132,7 +132,7 @@
 //   GET  /api/v1/endpoints/{method}/{path}/{requests|errors|latency|transfer}?project=
 //                                                  one endpoint's detail reads (#593) as seeded, else empty;
 //                                                  every read is logged with its query
-//   POST /__fake/endpoint {project, method, path, tabs: {requests?, errors?, latency?, transfer?}}
+//   POST /__fake/endpoint {project, method, path, tabs: {requests?, errors?, latency?, transfer?}, apps?: {<app id>: tabs}}
 //                                                  test hook: what those answer; clears the log and that endpoint's settings
 //   GET  /__fake/endpoint-reads                    test hook: the logged reads [{tab, method, path, query}]
 //   GET|PUT /api/v1/apps/{id}/endpoints/{method}/{path}/settings
@@ -2065,7 +2065,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const user = signedInUser(req);
     if (endpoints && user && slug === PROJECT) {
       if (queryDown.has(slug) || performanceSeed.get(slug)?.down) return problem(res, 503, "unavailable");
-      return send(res, 200, { endpoints });
+      // `?app=` (#976) keeps that app's rows only.
+      const app = url.searchParams.get("app");
+      return send(res, 200, { endpoints: app ? (endpoints as Record<string, unknown>[]).filter((e) => e.app_id === app) : endpoints });
     }
   }
   // The traffic reads as seeded (#592), by environment; same access rules as below.
@@ -2084,7 +2086,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (path === "/api/v1/traffic/endpoints") {
         // Endpoints excluded from metrics (#600) leave the list, as the query role does.
         const excluded = (e: Record<string, unknown>) => shopApps.some((a) => endpointSettings.get(`${a.id} ${String(e.method).toUpperCase()} ${String(e.path)}`)?.excluded === true);
-        return send(res, 200, { endpoints: ((seed?.endpoints ?? []) as Record<string, unknown>[]).filter((e) => !excluded(e)) });
+        // `?app=` (#976) keeps that app's rows only.
+        const app = url.searchParams.get("app");
+        return send(res, 200, { endpoints: ((seed?.endpoints ?? []) as Record<string, unknown>[]).filter((e) => !excluded(e) && (!app || e.app_id === app)) });
       }
       return send(res, 200, { ...seed?.summary, range });
     }
@@ -2118,7 +2122,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     endpointReads.push({ tab, method, path: route, query: Object.fromEntries([...url.searchParams].filter(([k]) => k !== "project")) });
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     const range = url.searchParams.get("range") ?? "24h";
-    const seeded = endpointSeed.get(`${slug} ${method} ${route}`)?.[tab];
+    // `?app=` (#976) answers that app's seed when there is one.
+    const app = url.searchParams.get("app");
+    const seeded = (app ? endpointSeed.get(`${slug} ${method} ${route} ${app}`)?.[tab] : undefined) ?? endpointSeed.get(`${slug} ${method} ${route}`)?.[tab];
     const empty: Record<string, unknown> = {
       requests: { summary: { requests: 0, successful: 0, client_errors: 0, server_errors: 0, requests_per_minute: 0 }, points: [], consumers: [] },
       errors: { summary: { requests: 0, client_errors: 0, server_errors: 0, client_error_rate: 0, server_error_rate: 0 }, points: [], statuses: [], validation_errors: [], exceptions: [] },
@@ -2134,6 +2140,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const tabs = (b.tabs as Record<string, unknown> | undefined) ?? {};
     if (Object.keys(tabs).length) endpointSeed.set(key, tabs);
     else endpointSeed.delete(key);
+    // Per app (#976): `apps: {<app id>: tabs}` answers the reads with that `?app=`.
+    for (const k of [...endpointSeed.keys()]) if (k.startsWith(`${key} `)) endpointSeed.delete(k);
+    for (const [appId, appTabs] of Object.entries((b.apps as Record<string, Record<string, unknown>> | undefined) ?? {})) endpointSeed.set(`${key} ${appId}`, appTabs);
     endpointReads.length = 0;
     // Only this endpoint's settings: spec files run in parallel and others keep theirs (#594).
     forgetSettings(String(b.method).toUpperCase(), String(b.path));
@@ -2394,7 +2403,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const range = url.searchParams.get("range") ?? "24h";
     const empty = { requests: 0, avg_ms: 0, max_ms: 0, p50_ms: 0, p75_ms: 0, p90_ms: 0, p95_ms: 0, p99_ms: 0, apdex: null };
     const latency = seed?.latency ?? { summary: empty, points: [], histogram: [] };
-    const t = appThresholds.get(shopApps[0]?.id ?? "") ?? 500;
+    // `?app=` (#976) scores against that app's threshold.
+    const t = appThresholds.get(url.searchParams.get("app") ?? shopApps[0]?.id ?? "") ?? 500;
     const samples = seed?.samples ?? [];
     const satisfied = samples.filter((ms) => ms <= t).length;
     const tolerating = samples.filter((ms) => ms > t && ms <= 4 * t).length;

@@ -2,28 +2,68 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useId, useRef, useState, useTransition } from "react";
-import { saveEndpointSettings } from "@/app/[project]/endpoints/[method]/[path]/actions";
+import { loadEndpointSettings, saveEndpointSettings } from "@/app/[project]/endpoints/[method]/[path]/actions";
 import { type EndpointRef, type SettingsDraft, type SettingsErrors, checkSettingsDraft, settingsDraft } from "@/lib/endpoint-detail";
 import type { EndpointSettings, NamedApp } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 
 /**
  * The endpoint's settings menu (#593): a button opening a dialog with the endpoint's expected
- * status codes, latency threshold and exclusion for the app in scope. Holders of `capture.manage`
- * edit and save; everyone else sees the values read-only. Saved settings apply to the dashboard
- * reads at once, so the page reads itself again after a save.
+ * status codes, latency threshold and exclusion for one app. Settings are per app, so the dialog
+ * asks which (#976), opening on the app in scope (else the first) and reading another's settings
+ * when it is picked. Holders of `capture.manage` edit and save; everyone else sees the values
+ * read-only. Saved settings apply to the dashboard reads at once, so the page reads itself again
+ * after a save.
  */
-export function SettingsMenu({ project, endpoint, app, settings }: { project: string; endpoint: EndpointRef; app: NamedApp; settings: EndpointSettings }) {
+export function SettingsMenu({
+  project,
+  endpoint,
+  apps,
+  app: initialApp,
+  settings: initial,
+}: {
+  project: string;
+  endpoint: EndpointRef;
+  apps: NamedApp[];
+  app: NamedApp;
+  settings: EndpointSettings;
+}) {
   const manage = useCan("capture.manage").allowed;
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<SettingsDraft>(() => settingsDraft(settings));
+  const [appId, setAppId] = useState(initialApp.id);
+  const [settings, setSettings] = useState<EndpointSettings | null>(initial);
+  const [draft, setDraft] = useState<SettingsDraft>(() => settingsDraft(initial));
   const [errors, setErrors] = useState<SettingsErrors>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [loading, startLoad] = useTransition();
   const ref = useRef<HTMLDialogElement>(null);
-  const ids = { title: useId(), codes: useId(), codesHint: useId(), codesErr: useId(), threshold: useId(), thresholdHint: useId(), thresholdErr: useId(), excluded: useId(), excludedHint: useId(), failure: useId() };
+  const ids = { title: useId(), app: useId(), codes: useId(), codesHint: useId(), codesErr: useId(), threshold: useId(), thresholdHint: useId(), thresholdErr: useId(), excluded: useId(), excludedHint: useId(), failure: useId() };
+  const app = apps.find((a) => a.id === appId) ?? initialApp;
+
+  // The page read the settings of the app it opened on; a save reads the page again.
+  useEffect(() => {
+    setAppId(initialApp.id);
+    setSettings(initial);
+  }, [initialApp.id, initial]);
+
+  const pick = (id: string) => {
+    setAppId(id);
+    setSettings(null);
+    setErrors({});
+    setFailure(null);
+    startLoad(async () => {
+      const result = await loadEndpointSettings(project, id, endpoint.method, endpoint.path);
+      if (!result.ok) {
+        setFailure(result.error);
+        return;
+      }
+      setSettings(result.settings);
+      setDraft(settingsDraft(result.settings));
+    });
+  };
 
   useEffect(() => {
     const d = ref.current;
@@ -33,7 +73,7 @@ export function SettingsMenu({ project, endpoint, app, settings }: { project: st
   }, [open]);
 
   const openDialog = () => {
-    setDraft(settingsDraft(settings));
+    if (settings) setDraft(settingsDraft(settings));
     setErrors({});
     setFailure(null);
     setSaved(null);
@@ -42,7 +82,7 @@ export function SettingsMenu({ project, endpoint, app, settings }: { project: st
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!manage) return;
+    if (!manage || !settings) return;
     const checked = checkSettingsDraft(draft);
     if (!checked.ok) {
       setErrors(checked.errors);
@@ -56,8 +96,9 @@ export function SettingsMenu({ project, endpoint, app, settings }: { project: st
         setFailure(result.error);
         return;
       }
+      setSettings(result.settings);
       setOpen(false);
-      setSaved("Settings saved. The tabs now count with them.");
+      setSaved(apps.length > 1 ? `Settings saved for ${app.name}.` : "Settings saved. The tabs now count with them.");
       router.refresh();
     });
   };
@@ -86,7 +127,24 @@ export function SettingsMenu({ project, endpoint, app, settings }: { project: st
               <b>{endpoint.method}</b> <code>{endpoint.path}</code> in app {app.name}
             </p>
             {manage ? null : <p className="ep-note">You can see these settings. Only project admins can change them.</p>}
-            <fieldset disabled={!manage || pending} className="ep-fields">
+            {apps.length > 1 ? (
+              <div className="ep-field">
+                <label htmlFor={ids.app}>App</label>
+                <select id={ids.app} className="tr-select" value={appId} disabled={pending} onChange={(e) => pick(e.target.value)}>
+                  {apps.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {loading ? (
+              <p className="ep-note" role="status">
+                Loading the settings in {app.name}…
+              </p>
+            ) : null}
+            <fieldset disabled={!manage || pending || !settings} className="ep-fields">
               <div className="ep-field">
                 <label htmlFor={ids.codes}>Expected status codes</label>
                 <input
@@ -149,7 +207,7 @@ export function SettingsMenu({ project, endpoint, app, settings }: { project: st
                 {manage ? "Cancel" : "Close"}
               </button>
               {manage ? (
-                <button type="submit" className={`ah-btn ah-btn--primary ah-btn--sm${pending ? " is-loading" : ""}`} aria-disabled={pending || undefined}>
+                <button type="submit" className={`ah-btn ah-btn--primary ah-btn--sm${pending ? " is-loading" : ""}`} aria-disabled={pending || !settings || undefined}>
                   Save settings
                 </button>
               ) : null}

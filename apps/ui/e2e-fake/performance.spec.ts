@@ -190,6 +190,68 @@ test("keeps range and environment in the URL", async ({ page }) => {
   await expect(page.getByRole("img", { name: /Response time percentiles/ })).toHaveAttribute("aria-label", /in the last 1 hour in production/);
 });
 
+test.describe("with several apps (#976)", () => {
+  const shop = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+  const billing = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+
+  test.beforeEach(async () => {
+    await post("/__fake/apps", { apps: [{ id: shop, slug: "shop", name: "Shop" }, { id: billing, slug: "billing", name: "Billing" }] });
+    await post("/__fake/performance", {
+      project: "shop",
+      latency: LATENCY,
+      samples_ms: SAMPLES,
+      endpoints: [
+        { ...ENDPOINTS[0], app_id: shop },
+        { ...ENDPOINTS[1], app_id: billing },
+      ],
+    });
+  });
+
+  test.afterEach(async () => {
+    // Other specs expect shop's single default app.
+    await post("/__fake/apps", { apps: [] });
+  });
+
+  test("filters by app, All apps by default, and the settings dialog asks which app", async ({ page }) => {
+    await signIn(page);
+    const app = page.getByRole("combobox", { name: "App" });
+    await expect(app).toHaveValue("");
+    await expect(app.getByRole("option")).toHaveText(["All apps", "Shop", "Billing"]);
+    const table = page.getByRole("table", { name: "Endpoints by p95 response time" });
+    await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "p50", "p95", "Apdex"]);
+    await expect(table.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");
+    await expect(table.getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?app=${billing}&tab=latency`);
+    // Across apps T differs, so the explanation names no one app's threshold.
+    await expect(page.locator("[role=tooltip]")).toContainText("T is the endpoint’s own threshold, else its app’s, else 500 ms.");
+
+    // The dialog opens on the first app and reads another's threshold when it is picked.
+    await page.getByRole("button", { name: "App settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "App settings" });
+    const picker = dialog.getByRole("combobox", { name: "App" });
+    await expect(picker).toHaveValue(shop);
+    await picker.selectOption({ label: "Billing" });
+    await expect(dialog).toContainText("For app Billing");
+    const threshold = dialog.getByRole("textbox", { name: "Response time threshold (ms)" });
+    await expect(threshold).toBeEnabled();
+    await threshold.fill("1000");
+    await dialog.getByRole("button", { name: "Save threshold" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("status").filter({ hasText: "Threshold saved: 1000 ms for Billing." })).toBeVisible();
+
+    // Scoped to Billing: its rows only, its threshold scores the Apdex and the dialog opens on it.
+    await app.selectOption({ label: "Billing" });
+    await page.waitForURL(new RegExp(`app=${billing}`));
+    await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "p50", "p95", "Apdex"]);
+    await expect(table.locator("tbody tr")).toHaveCount(1);
+    await expect(apdexValue(page)).toHaveText("0.88");
+    await expect(page.locator("[role=tooltip]")).toContainText("(Billing: 1000 ms)");
+    await expect(page.getByRole("img", { name: /Response time percentiles/ })).toHaveAttribute("aria-label", /in the last 24 hours for Billing/);
+    await page.getByRole("button", { name: "App settings" }).click();
+    await expect(picker).toHaveValue(billing);
+    await expect(threshold).toHaveValue("1000");
+  });
+});
+
 test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seed();
