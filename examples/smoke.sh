@@ -45,6 +45,10 @@ for base in "$@"; do
   check 200 "POST /upload (multipart)" -F "file=@$upload_file;filename=note.txt" \
     -F 'description=smoke' "$base/upload"
   check 500 "GET /boom" "$base/boom"
+  check 500 "GET /boom/chained" "$base/boom/chained"
+  check 500 "GET /boom/deep" "$base/boom/deep"
+  check 500 "GET /boom/handled" "$base/boom/handled"
+  check 200 "GET /boom/logged" "$base/boom/logged"
   check 200 "GET /outbound" "$base/outbound"
 done
 
