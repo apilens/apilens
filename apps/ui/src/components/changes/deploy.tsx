@@ -66,7 +66,7 @@ export function DeployView({
     <p className="cp-h">
       {projectName} ·{" "}
       <Link className="cp-link" href={changes}>
-        Changes
+        Deploys
       </Link>
     </p>
   );

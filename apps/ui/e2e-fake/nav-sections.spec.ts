@@ -34,7 +34,7 @@ test("the sidebar groups its pages under section headings", async ({ page }) => 
       - group "Catalog":
         - heading "Catalog" [level=2]
         - link "Apps"
-        - link "Changes"
+        - link "Deploys"
   `);
   await expect(sidebar.getByRole("navigation", { name: "Settings" })).toMatchAriaSnapshot(`
     - navigation "Settings":

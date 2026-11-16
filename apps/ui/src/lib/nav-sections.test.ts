@@ -6,7 +6,7 @@ describe("navGroups", () => {
   it("puts every page under Monitor, Catalog or Configure, in that order", () => {
     expect(navGroups().map((g) => [g.section, g.views.map((v) => v.label)])).toEqual([
       ["Monitor", ["Incidents", "Explore", "Traffic", "Errors", "Performance", "Consumers"]],
-      ["Catalog", ["Apps", "Changes"]],
+      ["Catalog", ["Apps", "Deploys"]],
       ["Configure", ["Access"]],
     ]);
   });
