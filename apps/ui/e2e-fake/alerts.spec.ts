@@ -89,7 +89,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await expect(rules.locator("tbody tr")).toHaveCount(1);
   await expect(rules.locator("tbody tr").first()).toContainText("Checkout error rate");
   await expect(rules.locator("tbody tr").first()).toContainText("Shop · production · POST /checkout");
-  await expect(rules.locator("tbody tr").first()).toContainText("Error rate > 2% over 5 min");
+  await expect(rules.locator("tbody tr").first()).toContainText("Error rate (4xx + 5xx) > 2% over 5 min");
   await expect(rules.locator("tbody tr").first()).toContainText("every 1 min");
   await expect(rules.locator("tbody tr").first()).toContainText("On-call");
   await expect(rules.locator("tbody tr").first()).toContainText("Not evaluated yet");
@@ -163,6 +163,28 @@ test("edit a rule, then delete it", async ({ page }) => {
   await page.getByRole("button", { name: "Delete rule" }).click();
   await page.waitForURL("**/shop/incidents/rules");
   await expect(page.getByRole("status").filter({ hasText: "No alert rules yet." })).toBeVisible();
+});
+
+test("the rule editor alerts on server errors (5xx) apart from client errors (4xx)", async ({ page }) => {
+  await signIn(page, "/shop/incidents/rules/new");
+  const form = page.getByRole("form", { name: "New alert rule" });
+  const metric = form.getByLabel("Metric");
+  await expect(metric.locator("option")).toContainText([
+    "Requests",
+    "Errors (4xx + 5xx)",
+    "Error rate (4xx + 5xx)",
+    "Server errors (5xx)",
+    "Server error rate (5xx)",
+    "Client errors (4xx)",
+    "Client error rate (4xx)",
+  ]);
+  await form.getByLabel("Name").fill("Checkout 5xx");
+  await metric.selectOption({ label: "Server error rate (5xx)" });
+  await form.getByLabel("Threshold").fill("1");
+  await form.getByRole("button", { name: "Create rule" }).click();
+  await page.waitForURL("**/shop/incidents/rules");
+  const row = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").first();
+  await expect(row).toContainText("Server error rate (5xx) > 1% over 5 min");
 });
 
 test("members see alerts read-only", async ({ page }) => {

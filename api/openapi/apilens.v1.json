@@ -562,6 +562,10 @@
               "traffic",
               "errors",
               "error_rate",
+              "server_errors",
+              "server_error_rate",
+              "client_errors",
+              "client_error_rate",
               "p50",
               "p75",
               "p95",
@@ -685,11 +689,15 @@
             "$ref": "#/components/schemas/AlertFilters"
           },
           "metric": {
-            "description": "What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "description": "What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
             "enum": [
               "traffic",
               "errors",
               "error_rate",
+              "server_errors",
+              "server_error_rate",
+              "client_errors",
+              "client_error_rate",
               "p50",
               "p75",
               "p95",
@@ -719,7 +727,7 @@
             "type": "integer"
           },
           "threshold": {
-            "description": "Not negative; at most 1 for error_rate and apdex.",
+            "description": "Not negative; at most 1 for the error rates and apdex.",
             "format": "double",
             "type": "number"
           },
@@ -2809,11 +2817,15 @@
             "$ref": "#/components/schemas/AlertFilters"
           },
           "metric": {
-            "description": "What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "description": "What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
             "enum": [
               "traffic",
               "errors",
               "error_rate",
+              "server_errors",
+              "server_error_rate",
+              "client_errors",
+              "client_error_rate",
               "p50",
               "p75",
               "p95",
@@ -2843,7 +2855,7 @@
             "type": "integer"
           },
           "threshold": {
-            "description": "Not negative; at most 1 for error_rate and apdex.",
+            "description": "Not negative; at most 1 for the error rates and apdex.",
             "format": "double",
             "type": "number"
           },

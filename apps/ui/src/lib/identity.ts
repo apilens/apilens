@@ -1418,7 +1418,19 @@ export interface DeployComparison {
 // Alerts (#609): threshold rules, notification channels, events and the incidents feed. -----
 
 /** What an alert rule aggregates over its window. */
-export type AlertMetric = "traffic" | "errors" | "error_rate" | "p50" | "p75" | "p95" | "apdex" | "unique_consumers";
+export type AlertMetric =
+  | "traffic"
+  | "errors"
+  | "error_rate"
+  | "server_errors"
+  | "server_error_rate"
+  | "client_errors"
+  | "client_error_rate"
+  | "p50"
+  | "p75"
+  | "p95"
+  | "apdex"
+  | "unique_consumers";
 /** How the value compares to the threshold for the rule to breach. */
 export type AlertCondition = "gt" | "gte" | "lt" | "lte";
 /** Where a rule stands after its latest evaluation. */

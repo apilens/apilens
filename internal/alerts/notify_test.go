@@ -66,7 +66,7 @@ func TestNotificationText(t *testing.T) {
 	if got, want := n.URL, "https://app.example.com/shop/incidents?event="+testEventID.String(); got != want {
 		t.Errorf("URL = %s, want %s", got, want)
 	}
-	if got, want := n.Summary(), "Error rate on storefront (production) is 12.5%, > 5% over the last 5 minutes."; got != want {
+	if got, want := n.Summary(), "Error rate (4xx + 5xx) on storefront (production) is 12.5%, > 5% over the last 5 minutes."; got != want {
 		t.Errorf("summary = %q, want %q", got, want)
 	}
 	r := NotificationFromRow(NotifyResolved, eventRow(NotifyResolved), testUIURL)
@@ -82,6 +82,10 @@ func TestNotificationText(t *testing.T) {
 		{MetricErrors, 3, "3"},
 		{MetricErrorRate, 0.5, "50%"},
 		{MetricErrorRate, 0.00126, "0.13%"},
+		{MetricServerErrors, 2, "2"},
+		{MetricServerErrorRate, 0.125, "12.5%"},
+		{MetricClientErrors, 7, "7"},
+		{MetricClientErrorRate, 0.00126, "0.13%"},
 		{MetricP95, 412.26, "412.3 ms"},
 		{MetricApdex, 0.8, "0.80"},
 		{MetricUniqueConsumers, 42, "42"},

@@ -133,6 +133,11 @@ func TestEvaluate(t *testing.T) {
 		{"traffic", alerts.MetricTraffic, alerts.Filters{}, want{20, 0, 20}},
 		{"errors", alerts.MetricErrors, alerts.Filters{}, want{4, 0, 20}},
 		{"error rate", alerts.MetricErrorRate, alerts.Filters{}, want{0.2, 1e-9, 20}},
+		// 404 at i = 3, 7 (GET /a); 500 at i = 10, 20 (POST /b).
+		{"server errors", alerts.MetricServerErrors, alerts.Filters{}, want{2, 0, 20}},
+		{"server error rate", alerts.MetricServerErrorRate, alerts.Filters{}, want{0.1, 1e-9, 20}},
+		{"client errors", alerts.MetricClientErrors, alerts.Filters{}, want{2, 0, 20}},
+		{"client error rate", alerts.MetricClientErrorRate, alerts.Filters{}, want{0.1, 1e-9, 20}},
 		{"p50", alerts.MetricP50, alerts.Filters{}, want{105, 10, 20}},
 		{"p75", alerts.MetricP75, alerts.Filters{}, want{155, 10, 20}},
 		{"p95", alerts.MetricP95, alerts.Filters{}, want{195, 10, 20}},
@@ -143,6 +148,8 @@ func TestEvaluate(t *testing.T) {
 
 		{"traffic of GET /a", alerts.MetricTraffic, alerts.Filters{Endpoint: "GET /a"}, want{10, 0, 10}},
 		{"error rate of GET /a", alerts.MetricErrorRate, alerts.Filters{Endpoint: "GET /a"}, want{0.2, 1e-9, 10}},
+		{"client error rate of GET /a", alerts.MetricClientErrorRate, alerts.Filters{Endpoint: "GET /a"}, want{0.2, 1e-9, 10}},
+		{"server error rate of POST /b", alerts.MetricServerErrorRate, alerts.Filters{Endpoint: "POST /b"}, want{0.2, 1e-9, 10}},
 		{"traffic of /b, any method", alerts.MetricTraffic, alerts.Filters{Endpoint: "/b"}, want{10, 0, 10}},
 		{"apdex of GET /a", alerts.MetricApdex, alerts.Filters{Endpoint: "GET /a"}, want{0.75, 1e-9, 10}},
 		{"traffic of alice", alerts.MetricTraffic, alerts.Filters{Consumer: "alice"}, want{5, 0, 5}},
@@ -150,6 +157,9 @@ func TestEvaluate(t *testing.T) {
 		{"traffic of a group", alerts.MetricTraffic, alerts.Filters{Group: "partners"}, want{10, 0, 10}},
 		{"errors of a group", alerts.MetricErrors, alerts.Filters{Group: "partners"}, want{1, 0, 10}},
 		{"error rate of a group", alerts.MetricErrorRate, alerts.Filters{Group: "partners"}, want{0.1, 1e-9, 10}},
+		{"server errors of a group", alerts.MetricServerErrors, alerts.Filters{Group: "partners"}, want{1, 0, 10}},
+		// partners (i % 4 in 1, 2) saw the 500 at i = 10 and none of the 404s.
+		{"client error rate of a group", alerts.MetricClientErrorRate, alerts.Filters{Group: "partners"}, want{0, 0, 10}},
 		{"unique consumers of a group", alerts.MetricUniqueConsumers, alerts.Filters{Group: "partners"}, want{2, 0, 10}},
 		{"traffic of a group on GET /a", alerts.MetricTraffic, alerts.Filters{Group: "partners", Endpoint: "GET /a"}, want{5, 0, 5}},
 		// Group names match exactly, as the SDK reports them.
@@ -186,7 +196,8 @@ func TestEvaluate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			count := m == alerts.MetricTraffic || m == alerts.MetricErrors || m == alerts.MetricUniqueConsumers
+			count := m == alerts.MetricTraffic || m == alerts.MetricErrors || m == alerts.MetricServerErrors ||
+				m == alerts.MetricClientErrors || m == alerts.MetricUniqueConsumers
 			switch {
 			case count && (res.Value == nil || *res.Value != 0 || !res.Breached):
 				t.Errorf("%s: value %v breached %v, want 0 and breached (>= 0)", m, deref(res.Value), res.Breached)

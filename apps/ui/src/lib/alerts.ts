@@ -106,8 +106,12 @@ type Unit = "count" | "rate" | "ms" | "score";
 
 export const METRICS: { value: AlertMetric; label: string; unit: Unit }[] = [
   { value: "traffic", label: "Requests", unit: "count" },
-  { value: "errors", label: "Errors", unit: "count" },
-  { value: "error_rate", label: "Error rate", unit: "rate" },
+  { value: "errors", label: "Errors (4xx + 5xx)", unit: "count" },
+  { value: "error_rate", label: "Error rate (4xx + 5xx)", unit: "rate" },
+  { value: "server_errors", label: "Server errors (5xx)", unit: "count" },
+  { value: "server_error_rate", label: "Server error rate (5xx)", unit: "rate" },
+  { value: "client_errors", label: "Client errors (4xx)", unit: "count" },
+  { value: "client_error_rate", label: "Client error rate (4xx)", unit: "rate" },
   { value: "p50", label: "p50 response time", unit: "ms" },
   { value: "p75", label: "p75 response time", unit: "ms" },
   { value: "p95", label: "p95 response time", unit: "ms" },
@@ -126,7 +130,7 @@ export const CONDITIONS: { value: AlertCondition; label: string; symbol: string 
 ];
 export const conditionSymbol = (c: AlertCondition): string => CONDITIONS.find((x) => x.value === c)?.symbol ?? c;
 
-/** What the threshold field is entered in for `metric`: error rate in percent, the rest as stored. */
+/** What the threshold field is entered in for `metric`: error rates in percent, the rest as stored. */
 export function thresholdUnit(metric: AlertMetric): string {
   switch (unitOf(metric)) {
     case "rate":
@@ -136,7 +140,8 @@ export function thresholdUnit(metric: AlertMetric): string {
     case "score":
       return "0 to 1";
     default:
-      return metric === "unique_consumers" ? "consumers" : metric === "errors" ? "errors" : "requests";
+      if (metric === "unique_consumers") return "consumers";
+      return metric === "traffic" ? "requests" : "errors";
   }
 }
 
