@@ -63,12 +63,12 @@ export function shortDay(iso: string | null | undefined, now = Date.now()): stri
 }
 
 /**
- * Where an app came from: `Added by the SDK from key prod-backend · Nov 6`, `Added by the SDK ·
- * Nov 6` (no key recorded) or `Added in the dashboard · Nov 6`.
+ * Where an app came from: `Added by the SDK · Nov 6` or `Added in the dashboard · Nov 6`. The key
+ * an SDK app came in with is not named: a key's name is not the app's business, and it leaks.
  */
-export function originText(app: Pick<ManagedApp, "created_by" | "created_by_key_name" | "created_at" | "first_seen_at">, now = Date.now()): string {
+export function originText(app: Pick<ManagedApp, "created_by" | "created_at" | "first_seen_at">, now = Date.now()): string {
   const day = shortDay(app.created_by === "sdk" ? (app.first_seen_at ?? app.created_at) : app.created_at, now);
-  const who = app.created_by === "sdk" ? (app.created_by_key_name ? `Added by the SDK from key ${app.created_by_key_name}` : "Added by the SDK") : "Added in the dashboard";
+  const who = app.created_by === "sdk" ? "Added by the SDK" : "Added in the dashboard";
   return day ? `${who} · ${day}` : who;
 }
 

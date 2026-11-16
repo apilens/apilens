@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { appHealth, appHref, appIsEmpty, formatLastSeen, instanceRelease, instanceSdk, needsAttention, reportingTone, sdkUpdate, sdkVersions } from "./apps";
+import {
+  appHealth,
+  appHref,
+  appIsEmpty,
+  attentionReasons,
+  attentionText,
+  formatLastSeen,
+  instanceCountText,
+  instanceRelease,
+  instanceSdk,
+  reportingTone,
+  sdkUpdate,
+  sdkVersions,
+  sortBySeverity,
+} from "./apps";
 
 const NOW = Date.parse("2026-11-05T12:00:00Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -61,13 +75,69 @@ describe("SDK versions", () => {
   });
 });
 
-describe("needsAttention", () => {
-  it("flags stale and silent apps and outdated SDKs", () => {
-    expect(needsAttention({ status: "reporting", sdks: [sdk(["0.4.0"], "0.4.0", 0)] })).toBe(false);
-    expect(needsAttention({ status: "never", sdks: null })).toBe(false);
-    expect(needsAttention({ status: "stale", sdks: null })).toBe(true);
-    expect(needsAttention({ status: "silent", sdks: [] })).toBe(true);
-    expect(needsAttention({ status: "reporting", sdks: [sdk(["0.3.2"], "0.4.0", 1)] })).toBe(true);
+describe("SDK instances of the last 24 hours", () => {
+  const inst = (sdk_name: string, sdk_outdated: boolean, seconds: number) => ({ sdk_name, sdk_outdated, last_seen_at: ago(seconds) });
+
+  it("counts only outdated instances seen in the last 24 hours when the server lists them", () => {
+    const instances = [inst("apilens-python", true, 60), inst("apilens-python", true, 25 * 3600), inst("apilens-python", false, 60), inst("apilens-go", true, 60)];
+    expect(sdkUpdate(sdk(["0.3.2", "0.4.0"], "0.4.0", 3), instances, NOW)).toBe("Update available: 0.4.0 (1 instance behind)");
+    expect(sdkUpdate(sdk(["0.3.2"], "0.4.0", 1), [inst("apilens-python", true, 2 * 86400)], NOW)).toBeNull();
+    // No instances listed (older servers): the server's count stands.
+    expect(sdkUpdate(sdk(["0.3.2"], "0.4.0", 2), [], NOW)).toBe("Update available: 0.4.0 (2 instances behind)");
+  });
+
+  it("says how many instances ran in the last 24 hours", () => {
+    expect(instanceCountText([inst("a", false, 60), inst("a", false, 3600), inst("a", false, 3 * 86400)], NOW)).toBe("2 instances in the last 24 h");
+    expect(instanceCountText([inst("a", false, 60)], NOW)).toBe("1 instance in the last 24 h");
+    expect(instanceCountText([inst("a", false, 3 * 86400)], NOW)).toBe("0 instances in the last 24 h");
+    expect(instanceCountText(undefined, NOW)).toBeNull();
+    expect(instanceCountText([], NOW)).toBeNull();
+  });
+});
+
+describe("attention", () => {
+  it("flags failing, degraded and not-reporting apps, nothing else", () => {
+    expect(attentionReasons({ health: "healthy", reporting: "reporting" })).toEqual([]);
+    expect(attentionReasons({ health: "idle", reporting: "never" })).toEqual([]);
+    expect(attentionReasons({ health: null, reporting: null })).toEqual([]);
+    expect(attentionReasons({ health: "failing", reporting: "reporting" })).toEqual(["failing"]);
+    expect(attentionReasons({ health: "degraded", reporting: null })).toEqual(["degraded"]);
+    expect(attentionReasons({ health: "idle", reporting: "silent" })).toEqual(["not-reporting"]);
+    expect(attentionReasons({ health: "failing", reporting: "stale" })).toEqual(["failing", "not-reporting"]);
+  });
+
+  it("counts each app once and words the count per reason", () => {
+    expect(attentionText([])).toBe("");
+    expect(attentionText([{ health: "healthy", reporting: "reporting" }])).toBe("");
+    expect(attentionText([{ health: "degraded", reporting: "reporting" }])).toBe("1 app needs attention: 1 degraded.");
+    expect(
+      attentionText([
+        { health: "failing", reporting: "stale" },
+        { health: "idle", reporting: "silent" },
+        { health: "healthy", reporting: "reporting" },
+      ]),
+    ).toBe("2 apps need attention: 1 failing, 2 not reporting.");
+    expect(
+      attentionText([
+        { health: "failing", reporting: "reporting" },
+        { health: "failing", reporting: "reporting" },
+        { health: "failing", reporting: "reporting" },
+        { health: "degraded", reporting: "silent" },
+      ]),
+    ).toBe("4 apps need attention: 3 failing, 1 degraded, 1 not reporting.");
+  });
+
+  it("sorts worst first and keeps the order of equals", () => {
+    const apps = [
+      { name: "ok", health: "healthy", reporting: "reporting" },
+      { name: "idle", health: "idle", reporting: "never" },
+      { name: "silent", health: "idle", reporting: "silent" },
+      { name: "degraded", health: "degraded", reporting: "reporting" },
+      { name: "ok2", health: null, reporting: null },
+      { name: "failing", health: "failing", reporting: "stale" },
+      { name: "failing2", health: "failing", reporting: "reporting" },
+    ] as const;
+    expect(sortBySeverity([...apps], (a) => a).map((a) => a.name)).toEqual(["failing", "failing2", "degraded", "silent", "ok", "idle", "ok2"]);
   });
 });
 

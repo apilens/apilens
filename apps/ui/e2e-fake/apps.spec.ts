@@ -39,6 +39,12 @@ const APPS = [
       status: "stale",
       last_seen_at: ago(18 * 60),
       sdks: [{ name: "apilens-java", versions: ["1.2.1", "1.3.0"], latest_version: "1.3.0", outdated_instances: 2 }],
+      // Two instances ran in the last 24 hours; the outdated one seen 3 days ago is gone and not counted.
+      instances: [
+        { instance_id: "rw-1", sdk_name: "apilens-java", sdk_version: "1.2.1", sdk_outdated: true, last_seen_at: ago(18 * 60) },
+        { instance_id: "rw-2", sdk_name: "apilens-java", sdk_version: "1.3.0", sdk_outdated: false, last_seen_at: ago(18 * 60) },
+        { instance_id: "rw-0", sdk_name: "apilens-java", sdk_version: "1.2.1", sdk_outdated: true, last_seen_at: ago(3 * 86_400) },
+      ],
     },
     traffic: {
       summary: { requests: 10_000, client_errors: 100, server_errors: 610, error_rate: 0.071, p50_ms: 210, p95_ms: 1820, p99_ms: 4000, requests_per_minute: 6.94 },
@@ -77,16 +83,21 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1, name: "Apps" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
-  await expect(page.locator(".ph-lead")).toContainText("2 apps need attention.");
+  // The header counts failing, degraded and not-reporting apps (each once) and says why; cards come worst first.
+  await expect(page.locator(".ph-lead")).toMatchAriaSnapshot(`
+    - paragraph: "The services reporting to this project: traffic over the last 24 hours, health and SDK status. An app appears on its own the first time an SDK sends data with its name. 2 apps need attention: 1 failing, 2 not reporting."
+  `);
   await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(3);
+  await expect(page.getByRole("list", { name: "Apps" }).getByRole("heading", { level: 2 })).toHaveText(["refunds-worker", "legacy", "Checkout API"]);
   // The project switcher counts the project's apps from the context (app_count).
   await expect(page.locator(".oh--project small")).toHaveText("Project · 3 apps");
 
   const checkout = card(page, "Checkout API");
   await expect(checkout.locator(".ap-slug")).toHaveText("checkout-api");
   await expect(checkout.locator(".ap-pill")).toHaveText("Reporting");
-  await expect(checkout.locator(".ap-metrics dt")).toHaveText(["Requests/min", "Error rate", "p95"]);
-  await expect(checkout.locator(".ap-metrics dd")).toHaveText(["120", "2.0%", "413 ms"]);
+  // The rate shown is the 5xx share the health is judged on, not 4xx + 5xx.
+  await expect(checkout.locator(".ap-metrics dt")).toHaveText(["Requests/min", "5xx rate", "p95"]);
+  await expect(checkout.locator(".ap-metrics dd")).toHaveText(["120", "0.5%", "413 ms"]);
   await expect(checkout.locator(".tr-spark polyline")).toHaveCount(1);
   await expect(checkout.locator(".ap-health")).toHaveText("Healthy");
   await expect(checkout.locator(".ap-sdk")).toHaveText("apilens-python 0.4.0");
@@ -98,17 +109,19 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await expect(worker.locator(".ap-slug")).toHaveCount(0);
   await expect(worker.locator(".ap-pill")).toHaveText("Stale");
   await expect(worker.locator(".ap-pill")).toHaveAttribute("title", "No heartbeat in the last 2 minutes.");
-  await expect(worker.locator(".ap-metrics dd")).toHaveText(["6.9", "7.1%", "1.82 s"]);
+  await expect(worker.locator(".ap-metrics dd")).toHaveText(["6.9", "6.1%", "1.82 s"]);
   await expect(worker.locator(".ap-health")).toHaveText("Failing");
   await expect(worker.locator(".ap-sdk code")).toHaveText("apilens-java 1.2.1 to 1.3.0");
-  await expect(worker.locator(".ap-update")).toHaveText("Update available: 1.3.0 (2 instances behind)");
+  // Only instances seen in the last 24 hours count: the one gone for 3 days is not behind any more.
+  await expect(worker.locator(".ap-update")).toHaveText("Update available: 1.3.0 (1 instance behind)");
   await expect(worker.locator(".ap-drops")).toHaveText("2 batches failed · 140 records dropped");
-  await expect(worker).toContainText("Last seen 18 min ago");
+  await expect(worker).toContainText("Last seen 18 min ago · 2 instances in the last 24 h");
 
-  // No traffic in the range: no p95, no health beyond saying so.
+  // No traffic in the range: no p95, no flat sparkline, no health beyond saying so.
   const legacy = card(page, "legacy");
   await expect(legacy.locator(".ap-pill")).toHaveText("Silent");
   await expect(legacy.locator(".ap-metrics dd")).toHaveText(["0", "0%", "n/a"]);
+  await expect(legacy.locator(".tr-spark")).toHaveCount(0);
   await expect(legacy.locator(".ap-health")).toHaveText("No traffic");
   await expect(legacy.locator(".ap-update")).toHaveText("Update available: 0.9.2 (1 instance behind)");
   await expect(legacy).toContainText("Last seen 9 days ago");
@@ -130,7 +143,8 @@ test("says where each app came from, flags new SDK apps to keep or merge, and ar
   ]);
   await signIn(page);
   await expect(card(page, "Checkout API").locator(".ap-origin")).toHaveText(/Default app.*Added in the dashboard · Oct 2/);
-  await expect(card(page, "refunds-worker").locator(".ap-origin")).toContainText("Added by the SDK from key prod-backend");
+  // The key the SDK came in with is not named on the card.
+  await expect(card(page, "refunds-worker").locator(".ap-origin")).toHaveText(/^New\s*Added by the SDK · \w{3} \d{1,2}$/);
   const fresh = page.getByRole("region", { name: "New app detected" });
   await expect(fresh).toContainText("refunds-worker");
   await fresh.getByRole("button", { name: "Keep refunds-worker" }).click();
