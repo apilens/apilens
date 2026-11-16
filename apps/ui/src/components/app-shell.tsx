@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CapabilitiesProvider } from "@/lib/permissions";
 import { type UserContext, findOrg, findProject } from "@/lib/scope";
-import { Icon } from "./icons";
+import { viewLabel } from "@/lib/nav-sections";
+import { MobileBar } from "./mobile-bar";
 import { PausedBanner } from "./paused-banner";
 import { ScopeSwitcher } from "./scope-switcher";
-import { Sidebar } from "./sidebar";
+import { Sidebar, useOpenIncidents } from "./sidebar";
 
 /**
  * One sidebar (organization, project, pages, account) and the page. No top bar on desktop; below
- * 860px a slim bar with the menu button opens the sidebar as a drawer. `[` collapses the sidebar
+ * 860px a slim bar with the menu button opens the sidebar as a drawer and names the project, page
+ * and open incidents (#998). `[` collapses the sidebar
  * to a rail (remembered). ⌘K opens the scope switcher. `context` is the signed-in user's
  * `GET /users/me/context`; the page has already checked that `project` or `org` is in it.
  * `account` is the account scope (`/settings/*`): no project, the first organization in the top
@@ -27,6 +29,7 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [switcher, setSwitcher] = useState(false);
+  const openIncidents = useOpenIncidents(navProject?.slug, view);
 
   useEffect(() => {
     try {
@@ -61,16 +64,12 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
   return (
     <div className={`ah app${drawer ? " is-open" : ""}`}>
       <div className="app-side">
-        <Sidebar user={context.user} orgs={context.orgs} org={org} project={navProject} view={project ? view : ""} orgScope={!project} account={account} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
+        <Sidebar user={context.user} orgs={context.orgs} org={org} project={navProject} view={project ? view : ""} orgScope={!project} account={account} openIncidents={openIncidents} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
       </div>
       <div className="app-scrim" onClick={() => setDrawer(false)} />
 
       <div className="app-col">
-        <div className="app-mobilebar">
-          <button type="button" className="cp-sbtn" aria-label="Open navigation" onClick={() => setDrawer(true)}>
-            <Icon name="menu" />
-          </button>
-        </div>
+        <MobileBar scope={account ? "" : (project?.name ?? org.name)} label={viewLabel(view, { orgScope: !project, account })} project={project?.slug} openIncidents={openIncidents} onMenu={() => setDrawer(true)} />
         <main className="app-main">
           <CapabilitiesProvider capabilities={context.capabilities} project={account ? undefined : navProject?.slug}>
             {project ? <PausedBanner project={project.slug} /> : null}

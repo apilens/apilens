@@ -36,6 +36,10 @@ export function RulesView({
   return (
     <div className="page al">
       <AlertsHeader project={project} projectName={projectName} tab="rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
+        {/* Channels live in Project settings; rules pick from them (#998). */}
+        <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={channelsHref(project)}>
+          Alert channels
+        </Link>
         {manage && rules !== null ? (
           <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newRuleHref(project)}>
             New rule
