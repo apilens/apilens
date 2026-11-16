@@ -19,7 +19,8 @@ func registerTrafficLatency(api huma.API, s *Service) {
 		OperationID: "get-traffic-latency", Method: http.MethodGet, Path: "/api/v1/traffic/latency",
 		Summary: "Response time: percentiles, p50/p75/p95 trend, Apdex and histogram",
 		Description: "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the " +
-			"p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out." + readAccess,
+			"p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out; " +
+			"app narrows to one app." + readAccess,
 		Tags: []string{"Dashboard"}, Security: security,
 	}, s.trafficLatency)
 }
@@ -36,7 +37,7 @@ type trafficLatencyOutput struct {
 	}
 }
 
-func (s *Service) trafficLatency(ctx context.Context, in *RangeInput) (*trafficLatencyOutput, error) {
+func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*trafficLatencyOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -50,6 +51,10 @@ func (s *Service) trafficLatency(ctx context.Context, in *RangeInput) (*trafficL
 		return nil, err
 	}
 	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	tenant, targs, err = withApp(tenant, targs, in.App)
+	if err != nil {
+		return nil, err
+	}
 	scope, sargs := rules.withoutExcluded(tenant, targs)
 	where, args := scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), w.from, w.to)
 	rawWhere, rawArgs := scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), w.from, w.to)

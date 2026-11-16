@@ -248,7 +248,7 @@ function EndpointsTable({ project, q, endpoints, menus = false }: { project: str
       </thead>
       <tbody>
         {endpoints.map((ep) => (
-          <tr key={`${ep.method} ${ep.path}`} className="tr-row">
+          <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
             <td className="tr-ep" data-label="Endpoint">
               <a className="tr-ep__link" href={endpointHref(project, ep, q)}>
                 <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>

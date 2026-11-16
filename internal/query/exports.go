@@ -140,6 +140,7 @@ func (s *Service) WithExports(pool ExportPool, jobs ExportJobs, store ExportStor
 type ExportFilter struct {
 	Range           string   `json:"range,omitempty" enum:"1h,6h,24h,7d" doc:"Time range ending when the export is asked for; omitted means 24h."`
 	Env             string   `json:"env,omitempty" maxLength:"64" doc:"Environment name; empty means all."`
+	App             string   `json:"app,omitempty" format:"uuid" doc:"Only requests served by this app (id); empty means every app of the project."`
 	ConsumerID      string   `json:"consumer_id,omitempty" maxLength:"256" doc:"Only requests from this consumer id."`
 	ConsumerGroup   string   `json:"consumer_group,omitempty" maxLength:"256" doc:"Only requests from consumers of this group."`
 	IP              string   `json:"ip,omitempty" maxLength:"64" doc:"Only requests from this client IP address (exact match)."`
@@ -161,7 +162,7 @@ type ExportFilter struct {
 // input is the request log input f means.
 func (f ExportFilter) input() *requestsInput {
 	in := &requestsInput{
-		ConsumerID: f.ConsumerID, ConsumerGroup: f.ConsumerGroup, IP: f.IP, Method: f.Method, Path: f.Path,
+		App: f.App, ConsumerID: f.ConsumerID, ConsumerGroup: f.ConsumerGroup, IP: f.IP, Method: f.Method, Path: f.Path,
 		URLContains: f.URLContains, PayloadContains: f.PayloadContains,
 		RequestSizeMin: f.RequestSizeMin, ResponseSizeMin: f.ResponseSizeMin, LatencyMin: f.LatencyMin,
 		Status: f.Status, Sampled: f.Sampled, TraceID: f.TraceID,

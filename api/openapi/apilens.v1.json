@@ -4140,6 +4140,11 @@
               "null"
             ]
           },
+          "app_id": {
+            "description": "The app that serves the endpoint.",
+            "format": "uuid",
+            "type": "string"
+          },
           "client_errors": {
             "description": "4xx responses, expected status codes of the endpoint left out.",
             "format": "int64",
@@ -4187,6 +4192,7 @@
           }
         },
         "required": [
+          "app_id",
           "method",
           "path",
           "requests",
@@ -4946,7 +4952,7 @@
             "type": "string"
           },
           "endpoints": {
-            "description": "Endpoints by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out.",
+            "description": "Endpoints (one per app, method and path) by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out.",
             "items": {
               "$ref": "#/components/schemas/Endpoint"
             },
@@ -5794,6 +5800,11 @@
             ],
             "format": "uri",
             "readOnly": true,
+            "type": "string"
+          },
+          "app": {
+            "description": "Only requests served by this app (id); empty means every app of the project.",
+            "format": "uuid",
             "type": "string"
           },
           "consumer_group": {
@@ -17139,6 +17150,17 @@
             }
           },
           {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
             "description": "Only requests and exceptions from this consumer id; empty means all.",
             "explode": false,
             "in": "query",
@@ -17259,6 +17281,17 @@
               ],
               "maxLength": 1024,
               "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -17405,6 +17438,17 @@
             }
           },
           {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
             "description": "Only requests with a status code in this class.",
             "explode": false,
             "in": "query",
@@ -17543,6 +17587,17 @@
               ],
               "maxLength": 1024,
               "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -28612,6 +28667,17 @@
             }
           },
           {
+            "description": "Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
             "description": "Only requests from this consumer id.",
             "explode": false,
             "in": "query",
@@ -28947,6 +29013,17 @@
             "schema": {
               "description": "End of the window (RFC 3339, exclusive); clamped to the range.",
               "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -29301,7 +29378,7 @@
     },
     "/api/v1/traffic/endpoints": {
       "get": {
-        "description": "Per endpoint (method and route template) traffic, error split, latency percentiles and Apdex over the range, most requests first. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "Per endpoint (app, method and route template) traffic, error split, latency percentiles and Apdex over the range, most requests first: a route served by several apps is one row per app. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts. app narrows to one app. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-endpoints",
         "parameters": [
           {
@@ -29343,6 +29420,17 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -29399,7 +29487,7 @@
     },
     "/api/v1/traffic/latency": {
       "get": {
-        "description": "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out; app narrows to one app. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-traffic-latency",
         "parameters": [
           {
@@ -29441,6 +29529,17 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           }

@@ -39,6 +39,7 @@ type requestTimelineInput struct {
 	RangeInput
 	From            time.Time `query:"from" doc:"Start of the window (RFC 3339, inclusive); clamped to the range."`
 	To              time.Time `query:"to" doc:"End of the window (RFC 3339, exclusive); clamped to the range."`
+	App             string    `query:"app" format:"uuid" doc:"As in GET /api/v1/requests."`
 	ConsumerID      string    `query:"consumer_id" maxLength:"256" doc:"As in GET /api/v1/requests."`
 	ConsumerGroup   string    `query:"consumer_group" maxLength:"256" doc:"As in GET /api/v1/requests."`
 	IP              string    `query:"ip" maxLength:"64" doc:"As in GET /api/v1/requests."`
@@ -71,7 +72,7 @@ func (in *requestTimelineInput) Resolve(ctx huma.Context) []error {
 // filter is the request log input with the same filters.
 func (in *requestTimelineInput) filter() *requestsInput {
 	return &requestsInput{
-		ConsumerID: in.ConsumerID, ConsumerGroup: in.ConsumerGroup, IP: in.IP, Method: in.Method, Path: in.Path,
+		App: in.App, ConsumerID: in.ConsumerID, ConsumerGroup: in.ConsumerGroup, IP: in.IP, Method: in.Method, Path: in.Path,
 		URLContains: in.URLContains, PayloadContains: in.PayloadContains,
 		RequestSizeMin: in.RequestSizeMin, RequestSizeMax: in.RequestSizeMax,
 		ResponseSizeMin: in.ResponseSizeMin, ResponseSizeMax: in.ResponseSizeMax,

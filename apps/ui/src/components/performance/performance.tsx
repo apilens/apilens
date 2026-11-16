@@ -234,7 +234,7 @@ function EndpointsTable({ project, q, endpoints: all, params }: { project: strin
         </thead>
         <tbody>
           {endpoints.map((ep) => (
-            <tr key={`${ep.method} ${ep.path}`} className="tr-row">
+            <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
               <td className="tr-ep" data-label="Endpoint">
                 <a className="tr-ep__link" href={endpointLatencyHref(project, ep, q)}>
                   <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>

@@ -4,6 +4,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestParseStatusFilter(t *testing.T) {
@@ -72,5 +75,42 @@ func TestRequestFilterClauses(t *testing.T) {
 	}
 	if _, _, err := requestFilter(&requestsInput{Status: "7xx"}, nil, nil); err == nil {
 		t.Fatal("bad status accepted")
+	}
+}
+
+func TestRequestFilterApp(t *testing.T) {
+	app := uuid.New()
+	clauses, args, err := requestFilter(&requestsInput{App: strings.ToUpper(app.String())}, []string{"project_id = ?"}, []any{"p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(clauses, []string{"project_id = ?", "app_id = ?"}) || len(args) != 2 || args[1] != app {
+		t.Fatalf("clauses = %q args = %v", clauses, args)
+	}
+	// The timeline and exports carry app into the same filter.
+	if c, _, _ := requestFilter((&requestTimelineInput{App: app.String()}).filter(), nil, nil); !slices.Equal(c, []string{"app_id = ?"}) {
+		t.Fatalf("timeline clauses = %q", c)
+	}
+	if c, _, _ := requestFilter(ExportFilter{App: app.String()}.input(), nil, nil); !slices.Equal(c, []string{"app_id = ?"}) {
+		t.Fatalf("export clauses = %q", c)
+	}
+	if _, _, err := requestFilter(&requestsInput{App: "storefront"}, nil, nil); err == nil {
+		t.Fatal("app slug accepted")
+	}
+}
+
+func TestEndpointFilterApp(t *testing.T) {
+	project, app := uuid.New(), uuid.New()
+	w := window{from: time.Unix(0, 0), to: time.Unix(60, 0)}
+	where, args, err := endpointFilter(project, &endpointRequestsInput{Path: "/orders"}, "POST", "bucket", w, false)
+	if err != nil || strings.Contains(where, "app_id") || len(args) != 5 {
+		t.Fatalf("no app: %q %v %v", where, args, err)
+	}
+	where, args, err = endpointFilter(project, &endpointRequestsInput{Path: "/orders", App: app.String()}, "POST", "bucket", w, false)
+	if err != nil || !strings.HasPrefix(where, "project_id = ? AND app_id = ? AND method = ?") || args[1] != app {
+		t.Fatalf("app: %q %v %v", where, args, err)
+	}
+	if _, _, err := endpointFilter(project, &endpointRequestsInput{Path: "/orders", App: "x"}, "POST", "bucket", w, false); err == nil {
+		t.Fatal("bad app accepted")
 	}
 }
