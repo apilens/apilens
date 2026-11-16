@@ -8,11 +8,13 @@ import {
   channelsHref,
   conditionText,
   eventDuration,
-  formatMetric,
+  incidentCount,
   incidentHref,
   incidentsHref,
   metricLabel,
   rulesHref,
+  triggeredText,
+  unnotifiedText,
 } from "@/lib/alerts";
 import { formatAgo } from "@/lib/first-data";
 import type { Incident, IncidentsRange } from "@/lib/identity";
@@ -80,16 +82,7 @@ export function IncidentsView({
       ) : null}
 
       <div className="al-bar">
-        <h2>
-          Open<span>{incidents === null ? "" : open.length}</span>
-        </h2>
-        <nav className="al-range" aria-label="Range">
-          {INCIDENTS_RANGES.map((r) => (
-            <Link key={r.value} href={incidentsHref(project, r.value)} aria-current={r.value === range ? "page" : undefined}>
-              {r.label}
-            </Link>
-          ))}
-        </nav>
+        <ListHeading title="Open" count={incidents === null ? null : open.length} />
       </div>
 
       {incidents === null ? (
@@ -103,9 +96,18 @@ export function IncidentsView({
           )}
 
           <div className="al-bar">
-            <h2>
-              Resolved<span>{resolved.length}</span>
-            </h2>
+            <ListHeading title="Resolved" count={resolved.length} />
+            {/* The range only narrows resolved incidents: open ones show whenever they started. */}
+            <div className="al-range-group">
+              <span id="al-range-label">Resolved in</span>
+              <nav className="al-range" aria-labelledby="al-range-label">
+                {INCIDENTS_RANGES.map((r) => (
+                  <Link key={r.value} href={incidentsHref(project, r.value)} aria-current={r.value === range ? "page" : undefined}>
+                    {r.label}
+                  </Link>
+                ))}
+              </nav>
+            </div>
           </div>
           {resolved.length === 0 ? (
             <Empty>
@@ -126,6 +128,16 @@ export function IncidentsView({
         </>
       )}
     </div>
+  );
+}
+
+/** A list's heading with its count: shown as `Open 4`, read as "Open, 4 incidents". */
+function ListHeading({ title, count }: { title: string; count: number | null }) {
+  return (
+    <h2 aria-label={count === null ? undefined : `${title}, ${incidentCount(count)}`}>
+      {title}
+      {count === null ? null : <span>{count}</span>}
+    </h2>
   );
 }
 
@@ -160,8 +172,9 @@ function IncidentTable({
               Value
             </th>
             <th scope="col">Timeline</th>
+            <th scope="col">Notified</th>
             <th scope="col" className="al-num">
-              Incidents
+              Times fired
             </th>
           </tr>
         </thead>
@@ -178,8 +191,8 @@ function IncidentTable({
 
 function IncidentRow({ project, i, app, quiet, now }: { project: string; i: Incident; app: string | undefined; quiet: boolean; now: number }) {
   const e = i.latest;
-  // A rule with no channel never notifies anyone: say so rather than "not notified yet".
-  const unsent = quiet ? ", no channel, nobody notified" : null;
+  // A rule with no channel never notifies anyone: say so rather than "not yet" (#978).
+  const unsent = unnotifiedText(e, quiet);
   return (
     <tr>
       <td className="al-first">
@@ -194,7 +207,8 @@ function IncidentRow({ project, i, app, quiet, now }: { project: string; i: Inci
         <StatusBadge status={i.status} label={i.open ? undefined : "Resolved"} />
       </td>
       <td className="al-num" data-label="Value">
-        <span className="al-value">{formatMetric(i.metric, e.value)}</span>
+        {/* The value that opened the latest incident, not where the rule stands now. */}
+        <span className="al-value">{triggeredText(i.metric, e.value)}</span>
         <span className="al-meta">threshold {conditionText(i.metric, i.condition, i.threshold)}</span>
       </td>
       <td data-label="Timeline">
@@ -204,21 +218,18 @@ function IncidentRow({ project, i, app, quiet, now }: { project: string; i: Inci
             {formatAgo(e.started_at, now)}
           </time>
         </span>
-        <span className="al-meta">
-          {e.ended_at ? (
-            <>
-              Resolved after {eventDuration(e, now)}
-              {e.notified_at ? "" : (unsent ?? ", no notification sent")}
-            </>
-          ) : (
-            <>
-              Ongoing for {eventDuration(e, now)}
-              {e.notified_at ? ", notified" : (unsent ?? ", not notified yet")}
-            </>
-          )}
-        </span>
+        <span className="al-meta">{e.ended_at ? `Resolved after ${eventDuration(e, now)}` : `Ongoing for ${eventDuration(e, now)}`}</span>
       </td>
-      <td className="al-num" data-label="Incidents">
+      <td data-label="Notified">
+        {e.notified_at ? (
+          <time dateTime={e.notified_at} title={formatExact(e.notified_at)}>
+            {formatAgo(e.notified_at, now)}
+          </time>
+        ) : (
+          <span className="al-muted">{unsent}</span>
+        )}
+      </td>
+      <td className="al-num" data-label="Times fired">
         <span className="al-mono">{i.events}</span>
       </td>
     </tr>

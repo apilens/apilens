@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { conditionText, eventDuration, filterParts, formatMetric, formatSpan, incidentHref, incidentsHref, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
+import { conditionText, currentText, eventDuration, filterParts, formatMetric, formatSpan, incidentHref, incidentsHref, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
+import { formatAgo } from "@/lib/first-data";
 import type { AlertEvent, AlertRule } from "@/lib/identity";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
@@ -74,8 +75,9 @@ export function IncidentTimeline({
           <dd>{scheduleText(rule)}</dd>
         </div>
         <div>
-          <dt>Latest value</dt>
-          <dd className="al-mono">{rule.state ? formatMetric(rule.metric, rule.state.value) : "–"}</dd>
+          <dt>Latest check</dt>
+          {/* Where the rule stands now, apart from the value that opened each incident below. */}
+          <dd>{rule.state ? currentText(rule, now) : "–"}</dd>
         </div>
       </dl>
 
@@ -108,12 +110,12 @@ export function IncidentTimeline({
                 </div>
                 <ul className="al-event__steps">
                   <li>
-                    <b>Triggered</b> <time dateTime={e.started_at}>{formatExact(e.started_at)}</time>
+                    <b>Triggered</b> <When at={e.started_at} now={now} />
                   </li>
                   <li>
                     {e.notified_at ? (
                       <>
-                        <b>Notified</b> <time dateTime={e.notified_at}>{formatExact(e.notified_at)}</time>
+                        <b>Notified</b> <When at={e.notified_at} now={now} />
                       </>
                     ) : rule.notify_after_s > 0 && !e.ended_at ? (
                       `Notifies once it holds for ${formatSpan(rule.notify_after_s)}`
@@ -124,7 +126,7 @@ export function IncidentTimeline({
                   <li>
                     {e.ended_at ? (
                       <>
-                        <b>Resolved</b> <time dateTime={e.ended_at}>{formatExact(e.ended_at)}</time>, after {eventDuration(e, now)}
+                        <b>Resolved</b> <When at={e.ended_at} now={now} />, after {eventDuration(e, now)}
                       </>
                     ) : (
                       <>
@@ -155,5 +157,14 @@ export function IncidentTimeline({
         </div>
       )}
     </div>
+  );
+}
+
+/** A time relative to the page's load (`12m ago`), with the exact UTC time on hover. */
+function When({ at, now }: { at: string; now: number }) {
+  return (
+    <time dateTime={at} title={formatExact(at)}>
+      {formatAgo(at, now)}
+    </time>
   );
 }

@@ -125,7 +125,7 @@ function RuleRow({ project, rule: r, app, channels }: { project: string; rule: A
         ) : r.state ? (
           <>
             <StatusBadge status={r.state.status} />
-            <span className="al-meta al-mono">{formatMetric(r.metric, r.state.value)}</span>
+            <span className="al-meta al-mono">Now {formatMetric(r.metric, r.state.value)}</span>
           </>
         ) : (
           <span className="al-muted">Not evaluated yet</span>

@@ -103,11 +103,18 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   const row = open.locator("tbody tr").first();
   await expect(row).toContainText("Checkout error rate");
   await expect(row).toContainText("Triggered");
-  await expect(row).toContainText("3.4%");
+  await expect(row).toContainText("Triggered at 3.4%");
   await expect(row).toContainText("threshold > 2.0%");
   await expect(row).toContainText("Started 12m ago");
-  await expect(row).toContainText(/Ongoing for 1[12] min, notified/);
+  await expect(row).toContainText(/Ongoing for 1[12] min/);
+  await expect(row.getByRole("cell").nth(4)).toHaveText("12m ago");
   await expect(badge(page)).toHaveText("1");
+  // The count reads as words, and the range sits on the Resolved bar: it only narrows resolved incidents.
+  await expect(page.getByRole("heading", { level: 2, name: "Open, 1 incident" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Resolved, 0 incidents" })).toBeVisible();
+  const range = page.getByRole("navigation", { name: "Resolved in" });
+  await expect(range.getByRole("link", { name: "7 days" })).toHaveAttribute("aria-current", "page");
+  await expect(open.getByRole("columnheader", { name: "Times fired" })).toBeVisible();
 
   const a11y = await new AxeBuilder({ page }).include(".al").analyze();
   expect(a11y.violations).toEqual([]);
@@ -120,6 +127,11 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await expect(timeline).toContainText("Open");
   await expect(timeline).toContainText("Triggered");
   await expect(timeline).toContainText("Notified");
+  // Times read relative to now, the exact time on hover; the summary says where the rule stands now.
+  const triggered = timeline.locator("time").first();
+  await expect(triggered).toHaveText("12m ago");
+  await expect(triggered).toHaveAttribute("title", / UTC$/);
+  await expect(page.locator(".al-summary")).toContainText(/Latest check\s*Now .+ · checked /);
 
   // Resolved: it moves to Resolved and the badge goes away.
   await fake({ resolve: "Checkout error rate" });
@@ -253,6 +265,9 @@ test("stacks incidents at phone width without sideways scrolling", async ({ page
   await expect(page.getByRole("table", { name: "Open incidents" }).locator("tbody tr")).toHaveCount(1);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // Each stacked line has its label, the notification one included.
+  const labels = await page.locator(".al-table tbody tr").first().locator("td[data-label]").evaluateAll((tds) => tds.map((td) => td.getAttribute("data-label")));
+  expect(labels).toEqual(["Status", "Value", "Timeline", "Notified", "Times fired"]);
 });
 
 /** Seeds shop's consumers so `GET /consumer-groups` answers these SDK groups, busiest last. */
@@ -339,8 +354,8 @@ test("says nobody is notified while the project has no channel, and links to add
   await expect(banner).toBeVisible();
   await expect(banner.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/shop/settings/alerts");
   const incident = page.getByRole("table", { name: "Open incidents" }).locator("tbody tr").first();
-  await expect(incident).toContainText("no channel, nobody notified");
-  await expect(incident).not.toContainText("not notified yet");
+  await expect(incident.getByRole("cell").nth(4)).toHaveText("No channel, nobody notified");
+  await expect(incident).not.toContainText("Not yet");
   const a11y = await new AxeBuilder({ page }).include(".al").analyze();
   expect(a11y.violations).toEqual([]);
 
