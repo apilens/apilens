@@ -11,7 +11,7 @@
 //   GET  /boom/chained    unhandled error with a 3-level cause chain -> 500
 //   GET  /boom/deep       unhandled error 60 frames deep -> 500
 //   GET  /boom/handled    error turned into a 500 by error middleware
-//   GET  /boom/logged     error caught and logged (console.error) -> 200
+//   GET  /boom/logged     error caught and logged (console.error, captureException) -> 200
 //   GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
 //
 // Configuration is environment only:
@@ -64,11 +64,16 @@ const consumerFromToken = (req) => {
   return scheme?.toLowerCase() === "bearer" ? (USERS[(token ?? "").trim()] ?? null) : null;
 };
 
+// The JS SDK has no logging-library handler: an error the app catches and
+// logs is shipped with captureException (a no-op without the SDK).
+let captureException = () => {};
 if (posture !== "off") {
   const { useApiLens } = await import("apilens-js-sdk/express");
+  ({ captureException } = await import("apilens-js-sdk"));
   // apiKey, appId, baseUrl, environment and every capture option come from
-  // APILENS_* env vars; the posture picks the capture profile.
-  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromToken });
+  // APILENS_* env vars; the posture picks the capture profile. The stack
+  // trace limit keeps every frame of /boom/deep (the SDK default is 50).
+  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromToken, stackTraceLimit: 100 });
 }
 
 app.use(express.json());
@@ -180,6 +185,7 @@ app.get("/boom/logged", (_req, res) => {
     loadOrder();
   } catch (err) {
     console.error("example failure: /boom/logged caught and logged it", err);
+    captureException(err, { mechanism: "logged" });
   }
   res.json({ status: "ok", logged: true });
 });
