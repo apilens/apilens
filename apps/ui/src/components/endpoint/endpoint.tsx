@@ -475,14 +475,16 @@ function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: Endp
           <>
             <ul className="ep-exc" aria-label="Server exceptions">
               {exceptions.map((x) => (
-                <li key={`${x.exception_type} ${x.message}`}>
+                <li key={x.fingerprint}>
                   <details>
                     <summary>
                       <span className="ep-exc__name">
                         <b>{x.exception_type || "Exception"}</b> <span className="ep-exc__msg">{x.message}</span>
+                        {x.top_frame ? <span className="ep-exc__frame">in {x.top_frame}</span> : null}
                       </span>
                       <span className="ep-exc__meta">
-                        {formatCount(x.count)} times, {formatCount(x.consumers)} consumers, last <When iso={x.last_seen} />
+                        {formatCount(x.count)} times, {formatCount(x.consumers)} consumers, first <When iso={x.first_seen} />, last{" "}
+                        <When iso={x.last_seen} />
                       </span>
                     </summary>
                     {x.stack_trace ? <pre className="ep-stack">{x.stack_trace}</pre> : <p className="tr-empty">The SDK sent no stack trace for this exception.</p>}

@@ -121,8 +121,10 @@ type deployStatus struct {
 }
 
 type deployException struct {
+	Fingerprint   string `json:"fingerprint" doc:"Group key: a hash of the exception type and the top in-app frame (else the message with ids replaced)."`
 	ExceptionType string `json:"exception_type" doc:"Exception class; empty when the SDK reported none."`
-	Message       string `json:"message" doc:"Exception message."`
+	Message       string `json:"message" doc:"Message of the latest occurrence."`
+	TopFrame      string `json:"top_frame" doc:"Top in-app frame of the stack trace, line number left out; empty when none was found."`
 	Before        uint64 `json:"before" doc:"Times raised before the deploy."`
 	After         uint64 `json:"after" doc:"Times raised after the deploy."`
 	New           bool   `json:"new" doc:"Raised after the deploy but not in the hour before."`
@@ -469,10 +471,12 @@ func (s *Service) deployStatuses(ctx context.Context, a deployAround) ([]deployS
 func (s *Service) deployExceptions(ctx context.Context, a deployAround) ([]deployException, error) {
 	where, wargs := a.sidesFilter()
 	rows, err := s.ch.Query(ctx, `
-		SELECT message, countIf(timestamp < ?) AS b, countIf(timestamp >= ?) AS a,
+		SELECT `+exceptionFingerprintSQL+`, exc_type, any(exc_frame), argMax(message, timestamp),
+		       countIf(timestamp < ?) AS b, countIf(timestamp >= ?) AS a,
 		       argMax(endpoint_method, timestamp), argMax(endpoint_path, timestamp)
-		FROM api_logs WHERE `+where+` AND level IN ('ERROR', 'CRITICAL') AND logger_name = ?
-		GROUP BY message ORDER BY a DESC, b DESC, message LIMIT ?`,
+		FROM (`+exceptionRowsSQL([]string{"message", "timestamp", "endpoint_method", "endpoint_path"},
+		where+" AND level IN ('ERROR', 'CRITICAL') AND logger_name = ?")+`)
+		GROUP BY exc_type, exc_key ORDER BY a DESC, b DESC, exc_type, exc_key LIMIT ?`,
 		append(append([]any{a.minute, a.afterFrom}, wargs...), exceptionLogger, maxDeployExceptions)...)
 	if err != nil {
 		return nil, internalError("deploy exceptions", err)
@@ -481,13 +485,13 @@ func (s *Service) deployExceptions(ctx context.Context, a deployAround) ([]deplo
 	out := []deployException{}
 	for rows.Next() {
 		var (
-			e   deployException
-			msg string
+			e        deployException
+			typ, msg string
 		)
-		if err := rows.Scan(&msg, &e.Before, &e.After, &e.Method, &e.Path); err != nil {
+		if err := rows.Scan(&e.Fingerprint, &typ, &e.TopFrame, &msg, &e.Before, &e.After, &e.Method, &e.Path); err != nil {
 			return nil, internalError("deploy exceptions", err)
 		}
-		e.ExceptionType, e.Message = splitException(msg)
+		e.ExceptionType, e.Message = exceptionLabel(typ, msg)
 		e.New = e.Before == 0 && e.After > 0
 		out = append(out, e)
 	}

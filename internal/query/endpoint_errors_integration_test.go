@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,8 +62,10 @@ type endpointErrors struct {
 		Consumers uint64 `json:"consumers"`
 	} `json:"validation_errors"`
 	Exceptions []struct {
+		Fingerprint   string    `json:"fingerprint"`
 		ExceptionType string    `json:"exception_type"`
 		Message       string    `json:"message"`
+		TopFrame      string    `json:"top_frame"`
 		Count         uint64    `json:"count"`
 		Consumers     uint64    `json:"consumers"`
 		FirstSeen     time.Time `json:"first_seen"`
@@ -133,7 +137,30 @@ func TestEndpointErrors(t *testing.T) {
 		}
 	}
 	const exc = "apilens.exception"
+	// A Python traceback whose top in-app frame is app/orders.py:get_order
+	// (the framework frame below it is a library frame).
+	stack := func(line int, last string) string {
+		return "Traceback (most recent call last):\n" +
+			`  File "/usr/lib/python3.12/site-packages/fastapi/routing.py", line 301, in app` + "\n    raw = await run()\n" +
+			`  File "/srv/app/orders.py", line ` + strconv.Itoa(line) + ", in get_order\n    raise NotFound(order_id)\n" + last
+	}
+	typed := func(r pipeline.LogRow, typ string) pipeline.LogRow {
+		r.Attributes = map[string]string{"exception.type": typ}
+		return r
+	}
 	if err := ins.Logs(ctx, []pipeline.LogRow{
+		// Same type and top in-app frame, messages differ by ids and the
+		// line moved between deploys: one group, latest message shown.
+		typed(log(mine, "GET", "ERROR", exc, "app.errors.NotFound: order 123 not found", "dave",
+			stack(42, "app.errors.NotFound: order 123 not found"), ""), "app.errors.NotFound"),
+		typed(log(mine, "GET", "ERROR", exc, "app.errors.NotFound: order 98765 not found", "dave",
+			stack(40, "app.errors.NotFound: order 98765 not found"), ""), "app.errors.NotFound"),
+		// Same frame, another type: its own group.
+		typed(log(mine, "GET", "ERROR", exc, "app.errors.Gone: order 7 gone", "dave",
+			stack(42, "app.errors.Gone: order 7 gone"), ""), "app.errors.Gone"),
+		// No stack: the message with uuids and digits replaced groups them.
+		log(mine, "GET", "ERROR", exc, "RuntimeError: lock 5f3a9c2e-1111-2222-3333-444455556666 held 12ms", "dave", "", ""),
+		log(mine, "GET", "ERROR", exc, "RuntimeError: lock 0b7e4d10-aaaa-bbbb-cccc-ddddeeeeffff held 3ms", "dave", "", ""),
 		log(mine, "GET", "ERROR", exc, "ValueError: bad qty", "alice", "Traceback new", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		log(mine, "GET", "ERROR", exc, "ValueError: bad qty", "bob", "Traceback old", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
 		log(mine, "GET", "CRITICAL", exc, "KeyError: 'sku'", "bob", "Traceback key", ""),
@@ -233,11 +260,36 @@ func TestEndpointErrors(t *testing.T) {
 		v[1].Loc != "body.sku" || v[1].Type != "missing" || v[1].Count != 1 {
 		t.Fatalf("all: validation errors %+v", v)
 	}
-	if e := out.Exceptions; len(e) != 2 ||
-		e[0].ExceptionType != "ValueError" || e[0].Message != "bad qty" || e[0].Count != 2 || e[0].Consumers != 2 ||
-		e[0].StackTrace != "Traceback new" || e[0].TraceID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || !e[0].FirstSeen.Before(e[0].LastSeen) ||
-		e[1].ExceptionType != "KeyError" || e[1].Message != "'sku'" || e[1].Count != 1 || e[1].StackTrace != "Traceback key" {
+	// Most frequent first, ties by type: RuntimeError, ValueError,
+	// app.errors.NotFound (2 each), then KeyError, app.errors.Gone.
+	e := out.Exceptions
+	if len(e) != 5 {
 		t.Fatalf("all: exceptions %+v", e)
+	}
+	if e[0].ExceptionType != "RuntimeError" || e[0].Count != 2 || e[0].TopFrame != "" ||
+		e[0].Message != "lock 5f3a9c2e-1111-2222-3333-444455556666 held 12ms" {
+		t.Fatalf("all: message group %+v", e[0])
+	}
+	if e[1].ExceptionType != "ValueError" || e[1].Message != "bad qty" || e[1].Count != 2 || e[1].Consumers != 2 ||
+		e[1].StackTrace != "Traceback new" || e[1].TraceID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || !e[1].FirstSeen.Before(e[1].LastSeen) {
+		t.Fatalf("all: ValueError %+v", e[1])
+	}
+	if e[2].ExceptionType != "app.errors.NotFound" || e[2].Message != "order 123 not found" || e[2].Count != 2 ||
+		e[2].TopFrame != "/srv/app/orders.py:get_order" || !strings.Contains(e[2].StackTrace, "line 42") {
+		t.Fatalf("all: frame group %+v", e[2])
+	}
+	if e[3].ExceptionType != "KeyError" || e[3].Message != "'sku'" || e[3].Count != 1 || e[3].StackTrace != "Traceback key" {
+		t.Fatalf("all: KeyError %+v", e[3])
+	}
+	if e[4].ExceptionType != "app.errors.Gone" || e[4].Count != 1 || e[4].TopFrame != e[2].TopFrame {
+		t.Fatalf("all: same frame, other type %+v", e[4])
+	}
+	seen := map[string]bool{}
+	for _, x := range e {
+		if len(x.Fingerprint) != 16 || seen[x.Fingerprint] {
+			t.Fatalf("all: fingerprints %+v", e)
+		}
+		seen[x.Fingerprint] = true
 	}
 
 	// Filters: environment and consumer.
