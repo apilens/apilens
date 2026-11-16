@@ -1322,3 +1322,55 @@ func TestPostgresAuditScopeMigration(t *testing.T) {
 		t.Fatalf("after re-apply = %v, want %v", got, want)
 	}
 }
+
+func TestClickHouseSpanEventsMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	db := ch.OpenDB(chCfg, "")
+	t.Cleanup(func() { _ = db.Close() })
+	columns := func() []string {
+		t.Helper()
+		rows, err := db.QueryContext(ctx, `SELECT name FROM system.columns
+			WHERE database = currentDatabase() AND table = 'api_spans'
+			AND (name IN ('status_message', 'links') OR startsWith(name, 'events.')) ORDER BY name`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rows.Close() }()
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			names = append(names, name)
+		}
+		return names
+	}
+	want := []string{"events.attributes", "events.name", "events.time", "links", "status_message"}
+	if got := columns(); !slices.Equal(got, want) {
+		t.Fatalf("after up = %v, want %v", got, want)
+	}
+
+	provider, err := goose.NewProvider(goose.DialectClickHouse, db, migrations.ClickHouseFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 3); err != nil {
+		t.Fatalf("roll back to 00003: %v", err)
+	}
+	if got := columns(); len(got) != 0 {
+		t.Fatalf("after down = %v, want none", got)
+	}
+
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if got := columns(); !slices.Equal(got, want) {
+		t.Fatalf("after re-apply = %v, want %v", got, want)
+	}
+}

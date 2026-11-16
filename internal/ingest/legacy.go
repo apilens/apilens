@@ -84,6 +84,10 @@ type spanRecord struct {
 	Attributes   map[string]json.RawMessage `json:"attributes"`
 	Release      string                     `json:"release"`
 	Commit       string                     `json:"commit"`
+	// M5 fields; older SDKs omit them.
+	StatusMessage string            `json:"status_message"`
+	Events        []spanEventRecord `json:"events"`
+	Links         []spanLinkRecord  `json:"links"`
 }
 
 type deployRecord struct {
@@ -375,23 +379,33 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		if kind == "" {
 			kind = "internal"
 		}
+		appID := apps[strings.TrimSpace(rec.AppID)]
+		events, eventsCut := spanEvents(rec.Events, rec.Timestamp.Time)
+		links, linksCut := spanLinks(rec.Links)
+		if eventsCut || linksCut {
+			e.truncated.WithLabelValues(FieldSpanEvents).Inc()
+			t.app(appID).Truncated++
+		}
 		rows = append(rows, pipeline.SpanRow{
-			ProjectID:    p.ProjectID,
-			AppID:        apps[strings.TrimSpace(rec.AppID)],
-			Environment:  environment(rec.Environment),
-			Timestamp:    rec.Timestamp.Time,
-			TraceID:      traceID,
-			SpanID:       spanID,
-			ParentSpanID: hexID(rec.ParentSpanID, spanIDHexLen),
-			Name:         short(rec.Name),
-			Kind:         truncate(kind, 32),
-			ServiceName:  short(rec.ServiceName),
-			DurationMs:   nonNegative(rec.DurationMs),
-			Status:       status,
-			StatusCode:   clampStatus(rec.StatusCode),
-			Attributes:   attributes(rec.Attributes),
-			Release:      release(rec.Release),
-			Commit:       commit(rec.Commit),
+			ProjectID:     p.ProjectID,
+			AppID:         appID,
+			Environment:   environment(rec.Environment),
+			Timestamp:     rec.Timestamp.Time,
+			TraceID:       traceID,
+			SpanID:        spanID,
+			ParentSpanID:  hexID(rec.ParentSpanID, spanIDHexLen),
+			Name:          short(rec.Name),
+			Kind:          truncate(kind, 32),
+			ServiceName:   short(rec.ServiceName),
+			DurationMs:    nonNegative(rec.DurationMs),
+			Status:        status,
+			StatusCode:    clampStatus(rec.StatusCode),
+			Attributes:    attributes(rec.Attributes),
+			Release:       release(rec.Release),
+			Commit:        commit(rec.Commit),
+			StatusMessage: truncate(strings.TrimSpace(rec.StatusMessage), maxSpanStatusMessageChars),
+			Events:        events,
+			Links:         links,
 		})
 	}
 	if err := e.sink.SubmitSpans(r.Context(), rows); err != nil {
