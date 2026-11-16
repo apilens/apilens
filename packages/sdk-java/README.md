@@ -282,6 +282,25 @@ When a handler throws, or the response status is 5xx, the SDK sends one
 with the stack trace as payload, or `apilens.http` for a 5xx without an
 exception) and marks the span `error`. The exception is re-thrown unchanged.
 
+Exceptions your `@ExceptionHandler` / `@ControllerAdvice` turns into a response
+are shipped too, with their full stack, and the request is always kept: an
+`ERROR` log when the response is 5xx, a `WARN` log below (the span is `error`
+only for 5xx). On Spring MVC this is automatic (`ApiLensHandlerExceptionResolver`
+records the exception and changes nothing about how it is handled). WebFlux
+resolves `@ExceptionHandler` methods inside its `DispatcherHandler`, where no
+filter can see them, so record the exception from the handler:
+
+```java
+@ExceptionHandler(PaymentException.class)
+ResponseEntity<String> failed(PaymentException ex, ServerWebExchange exchange) {
+  ApiLensWebFilter.recordException(exchange, ex);
+  return ResponseEntity.status(502).body("payment failed");
+}
+```
+
+Exceptions that reach a WebFlux `WebExceptionHandler` are seen by the filter
+and need no call.
+
 ### Turning tracing on and off
 
 ```properties

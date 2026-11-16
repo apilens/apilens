@@ -45,6 +45,12 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
   private static final Logger LOGGER = Logger.getLogger("apilens");
   private static final String BEST_MATCHING_PATTERN_ATTRIBUTE =
       "org.springframework.web.servlet.HandlerMapping.bestMatchingPattern";
+  /**
+   * Request attribute holding a handler exception that Spring MVC resolved into a response
+   * ({@code @ExceptionHandler}, {@code @ControllerAdvice}, {@code @ResponseStatus}...), so it
+   * never reached this filter. {@link ApiLensHandlerExceptionResolver} sets it.
+   */
+  public static final String EXCEPTION_ATTRIBUTE = ApiLensSpringFilter.class.getName() + ".exception";
 
   private final ApiLensClient client;
   private final ApiLensSpringOptions options;
@@ -155,8 +161,11 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         throw error;
       } finally {
         try {
+          Throwable resolvedException = capturedException == null && capturedError == null
+              ? resolvedException(requestWrapper)
+              : null;
           capture(requestWrapper, responseWrapper, sampling, policy, startedAt, startedNanos, statusCode,
-              trace, capturedException, capturedError);
+              trace, capturedException, capturedError, resolvedException);
         } catch (Exception ex) {
           LOGGER.log(Level.WARNING, "Error while logging request in API Lens Spring filter", ex);
         } finally {
@@ -165,6 +174,11 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         }
       }
     }
+  }
+
+  private static Throwable resolvedException(HttpServletRequest request) {
+    Object value = request.getAttribute(EXCEPTION_ATTRIBUTE);
+    return value instanceof Throwable throwable ? throwable : null;
   }
 
   private ContentCachingRequestWrapper wrapRequest(HttpServletRequest request, int maxPayloadBytes) {
@@ -191,7 +205,8 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       int statusCode,
       TraceContext trace,
       Exception capturedException,
-      Error capturedError) {
+      Error capturedError,
+      Throwable resolvedException) {
     String method = Strings.firstNonBlank(request.getMethod(), "GET").toUpperCase();
     String rawRequestPath = Strings.normalizePath(request.getRequestURI());
     String rawPath = rawRequestPath;
@@ -204,13 +219,16 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
     double elapsedMs = Math.max((System.nanoTime() - startedNanos) / 1_000_000.0, 0.0);
     ApiLensConsumer consumer = resolveConsumer(request, response);
     boolean isError = capturedException != null || capturedError != null || finalStatusCode >= 500;
+    // A handler exception an @ExceptionHandler / @ControllerAdvice turned into a response counts
+    // as thrown: the request is always kept, like one whose exception reached the filter.
+    boolean threw = isError || resolvedException != null;
     // Sampled out: the base record is still sent (sampled=false) so metrics stay exact, but
     // without headers, bodies or span. The trace context was still made current.
     // The remote sample rate applies on top of the local decision, so it only ever drops more.
     // Errors are never sampled (D1): a request that threw or answered 5xx is always kept, even
     // at sampleRate 0 or when a sampling callback drops it. Remote enabled=false still wins,
     // because shouldNotFilter bypasses the filter entirely.
-    boolean sampled = isError || sampler.onResponse(sampling, () -> new SampleResponseInfo(
+    boolean sampled = threw || sampler.onResponse(sampling, () -> new SampleResponseInfo(
         requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()))
         && policy.keeps(random);
     int maxPayloadBytes = policy.limitPayloadBytes(options.maxPayloadBytes());
@@ -285,20 +303,24 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
 
     // The exception log does not depend on span capture (D2): captureSpans=false turns spans
     // off, never exceptions.
-    if (isError) {
-      captureErrorLog(capturedException, capturedError, finalStatusCode, method, endpointPath, trace, consumer);
+    // A resolved exception is reported with its stack: ERROR when it answered 5xx, WARN below.
+    if (threw) {
+      Throwable throwable = capturedException != null ? capturedException
+          : capturedError != null ? capturedError
+          : resolvedException;
+      captureErrorLog(throwable, isError ? "ERROR" : "WARN", finalStatusCode, method, endpointPath, trace,
+          consumer);
     }
   }
 
   private void captureErrorLog(
-      Exception capturedException,
-      Error capturedError,
+      Throwable throwable,
+      String level,
       int statusCode,
       String method,
       String endpointPath,
       TraceContext trace,
       ApiLensConsumer consumer) {
-    Throwable throwable = capturedException != null ? capturedException : capturedError;
     // Spring MVC wraps the handler's exception in a ServletException; report the handler's own.
     ExceptionInfo exception = ExceptionInfo.of(throwable);
     String message = exception == null
@@ -309,7 +331,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
     client.captureLog(LogRecord.builder()
         .timestamp(Instant.now())
         .environment(options.environment())
-        .level("ERROR")
+        .level(level)
         .message(message)
         .loggerName(throwable == null ? "apilens.http" : "apilens.exception")
         .endpointMethod(method)
