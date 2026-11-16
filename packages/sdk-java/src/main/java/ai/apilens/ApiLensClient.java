@@ -87,10 +87,12 @@ public class ApiLensClient implements AutoCloseable {
   public static final String DROP_SHUTDOWN = "shutdown";
   /** Not a drop: a record was shortened to fit {@code maxBatchBytes} and still sent. */
   public static final String DROP_TRUNCATED = "truncated";
+  /** A kept request had more than {@link TraceContext#MAX_CHILD_SPANS} child spans. */
+  public static final String DROP_SPAN_CAP = "span_cap";
   /** Every key of {@link ClientStats#dropCounts()}. */
   public static final List<String> DROP_REASONS = List.of(
       DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED, DROP_INVALID,
-      DROP_APP_REJECTED, DROP_SHUTDOWN, DROP_TRUNCATED);
+      DROP_APP_REJECTED, DROP_SHUTDOWN, DROP_TRUNCATED, DROP_SPAN_CAP);
 
   /** {@code sdk_name} in heartbeats. */
   public static final String SDK_NAME = "apilens-java-sdk";
@@ -421,6 +423,16 @@ public class ApiLensClient implements AutoCloseable {
       return;
     }
     capture(spanQueue, record);
+  }
+
+  /**
+   * Counts {@code count} child spans of a kept request that went over the per-request cap
+   * ({@link TraceContext#MAX_CHILD_SPANS}) as {@code span_cap} drops, reported in the heartbeat.
+   */
+  public void countSpanCapDrops(long count) {
+    if (count > 0) {
+      drop("spans", DROP_SPAN_CAP, count);
+    }
   }
 
   /** Enqueues {@code record}; does nothing while the remote policy has capture disabled. */

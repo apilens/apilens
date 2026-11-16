@@ -284,6 +284,17 @@ named `METHOD /route/template`), sent to `/traces`. An incoming W3C
   `WebClient`, or use `ApiLensHttpClient.wrap(httpClient, tracing)`. Child spans
   are kept or dropped with the request's server span, and nothing is traced
   when span capture is off.
+- **Database calls.** JDBC statements run during a captured request become
+  child spans (`kind=db`, attributes `db.system` from the JDBC URL,
+  `db.operation` and `db.statement`, `error` when the statement threw). The
+  statement is obfuscated before it leaves the process: string, number and hex
+  literals become `?`, comments are removed and it is cut to 2 KiB; bound
+  parameter values are never read. Spring Boot wraps every `DataSource` bean
+  (a subclass proxy, so `HikariDataSource` stays injectable). By hand:
+  `ApiLensDataSource.wrap(dataSource, ApiLensJdbcTracing.of(client))`.
+- **Span cap.** A request keeps at most 2,000 child spans (HTTP and database
+  together). Spans past it are not sent and are counted as `span_cap` drops,
+  reported in the heartbeat and shown in Ingest health.
 - **Propagating the trace by hand.** Send `TraceContext.currentTraceparent()`
   as the `traceparent` header on other outbound calls.
 
@@ -762,6 +773,7 @@ serverless and proxies are covered end to end in the
   | `invalid` | Ingest answered 200 but refused this record as invalid (partial accept); the rest of the batch was stored. |
   | `app_rejected` | Ingest answered 200 but refused this record because of its app or environment. |
   | `shutdown` | Still queued or unsent when the shutdown flush reached `shutdownTimeout`. |
+  | `span_cap` | A kept request had more than 2,000 child spans (outbound HTTP and database); the extra spans were not sent. |
   | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads were cut before sending. Not counted in `droppedCount()`. |
 
 - **Size-bounded batches.** A POST is cut at `batchSize` records or

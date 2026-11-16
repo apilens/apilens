@@ -368,8 +368,9 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
           .appId(client.config().appId())
           .build());
     }
-    // Outbound HTTP child spans are kept or dropped with the request's server span.
-    trace.releaseChildSpans(sampled && options.captureSpans(), client::captureSpan);
+    // Child spans (outbound HTTP, database) are kept or dropped with the request's server span;
+    // a kept request's spans past the per-request cap are counted as span_cap drops.
+    trace.releaseChildSpans(sampled && options.captureSpans(), client::captureSpan, client::countSpanCapDrops);
 
     // The exception log does not depend on span capture (D2): captureSpans=false turns spans
     // off, never exceptions.
