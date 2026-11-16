@@ -183,8 +183,11 @@ function rangeLabel(name: string, lo: number | null, hi: number | null, fmt: (n:
   return null;
 }
 
-/** The chips for the filters that are on, in URL order. */
-export function filterChips(f: ExploreFilters): FilterChip[] {
+/**
+ * The chips for the filters that are on, in URL order. A consumer filter reads as the consumer's
+ * name, as the log shows it, when `consumers` knows the id (#983).
+ */
+export function filterChips(f: ExploreFilters, consumers: readonly { id: string; name: string }[] = []): FilterChip[] {
   const chips: FilterChip[] = [];
   const text = (k: FilterKey, label: string) => {
     if (f[k] !== "") chips.push({ id: k, label, keys: [k] });
@@ -195,7 +198,7 @@ export function filterChips(f: ExploreFilters): FilterChip[] {
   text("path", `Path ${f.path}`);
   text("url_contains", `URL contains “${f.url_contains}”`);
   text("payload_contains", `Payload contains “${f.payload_contains}”`);
-  text("consumer_id", `Consumer ${f.consumer_id}`);
+  text("consumer_id", `Consumer ${consumers.find((c) => c.id === f.consumer_id)?.name.trim() || f.consumer_id}`);
   text("consumer_group", `Group ${f.consumer_group}`);
   text("ip", `IP ${f.ip}`);
   const range = (id: string, name: string, lo: NumberKey, hi: NumberKey, fmt: (n: number) => string) => {
@@ -272,3 +275,61 @@ export const sameFilters = (a: ExploreFilters, b: ExploreFilters) => FILTER_KEYS
 
 /** How long the bar waits after the last keystroke before it applies typed filters. */
 export const FILTER_DEBOUNCE_MS = 400;
+
+/**
+ * What the Path and Consumer fields suggest (#983), so a filter matches what the log shows: the
+ * project's endpoints (method and route template) and its consumers (name and id). Read with the
+ * page; empty when that read failed.
+ */
+export interface FilterSuggestions {
+  endpoints: readonly EndpointSuggestion[];
+  consumers: readonly ConsumerSuggestion[];
+}
+
+export interface EndpointSuggestion {
+  method: string;
+  path: string;
+}
+
+export interface ConsumerSuggestion {
+  id: string;
+  name: string;
+}
+
+export const NO_SUGGESTIONS: FilterSuggestions = { endpoints: [], consumers: [] };
+
+/** At most this many suggestions show under a field. */
+export const MAX_SUGGESTIONS = 8;
+
+/**
+ * The endpoints, one per method and route however many apps serve it, in the order given (the
+ * API lists the busiest first).
+ */
+export function uniqueEndpoints(list: readonly EndpointSuggestion[]): EndpointSuggestion[] {
+  const seen = new Set<string>();
+  const out: EndpointSuggestion[] = [];
+  for (const e of list) {
+    const method = e.method.toUpperCase();
+    const key = `${method} ${e.path}`;
+    if (!e.path || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ method, path: e.path });
+  }
+  return out;
+}
+
+/**
+ * The endpoints a typed path suggests: those whose `METHOD /route` contains the text, ignoring
+ * case (all of them for no text); only the picked method's when one is picked.
+ */
+export function endpointSuggestions(list: readonly EndpointSuggestion[], typed: string, method = ""): EndpointSuggestion[] {
+  const t = typed.trim().toLowerCase();
+  const m = method.toUpperCase();
+  return list.filter((e) => (!m || e.method === m) && (!t || `${e.method} ${e.path}`.toLowerCase().includes(t))).slice(0, MAX_SUGGESTIONS);
+}
+
+/** The consumers a typed text suggests: those whose name or id contains it, ignoring case. */
+export function consumerSuggestions(list: readonly ConsumerSuggestion[], typed: string): ConsumerSuggestion[] {
+  const t = typed.trim().toLowerCase();
+  return list.filter((c) => c.id && (!t || c.id.toLowerCase().includes(t) || c.name.toLowerCase().includes(t))).slice(0, MAX_SUGGESTIONS);
+}

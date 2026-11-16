@@ -111,6 +111,17 @@ select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:im
 .ex-range__inputs { display: flex; align-items: center; gap: var(--space-2); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ex-input--num { min-width: 0; flex: 1; font-variant-numeric: tabular-nums; }
 
+/* Path and Consumer suggestions (#983): a listbox under the field, over the fields below it. */
+.ex-combo { position: relative; min-width: 0; }
+.ex-combo__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: 264px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
+.ex-combo__list[hidden] { display: none; }
+.ex-combo__opt { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 6px 8px; border-radius: 5px; font: 400 13px/18px var(--font-sans); color: var(--ink); cursor: pointer; }
+.ex-combo__opt.is-active { background: var(--surface-2); }
+.ex-combo__lead { flex: none; min-width: 52px; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.ex-combo__text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ex-input--mono + .ex-combo__list .ex-combo__text { font-family: var(--font-mono); }
+.ex-combo__detail { flex: none; max-width: 45%; margin-left: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+
 /* Request drawer (#588): a modal side panel from the right edge. Markers the SDK left in place of
    values read apart from real data: [redacted] and [masked] on --warn-soft, ...[truncated] on
    --surface-2 with a dashed edge, each with a title saying what it means. JSON lines are a fixed

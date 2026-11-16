@@ -78,6 +78,46 @@ func TestRequestFilterClauses(t *testing.T) {
 	}
 }
 
+func TestIsRouteTemplate(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/orders/{id}":       true,
+		"/users/:id":         true,
+		"/files/<path:name>": true,
+		"/orders/1042":       false,
+		"/charge":            false,
+		"orders?expand=1":    false,
+		"/time/10:30":        false,
+	} {
+		if got := isRouteTemplate(p); got != want {
+			t.Errorf("isRouteTemplate(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// What the log shows finds its rows (#983): a raw URL in the path filter and a
+// consumer name in the consumer filter.
+func TestRequestFilterMatchesWhatTheLogShows(t *testing.T) {
+	c, a, err := requestFilter(&requestsInput{Path: "/orders/{id}"}, nil, nil)
+	if err != nil || !slices.Equal(c, []string{"path = ?"}) || !slices.Equal(a, []any{"/orders/{id}"}) {
+		t.Fatalf("template: %q %v %v", c, a, err)
+	}
+	c, a, err = requestFilter(&requestsInput{Path: "/orders/10_42"}, nil, nil)
+	if err != nil || !slices.Equal(c, []string{"(path = ? OR raw_path ILIKE ?)"}) || !slices.Equal(a, []any{"/orders/10_42", `%/orders/10\_42%`}) {
+		t.Fatalf("raw URL: %q %v %v", c, a, err)
+	}
+	c, a, err = requestFilter(&requestsInput{ConsumerID: "Acme Corp"}, nil, nil)
+	if err != nil || !slices.Equal(c, []string{"(consumer_id = ? OR consumer_name = ?)"}) || !slices.Equal(a, []any{"Acme Corp", "Acme Corp"}) {
+		t.Fatalf("consumer: %q %v %v", c, a, err)
+	}
+	// The timeline and exports read the same filter.
+	if c, _, _ := requestFilter((&requestTimelineInput{Path: "/orders/1", ConsumerID: "acme"}).filter(), nil, nil); len(c) != 2 || c[0] != "(consumer_id = ? OR consumer_name = ?)" {
+		t.Fatalf("timeline clauses = %q", c)
+	}
+	if c, _, _ := requestFilter(ExportFilter{Path: "/orders/1"}.input(), nil, nil); !slices.Equal(c, []string{"(path = ? OR raw_path ILIKE ?)"}) {
+		t.Fatalf("export clauses = %q", c)
+	}
+}
+
 func TestRequestFilterApp(t *testing.T) {
 	app := uuid.New()
 	clauses, args, err := requestFilter(&requestsInput{App: strings.ToUpper(app.String())}, []string{"project_id = ?"}, []any{"p"})

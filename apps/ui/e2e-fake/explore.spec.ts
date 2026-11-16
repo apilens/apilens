@@ -304,6 +304,87 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   expect(a11y.violations).toEqual([]);
 });
 
+async function post(path: string, body: unknown) {
+  const res = await fetch(`${IDENTITY}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  expect(res.status).toBe(204);
+}
+
+test("Path and Consumer take what the log shows and suggest endpoints and consumers by keyboard", async ({ page }) => {
+  await seed(ROWS);
+  // The endpoints list (one row per app: the same route twice) and the consumers the fields suggest.
+  const endpoint = (method: string, path: string) => ({ app_id: "a", method, path, requests: 1, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 1, p95_ms: 1 });
+  await post("/__fake/traffic", {
+    project: "shop",
+    envs: { "": { summary: {}, points: [], endpoints: [endpoint("GET", "/orders/{id}"), endpoint("POST", "/charge"), endpoint("GET", "/orders/{id}")] } },
+  });
+  await post("/__fake/consumers", {
+    project: "shop",
+    consumers: [
+      { consumer_id: "c_acme", consumer_name: "Acme Corp", consumer_group: "", requests: 2 },
+      { consumer_id: "c_beta", consumer_name: "", consumer_group: "", requests: 1 },
+    ],
+  });
+  try {
+    await signIn(page);
+    await expect(bodyRows(page)).toHaveCount(3);
+    await page.getByRole("button", { name: "Filters" }).click();
+    const path = page.getByRole("combobox", { name: "Path" });
+    const consumer = page.getByRole("combobox", { name: "Consumer" });
+
+    // A raw URL copied from the log finds its request.
+    await path.fill("/orders/1002");
+    await page.waitForURL((u) => u.searchParams.get("path") === "/orders/1002");
+    await expect(bodyRows(page)).toHaveCount(1);
+    await expect(rowAt(page, 0).getByRole("gridcell").nth(2)).toHaveText("/orders/1002Sampled out");
+    await path.press("Escape");
+    await path.fill("");
+    await page.waitForURL((u) => !u.searchParams.has("path"));
+
+    // A consumer's name, as the Consumer column shows it, finds its requests.
+    await consumer.fill("Acme Corp");
+    await page.waitForURL((u) => u.searchParams.get("consumer_id") === "Acme Corp");
+    await expect(bodyRows(page)).toHaveCount(1);
+    await expect(rowAt(page, 0).getByRole("gridcell").nth(5)).toHaveText("Acme Corp");
+    await consumer.press("Escape");
+    await expect(consumer).toHaveAttribute("aria-expanded", "false");
+
+    // Suggestions by keyboard: ↓ opens and moves, Enter picks; the route sets method and path.
+    await path.focus();
+    await path.press("ArrowDown");
+    const paths = page.getByRole("listbox", { name: "Path suggestions" });
+    await expect(path).toHaveAttribute("aria-expanded", "true");
+    await expect(paths.getByRole("option")).toHaveText(["GET/orders/{id}", "POST/charge"]);
+    await path.pressSequentially("char");
+    await expect(paths.getByRole("option")).toHaveText(["POST/charge"]);
+    await path.press("ArrowDown");
+    await expect(paths.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+    await expect(path).toHaveAttribute("aria-activedescendant", (await paths.getByRole("option").first().getAttribute("id")) ?? "");
+    await path.press("Enter");
+    await page.waitForURL((u) => u.searchParams.get("path") === "/charge" && u.searchParams.get("method") === "POST");
+    await expect(path).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
+
+    // A consumer picked by name filters by its id; the chip reads its name, as the log does.
+    await page.getByRole("list", { name: "Active filters" }).getByRole("button", { name: "Clear all" }).click();
+    await page.waitForURL((u) => u.search === "");
+    await consumer.focus();
+    await consumer.pressSequentially("acme");
+    const consumers = page.getByRole("listbox", { name: "Consumer suggestions" });
+    await expect(consumers.getByRole("option")).toHaveText(["Acme Corpc_acme"]);
+    const a11y = await new AxeBuilder({ page }).include(".ex-filters").analyze();
+    expect(a11y.violations).toEqual([]);
+    await consumer.press("ArrowDown");
+    await consumer.press("Enter");
+    await page.waitForURL((u) => u.searchParams.get("consumer_id") === "c_acme");
+    await expect(consumer).toHaveValue("c_acme");
+    await expect(page.getByRole("list", { name: "Active filters" }).getByRole("listitem").first()).toHaveText("Consumer Acme Corp");
+    await expect(bodyRows(page)).toHaveCount(1);
+  } finally {
+    await post("/__fake/traffic", { project: "shop", envs: {} });
+    await post("/__fake/consumers", { project: "shop", consumers: [] });
+  }
+});
+
 test("says so when no request matches the filters, with a way to clear them", async ({ page }) => {
   await seed(ROWS);
   await signIn(page, `${PAGE}?path=%2Fnowhere`);

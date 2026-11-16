@@ -1,4 +1,5 @@
 import type { ExploreState } from "@/lib/explore";
+import type { FilterSuggestions } from "@/lib/explore-filters";
 import type { RequestRow, RequestTimeline, SavedView } from "@/lib/identity";
 import { ExportMenu } from "./export";
 import { RequestLog } from "./request-log";
@@ -14,6 +15,7 @@ export function ExploreView({
   project,
   projectName,
   environments,
+  suggestions,
   query,
   rows,
   trail,
@@ -26,6 +28,8 @@ export function ExploreView({
   project: string;
   projectName: string;
   environments: readonly string[];
+  /** The endpoints and consumers the Path and Consumer filters suggest (#983). */
+  suggestions?: FilterSuggestions;
   query: ExploreState;
   rows: RequestRow[] | null;
   /** The cursors walked back to this page of the log (empty on the newest page). */
@@ -49,6 +53,7 @@ export function ExploreView({
         <RequestLog
           project={project}
           environments={environments}
+          suggestions={suggestions}
           query={query}
           initial={rows}
           trail={trail}

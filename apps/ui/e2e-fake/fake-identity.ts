@@ -170,8 +170,9 @@
 //   POST /__fake/consumers {project, summary, points, consumers, details, anonymous?}
 //                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
-//                                                  `project` (narrowed by method, path and status,
-//                                                  #586) instead of what the edge stored (#585); rows null forgets it
+//                                                  `project` (narrowed by method, path, consumer_id and
+//                                                  status, #586, #983) instead of what the edge stored
+//                                                  (#585); rows null forgets it
 //   GET  /api/v1/requests/{id}?project=            one request (#588): the seeded row with that `id`, merged with
 //                                                  its `detail` ({request?, spans?, logs?}); 404 for any other id
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
@@ -2454,6 +2455,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         // The Explore filters (#586): method, path and status (codes and classes) narrow the seed.
         const method = (url.searchParams.get("method") ?? "").toUpperCase();
         const route = url.searchParams.get("path") ?? "";
+        // As internal/query (#983): a path that is not a route template also matches the raw URLs
+        // containing it; a consumer filter matches the consumer's id or name.
+        const template = /[{<]|\/:/.test(route);
+        const consumer = url.searchParams.get("consumer_id") ?? "";
         const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
         // The timeline's zoom and jump point (#587): from (inclusive) and to (exclusive).
         const from = Date.parse(url.searchParams.get("from") ?? "");
@@ -2462,7 +2467,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (Number.isNaN(from) || Date.parse(String(r.timestamp)) >= from) &&
           (Number.isNaN(to) || Date.parse(String(r.timestamp)) < to) &&
           (!method || r.method === method) &&
-          (!route || r.path === route) &&
+          (!route || r.path === route || (!template && String(r.raw_path ?? "").toLowerCase().includes(route.toLowerCase()))) &&
+          (!consumer || r.consumer_id === consumer || r.consumer_name === consumer) &&
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);

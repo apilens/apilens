@@ -3,8 +3,11 @@ import { exploreHref, parseExploreQuery, requestsPath } from "./explore";
 import {
   type ExploreFilters,
   FILTER_KEYS,
+  MAX_SUGGESTIONS,
   NO_FILTERS,
   activeCount,
+  consumerSuggestions,
+  endpointSuggestions,
   filterChips,
   filterEntries,
   filterQuery,
@@ -13,6 +16,7 @@ import {
   parseFilters,
   sameFilters,
   toDraft,
+  uniqueEndpoints,
   withoutChip,
 } from "./explore-filters";
 
@@ -191,5 +195,48 @@ describe("the edit form", () => {
   it("compares filters by value", () => {
     expect(sameFilters(ALL, { ...ALL })).toBe(true);
     expect(sameFilters(ALL, { ...ALL, latency_max: 2001 })).toBe(false);
+  });
+});
+
+describe("filter suggestions (#983)", () => {
+  const ENDPOINTS = uniqueEndpoints([
+    { method: "get", path: "/orders/{id}" },
+    { method: "POST", path: "/charge" },
+    { method: "GET", path: "/orders/{id}" },
+    { method: "GET", path: "/orders" },
+    { method: "GET", path: "" },
+  ]);
+  const CONSUMERS = [
+    { id: "c_acme", name: "Acme Corp" },
+    { id: "c_beta", name: "" },
+    { id: "", name: "Nobody" },
+  ];
+
+  it("lists each method and route once, busiest first", () => {
+    expect(ENDPOINTS).toEqual([
+      { method: "GET", path: "/orders/{id}" },
+      { method: "POST", path: "/charge" },
+      { method: "GET", path: "/orders" },
+    ]);
+  });
+  it("suggests the endpoints whose method and route contain the text, of the picked method only", () => {
+    expect(endpointSuggestions(ENDPOINTS, "")).toHaveLength(3);
+    expect(endpointSuggestions(ENDPOINTS, "ORDERS")).toEqual([ENDPOINTS[0], ENDPOINTS[2]]);
+    expect(endpointSuggestions(ENDPOINTS, "post /ch")).toEqual([ENDPOINTS[1]]);
+    expect(endpointSuggestions(ENDPOINTS, "", "post")).toEqual([ENDPOINTS[1]]);
+    expect(endpointSuggestions(ENDPOINTS, "/orders/1042")).toEqual([]);
+    const many = Array.from({ length: 20 }, (_, i) => ({ method: "GET", path: `/r${i}` }));
+    expect(endpointSuggestions(many, "/r")).toHaveLength(MAX_SUGGESTIONS);
+  });
+  it("suggests consumers by name or id, never one without an id", () => {
+    expect(consumerSuggestions(CONSUMERS, "acme corp")).toEqual([CONSUMERS[0]]);
+    expect(consumerSuggestions(CONSUMERS, "C_BE")).toEqual([CONSUMERS[1]]);
+    expect(consumerSuggestions(CONSUMERS, "nobody")).toEqual([]);
+    expect(consumerSuggestions(CONSUMERS, "")).toEqual(CONSUMERS.slice(0, 2));
+  });
+  it("names a known consumer on its chip, as the log shows it", () => {
+    expect(filterChips({ ...NO_FILTERS, consumer_id: "c_acme" }, CONSUMERS).map((c) => c.label)).toEqual(["Consumer Acme Corp"]);
+    expect(filterChips({ ...NO_FILTERS, consumer_id: "c_beta" }, CONSUMERS).map((c) => c.label)).toEqual(["Consumer c_beta"]);
+    expect(filterChips({ ...NO_FILTERS, consumer_id: "Acme Corp" }).map((c) => c.label)).toEqual(["Consumer Acme Corp"]);
   });
 });

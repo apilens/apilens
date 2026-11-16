@@ -141,11 +141,11 @@ type ExportFilter struct {
 	Range           string   `json:"range,omitempty" enum:"1h,6h,24h,7d" doc:"Time range ending when the export is asked for; omitted means 24h."`
 	Env             string   `json:"env,omitempty" maxLength:"64" doc:"Environment name; empty means all."`
 	App             string   `json:"app,omitempty" format:"uuid" doc:"Only requests served by this app (id); empty means every app of the project."`
-	ConsumerID      string   `json:"consumer_id,omitempty" maxLength:"256" doc:"Only requests from this consumer id."`
+	ConsumerID      string   `json:"consumer_id,omitempty" maxLength:"256" doc:"As in GET /api/v1/requests: a consumer id or name."`
 	ConsumerGroup   string   `json:"consumer_group,omitempty" maxLength:"256" doc:"Only requests from consumers of this group."`
 	IP              string   `json:"ip,omitempty" maxLength:"64" doc:"Only requests from this client IP address (exact match)."`
 	Method          string   `json:"method,omitempty" pattern:"^[A-Za-z]{1,16}$" doc:"Only requests with this HTTP method (case-insensitive)."`
-	Path            string   `json:"path,omitempty" maxLength:"1024" doc:"Route template, e.g. /orders/{id}."`
+	Path            string   `json:"path,omitempty" maxLength:"1024" doc:"As in GET /api/v1/requests: a route template, e.g. /orders/{id}, or text the raw URL path contains."`
 	URLContains     string   `json:"url_contains,omitempty" maxLength:"1024" doc:"Only requests whose raw URL path (with query string) contains this text, ignoring case."`
 	PayloadContains string   `json:"payload_contains,omitempty" maxLength:"1024" doc:"Only requests whose request or response body contains this text, ignoring case. The bodies themselves are never exported."`
 	RequestSizeMin  uint64   `json:"request_size_min,omitempty" doc:"Only requests with a request body of at least this many bytes."`
