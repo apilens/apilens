@@ -2,6 +2,7 @@
 // Response times and Data transferred tabs, and the endpoint's settings. Pure helpers (URL state,
 // formatting, settings input), unit-tested in endpoint-detail.test.ts.
 import { RANGE_LABEL } from "./consumers";
+import type { ExploreScope } from "./explore";
 import type { EndpointSettings, LatencyBucket, PutEndpointSettingsRequest, QueryRange, SizeBucket, StatusClass } from "./identity";
 import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES, parseAppParam } from "./traffic";
@@ -98,6 +99,23 @@ export function endpointPageHref(project: string, ep: EndpointRef, q: Partial<En
 
 /** Whether a tab's read takes the status filter (the errors read does not). */
 export const tabTakesStatus = (tab: EndpointTab) => tab !== "errors";
+
+/**
+ * The endpoint's requests as Explore filters them (#977, for exploreHrefFor): its method and route
+ * template in the page's range, environment and app, with the consumer and, where the open tab
+ * reads it, the status class.
+ */
+export function endpointExploreScope(ep: EndpointRef, q: EndpointState): ExploreScope {
+  return {
+    range: q.range,
+    env: q.env,
+    app: q.app,
+    method: ep.method,
+    path: ep.path,
+    consumer_id: q.consumer,
+    status: q.status !== "all" && tabTakesStatus(q.tab) ? q.status : "",
+  };
+}
 
 /** The page state with the name of the app in scope (#976), for the scope in words. */
 export type EndpointScope = EndpointState & { appLabel?: string };

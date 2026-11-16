@@ -20,6 +20,8 @@ import {
   visibleWindow,
   logTime,
   statusQuickHref,
+  bucketHrefs,
+  exploreHrefFor,
 } from "./explore";
 import { NO_FILTERS } from "./explore-filters";
 
@@ -184,5 +186,52 @@ describe("statusQuickHref", () => {
     const r = statusQuickHref("demo", { ...q, filters: { ...q.filters, status: "5xx" } }, "5xx");
     expect(r.active).toBe(true);
     expect(r.href).toBe("/demo/explore?range=6h&method=POST");
+  });
+});
+
+describe("exploreHrefFor (#977)", () => {
+  const APP = "0b9c2c4e-8a3f-4d1e-9f2a-1c2d3e4f5a6b";
+  it("always carries the range, then the environment and app", () => {
+    expect(exploreHrefFor("shop", { range: "1h" })).toBe("/shop/explore?range=1h");
+    expect(exploreHrefFor("shop", { range: "24h", env: "production", app: APP })).toBe(`/shop/explore?range=24h&env=production&app=${APP}`);
+    expect(exploreHrefFor("shop", { range: "24h", env: "", app: "" })).toBe("/shop/explore?range=24h");
+  });
+  it("narrows to an endpoint by its route template, a status and a latency bound", () => {
+    const href = exploreHrefFor("shop", { range: "6h", env: "production", method: "get", path: "/orders/{id}", status: "5XX", latency_min: 412.6 });
+    expect(href).toBe("/shop/explore?range=6h&env=production&method=GET&status=5xx&path=%2Forders%2F%7Bid%7D&latency_min=412");
+    // What Explore reads back: the same filters, the template kept as is.
+    const q = parseExploreQuery(Object.fromEntries(new URL(href, "http://x").searchParams));
+    expect(q.range).toBe("6h");
+    expect(q.filters).toEqual({ ...NO_FILTERS, env: "production", method: "GET", status: "5xx", path: "/orders/{id}", latency_min: 412 });
+  });
+  it("drops a status or latency Explore would refuse", () => {
+    expect(exploreHrefFor("shop", { range: "1h", status: "teapot", latency_min: Number.NaN })).toBe("/shop/explore?range=1h");
+    expect(exploreHrefFor("shop", { range: "1h", latency_min: -1 })).toBe("/shop/explore?range=1h");
+  });
+  it("carries a consumer and a time window", () => {
+    expect(exploreHrefFor("shop", { range: "24h", consumer_id: "acme", from: "2026-11-05T10:00:00Z", to: "2026-11-05T10:15:00Z" })).toBe(
+      "/shop/explore?range=24h&from=2026-11-05T10%3A00%3A00Z&to=2026-11-05T10%3A15%3A00Z&consumer_id=acme",
+    );
+  });
+});
+
+describe("bucketHrefs (#977)", () => {
+  const ts = (m: number) => new Date(Date.UTC(2026, 10, 5, 10, m)).toISOString();
+  it("opens each bucket as its own window, the last as wide as the one before", () => {
+    const hrefs = bucketHrefs("shop", { range: "24h", env: "production" }, [{ ts: ts(0) }, { ts: ts(15) }, { ts: ts(30) }]);
+    const windows = hrefs.map((h) => {
+      const p = new URL(h, "http://x").searchParams;
+      return [p.get("from"), p.get("to"), p.get("range"), p.get("env")];
+    });
+    expect(windows).toEqual([
+      ["2026-11-05T10:00:00Z", "2026-11-05T10:15:00Z", "24h", "production"],
+      ["2026-11-05T10:15:00Z", "2026-11-05T10:30:00Z", "24h", "production"],
+      ["2026-11-05T10:30:00Z", "2026-11-05T10:45:00Z", "24h", "production"],
+    ]);
+  });
+  it("keeps the whole range when a bucket's width is unknown", () => {
+    expect(bucketHrefs("shop", { range: "1h" }, [{ ts: ts(0) }])).toEqual(["/shop/explore?range=1h"]);
+    expect(bucketHrefs("shop", { range: "1h" }, [{ ts: "nope" }, { ts: ts(5) }])[0]).toBe("/shop/explore?range=1h");
+    expect(bucketHrefs("shop", { range: "1h" }, [])).toEqual([]);
   });
 });

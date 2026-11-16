@@ -16,6 +16,9 @@
 .ep-badge { white-space: nowrap; }
 .ep-note { margin: var(--space-3) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .ep-settings { display: inline-flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+/* Endpoint detail → its requests in Explore (#977): at the end of the scope row, after the settings. */
+.ep-explore { margin-left: auto; text-decoration: none; }
+.ep-settings ~ .ep-explore { margin-left: 0; }
 .ep-saved { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .ep-saved:empty { display: none; }
 
@@ -109,7 +112,7 @@
 }
 
 @media (max-width: 760px) {
-  .ep-settings { margin-left: 0; }
+  .ep-settings, .ep-explore { margin-left: 0; }
   .ep-locked { flex-direction: column; width: 100%; }
   .ep-locked > div + div { border-left: 0; border-top: 1px solid var(--border); }
   .ep-tabs { margin-left: calc(-1 * var(--page-pad-x)); margin-right: calc(-1 * var(--page-pad-x)); padding: 0 var(--page-pad-x); }

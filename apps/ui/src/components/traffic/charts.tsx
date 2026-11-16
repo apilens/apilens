@@ -1,6 +1,7 @@
 "use client";
 
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { type KeyboardEvent, type PointerEvent, type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { formatPercent, ratio } from "@/lib/format";
 import { pointX, tooltipText } from "@/lib/chart-hover";
 import { RANGE_LABEL, formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/consumers";
@@ -51,7 +52,15 @@ export interface PlotHover {
   title: (i: number) => string;
   rows: (i: number) => TooltipRow[];
   marks?: (i: number, w: number) => ReactNode;
+  /**
+   * Each bucket's requests in Explore (#977), one link per point: a click on a bucket, Enter on the
+   * focused plot or a second tap on the shown bucket opens it. Ignored unless there is one per point.
+   */
+  hrefs?: readonly string[];
 }
+
+/** What the tooltip of a plot whose buckets open in Explore says a click does. */
+export const OPEN_HINT = "Click to see these requests in Explore";
 
 /**
  * The plot box: measures itself and gives its children the width to draw at (and the hovered
@@ -88,12 +97,41 @@ export function Plot({
     [measureRef, hoverRef],
   );
   const interactive = hover !== undefined && hover.count > 0;
+  // Drill-down (#977): the shown bucket opens its requests in Explore.
+  const router = useRouter();
+  const links = interactive && hover.hrefs && hover.hrefs.length === hover.count ? hover.hrefs : null;
+  // The bucket shown before a touch: a first tap only shows a bucket, a second tap on it opens it.
+  const before = useRef<{ touch: boolean; index: number | null }>({ touch: false, index: null });
+  const go = (at: number | null) => {
+    if (links && at !== null && links[at]) router.push(links[at]);
+  };
+  const open = links
+    ? {
+        onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+          before.current = { touch: e.pointerType !== "mouse", index: h.index };
+          h.bind.onPointerDown(e);
+        },
+        onClick: () => {
+          if (before.current.touch && before.current.index !== h.index) return;
+          go(h.index);
+        },
+        onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === "Enter" && !(e.metaKey || e.ctrlKey || e.altKey) && h.index !== null) {
+            e.preventDefault();
+            go(h.index);
+            return;
+          }
+          h.bind.onKeyDown(e);
+        },
+      }
+    : {};
+  const hint = links ? ` Press Enter to see a ${hover?.noun ?? "bucket"}’s requests in Explore.` : "";
   return (
     <>
       <div
-        className={`tr-plot${interactive ? " tr-plot--hover ct-box" : ""}`}
+        className={`tr-plot${interactive ? " tr-plot--hover ct-box" : ""}${links ? " tr-plot--open" : ""}`}
         ref={setRef}
-        {...(interactive ? { role: "group", "aria-label": `${label}. Use the arrow keys to read each ${hover.noun ?? "bucket"}.`, ...h.bind } : {})}
+        {...(interactive ? { role: "group", "aria-label": `${label}. Use the arrow keys to read each ${hover.noun ?? "bucket"}.${hint}`, ...h.bind, ...open } : {})}
       >
         <span className="tr-axis-top" aria-hidden="true">
           {top}
@@ -106,7 +144,7 @@ export function Plot({
           {hover?.marks && i !== null ? hover.marks(i, w) : null}
         </svg>
         {interactive && i !== null && h.width > 0 ? (
-          <ChartTooltip x={pointX(i, h.width, hover.count, "slot")} boxWidth={h.width} title={title} rows={rows} placement="inside" />
+          <ChartTooltip x={pointX(i, h.width, hover.count, "slot")} boxWidth={h.width} title={title} rows={rows} placement="inside" hint={links ? OPEN_HINT : undefined} />
         ) : null}
       </div>
       {interactive ? <ChartAnnounce text={i !== null ? tooltipText(title, rows) : ""} /> : null}
@@ -160,11 +198,24 @@ export function statusTipRows(r: StatusRow): TooltipRow[] {
  * tapping or arrowing to a bucket shows its time, total and each class's count and share; the
  * legend names every series, so no series is told apart by color alone.
  */
-export function StatusChart({ label, summary, rows, range }: { label: string; summary: string; rows: StatusRow[]; range: QueryRange }) {
+export function StatusChart({
+  label,
+  summary,
+  rows,
+  range,
+  hrefs,
+}: {
+  label: string;
+  summary: string;
+  rows: StatusRow[];
+  range: QueryRange;
+  /** Each bucket's requests in Explore (#977, bucketHrefs), one per row; without it the bars only read. */
+  hrefs?: readonly string[];
+}) {
   const keys = STATUS.map((s) => s.key);
   const className = Object.fromEntries(STATUS.map((s) => [s.key, s.className])) as Record<Status, string>;
   const { top } = stackBars(rows, keys, FALLBACK_W, H);
-  const hover: PlotHover = { count: rows.length, title: (i) => formatBucket(rows[i].ts, range), rows: (i) => statusTipRows(rows[i]) };
+  const hover: PlotHover = { count: rows.length, title: (i) => formatBucket(rows[i].ts, range), rows: (i) => statusTipRows(rows[i]), hrefs };
   return (
     <figure className="tr-chart">
       <ul className="tr-legend" aria-label={`${label} legend`}>
