@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Database spans: every `pg` and `mysql2` statement run while handling a
+  request becomes a `db` child span with `db.system`, `db.operation` and an
+  obfuscated `db.statement` (literals replaced by `?`, comments removed, cut to
+  2 KiB). Prisma: `instrumentPrisma(prisma)` returns an extended client that
+  traces model and raw operations. New option `captureDbSpans` (default true).
+- The per-request span cap rises from 256 to 2,000 (`MAX_SPANS_PER_REQUEST`)
+  and spans past it are no longer lost silently: they are counted as
+  `span_cap` drops and reported in the heartbeat.
 - Errors outside a request: on Node the client ships `uncaughtException` and
   `unhandledRejection` as ERROR exception logs and flushes them before the
   process exits (`captureUnhandled`, default true). Node's exit behaviour is

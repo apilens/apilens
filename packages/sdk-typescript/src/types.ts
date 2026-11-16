@@ -252,6 +252,7 @@ export type ApiLensDropReason =
   | "non_retryable"
   | "retries_exhausted"
   | "shutdown"
+  | "span_cap"
   | "server_rejected"
   | "truncated";
 
@@ -394,6 +395,12 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
    * regardless of this option.
    */
   captureSpans?: boolean;
+  /**
+   * Database spans (default true, needs `captureSpans`): a child `db` span
+   * per `pg` / `mysql2` statement with the statement's literals replaced by
+   * `?`. Prisma: use the client returned by `instrumentPrisma(prisma)`.
+   */
+  captureDbSpans?: boolean;
   /**
    * `Error.stackTraceLimit` applied at init (default 50, V8's own is 10) so
    * the exception log carries deep stacks. Never lowers a limit the app

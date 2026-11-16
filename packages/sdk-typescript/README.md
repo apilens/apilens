@@ -377,10 +377,25 @@ code you get:
   `diagnostics_channel`), with the W3C `traceparent` header injected so
   downstream services join the same trace. Span names carry the URL without
   query string or credentials;
+- **database spans** (`kind: "db"`) for every `pg` and `mysql2` statement
+  (pools and `mysql2/promise` included), with `db.system`, `db.operation` and
+  `db.statement`. The statement is obfuscated before it leaves the process:
+  string, number and hex literals become `?`, comments are removed, and it is
+  cut to 2 KiB; bound parameters are never read. Prisma has no shared
+  prototype to patch, so use the client returned by `instrumentPrisma`:
+
+  ```ts
+  import { instrumentPrisma } from "apilens-js-sdk";
+  export const prisma = instrumentPrisma(new PrismaClient());
+  ```
+
+  `captureDbSpans: false` turns database spans off;
 - **cross-service stitching** — an inbound `traceparent` is continued, so a call
   chain across several of your services shows up as one waterfall in the dashboard.
 
 Spans are captured **entirely automatically** — there is no manual span API.
+A request keeps at most 2,000 child spans; the rest are dropped and counted as
+`span_cap` in the heartbeat's drop report, so Ingest health shows them.
 Calls made outside a request and the SDK's own uploads are never traced.
 
 ### Automatic error capture
@@ -581,8 +596,10 @@ options.
 | `requestLogging.logRequestBody` / `requestLogging.logResponseBody` | `true` | Toggle each body independently. |
 | `requestLogging.maxPayloadBytes` | `8192` | Per-body capture cap; set `0` to disable body capture. |
 | `captureValidationErrors` | — | **Not in the JS SDK**: validation responses are captured as ordinary bodies. |
+| `captureLocals` | — | **Not in the JS SDK**: frame locals are a Python-only option; JS stack traces carry no local variables. |
 | `captureContentTypes` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `captureSpans` | `true` | Emit trace ids, spans and the error log for this app. |
+| `captureDbSpans` | `true` | `pg`, `mysql2` and Prisma statements become `db` spans (needs `captureSpans`). |
 | `captureLogs` | — | **Not in the JS SDK**: there is no logging-library handler; use `captureException(err)` to ship an error the app caught. |
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | `undefined` | Optional resolver `(req, res) => consumer` (see [consumer attribution](#consumer-attribution)). |
@@ -735,6 +752,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_LOG_RESPONSE_BODY` | `requestLogging.logResponseBody` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `requestLogging.maxPayloadBytes` | int | `8192` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | — | not read by the JS SDK | — |
+| `APILENS_CAPTURE_LOCALS` | — | not read by the JS SDK (Python only) | — |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `captureContentTypes` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redactQueryParams` | list | none (built-ins always apply) |
 | `APILENS_REDACT_HEADERS` | `redactHeaders` | list | none (built-ins always apply) |
@@ -746,6 +764,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_CAPTURE_IP` | — | not read by the JS SDK (the client IP is always captured) | — |
 | `APILENS_ANONYMIZE_IP` | — | not read by the JS SDK | — |
 | `APILENS_CAPTURE_SPANS` | `captureSpans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | — | not read by the JS SDK; set `captureDbSpans` in code | — |
 | `APILENS_CAPTURE_LOGS` | — | not read by the JS SDK | — |
 | `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flushIntervalMs` | number, **seconds** | `3` (3000 ms) |

@@ -50,8 +50,17 @@ export {
   resolveEndpointPath,
 } from "./routes.js";
 export {
+  MAX_DB_STATEMENT_CHARS,
+  instrumentDatabases,
+  instrumentMysql2,
+  instrumentPg,
+  instrumentPrisma,
+  obfuscateSql,
+} from "./db.js";
+export {
   ENV_CAPTURE_SPANS,
   MAX_PENDING_SPANS,
+  MAX_SPANS_PER_REQUEST,
   envSpansEnabled,
   instrumentOutboundHttp,
   stripUrl,
