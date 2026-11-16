@@ -100,6 +100,15 @@ describe("applyRemotePolicy only narrows", () => {
 
   it("drops the record when capture is disabled", () => {
     expect(applyRemotePolicy(record(), policy({ enabled: false }))).toBe(false);
+    // Remote enabled=false wins even for a failed request.
+    expect(applyRemotePolicy(record(), policy({ enabled: false }), () => 0, true)).toBe(false);
+  });
+
+  it("never samples out a failed request (keep)", () => {
+    const failed = record({ status_code: 400 });
+    expect(applyRemotePolicy(failed, policy({ sampleRate: 0 }), () => 0.5, true)).toBe(true);
+    expect(failed.sampled).toBe(true);
+    expect(failed.request_payload).toBe('{"item":"book"}');
   });
 
   it("samples out with the remote rate, keeping the base record", () => {

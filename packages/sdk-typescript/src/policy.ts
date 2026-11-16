@@ -98,18 +98,20 @@ function truncateToBytes(value: string, maxBytes: number): string {
  * Narrow-only: fields are only ever removed or shortened, `sampled` only ever
  * goes from true to false, never the reverse. A request sampled out by the
  * remote rate keeps its base record (it still counts in metrics), exactly
- * like local sampling.
+ * like local sampling. A failed request (`keep`: the handler threw or it
+ * answered 5xx) is never sampled out by the remote rate.
  */
 export function applyRemotePolicy(
   record: ApiLensRecord,
   policy: RemotePolicy,
   random: () => number = Math.random,
+  keep = false,
 ): boolean {
   if (!policy.enabled) {
     return false;
   }
 
-  if (record.sampled && policy.sampleRate < 1 && !(random() < policy.sampleRate)) {
+  if (!keep && record.sampled && policy.sampleRate < 1 && !(random() < policy.sampleRate)) {
     record.sampled = false;
   }
   if (!record.sampled) {

@@ -9,14 +9,15 @@
  * undici are observed through their `diagnostics_channel` events; `http` /
  * `https` are wrapped once per process.
  *
- * When a request fails (an unhandled error or a 5xx response) the
- * middleware also emits one ERROR log correlated to the trace, with the
- * stack when there was an error. That is the only thing sent to
- * `/v1/logs`; it is not a general logging API.
+ * When a request fails (the handler threw, or a 5xx response) the
+ * middleware also emits one log correlated to the trace, with the stack when
+ * there was an error: ERROR for a 5xx, WARN for a thrown error the app
+ * answered below 500. That is the only thing sent to `/v1/logs`; it is not a
+ * general logging API. A failed request is never sampled out.
  *
  * `captureSpans: false` (or `APILENS_CAPTURE_SPANS=false`, which wins over
- * code) turns all of it off: no trace ids, no spans, no propagation, no
- * error log.
+ * code) turns off trace ids, spans and propagation, never the error log (it
+ * is then sent without a trace id).
  */
 
 import type * as diagnosticsChannel from "node:diagnostics_channel";
@@ -144,10 +145,14 @@ export class SpanRecorder {
     this.client.captureSpan(record);
   }
 
-  /** Queue one ERROR log correlated to `ctx`'s request span. */
+  /**
+   * Queue one error log (ERROR unless `level` says otherwise), correlated to
+   * `ctx`'s request span when there is a trace (spans on).
+   */
   errorLog(
-    ctx: TraceContext,
+    ctx: TraceContext | undefined,
     log: {
+      level?: "ERROR" | "WARN";
       message: string;
       payload: string;
       loggerName: string;
@@ -164,7 +169,7 @@ export class SpanRecorder {
       environment: this.environment,
       project_slug: this.client.config.projectSlug,
       app_id: this.appId,
-      level: "ERROR",
+      level: log.level || "ERROR",
       message: String(log.message || "").slice(0, MAX_LOG_MESSAGE_CHARS),
       logger_name: log.loggerName || "apilens",
       endpoint_method: String(log.method || "").toUpperCase(),
@@ -173,8 +178,8 @@ export class SpanRecorder {
       consumer_id: log.consumerId || "",
       consumer_name: log.consumerName || "",
       consumer_group: log.consumerGroup || "",
-      trace_id: ctx.traceId,
-      span_id: ctx.spanId,
+      trace_id: ctx?.traceId || "",
+      span_id: ctx?.spanId || "",
       payload: String(log.payload || "").slice(0, MAX_LOG_PAYLOAD_CHARS),
       release: "",
       commit: "",

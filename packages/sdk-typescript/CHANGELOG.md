@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Errors are never sampled: a request whose handler threw (whatever status
+  the app answered) or that answered 5xx is always kept, with its spans and
+  error log, whatever `sampleRate`, `sampleOnRequest`, `sampleOnResponse` or
+  the remote sample rate say. Remote `enabled: false` still turns capture off.
+- The error log is sent for every thrown error, ERROR for a 5xx and WARN
+  below 500, and no longer depends on span capture (`captureSpans: false` /
+  `APILENS_CAPTURE_SPANS=false` send it without a trace id).
+
 - Koa middleware (`apilens-js-sdk/koa`: `apiLensKoa`, `instrumentKoa`,
   `setConsumer`) with the route template from `@koa/router`'s
   `ctx._matchedRoute` and the `routers` option's routes in the metadata report.

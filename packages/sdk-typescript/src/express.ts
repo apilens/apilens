@@ -129,7 +129,8 @@ export function createMiddleware(
     if (!core.metadataReported && req.app) {
       reportMetadata(req.app);
     }
-    if (core.captureSpans && req.app) {
+    // The error log is sent with or without span capture.
+    if (core.logRecorder && req.app) {
       installErrorRecorder(req.app, middleware);
     }
     const capture = core.begin({
