@@ -15,7 +15,7 @@ import (
 const (
 	maxPayloadChars        = 65_536
 	maxLogMessageChars     = 8_192
-	maxLogPayloadChars     = 16_384
+	maxLogPayloadChars     = 65_536 // head+tail, see truncateHeadTail (M5 D4)
 	maxAttributeKeyChars   = 64
 	maxAttributeValueChars = 512
 	maxAttributes          = 64
@@ -51,6 +51,52 @@ func truncate(s string, n int) string {
 		count++
 	}
 	return s
+}
+
+// truncateHeadTail caps s at n runes like truncate, but keeps the head and
+// the tail with a "\n…[N chars truncated]…\n" marker in the middle (the same
+// marker the SDKs use), so both the raised exception and its root cause at
+// the end of a long payload survive. N counts the dropped runes, and the
+// result, marker included, never exceeds n runes. When n cannot even hold the
+// marker it falls back to a head-only cut.
+func truncateHeadTail(s string, n int) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "�")
+	}
+	if len(s) <= n { // byte length bounds rune length
+		return s
+	}
+	total := utf8.RuneCountInString(s)
+	if total <= n {
+		return s
+	}
+	// The marker only shrinks as the dropped count shrinks, so sizing it for
+	// the whole string first keeps the result within n.
+	marker := headTailMarker(total)
+	keep := n - utf8.RuneCountInString(marker)
+	if keep <= 0 {
+		return truncate(s, n)
+	}
+	dropped := total - keep
+	marker = headTailMarker(dropped)
+	tail := keep / 2
+	head := keep - tail
+	headEnd, tailStart, i := len(s), len(s), 0
+	for b := range s {
+		if i == head {
+			headEnd = b
+		}
+		if i == total-tail {
+			tailStart = b
+			break
+		}
+		i++
+	}
+	return s[:headEnd] + marker + s[tailStart:]
+}
+
+func headTailMarker(dropped int) string {
+	return "\n…[" + strconv.Itoa(dropped) + " chars truncated]…\n"
 }
 
 func short(s string) string { return truncate(strings.TrimSpace(s), maxShortFieldChars) }

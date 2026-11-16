@@ -272,7 +272,7 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 			ConsumerGroup:  truncate(strings.TrimSpace(rec.ConsumerGroup), 256),
 			TraceID:        hexID(rec.TraceID, traceIDHexLen),
 			SpanID:         hexID(rec.SpanID, spanIDHexLen),
-			Payload:        truncate(rec.Payload, maxLogPayloadChars),
+			Payload:        truncateHeadTail(rec.Payload, maxLogPayloadChars),
 			Attributes:     attributes(rec.Attributes),
 			Release:        release(rec.Release),
 			Commit:         commit(rec.Commit),

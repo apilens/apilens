@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/apilens/apilens/internal/pipeline"
 )
@@ -17,6 +20,60 @@ func TestTruncateIsRuneSafe(t *testing.T) {
 	}
 	if got := truncate("ok\xffbad", 10); !strings.Contains(got, "�") {
 		t.Fatalf("invalid utf-8 not replaced: %q", got)
+	}
+}
+
+func TestTruncateHeadTail(t *testing.T) {
+	var big strings.Builder
+	big.WriteString("Traceback FIRST LINE\n")
+	for big.Len() < 200_000 {
+		big.WriteString("  frame line with some context é\n")
+	}
+	big.WriteString("RootCause: LAST LINE")
+	cases := []struct {
+		name, in   string
+		n          int
+		want       string // exact result, when set
+		head, tail string
+		marker     bool
+	}{
+		{name: "under cap", in: "short", n: 10, want: "short"},
+		{name: "exactly cap", in: "abcdefghij", n: 10, want: "abcdefghij"},
+		{name: "cap too small for marker", in: strings.Repeat("x", 50), n: 5, want: "xxxxx"},
+		{name: "invalid utf-8 replaced", in: "ok\xffbad", n: 10, want: "ok\uFFFDbad"},
+		{name: "small cut", in: strings.Repeat("a", 30) + strings.Repeat("z", 30), n: 40,
+			want: strings.Repeat("a", 8) + "\n…[44 chars truncated]…\n" + strings.Repeat("z", 8)},
+		{name: "200 KB payload", in: big.String(), n: maxLogPayloadChars,
+			head: "Traceback FIRST LINE\n", tail: "RootCause: LAST LINE", marker: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := truncateHeadTail(c.in, c.n)
+			if !utf8.ValidString(got) {
+				t.Fatalf("invalid utf-8 in result")
+			}
+			if n := utf8.RuneCountInString(got); n > c.n {
+				t.Fatalf("result has %d runes, cap %d", n, c.n)
+			}
+			if c.want != "" && got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+			if !strings.HasPrefix(got, c.head) || !strings.HasSuffix(got, c.tail) {
+				t.Fatalf("head/tail lost: %q ... %q", got[:40], got[len(got)-40:])
+			}
+			if c.marker {
+				total := utf8.RuneCountInString(c.in)
+				kept := utf8.RuneCountInString(got)
+				m := regexp.MustCompile(`\n…\[(\d+) chars truncated\]…\n`).FindStringSubmatch(got)
+				if m == nil {
+					t.Fatalf("marker missing")
+				}
+				dropped, _ := strconv.Atoi(m[1])
+				if kept-utf8.RuneCountInString(m[0])+dropped != total {
+					t.Fatalf("dropped count %d does not add up (kept %d of %d)", dropped, kept, total)
+				}
+			}
+		})
 	}
 }
 
