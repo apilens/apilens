@@ -3,6 +3,7 @@ import { RANGE_LABEL, consumerLabel, formatCount, formatPerMinute, formatRate } 
 import {
   ENDPOINT_TABS,
   type EndpointRef,
+  type EndpointScope,
   type EndpointState,
   STATUS_CLASSES,
   endpointPageHref,
@@ -18,7 +19,7 @@ import {
 import type { EndpointErrors, EndpointLatency, EndpointRequests, EndpointSettings, EndpointTransfer, NamedApp } from "@/lib/identity";
 import { type PageKeys, type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
-import { TRAFFIC_RANGES, apdexRating, formatApdex, formatLatency, trafficHref } from "@/lib/traffic";
+import { TRAFFIC_RANGES, apdexRating, appName, appOptions, formatApdex, formatLatency, trafficHref } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
 import { StatusChart } from "../traffic/charts";
@@ -35,19 +36,25 @@ export type TabLoad =
   | { tab: "latency"; data: EndpointLatency | null }
   | { tab: "transfer"; data: EndpointTransfer | null };
 
-/** The project's apps (null when the API could not answer), the app in scope and its settings for this endpoint. */
+/**
+ * The project's apps (null when the API could not answer), the app the settings dialog opens on
+ * with its settings for this endpoint, and whether that app is the page's whole scope (#976): the
+ * filter names it, or the project has only it. Only then do the tabs show its settings.
+ */
 export interface SettingsLoad {
   apps: NamedApp[] | null;
   app: NamedApp | null;
   settings: EndpointSettings | null;
+  scoped: boolean;
 }
 
 /**
  * `/<project>/endpoints/<method>/<path>` (#593). One endpoint of a project: the locked scope
- * (method, path and the app whose settings apply), a filter bar (range, environment, status class,
- * consumer) and four tabs: Requests, Errors, Response times and Data transferred. Only the open
- * tab's data is read; each tab is a link, so every view can be shared. The settings menu edits the
- * endpoint's expected status codes, latency threshold and exclusion.
+ * (method and path), a filter bar (range, environment, status class, app, consumer) and four tabs:
+ * Requests, Errors, Response times and Data transferred. The app filter (#976) defaults to all apps.
+ * Only the open tab's data is read; each tab is a link, so every view can be shared. The settings
+ * dialog asks which app, then edits the endpoint's expected status codes, latency threshold and
+ * exclusion in it.
  */
 export function EndpointView({
   project,
@@ -72,14 +79,17 @@ export function EndpointView({
   const href = (patch: Partial<EndpointState>) => endpointPageHref(project, ep, { ...q, ...patch });
   // A shared link may name an environment the project no longer lists; keep it selectable.
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
-  const saved = settings.settings;
+  const { apps, app, scoped } = settings;
+  // The settings the page shows are those of the app in scope only; across apps they differ.
+  const saved = scoped ? settings.settings : null;
+  const scope = { ...q, appLabel: q.app ? appName(apps, q.app) : undefined };
 
   return (
     <div className="page tr ep">
       <header className="pagehead ep-head">
         <p className="cp-h">
           {projectName} ·{" "}
-          <a className="cp-link" href={trafficHref(project, { range: q.range, env: q.env })}>
+          <a className="cp-link" href={trafficHref(project, { range: q.range, env: q.env, app: q.app })}>
             Traffic
           </a>
         </p>
@@ -98,15 +108,11 @@ export function EndpointView({
                 <code>{ep.path}</code>
               </dd>
             </div>
-            <div>
-              <dt>App</dt>
-              <dd>{settings.app ? settings.app.name : settings.apps === null ? "Couldn’t load apps" : "No apps yet"}</dd>
-            </div>
           </dl>
           {saved?.excluded ? <span className="ah-badge ep-badge">Excluded from dashboards</span> : null}
-          {settings.app && saved ? <SettingsMenu project={project} endpoint={ep} app={settings.app} settings={saved} /> : null}
+          {apps && app && settings.settings ? <SettingsMenu key={app.id} project={project} endpoint={ep} apps={apps} app={app} settings={settings.settings} /> : null}
         </div>
-        {settings.app && !saved ? (
+        {app && !settings.settings ? (
           <p className="ep-note" role="status">
             We couldn’t load this endpoint’s settings just now.
           </p>
@@ -134,8 +140,8 @@ export function EndpointView({
               options={STATUS_CLASSES.map((s) => ({ value: s, label: s === "all" ? "All statuses" : s, href: href({ status: s }) }))}
             />
           ) : null}
-          {settings.apps && settings.apps.length > 1 && settings.app ? (
-            <ScopeSelect label="App" value={settings.app.slug} options={settings.apps.map((a) => ({ value: a.slug, label: a.name, href: href({ app: a.slug }) }))} />
+          {apps && (apps.length > 1 || q.app) ? (
+            <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: href({ app: o.value }) }))} />
           ) : null}
           {q.consumer ? (
             <span className="ep-chip">
@@ -157,13 +163,30 @@ export function EndpointView({
       </nav>
 
       <section className="ep-panel" aria-label={ENDPOINT_TABS.find((t) => t.slug === q.tab)?.label} data-tab={q.tab}>
-        <Panel tab={tab} project={project} endpoint={ep} q={q} settings={saved} pager={{ pathname: endpointPageHref(project, ep, {}), params }} />
+        <Panel tab={tab} project={project} endpoint={ep} q={scope} settings={saved} perApp={!scoped} pager={{ pathname: endpointPageHref(project, ep, {}), params }} />
       </section>
     </div>
   );
 }
 
-function Panel({ tab, project, endpoint, q, settings, pager }: { tab: TabLoad; project: string; endpoint: EndpointRef; q: EndpointState; settings: EndpointSettings | null; pager: Pager }) {
+function Panel({
+  tab,
+  project,
+  endpoint,
+  q,
+  settings,
+  perApp,
+  pager,
+}: {
+  tab: TabLoad;
+  project: string;
+  endpoint: EndpointRef;
+  q: EndpointScope;
+  settings: EndpointSettings | null;
+  /** No one app is in scope, so the endpoint's settings differ per app. */
+  perApp: boolean;
+  pager: Pager;
+}) {
   const retry = endpointPageHref(project, endpoint, q);
   if (tab.data === null) return <LoadFailed text={tabLoadFailed(tab.tab)} href={retry} />;
   const requests = tab.data.summary.requests;
@@ -181,9 +204,9 @@ function Panel({ tab, project, endpoint, q, settings, pager }: { tab: TabLoad; p
     case "requests":
       return <RequestsTab data={tab.data} project={project} endpoint={endpoint} q={q} pager={pager} />;
     case "errors":
-      return <ErrorsTab data={tab.data} q={q} settings={settings} pager={pager} />;
+      return <ErrorsTab data={tab.data} q={q} settings={settings} perApp={perApp} pager={pager} />;
     case "latency":
-      return <LatencyTab data={tab.data} q={q} settings={settings} />;
+      return <LatencyTab data={tab.data} q={q} settings={settings} perApp={perApp} />;
     case "transfer":
       return <TransferTab data={tab.data} q={q} />;
   }
@@ -262,7 +285,7 @@ function paged<T>(rows: readonly T[], pager: Pager, keys: PageKeys, label: strin
 
 // Requests -------------------------------------------------------------------------------
 
-function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequests; project: string; endpoint: EndpointRef; q: EndpointState; pager: Pager }) {
+function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequests; project: string; endpoint: EndpointRef; q: EndpointScope; pager: Pager }) {
   const s = data.summary;
   const points = data.points ?? [];
   const all = data.consumers ?? [];
@@ -343,7 +366,7 @@ function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequ
 // Errors ---------------------------------------------------------------------------------
 
 
-function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: EndpointState; settings: EndpointSettings | null; pager: Pager }) {
+function ErrorsTab({ data, q, settings, perApp, pager }: { data: EndpointErrors; q: EndpointScope; settings: EndpointSettings | null; perApp: boolean; pager: Pager }) {
   const s = data.summary;
   const allStatuses = data.statuses ?? [];
   const allValidation = data.validation_errors ?? [];
@@ -360,7 +383,10 @@ function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: Endp
           { label: "Requests", value: formatCount(s.requests), sub: `in ${endpointScopeText(q)}` },
           { label: "Client error rate", value: formatPercent(s.client_error_rate * 100), sub: `${formatCount(s.client_errors)} 4xx` },
           { label: "Server error rate", value: formatPercent(s.server_error_rate * 100), sub: `${formatCount(s.server_errors)} 5xx` },
-          { label: "Expected status codes", value: expected.length ? expected.join(", ") : "None", sub: expected.length ? "not counted as errors" : "every 4xx and 5xx counts" },
+          // Expected codes are set per app: across several apps no one list applies (#976).
+          perApp
+            ? { label: "Expected status codes", value: "Per app", sub: "pick an app to see them" }
+            : { label: "Expected status codes", value: expected.length ? expected.join(", ") : "None", sub: expected.length ? "not counted as errors" : "every 4xx and 5xx counts" },
         ]}
       />
       <Card id="ep-err-time" title="Error rate over time">
@@ -502,7 +528,7 @@ function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: Endp
 
 // Response times -------------------------------------------------------------------------
 
-function LatencyTab({ data, q, settings }: { data: EndpointLatency; q: EndpointState; settings: EndpointSettings | null }) {
+function LatencyTab({ data, q, settings, perApp }: { data: EndpointLatency; q: EndpointScope; settings: EndpointSettings | null; perApp: boolean }) {
   const s = data.summary;
   const rating = apdexRating(s.apdex);
   const threshold = settings?.latency_threshold_ms;
@@ -517,7 +543,7 @@ function LatencyTab({ data, q, settings }: { data: EndpointLatency; q: EndpointS
           {
             label: "Apdex",
             value: formatApdex(s.apdex),
-            sub: `${rating ?? "No requests to score"}, target ${threshold ? formatLatency(threshold) : "app default"}`,
+            sub: `${rating ?? "No requests to score"}, target ${perApp ? "set per app" : threshold ? formatLatency(threshold) : "app default"}`,
           },
         ]}
       />
@@ -549,7 +575,7 @@ function LatencyTab({ data, q, settings }: { data: EndpointLatency; q: EndpointS
 
 // Data transferred -----------------------------------------------------------------------
 
-function TransferTab({ data, q }: { data: EndpointTransfer; q: EndpointState }) {
+function TransferTab({ data, q }: { data: EndpointTransfer; q: EndpointScope }) {
   const s = data.summary;
   const req = (data.request_size_histogram ?? []).map((b) => ({ label: sizeBucketLabel(b), count: b.count }));
   const res = (data.response_size_histogram ?? []).map((b) => ({ label: sizeBucketLabel(b), count: b.count }));

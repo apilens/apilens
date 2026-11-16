@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   apdexRating,
+  appName,
+  appOptions,
   endpointHref,
   formatApdex,
   formatLatency,
   latencyTop,
   lineY,
   linePath,
+  parseAppParam,
   parseTrafficQuery,
   plotWidth,
   scopeText,
@@ -14,18 +17,21 @@ import {
   trafficHref,
 } from "./traffic";
 
+const SHOP = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+
 describe("parseTrafficQuery", () => {
   it("defaults to the last 24 hours in all environments", () => {
-    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "" });
+    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "" });
   });
 
   it("reads a known range and an environment", () => {
-    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production" });
-    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging" });
+    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "" });
+    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "" });
   });
 
   it("falls back on an unknown range or an environment name the API would refuse", () => {
-    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "" });
+    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "" });
   });
 });
 
@@ -43,6 +49,42 @@ describe("trafficHref and endpointHref", () => {
   it("says the scope in words", () => {
     expect(scopeText({ range: "1h", env: "" })).toBe("the last 1 hour");
     expect(scopeText({ range: "7d", env: "production" })).toBe("the last 7 days in production");
+    expect(scopeText({ range: "7d", env: "production", app: BILLING }, "Billing")).toBe("the last 7 days in production for Billing");
+  });
+
+  it("keeps the app in the URL and opens a row's endpoint scoped to its app (#976)", () => {
+    expect(trafficHref("shop", { range: "24h", env: "", app: BILLING })).toBe(`/shop/traffic?app=${BILLING}`);
+    expect(endpointHref("shop", { method: "GET", path: "/charge" }, { range: "1h", env: "", app: BILLING })).toBe(`/shop/endpoints/GET/%2Fcharge?range=1h&app=${BILLING}`);
+  });
+});
+
+describe("app filter (#976)", () => {
+  const apps = [
+    { id: SHOP, slug: "shop", name: "Shop" },
+    { id: BILLING, slug: "billing", name: "Billing" },
+  ];
+
+  it("reads an app id from the URL, all apps otherwise", () => {
+    expect(parseTrafficQuery({ app: BILLING.toUpperCase() }).app).toBe(BILLING);
+    expect(parseAppParam([BILLING, SHOP])).toBe(BILLING);
+    expect(parseAppParam("billing")).toBe("");
+    expect(parseAppParam(undefined)).toBe("");
+  });
+
+  it("offers All apps first, keeping an app the project no longer lists", () => {
+    expect(appOptions(apps, "")).toEqual([
+      { value: "", label: "All apps" },
+      { value: SHOP, label: "Shop" },
+      { value: BILLING, label: "Billing" },
+    ]);
+    const gone = "9b3e4c5d-6f70-4b82-8cbd-2e3f4a5b6c7d";
+    expect(appOptions(apps, gone).at(-1)).toEqual({ value: gone, label: "Unknown app" });
+  });
+
+  it("names a row's app", () => {
+    expect(appName(apps, BILLING)).toBe("Billing");
+    expect(appName(apps, "other")).toBe("Unknown app");
+    expect(appName(null, BILLING)).toBe("Unknown app");
   });
 });
 

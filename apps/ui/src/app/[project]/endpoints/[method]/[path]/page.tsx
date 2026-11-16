@@ -32,7 +32,8 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
 /** Only the open tab's read runs: the other tabs read when they are opened. */
 async function readTab(project: string, ep: EndpointRef, q: EndpointState, next: string): Promise<TabLoad> {
   const api = identity();
-  const scope = { range: q.range, env: q.env, consumer: q.consumer };
+  // `?app=` (#976) reads the endpoint as that app serves it; without it, across all apps.
+  const scope = { range: q.range, env: q.env, consumer: q.consumer, ...(q.app ? { app: q.app } : {}) };
   const withStatus = { ...scope, status: q.status };
   switch (q.tab) {
     case "requests":
@@ -46,19 +47,26 @@ async function readTab(project: string, ep: EndpointRef, q: EndpointState, next:
   }
 }
 
-/** The project's apps, the app in scope (`?app=`, else the first) and its settings for this endpoint. */
+/**
+ * The project's apps and the app the settings dialog opens on with its settings for this endpoint:
+ * the app in scope (`?app=`, #976), else the first. `scoped` says whether that app is the page's
+ * whole scope (the filter names it, or the project has only it).
+ */
 async function readSettings(project: string, ep: EndpointRef, q: EndpointState, next: string): Promise<SettingsLoad> {
   const apps = await read<ProjectApps>(next, (o) => identity().projectApps(project, o));
-  if (apps === null) return { apps: null, app: null, settings: null };
+  if (apps === null) return { apps: null, app: null, settings: null, scoped: false };
   const list = apps.apps ?? [];
-  const app = list.find((a) => a.slug === q.app) ?? list[0] ?? null;
-  if (!app) return { apps: list, app: null, settings: null };
+  const inScope = list.find((a) => a.id === q.app) ?? null;
+  const app = inScope ?? list[0] ?? null;
+  const scoped = inScope !== null || (!q.app && list.length === 1);
+  if (!app) return { apps: list, app: null, settings: null, scoped: false };
   const settings = await read<EndpointSettings>(next, (o) => identity().getEndpointSettings(project, app.id, ep.method, ep.path, o));
-  return { apps: list, app, settings };
+  return { apps: list, app, settings, scoped };
 }
 
-// One endpoint (#593): the locked scope (method, path, app), the filter bar and four tabs, each
-// reading its own data only when it is open; the settings menu edits the endpoint's settings.
+// One endpoint (#593): the locked scope (method, path), the filter bar with the app filter (#976)
+// and four tabs, each reading its own data only when it is open; the settings dialog edits the
+// endpoint's settings in the app it asks for.
 export default async function EndpointPage({ params, searchParams }: { params: Promise<Params>; searchParams: Promise<SearchParams> }) {
   const { project, method, path } = await params;
   const ep = parseEndpointRef(method, path);

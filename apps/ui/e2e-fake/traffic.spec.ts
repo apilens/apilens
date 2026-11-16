@@ -417,3 +417,50 @@ test("the row menu picks the app when the project has several", async ({ page })
   await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toBeEnabled();
   await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toHaveAttribute("aria-checked", "false");
 });
+
+// The app filter and App column (#976) -------------------------------------------------------
+
+test("filters by app, All apps by default, with an App column whose rows open scoped to their app", async ({ page }) => {
+  const shop = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+  const billing = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+  const billingSummary = { ...SUMMARY, requests: 4200, client_errors: 20, server_errors: 60, p95_ms: 1820, apdex: 0.61 };
+  await fetch(`${IDENTITY}/__fake/apps`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ apps: [{ id: shop, slug: "shop", name: "Shop" }, { id: billing, slug: "billing", name: "Billing", traffic: { summary: billingSummary, points: POINTS } }] }),
+  });
+  const endpoints = [
+    { ...ENDPOINTS[0], app_id: shop },
+    { ...ENDPOINTS[1], app_id: billing },
+  ];
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints } });
+  await signIn(page);
+
+  const app = page.getByRole("combobox", { name: "App" });
+  await expect(app).toHaveValue("");
+  await expect(app.getByRole("option")).toHaveText(["All apps", "Shop", "Billing"]);
+  await expect(tiles(page).first()).toHaveText("12,400");
+  await expect(endpointsTable(page).getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "4xx", "5xx", "p50", "p95", "Apdex", "Settings"]);
+  const rows = endpointsTable(page).locator("tbody tr");
+  await expect(rows.nth(0).getByRole("cell").nth(1)).toHaveText("Shop");
+  await expect(rows.nth(1).getByRole("cell").nth(1)).toHaveText("Billing");
+  // A row is one app's endpoint: its link and its settings menu are that app's.
+  await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?app=${billing}`);
+  await endpointsTable(page).getByRole("button", { name: "Settings for POST /charge" }).click();
+  await expect(rowMenu(page, "POST /charge").getByRole("menuitemradio", { name: "Billing" })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+
+  await app.selectOption({ label: "Billing" });
+  await page.waitForURL(new RegExp(`app=${billing}`));
+  await expect(tiles(page).first()).toHaveText("4,200");
+  await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /4,200 requests in the last 24 hours for Billing/);
+  // One app in scope: its rows only, and no App column to repeat it.
+  await expect(endpointsTable(page).getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "4xx", "5xx", "p50", "p95", "Apdex", "Settings"]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first().getByRole("cell").first()).toHaveText("POST /charge");
+  // The range links keep the app.
+  await expect(page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("href", `/shop/traffic?range=7d&app=${billing}`);
+
+  const a11y = await new AxeBuilder({ page }).include(".tr").analyze();
+  expect(a11y.violations).toEqual([]);
+});

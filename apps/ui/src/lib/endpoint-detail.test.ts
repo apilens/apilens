@@ -24,6 +24,7 @@ import {
 import { endpointHref } from "./traffic";
 
 const EP = { method: "GET", path: "/orders/{id}" };
+const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
 
 describe("parseEndpointQuery", () => {
   it("defaults to the Requests tab over the last 24 hours, everything else all", () => {
@@ -31,14 +32,16 @@ describe("parseEndpointQuery", () => {
   });
 
   it("reads every part of the scope", () => {
-    expect(parseEndpointQuery({ tab: "latency", range: "7d", env: " production ", status: "5xx", consumer: "acme", app: "shop" })).toEqual({
+    expect(parseEndpointQuery({ tab: "latency", range: "7d", env: " production ", status: "5xx", consumer: "acme", app: BILLING })).toEqual({
       tab: "latency",
       range: "7d",
       env: "production",
       status: "5xx",
       consumer: "acme",
-      app: "shop",
+      app: BILLING,
     });
+    // The app is an app id (#976); a slug means all apps.
+    expect(parseEndpointQuery({ app: "shop" }).app).toBe("");
   });
 
   it("falls back on unknown or oversized values", () => {
@@ -84,6 +87,7 @@ describe("endpointPageHref", () => {
 
   it("is where the Traffic table links", () => {
     expect(endpointPageHref("shop", EP, { range: "7d" })).toBe(endpointHref("shop", EP, { range: "7d" }));
+    expect(endpointPageHref("shop", EP, { range: "7d", app: BILLING })).toBe(endpointHref("shop", EP, { range: "7d", app: BILLING }));
   });
 });
 
@@ -92,6 +96,11 @@ describe("endpointScopeText", () => {
   it("names the range, environment, status and consumer", () => {
     expect(endpointScopeText(q)).toBe("the last 24 hours");
     expect(endpointScopeText({ ...q, env: "production", status: "5xx", consumer: "c_1" }, "Acme")).toBe("the last 24 hours in production, 5xx responses, consumer Acme");
+  });
+
+  it("names the app in scope (#976)", () => {
+    expect(endpointScopeText({ ...q, env: "production", app: BILLING, appLabel: "Billing" })).toBe("the last 24 hours in production for Billing");
+    expect(endpointScopeText({ ...q, appLabel: "Billing" })).toBe("the last 24 hours");
   });
 
   it("leaves the status out on the Errors tab, which does not filter by it", () => {

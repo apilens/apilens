@@ -154,8 +154,10 @@ test("Requests tab: locked scope, tiles, status chart and top consumers, reading
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("GET /orders/{id}");
   const scope = page.getByRole("definition");
-  await expect(page.locator("dl.ep-locked dt")).toHaveText(["Method", "Path", "App"]);
-  await expect(page.locator("dl.ep-locked dd")).toHaveText(["GET", "/orders/{id}", "Shop"]);
+  await expect(page.locator("dl.ep-locked dt")).toHaveText(["Method", "Path"]);
+  await expect(page.locator("dl.ep-locked dd")).toHaveText(["GET", "/orders/{id}"]);
+  // With one app there is nothing to pick between.
+  await expect(page.getByRole("combobox", { name: "App" })).toHaveCount(0);
   await expect(scope.first()).toBeVisible();
   await expect(tabs(page).getByRole("link")).toHaveText(["Requests", "Errors", "Response times", "Data transferred"]);
   await expect(tabs(page).getByRole("link", { name: "Requests" })).toHaveAttribute("aria-current", "page");
@@ -346,6 +348,101 @@ test("the settings are read-only without capture.manage", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Save settings" })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toBeHidden();
+});
+
+// The app filter (#976) ----------------------------------------------------------------------
+
+const SHOP_ID = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+const BILLING_ID = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+
+async function twoApps() {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ apps: [{ id: SHOP_ID, slug: "shop", name: "Shop" }, { id: BILLING_ID, slug: "billing", name: "Billing" }] }),
+  });
+  expect(res.status).toBe(204);
+}
+
+/** All apps answer REQUESTS; Billing alone answers its own, smaller numbers. */
+async function seedPerApp() {
+  const billing = {
+    requests: { ...REQUESTS, summary: { requests: 1200, successful: 1100, client_errors: 60, server_errors: 40, requests_per_minute: 0.83 }, consumers: [] },
+  };
+  const res = await fetch(`${IDENTITY}/__fake/endpoint`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", method: "GET", path: "/orders/{id}", tabs: { requests: REQUESTS, errors: ERRORS, latency: LATENCY }, apps: { [BILLING_ID]: billing } }),
+  });
+  expect(res.status).toBe(204);
+}
+
+test.describe("with several apps", () => {
+  test.afterEach(async () => {
+    // Other specs expect shop's single default app.
+    await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps: [] }) });
+  });
+
+  test("All apps is the default; scoped to one app the page shows that app's numbers", async ({ page }) => {
+    await twoApps();
+    await seedPerApp();
+    await signIn(page);
+    const app = page.getByRole("combobox", { name: "App" });
+    await expect(app).toHaveValue("");
+    await expect(app.getByRole("option")).toHaveText(["All apps", "Shop", "Billing"]);
+    await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["8,200", "7,908", "290", "2"]);
+    expect((await reads()).at(-1)?.query).toEqual({ range: "24h" });
+
+    await app.selectOption({ label: "Billing" });
+    await page.waitForURL(new RegExp(`app=${BILLING_ID}`));
+    await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["1,200", "1,100", "60", "40"]);
+    await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /1,200 requests in the last 24 hours for Billing/);
+    expect((await reads()).at(-1)?.query).toEqual({ range: "24h", app: BILLING_ID });
+    // Tabs and the Traffic link keep the app.
+    await expect(tabs(page).getByRole("link", { name: "Errors" })).toHaveAttribute("href", `${PAGE}?tab=errors&app=${BILLING_ID}`);
+    await expect(page.locator(".pagehead").getByRole("link", { name: "Traffic" })).toHaveAttribute("href", `/shop/traffic?app=${BILLING_ID}`);
+  });
+
+  test("across all apps the tabs do not claim one app's settings", async ({ page }) => {
+    await twoApps();
+    await seedPerApp();
+    await signIn(page, `${PAGE}?tab=errors`);
+    await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("Per app");
+    await page.goto(`${PAGE}?tab=latency`);
+    await expect(tiles(page).locator(".tr-tile__sub").last()).toHaveText("Excellent, target set per app");
+    await page.goto(`${PAGE}?tab=latency&app=${SHOP_ID}`);
+    await expect(tiles(page).locator(".tr-tile__sub").last()).toHaveText("Excellent, target app default");
+  });
+
+  test("the settings dialog asks which app and saves for that app", async ({ page }) => {
+    await twoApps();
+    await seedPerApp();
+    await signIn(page, `${PAGE}?tab=errors`);
+    await page.getByRole("button", { name: "Endpoint settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Endpoint settings" });
+    const app = dialog.getByRole("combobox", { name: "App" });
+    await expect(app.getByRole("option")).toHaveText(["Shop", "Billing"]);
+    await expect(app).toHaveValue(SHOP_ID);
+    await app.selectOption({ label: "Billing" });
+    await expect(dialog).toContainText("GET /orders/{id} in app Billing");
+    const codes = dialog.getByRole("textbox", { name: "Expected status codes" });
+    await expect(codes).toBeEnabled();
+    await codes.fill("404");
+    await dialog.getByRole("button", { name: "Save settings" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved for Billing." })).toBeVisible();
+
+    // Billing's page shows them; Shop's does not.
+    await page.goto(`${PAGE}?tab=errors&app=${BILLING_ID}`);
+    await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("404");
+    await page.goto(`${PAGE}?tab=errors&app=${SHOP_ID}`);
+    await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("None");
+    // Scoped to Billing, the dialog opens on Billing.
+    await page.goto(`${PAGE}?app=${BILLING_ID}`);
+    await page.getByRole("button", { name: "Endpoint settings" }).click();
+    await expect(dialog.getByRole("combobox", { name: "App" })).toHaveValue(BILLING_ID);
+    await expect(codes).toHaveValue("404");
+  });
 });
 
 test("says so when the endpoint had no requests, and when a tab cannot load", async ({ page }) => {

@@ -7,10 +7,24 @@
 import { isProjectSlug } from "@/lib/api-keys";
 import { isAppId } from "@/lib/capture-policy";
 import { type AppSettings, identity, isApiError } from "@/lib/identity";
-import { checkThreshold, thresholdError } from "@/lib/performance";
+import { checkThreshold, loadThresholdError, thresholdError } from "@/lib/performance";
 import { withActionSession } from "@/lib/server-session";
 
 export type SaveAppThresholdResult = { ok: true; settings: AppSettings } | { ok: false; error: string; code?: string };
+
+/** Reads the response time threshold of app `appId` in `project`, for the settings dialog's app picker (#976). */
+export async function loadAppThreshold(project: string, appId: string): Promise<SaveAppThresholdResult> {
+  if (!isProjectSlug(project) || !isAppId(appId)) return { ok: false, error: loadThresholdError("not_found"), code: "not_found" };
+  return withActionSession(async (session) => {
+    try {
+      const settings = await session.call((o) => identity().getAppSettings(project, appId, o));
+      return { ok: true, settings };
+    } catch (err) {
+      if (!isApiError(err)) throw err;
+      return { ok: false, error: loadThresholdError(err.code), code: err.code };
+    }
+  });
+}
 
 /** Saves `threshold` (ms, or null for the default) as the response time threshold of app `appId` in `project`. */
 export async function saveAppThreshold(project: string, appId: string, threshold: unknown): Promise<SaveAppThresholdResult> {

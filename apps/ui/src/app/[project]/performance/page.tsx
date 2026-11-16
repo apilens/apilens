@@ -24,15 +24,21 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
   }
 }
 
-/** The project's apps, the app in scope (`?app=`, else the first) and its threshold. */
+/**
+ * The project's apps and the app the settings dialog opens on with its threshold: the app in scope
+ * (`?app=`, #976), else the first. `scoped` says whether that app is the page's whole scope (the
+ * filter names it, or the project has only it), so the Apdex explanation may name its threshold.
+ */
 async function readThreshold(project: string, q: PerformanceState, next: string): Promise<AppThresholdLoad> {
   const apps = await read<ProjectApps>(next, (o) => identity().projectApps(project, o));
-  if (apps === null) return { apps: null, app: null, settings: null };
+  if (apps === null) return { apps: null, app: null, settings: null, scoped: false };
   const list = apps.apps ?? [];
-  const app = list.find((a) => a.slug === q.app) ?? list[0] ?? null;
-  if (!app) return { apps: list, app: null, settings: null };
+  const inScope = list.find((a) => a.id === q.app) ?? null;
+  const app = inScope ?? list[0] ?? null;
+  const scoped = inScope !== null || (!q.app && list.length === 1);
+  if (!app) return { apps: list, app: null, settings: null, scoped: false };
   const settings = await read<AppSettings>(next, (o) => identity().getAppSettings(project, app.id, o));
-  return { apps: list, app, settings };
+  return { apps: list, app, settings, scoped };
 }
 
 // Performance (#595): p50/p75/p95 tiles and trend, the Apdex gauge, the response-time histogram,
@@ -47,7 +53,8 @@ export default async function PerformancePage({ params, searchParams }: { params
   const found = findProject(context, project);
   if (!found) notFound();
 
-  const scope = { range: q.range, env: q.env };
+  // `?app=` (#976) narrows the reads to one app; without it they count all apps.
+  const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
   const [latency, endpoints, threshold] = await Promise.all([
     read<TrafficLatency>(next, (o) => identity().trafficLatency(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: PERF_ENDPOINTS_LIMIT }, o)),

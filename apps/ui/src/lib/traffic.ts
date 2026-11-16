@@ -1,8 +1,9 @@
 // The Traffic page (#592): requests, errors and latency of a project over a range and an
 // environment, a status-split timeseries and the endpoints table. Pure helpers (URL state,
 // formatting, chart geometry), unit-tested in traffic.test.ts.
+import { isAppId } from "./capture-policy";
 import { RANGE_LABEL, niceMax } from "./consumers";
-import type { EndpointTraffic, QueryRange, TrafficPoint } from "./identity";
+import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint } from "./identity";
 
 export const TRAFFIC_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -13,10 +14,14 @@ export const LIVE_INTERVAL_MS = 30_000;
 /** The longest environment name the API takes. */
 const MAX_ENV = 64;
 
-/** The page's state, all of it in the URL: `?range=&env=`. An empty env means all environments. */
+/**
+ * The page's state, all of it in the URL: `?range=&env=&app=`. An empty env means all
+ * environments; an empty app (an app id, #976) means all apps.
+ */
 export interface TrafficState {
   range: QueryRange;
   env: string;
+  app: string;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -29,13 +34,37 @@ export function parseTrafficQuery(params: SearchParams): TrafficState {
   return {
     range: TRAFFIC_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
     env: env.length <= MAX_ENV ? env : "",
+    app: parseAppParam(params.app),
   };
+}
+
+/** A page's `?app=` (#976): an app id, lower-cased, else "" for all apps. */
+export function parseAppParam(v: string | string[] | undefined): string {
+  const app = (first(v) ?? "").trim();
+  return isAppId(app) ? app.toLowerCase() : "";
+}
+
+/**
+ * The app filter's options (#976): All apps first, then the project's apps. A shared link may name
+ * an app the project no longer lists; it stays selectable as an unknown app, so the picker never
+ * names a different scope than the one read.
+ */
+export function appOptions(apps: readonly NamedApp[], current: string): { value: string; label: string }[] {
+  const options = [{ value: "", label: "All apps" }, ...apps.map((a) => ({ value: a.id, label: a.name }))];
+  if (current && !apps.some((a) => a.id === current)) options.push({ value: current, label: "Unknown app" });
+  return options;
+}
+
+/** The name of app `id` among `apps`, for the App column and the scope in words. */
+export function appName(apps: readonly NamedApp[] | null | undefined, id: string): string {
+  return apps?.find((a) => a.id === id)?.name ?? "Unknown app";
 }
 
 function scopeParams(q: Partial<TrafficState>): string {
   const p = new URLSearchParams();
   if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
   if (q.env) p.set("env", q.env);
+  if (q.app) p.set("app", q.app);
   const s = p.toString();
   return s ? `?${s}` : "";
 }
@@ -45,14 +74,20 @@ export function trafficHref(project: string, q: Partial<TrafficState>): string {
   return `/${encodeURIComponent(project)}/traffic${scopeParams(q)}`;
 }
 
-/** An endpoint's detail page (`/<project>/endpoints/<method>/<path>`, #593), keeping the scope. */
+/**
+ * An endpoint's detail page (`/<project>/endpoints/<method>/<path>`, #593), keeping the scope; with
+ * `app` it opens scoped to that app (a Traffic row is one app's endpoint, #976).
+ */
 export function endpointHref(project: string, ep: Pick<EndpointTraffic, "method" | "path">, q: Partial<TrafficState>): string {
   return `/${encodeURIComponent(project)}/endpoints/${encodeURIComponent(ep.method.toUpperCase())}/${encodeURIComponent(ep.path)}${scopeParams(q)}`;
 }
 
-/** The scope in words, for empty states and chart summaries: `the last 24 hours in production`. */
-export function scopeText(q: TrafficState): string {
-  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`;
+/**
+ * The scope in words, for empty states and chart summaries: `the last 24 hours in production`,
+ * then `for Billing` when one app is in scope (`appLabel` is its name).
+ */
+export function scopeText(q: Pick<TrafficState, "range" | "env"> & { app?: string }, appLabel?: string): string {
+  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}${q.app && appLabel ? ` for ${appLabel}` : ""}`;
 }
 
 /** A latency in milliseconds: `<1 ms`, `42 ms`, `1.24 s`, `12.5 s`. */

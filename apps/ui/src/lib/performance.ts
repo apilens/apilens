@@ -3,7 +3,7 @@
 // threshold. Pure helpers (URL state, sorting, threshold input), unit-tested in performance.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import type { AppSettings, EndpointTraffic, QueryRange } from "./identity";
-import { DEFAULT_RANGE, TRAFFIC_RANGES, endpointHref } from "./traffic";
+import { DEFAULT_RANGE, TRAFFIC_RANGES, endpointHref, parseAppParam } from "./traffic";
 
 /** The Apdex threshold T when neither the endpoint nor its app sets one, in ms. */
 export const DEFAULT_THRESHOLD_MS = 500;
@@ -12,13 +12,12 @@ export const MAX_APP_THRESHOLD_MS = 600_000;
 /** How many endpoints the table asks for (the API's largest page). */
 export const PERF_ENDPOINTS_LIMIT = 500;
 
-/** The longest environment name and app slug the API takes. */
+/** The longest environment name the API takes. */
 const MAX_ENV = 64;
-const MAX_APP = 63;
 
 /**
  * The page's state, all of it in the URL: `?range=&env=&app=`. An empty env means all
- * environments; `app` picks the app whose threshold the settings dialog edits (else the first).
+ * environments; an empty app (an app id, #976) means all apps.
  */
 export interface PerformanceState {
   range: QueryRange;
@@ -39,7 +38,7 @@ export function parsePerformanceQuery(params: SearchParams): PerformanceState {
   return {
     range: TRAFFIC_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
     env: capped(params.env, MAX_ENV),
-    app: capped(params.app, MAX_APP),
+    app: parseAppParam(params.app),
   };
 }
 
@@ -53,15 +52,15 @@ export function performanceHref(project: string, q: Partial<PerformanceState>): 
   return `/${encodeURIComponent(project)}/performance${s ? `?${s}` : ""}`;
 }
 
-/** An endpoint's Response times tab, keeping the range and environment. */
-export function endpointLatencyHref(project: string, ep: Pick<EndpointTraffic, "method" | "path">, q: PerformanceState): string {
-  const href = endpointHref(project, ep, { range: q.range, env: q.env });
+/** An endpoint's Response times tab, keeping the range and environment, scoped to the row's app (#976). */
+export function endpointLatencyHref(project: string, ep: Pick<EndpointTraffic, "method" | "path"> & { app_id?: string }, q: PerformanceState): string {
+  const href = endpointHref(project, ep, { range: q.range, env: q.env, app: ep.app_id || q.app });
   return `${href}${href.includes("?") ? "&" : "?"}tab=latency`;
 }
 
-/** The scope in words: `the last 24 hours in production`. */
-export function perfScopeText(q: PerformanceState): string {
-  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`;
+/** The scope in words: `the last 24 hours in production`, then `for Billing` with one app in scope. */
+export function perfScopeText(q: PerformanceState, appLabel?: string): string {
+  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}${q.app && appLabel ? ` for ${appLabel}` : ""}`;
 }
 
 /**
@@ -159,6 +158,14 @@ export function thresholdError(code: string): string {
     default:
       return "Something went wrong. Try again in a moment.";
   }
+}
+
+/** A sentence for an API error code when reading an app's threshold for the settings dialog (#976). */
+export function loadThresholdError(code: string): string {
+  if (code === "forbidden" || code === "invalid_request" || code === "validation_failed" || code === "bad_request") {
+    return "We couldn’t load this app’s response time threshold just now. Try again in a moment.";
+  }
+  return thresholdError(code);
 }
 
 export const PERFORMANCE_LOAD_FAILED = "We couldn’t load response times just now.";

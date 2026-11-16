@@ -8,6 +8,8 @@ import {
   TRAFFIC_RANGES,
   type TrafficState,
   apdexRating,
+  appName,
+  appOptions,
   endpointHref,
   formatApdex,
   formatLatency,
@@ -16,6 +18,7 @@ import {
   trafficHref,
 } from "@/lib/traffic";
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
+import { ScopeSelect } from "../endpoint/filters";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
@@ -57,6 +60,9 @@ export function TrafficView({
   // Every endpoint the API listed, paged here; the range and environment links leave `page` out,
   // so they start again at page 1, and a page past the end (the list shrank while live) clamps.
   const page = slicePage(endpoints ?? [], parsePage(params));
+  const scope = scopeText(q, q.app ? appName(apps, q.app) : undefined);
+  // The App column (#976): which app serves each row, when the rows can be of several apps.
+  const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
   return (
     <div className="page tr">
       <header className="pagehead">
@@ -75,6 +81,9 @@ export function TrafficView({
             ))}
           </nav>
           <EnvPicker project={project} query={q} environments={environments} />
+          {apps && (apps.length > 1 || q.app) ? (
+            <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: trafficHref(project, { ...q, app: o.value }) }))} />
+          ) : null}
         </div>
         <LiveControl />
       </div>
@@ -84,7 +93,7 @@ export function TrafficView({
       ) : summary.requests === 0 ? (
         <div className="tr-notice" role="status">
           <ObIcon name="info" />
-          <p>No requests in {scopeText(q)}. Once your app reports requests through the SDK, they show up here.</p>
+          <p>No requests in {scope}. Once your app reports requests through the SDK, they show up here.</p>
         </div>
       ) : (
         <>
@@ -97,13 +106,13 @@ export function TrafficView({
               <div className="tr-charts">
                 <StatusChart
                   label="Requests by status"
-                  summary={`${formatCount(summary.requests)} requests in ${scopeText(q)}: ${formatCount(summary.client_errors)} 4xx and ${formatCount(summary.server_errors)} 5xx.`}
+                  summary={`${formatCount(summary.requests)} requests in ${scope}: ${formatCount(summary.client_errors)} 4xx and ${formatCount(summary.server_errors)} 5xx.`}
                   rows={statusRows(points)}
                   range={q.range}
                 />
                 <LatencyChart
                   label="Response time"
-                  summary={`p95 of ${formatLatency(summary.p95_ms)} over ${scopeText(q)}.`}
+                  summary={`p95 of ${formatLatency(summary.p95_ms)} over ${scope}.`}
                   rows={points}
                   range={q.range}
                 />
@@ -116,16 +125,16 @@ export function TrafficView({
               <LoadFailed text={ENDPOINTS_LOAD_FAILED} href={trafficHref(project, q)} />
             ) : endpoints.length === 0 ? (
               <p className="tr-empty" role="status">
-                No endpoints with requests in {scopeText(q)}.
+                No endpoints with requests in {scope}.
               </p>
             ) : (
               <>
                 {apps && apps.length > 0 ? (
                   <EndpointRowMenus project={project} apps={apps}>
-                    <EndpointsTable project={project} q={q} endpoints={page.rows} menus />
+                    <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} menus />
                   </EndpointRowMenus>
                 ) : (
-                  <EndpointsTable project={project} q={q} endpoints={page.rows} />
+                  <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} />
                 )}
                 <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" />
                 {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
@@ -218,12 +227,26 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
   );
 }
 
-function EndpointsTable({ project, q, endpoints, menus = false }: { project: string; q: TrafficState; endpoints: EndpointTraffic[]; menus?: boolean }) {
+function EndpointsTable({
+  project,
+  q,
+  endpoints,
+  apps = null,
+  menus = false,
+}: {
+  project: string;
+  q: TrafficState;
+  endpoints: EndpointTraffic[];
+  /** The project's apps when the table shows the App column; null leaves it out. */
+  apps?: NamedApp[] | null;
+  menus?: boolean;
+}) {
   return (
     <table className="tr-table" aria-label="Endpoints">
       <thead>
         <tr>
           <th scope="col">Endpoint</th>
+          {apps ? <th scope="col">App</th> : null}
           <th scope="col" className="tr-num">
             Requests
           </th>
@@ -253,10 +276,15 @@ function EndpointsTable({ project, q, endpoints, menus = false }: { project: str
         {endpoints.map((ep) => (
           <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
             <td className="tr-ep" data-label="Endpoint">
-              <a className="tr-ep__link" href={endpointHref(project, ep, q)}>
+              <a className="tr-ep__link" href={endpointHref(project, ep, { ...q, app: ep.app_id || q.app })}>
                 <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
               </a>
             </td>
+            {apps ? (
+              <td className="tr-app" data-label="App">
+                {appName(apps, ep.app_id)}
+              </td>
+            ) : null}
             <td className="tr-num" data-label="Requests">
               {formatCount(ep.requests)}
             </td>
@@ -277,7 +305,7 @@ function EndpointsTable({ project, q, endpoints, menus = false }: { project: str
             </td>
             {menus ? (
               <td className="ep-rowmenu__cell">
-                <EndpointRowMenu method={ep.method} path={ep.path} />
+                <EndpointRowMenu method={ep.method} path={ep.path} appId={ep.app_id} />
               </td>
             ) : null}
           </tr>
