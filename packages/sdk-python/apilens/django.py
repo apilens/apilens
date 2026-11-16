@@ -322,12 +322,16 @@ class ApiLensDjangoMiddleware:
         self.get_consumer = _resolve_get_consumer(settings)
         # APILENS_CAPTURE_SPANS also works as an env kill-switch (env wins over the setting).
         self.capture_spans = bool(_setting(settings, "CAPTURE_SPANS", True, env)) and env_spans_enabled()
+        # APILENS_CAPTURE_DB_SPANS (default True): ORM / driver statements
+        # become child ``db`` spans while spans are on.
+        self.capture_db_spans = bool(_setting(settings, "CAPTURE_DB_SPANS", True, env)) and self.capture_spans
         if self.capture_spans:
             configure_spans(
                 self.client,
                 app_id=self.app_id,
                 environment=self.environment,
                 service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
+                instrument_db=self.capture_db_spans,
             )
         # APILENS_CAPTURE_LOGS ("errors" default, "off"): ERROR records the app
         # logs (``logger.exception``) become logs on the current trace.

@@ -528,6 +528,7 @@ class ApiLensASGIMiddleware:
         capture_validation_errors: bool = True,
         capture_locals: bool = False,
         capture_spans: bool = True,
+        capture_db_spans: bool = True,
         capture_logs: CaptureLogs = "errors",
         service_name: str = "",
         max_payload_bytes: int = 65536,
@@ -630,12 +631,15 @@ class ApiLensASGIMiddleware:
         # Without an app_id spans carry an empty one, like requests and logs.
         # APILENS_CAPTURE_SPANS=false is a global kill-switch (env wins over code).
         self.capture_spans = capture_spans and env_spans_enabled()
+        # Database statements become child ``db`` spans while spans are on.
+        self.capture_db_spans = bool(capture_db_spans) and self.capture_spans
         if self.capture_spans:
             configure_spans(
                 client,
                 app_id=app_id,
                 environment=environment,
                 service_name=service_name or app_id,
+                instrument_db=self.capture_db_spans,
             )
         # ERROR records the app logs (``logger.exception``) become logs on the
         # current trace via a root-logger handler; "off" leaves logging alone.
@@ -1035,6 +1039,7 @@ class ApiLensWSGIMiddleware:
         capture_headers: bool = True,
         capture_locals: bool = False,
         capture_spans: bool = True,
+        capture_db_spans: bool = True,
         capture_logs: CaptureLogs = "errors",
         service_name: str = "",
         max_payload_bytes: int = 65536,
@@ -1106,12 +1111,15 @@ class ApiLensWSGIMiddleware:
         # Without an app_id spans carry an empty one, like requests and logs.
         # APILENS_CAPTURE_SPANS=false is a global kill-switch (env wins over code).
         self.capture_spans = capture_spans and env_spans_enabled()
+        # Database statements become child ``db`` spans while spans are on.
+        self.capture_db_spans = bool(capture_db_spans) and self.capture_spans
         if self.capture_spans:
             configure_spans(
                 client,
                 app_id=app_id,
                 environment=environment,
                 service_name=service_name or app_id,
+                instrument_db=self.capture_db_spans,
             )
         # ERROR records the app logs (``logger.exception``) become logs on the
         # current trace via a root-logger handler; "off" leaves logging alone.

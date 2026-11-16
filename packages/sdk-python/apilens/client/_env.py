@@ -121,6 +121,7 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "capture_ip": parse_bool,
     "anonymize_ip": parse_bool,
     "capture_spans": parse_bool,
+    "capture_db_spans": parse_bool,
     "capture_logs": parse_capture_logs,
     "batch_size": parse_int,
     "flush_interval": parse_float,

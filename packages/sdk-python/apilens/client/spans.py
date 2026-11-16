@@ -4,7 +4,8 @@ Spans are captured entirely automatically; there is no manual span API. The
 middleware records a root ``server`` span per request, and outbound HTTP calls
 made with ``requests`` or ``httpx`` become child ``http`` spans (with
 ``traceparent`` propagation downstream) when the middleware is installed with
-``capture_spans=True``.
+``capture_spans=True``. Database statements become child ``db`` spans
+(see :mod:`.db_spans`) unless ``capture_db_spans=False``.
 
 When a request fails — an unhandled exception or a 5xx response — the
 middleware also emits one ERROR log correlated to the trace (see
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
 
 _MAX_ATTRIBUTES = 32
 _MAX_ATTRIBUTE_VALUE_CHARS = 512
+# Attributes allowed past the default cap: the obfuscated SQL of a db span.
+_LONG_ATTRIBUTE_CHARS = {"db.statement": 2048}
 
 _FALSEY = {"0", "false", "no", "off", "disabled", ""}
 
@@ -71,8 +74,12 @@ def configure_spans(
     environment: str | None = None,
     service_name: str = "",
     instrument_http: bool = True,
+    instrument_db: bool = True,
 ) -> None:
-    """Register the destination for spans (called by the middlewares)."""
+    """Register the destination for spans (called by the middlewares).
+
+    ``instrument_db`` (the ``capture_db_spans`` option) turns database spans
+    on or off process-wide (see :mod:`.db_spans`)."""
     global _recorder
     with _recorder_lock:
         _recorder = _SpanRecorder(
@@ -83,6 +90,9 @@ def configure_spans(
         )
     if instrument_http:
         instrument_outbound_http()
+    from .db_spans import set_db_spans_enabled
+
+    set_db_spans_enabled(instrument_db)
 
 
 def _clean_attributes(attributes: dict[str, Any] | None) -> dict[str, str]:
@@ -95,7 +105,8 @@ def _clean_attributes(attributes: dict[str, Any] | None) -> dict[str, str]:
         clean_key = str(key or "").strip()
         if not clean_key or isinstance(value, (dict, list, tuple, set)):
             continue
-        output[clean_key] = str(value if value is not None else "")[:_MAX_ATTRIBUTE_VALUE_CHARS]
+        limit = _LONG_ATTRIBUTE_CHARS.get(clean_key, _MAX_ATTRIBUTE_VALUE_CHARS)
+        output[clean_key] = str(value if value is not None else "")[:limit]
     return output
 
 
