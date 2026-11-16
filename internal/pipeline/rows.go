@@ -94,6 +94,25 @@ type SpanRow struct {
 	Attributes   map[string]string
 	Release      string
 	Commit       string
+	// StatusMessage is the status description, e.g. why the span failed.
+	StatusMessage string
+	Events        []SpanEventRow
+	Links         []SpanLink
+}
+
+// SpanEventRow is one timestamped event inside a span (the Nested column
+// api_spans.events), e.g. an `exception` event.
+type SpanEventRow struct {
+	Time       time.Time
+	Name       string
+	Attributes map[string]string
+}
+
+// SpanLink points at another span (an element of api_spans.links). The ch
+// tags name the tuple elements.
+type SpanLink struct {
+	TraceID string `ch:"trace_id"`
+	SpanID  string `ch:"span_id"`
 }
 
 // DeployRow is one deploy/release event (table api_deploys). AppID is the

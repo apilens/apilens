@@ -109,6 +109,71 @@ func TestDirectSinkWritesAllTablesAndRollups(t *testing.T) {
 	}
 }
 
+func TestSpanStatusMessageEventsLinksRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ch.Connect(ctx, chCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	project, app := uuid.New(), uuid.New()
+	start := time.Date(2026, 10, 22, 11, 0, 0, 0, time.UTC)
+	at := start.Add(5*time.Millisecond + 7) // nanosecond precision survives
+	rows := []pipeline.SpanRow{
+		{
+			ProjectID: project, AppID: app, Environment: "production", Timestamp: start, TraceID: "4bf92f3577b34da6a3ce929d0e0e4736",
+			SpanID: "00f067aa0ba902b7", Kind: "server", Status: "error", StatusMessage: "ValueError: card declined",
+			Events: []pipeline.SpanEventRow{
+				{Time: at, Name: "exception", Attributes: map[string]string{"exception.type": "ValueError", "exception.stacktrace": "Traceback ..."}},
+				{Time: at.Add(time.Millisecond), Name: "retry"},
+			},
+			Links: []pipeline.SpanLink{{TraceID: "5bf92f3577b34da6a3ce929d0e0e4736", SpanID: "10f067aa0ba902b7"}},
+		},
+		// A span from an older SDK: no message, events or links.
+		{ProjectID: project, AppID: app, Environment: "production", Timestamp: start, TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "20f067aa0ba902b7"},
+	}
+	if err := pipeline.ClickHouseInserters(conn).Spans(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		message    string
+		times      []time.Time
+		names      []string
+		attrs      []map[string]string
+		linkTraces []string
+		linkSpans  []string
+	)
+	query := `SELECT status_message, events.time, events.name, events.attributes, links.trace_id, links.span_id
+		FROM api_spans WHERE project_id = ? AND span_id = ?`
+	if err := conn.QueryRow(ctx, query, project, "00f067aa0ba902b7").Scan(&message, &times, &names, &attrs, &linkTraces, &linkSpans); err != nil {
+		t.Fatal(err)
+	}
+	if message != "ValueError: card declined" {
+		t.Errorf("status_message = %q", message)
+	}
+	if len(times) != 2 || !times[0].Equal(at) || names[0] != "exception" || names[1] != "retry" ||
+		attrs[0]["exception.type"] != "ValueError" || attrs[0]["exception.stacktrace"] != "Traceback ..." || len(attrs[1]) != 0 {
+		t.Errorf("events = %v %v %v", times, names, attrs)
+	}
+	if len(linkTraces) != 1 || linkTraces[0] != "5bf92f3577b34da6a3ce929d0e0e4736" || linkSpans[0] != "10f067aa0ba902b7" {
+		t.Errorf("links = %v %v", linkTraces, linkSpans)
+	}
+
+	if err := conn.QueryRow(ctx, query, project, "20f067aa0ba902b7").Scan(&message, &times, &names, &attrs, &linkTraces, &linkSpans); err != nil {
+		t.Fatal(err)
+	}
+	if message != "" || len(times) != 0 || len(names) != 0 || len(attrs) != 0 || len(linkTraces) != 0 {
+		t.Errorf("span without events: %q %v %v %v %v", message, times, names, attrs, linkTraces)
+	}
+}
+
 func TestRequestNewFieldsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	logger := testutil.Logger(t)

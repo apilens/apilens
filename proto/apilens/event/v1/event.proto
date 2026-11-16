@@ -97,6 +97,22 @@ message SpanEvent {
   map<string, string> attributes = 14;
   string release = 15;
   string commit = 16;
+  string status_message = 17;
+  repeated SpanEventEntry events = 18;
+  repeated SpanLink links = 19;
+}
+
+// SpanEventEntry is one timestamped event inside a span, e.g. `exception`.
+message SpanEventEntry {
+  google.protobuf.Timestamp time = 1;
+  string name = 2;
+  map<string, string> attributes = 3;
+}
+
+// SpanLink points at another span, possibly in another trace.
+message SpanLink {
+  string trace_id = 1;
+  string span_id = 2;
 }
 
 // DeployEvent is one deploy/release (table api_deploys). An empty app_id

@@ -44,6 +44,9 @@ All three ingest endpoints take a JSON body with one array of records. Fields ma
 | `service_name` | string | No | Shown on the span row. |
 | `environment` | string | No | Default `production`. |
 | `attributes` | object | No | Free-form key/values. |
+| `status_message` | string | No | Why the span failed, e.g. `ValueError: card declined`. Up to 8,192 chars. |
+| `events` | array | No | Up to 128 `{timestamp, name, attributes}` objects (an event without `timestamp` takes the span's). Up to 64 attributes each, values up to 512 chars; `exception.stacktrace` up to 64 KiB, cut in the middle so its head and tail both survive. |
+| `links` | array | No | Up to 128 `{trace_id, span_id}` objects pointing at related spans; links with malformed ids are dropped. |
 
 ## LogRecord — `POST /v1/logs`
 
