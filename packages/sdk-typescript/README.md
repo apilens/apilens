@@ -599,6 +599,7 @@ options.
 | `captureLocals` | — | **Not in the JS SDK**: frame locals are a Python-only option; JS stack traces carry no local variables. |
 | `captureContentTypes` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `captureSpans` | `true` | Emit trace ids, spans and the error log for this app. |
+| `captureDbSpans` | `true` | `pg`, `mysql2` and Prisma statements become `db` spans (needs `captureSpans`). |
 | `captureLogs` | — | **Not in the JS SDK**: there is no logging-library handler; use `captureException(err)` to ship an error the app caught. |
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | `undefined` | Optional resolver `(req, res) => consumer` (see [consumer attribution](#consumer-attribution)). |
@@ -763,6 +764,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_CAPTURE_IP` | — | not read by the JS SDK (the client IP is always captured) | — |
 | `APILENS_ANONYMIZE_IP` | — | not read by the JS SDK | — |
 | `APILENS_CAPTURE_SPANS` | `captureSpans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | — | not read by the JS SDK; set `captureDbSpans` in code | — |
 | `APILENS_CAPTURE_LOGS` | — | not read by the JS SDK | — |
 | `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flushIntervalMs` | number, **seconds** | `3` (3000 ms) |
