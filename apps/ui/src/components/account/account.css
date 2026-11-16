@@ -27,3 +27,15 @@
 @media (max-width: 860px) {
   .acct-os .os-confirm .row { flex-wrap: wrap; }
 }
+
+/* Home screen (#994): the view a project opens on. */
+.ac-home { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ac-home .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ac-home__choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; }
+.ac-home__choice + .ac-home__choice { margin-top: var(--space-2); }
+.ac-home__choice.on { border-color: var(--accent); background: var(--ok-soft); }
+.ac-home__choice input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.ac-home__choice b { display: block; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.ac-home__choice > span > span { display: block; margin-top: 2px; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.ac-home__choice:has(input:focus-visible) { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.ac-home:disabled .ac-home__choice { cursor: not-allowed; }

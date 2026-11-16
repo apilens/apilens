@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AccountSettings } from "@/components/account-settings";
 import { SessionsSettings } from "@/components/account-settings/sessions";
 import { DeleteAccount } from "@/components/account/delete-account";
+import { PreferencesSettings } from "@/components/account/home-screen";
 import { ProfileSettings } from "@/components/account/profile";
 import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { AppShell } from "@/components/app-shell";
@@ -11,6 +12,7 @@ import { PasskeysCard } from "@/components/security/passkeys";
 import { getContext, getSession } from "@/lib/auth/server";
 import { ACCOUNT_SETTINGS, type AccountSection, accountSection, accountSectionHref } from "@/lib/account-settings";
 import { connectedNotice, providerRows } from "@/lib/connected-accounts";
+import { parseHome } from "@/lib/onboarding-save";
 import { type ConnectedAccount, type Passkey, type SessionInfo, type TwoFactorStatus, type UserContext, identity, isApiError } from "@/lib/identity";
 import { ownedOrgs } from "@/lib/profile";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -74,6 +76,7 @@ async function loadConnectedAccounts(next: string): Promise<ConnectedAccount[]> 
 async function sectionContent(section: AccountSection, context: UserContext, search: Search) {
   const next = accountSectionHref(section);
   if (section.slug === "") return <ProfileSettings user={context.user} />;
+  if (section.slug === "preferences") return <PreferencesSettings home={parseHome(context.user.preferences?.home)} />;
   if (section.slug === "danger") return <DeleteAccount email={context.user.email} owned={ownedOrgs(context.orgs)} />;
   if (section.slug === "sessions") {
     const sessions = await loadSessions(next);

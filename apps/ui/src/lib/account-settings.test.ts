@@ -24,7 +24,7 @@ describe("accountSection", () => {
 
 describe("accountSectionHref", () => {
   it("links each section under /settings", () => {
-    expect(ACCOUNT_SECTIONS.map(accountSectionHref)).toEqual(["/settings", "/settings/security", "/settings/sessions", "/settings/connected-accounts", "/settings/danger"]);
+    expect(ACCOUNT_SECTIONS.map(accountSectionHref)).toEqual(["/settings", "/settings/security", "/settings/sessions", "/settings/connected-accounts", "/settings/preferences", "/settings/danger"]);
   });
 
   it("round-trips through accountSection", () => {

@@ -39,7 +39,7 @@ describe("openProject", () => {
   });
 
   it("opens the view the user picked as home", async () => {
-    context.mockResolvedValue(ctx("explore"));
+    context.mockResolvedValue(ctx("requests"));
     updateOnboarding.mockResolvedValue({});
     await expect(openProject("checkout")).rejects.toThrow("NEXT_REDIRECT");
     expect(redirect).toHaveBeenCalledWith("/checkout/explore");
