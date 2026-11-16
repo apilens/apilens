@@ -10,6 +10,8 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -38,11 +40,17 @@ import org.springframework.web.multipart.MultipartFile;
  *   POST /login           application/x-www-form-urlencoded body
  *   POST /upload          multipart/form-data (file + description)
  *   GET  /boom            unhandled exception -> 500
+ *   GET  /boom/chained    unhandled exception with a 3-level cause chain -> 500
+ *   GET  /boom/deep       unhandled exception 60 frames deep -> 500
+ *   GET  /boom/handled    exception turned into a 500 by a @ControllerAdvice
+ *   GET  /boom/logged     exception caught and logged (SLF4J) -> 200
  *   GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
  * </pre>
  */
 @RestController
 public class ExampleController {
+  private static final Logger log = LoggerFactory.getLogger(ExampleController.class);
+
   private final String outboundUrl;
   private final RestClient http;
 
@@ -97,6 +105,61 @@ public class ExampleController {
   @GetMapping("/boom")
   public Map<String, Object> boom() {
     throw new IllegalStateException("example failure: /boom always throws");
+  }
+
+  /** IllegalStateException (load) &lt;- IllegalStateException (connect) &lt;- IllegalArgumentException. */
+  @GetMapping("/boom/chained")
+  public Map<String, Object> boomChained() {
+    loadOrder();
+    return Map.of();
+  }
+
+  @GetMapping("/boom/deep")
+  public Map<String, Object> boomDeep() {
+    recurse(60);
+    return Map.of();
+  }
+
+  @GetMapping("/boom/handled")
+  public Map<String, Object> boomHandled() {
+    throw new HandledFailure("example failure: handled by a @ControllerAdvice");
+  }
+
+  @GetMapping("/boom/logged")
+  public Map<String, Object> boomLogged() {
+    try {
+      loadOrder();
+    } catch (IllegalStateException e) {
+      log.error("example failure: /boom/logged caught and logged it", e);
+    }
+    return Map.of("status", "ok", "logged", true);
+  }
+
+  private static void readConfig() {
+    throw new IllegalArgumentException("example failure: config key 'db_url' is missing");
+  }
+
+  private static void connect() {
+    try {
+      readConfig();
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException("example failure: cannot connect to the database", e);
+    }
+  }
+
+  private static void loadOrder() {
+    try {
+      connect();
+    } catch (IllegalStateException e) {
+      throw new IllegalStateException("example failure: cannot load order 42", e);
+    }
+  }
+
+  private static int recurse(int depth) {
+    if (depth <= 1) {
+      throw new IllegalArgumentException("example failure: thrown 60 frames deep");
+    }
+    return recurse(depth - 1) + 1;
   }
 
   @GetMapping("/outbound")
