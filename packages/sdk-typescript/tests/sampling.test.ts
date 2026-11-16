@@ -204,7 +204,8 @@ async function run(
     await r.set("X-Custom", "v").expect(call.status ?? 200);
   }
   await ApiLensClient.getInstance().flushAll();
-  return bodies.flatMap((b) => JSON.parse(b).requests as ApiLensRecord[]);
+  // Failed requests also post their error log to /v1/logs.
+  return bodies.flatMap((b) => (JSON.parse(b).requests ?? []) as ApiLensRecord[]);
 }
 
 function expectNoDetail(record: ApiLensRecord): void {
@@ -271,17 +272,36 @@ describe("Express: base record always sent", () => {
         },
         sampleOnResponse: onResponse,
       },
-      [{ method: "get", path: "/orders", status: 503 }],
+      [{ method: "get", path: "/orders", status: 404 }],
     );
     expect(seen[0]).toMatchObject({
       method: "GET",
       path: "/orders",
-      query: "status=503",
+      query: "status=404",
     });
     expect(seen[0].headers["x-custom"]).toBe("v");
     expect(onResponse).not.toHaveBeenCalled();
     expectNoDetail(records[0]);
-    expect(records[0].status_code).toBe(503);
+    expect(records[0].status_code).toBe(404);
+  });
+
+  it("errors are never sampled: a 5xx keeps its detail whatever the sampling says", async () => {
+    const onResponse = vi.fn(() => false);
+    const records = await run(
+      { sampleRate: 0, sampleOnRequest: () => false, sampleOnResponse: onResponse },
+      [
+        { method: "post", path: "/orders", status: 503 },
+        { method: "post", path: "/orders" },
+      ],
+    );
+    expect(records.map((r) => [r.status_code, r.sampled])).toEqual([
+      [503, true],
+      [200, false],
+    ]);
+    expect(onResponse).not.toHaveBeenCalled();
+    expect(records[0].request_payload).toContain('"item":"book"');
+    expect(JSON.parse(records[0].request_headers)["x-custom"]).toBe("v");
+    expectNoDetail(records[1]);
   });
 
   it("throwing callbacks never break the request and fall back", async () => {

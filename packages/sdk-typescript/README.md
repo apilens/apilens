@@ -385,11 +385,18 @@ Calls made outside a request and the SDK's own uploads are never traced.
 
 ### Automatic error capture
 
-When a request **throws an unhandled error** or **returns a 5xx**, APILens
-records one ERROR log on that request's trace and marks the span as errored:
-the error message and stack when the handler threw (`logger_name`
-`apilens.exception`), else `HTTP 503 on GET /path` (`apilens.http`). It shows
-up under **Trace messages** in the dashboard, lined up with the span.
+When a request's **handler throws** or it **returns a 5xx**, APILens records
+one log on that request's trace: the error message and stack when the handler
+threw (`logger_name` `apilens.exception`), else `HTTP 503 on GET /path`
+(`apilens.http`). The level is ERROR for a 5xx (the span is marked errored)
+and WARN for a thrown error your app answered below 500 (a validation error
+mapped to 400, say). It shows up under **Trace messages** in the dashboard,
+lined up with the span.
+
+Errors are never sampled: a failed request keeps its detail, spans and error
+log whatever `sampleRate`, `sampleOnRequest`, `sampleOnResponse` or the remote
+sample rate say. The error log is sent with tracing off too (without a trace
+id). Only turning capture off (`enabled: false`, or remotely) drops it.
 
 Nothing to call — a clean request has no trace messages; a failing one does.
 This is the only thing written to `/v1/logs`; it is not a general logging API.
@@ -404,8 +411,8 @@ across a boundary the SDK doesn't patch (a message queue, a gRPC call).
 ### Turning tracing on and off
 
 Tracing is on by default (with or without an `appId`). Request analytics keep
-working with tracing off — you just stop emitting trace ids, spans, `traceparent`
-propagation and the error log.
+working with tracing off — you just stop emitting trace ids, spans and
+`traceparent` propagation. The error log is still sent.
 
 **Per integration** — pass `captureSpans: false`:
 
@@ -421,8 +428,9 @@ and it overrides any `captureSpans: true` in code:
 export APILENS_CAPTURE_SPANS=false
 ```
 
-Spans and the error log are request detail: a [sampled-out](#sampling) request
-keeps its trace ids and still propagates `traceparent`, but sends neither.
+Spans are request detail: a [sampled-out](#sampling) request keeps its trace
+ids and still propagates `traceparent`, but sends no spans. A failed request is
+never sampled out.
 
 ---
 
@@ -540,7 +548,7 @@ options.
 | `excludePaths` | `undefined` | Regexes (strings or `RegExp`) for paths to skip entirely (no record, span or log), e.g. `["^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex throws at startup. |
 | `excludeUserAgents` | `undefined` | Regexes for `User-Agent` values to skip entirely, e.g. `["^uptimerobot"]`. Case-insensitive search. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `defaultExclusions` | `true` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `excludePaths`). `false` turns them off; your own `excludePaths` / `excludeUserAgents` still apply. |
-| `sampleRate` | `1` | Fraction (0–1) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range throws at startup. |
+| `sampleRate` | `1` | Fraction (0–1) of requests whose detail — headers, bodies, spans — is kept; failed requests are always kept. See [sampling](#sampling). A value outside the range throws at startup. |
 | `sampleOnRequest` | `undefined` | `(info) => boolean \| number \| undefined` evaluated before the handler; overrides `sampleRate` per request. See [sampling](#sampling). |
 | `sampleOnResponse` | `undefined` | `(info) => boolean \| number \| undefined` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
 | `routeResolver` | — | **Not in the JS SDK**: the template always comes from the framework route, else the heuristic. |
@@ -556,7 +564,12 @@ Sampling never changes metrics. Every request still sends its base record
 (method, path, status, latency, sizes, consumer, IP, user agent, trace id), so
 traffic counts, error rates and latency percentiles stay exact. With
 `sampleRate: 0.1`, about 90% of requests are sent with `sampled: false` and no
-headers, bodies, spans or error log. Their response bodies are never buffered.
+headers, bodies or spans. Their response bodies are never buffered.
+
+Errors are never sampled: a request whose handler threw, or that answered 5xx,
+is always sent with `sampled: true`, its spans and its error log, whatever the
+sample rate, the callbacks or the remote policy decided (its response body is
+missing when it was sampled out at request start, since it was not buffered).
 
 `1` (the default) keeps everything, and `0` sends the base record only. A
 sampled-out request still continues the caller's `traceparent` and propagates

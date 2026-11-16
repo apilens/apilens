@@ -560,8 +560,12 @@ class ApiLensClient {
     this.flushIntervalId = undefined;
   }
 
-  /** Queue one request record; true when it was queued with its detail (sampled in). */
-  public capture(payload: ApiLensRecordInput): boolean {
+  /**
+   * Queue one request record; true when it was queued with its detail
+   * (sampled in). `options.keep` marks a failed request, which the remote
+   * policy's sample rate never samples out.
+   */
+  public capture(payload: ApiLensRecordInput, options: { keep?: boolean } = {}): boolean {
     return this.captureRecord(
       normalizeRecord(
         payload,
@@ -569,11 +573,12 @@ class ApiLensClient {
         this.config.projectSlug,
         this.config.appId,
       ),
+      options,
     );
   }
 
   /** Queue one request record; true when it was queued with its detail (sampled in). */
-  public captureRecord(record: ApiLensRecord): boolean {
+  public captureRecord(record: ApiLensRecord, options: { keep?: boolean } = {}): boolean {
     if (!this.isEnabled()) {
       return false;
     }
@@ -584,7 +589,7 @@ class ApiLensClient {
 
     // The remote policy only narrows: it can drop the record, sample it out
     // or strip detail, never add any back.
-    if (this.remotePolicyState && !applyRemotePolicy(record, this.remotePolicyState, this.randomFn)) {
+    if (this.remotePolicyState && !applyRemotePolicy(record, this.remotePolicyState, this.randomFn, options.keep === true)) {
       return false;
     }
 
