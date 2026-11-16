@@ -16,14 +16,13 @@ import ai.apilens.SampleResponseInfo;
 import ai.apilens.Sampler;
 import ai.apilens.SpanRecord;
 import ai.apilens.TraceContext;
+import ai.apilens.internal.ExceptionInfo;
 import ai.apilens.internal.Strings;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -300,10 +299,12 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       TraceContext trace,
       ApiLensConsumer consumer) {
     Throwable throwable = capturedException != null ? capturedException : capturedError;
-    String message = throwable == null
+    // Spring MVC wraps the handler's exception in a ServletException; report the handler's own.
+    ExceptionInfo exception = ExceptionInfo.of(throwable);
+    String message = exception == null
         ? "HTTP " + statusCode + " on " + method + " " + endpointPath
-        : throwable.getClass().getSimpleName() + ": " + throwable.getMessage();
-    String payload = throwable == null ? "" : stackTrace(throwable);
+        : exception.summary();
+    String payload = exception == null ? "" : exception.payload();
 
     client.captureLog(LogRecord.builder()
         .timestamp(Instant.now())
@@ -320,6 +321,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .projectSlug(client.config().projectSlug())
         .appId(client.config().appId())
         .payload(payload)
+        .attributes(exception == null ? null : exception.attributes())
         .build());
   }
 
@@ -463,11 +465,5 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       headers.put(name, response.getHeaders(name));
     }
     return headers;
-  }
-
-  private String stackTrace(Throwable throwable) {
-    StringWriter out = new StringWriter();
-    throwable.printStackTrace(new PrintWriter(out));
-    return out.toString();
   }
 }

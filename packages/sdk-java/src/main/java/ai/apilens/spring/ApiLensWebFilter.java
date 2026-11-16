@@ -15,10 +15,9 @@ import ai.apilens.SampleResponseInfo;
 import ai.apilens.Sampler;
 import ai.apilens.SpanRecord;
 import ai.apilens.TraceContext;
+import ai.apilens.internal.ExceptionInfo;
 import ai.apilens.internal.Strings;
 import java.io.ByteArrayOutputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Instant;
@@ -361,9 +360,10 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
       String endpointPath,
       TraceContext trace,
       ApiLensConsumer consumer) {
-    String message = throwable == null
+    ExceptionInfo exception = ExceptionInfo.of(throwable);
+    String message = exception == null
         ? "HTTP " + statusCode + " on " + method + " " + endpointPath
-        : throwable.getClass().getSimpleName() + ": " + throwable.getMessage();
+        : exception.summary();
     client.captureLog(LogRecord.builder()
         .timestamp(Instant.now())
         .environment(options.environment())
@@ -378,7 +378,8 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
         .spanId(trace.spanId())
         .projectSlug(client.config().projectSlug())
         .appId(client.config().appId())
-        .payload(throwable == null ? "" : stackTrace(throwable))
+        .payload(exception == null ? "" : exception.payload())
+        .attributes(exception == null ? null : exception.attributes())
         .build());
   }
 
@@ -490,12 +491,6 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
       return "";
     }
     return value.split(",", 2)[0].trim();
-  }
-
-  private static String stackTrace(Throwable throwable) {
-    StringWriter out = new StringWriter();
-    throwable.printStackTrace(new PrintWriter(out));
-    return out.toString();
   }
 
   /**

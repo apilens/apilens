@@ -150,7 +150,8 @@ class ApiLensWebFilterTest {
       assertEquals(2, logs.size());
       JsonNode exception = logs.stream()
           .filter(log -> log.get("logger_name").asText().equals("apilens.exception")).findFirst().orElseThrow();
-      assertTrue(exception.get("message").asText().contains("IllegalStateException: payment gateway down"));
+      assertEquals("java.lang.IllegalStateException: payment gateway down", exception.get("message").asText());
+      assertEquals("java.lang.IllegalStateException", exception.get("attributes").get("exception.type").asText());
       assertEquals(records.get(0).get("trace_id").asText(), exception.get("trace_id").asText());
       assertTrue(logs.stream().anyMatch(log -> log.get("status_code").asInt() == 503));
       client.shutdown(false);
