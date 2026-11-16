@@ -293,3 +293,40 @@ test("a rule filters by an SDK consumer group, picked from those seen or typed",
     await seedGroups([]);
   }
 });
+
+test("says nobody is notified while the project has no channel, and links to add one", async ({ page }) => {
+  await signIn(page, "/shop/incidents/rules/new");
+  // The rule editor's empty channel state links to add one.
+  const form = page.getByRole("form", { name: "New alert rule" });
+  await expect(form.getByText("No alert channels yet.", { exact: false })).toBeVisible();
+  await expect(form.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/shop/settings/alerts");
+  await form.getByLabel("Name").fill("Silent rule");
+  await form.getByRole("button", { name: "Create rule" }).click();
+  await page.waitForURL("**/shop/incidents/rules");
+
+  // The rules list's "No channels" opens the rule's Notify section.
+  const row = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").filter({ hasText: "Silent rule" });
+  await row.getByRole("link", { name: "No channels" }).click();
+  await page.waitForURL(/\/shop\/incidents\/rules\/[^/]+#notify$/);
+  await expect(page.locator("#notify")).toBeInViewport();
+
+  // Incidents: a banner and the row both say nobody is notified.
+  await fake({ trigger: { rule: "Silent rule", value: 0.2, minutes_ago: 3 } });
+  await page.goto("/shop/incidents");
+  const banner = page.getByRole("note").filter({ hasText: "Nobody is notified: this project has no alert channels." });
+  await expect(banner).toBeVisible();
+  await expect(banner.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/shop/settings/alerts");
+  const incident = page.getByRole("table", { name: "Open incidents" }).locator("tbody tr").first();
+  await expect(incident).toContainText("no channel, nobody notified");
+  await expect(incident).not.toContainText("not notified yet");
+  const a11y = await new AxeBuilder({ page }).include(".al").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  // With a channel the banner is gone.
+  await banner.getByRole("link", { name: "Add a channel" }).click();
+  await page.waitForURL("**/shop/settings/alerts");
+  await addChannel(page, "On-call", "Email", { "Email addresses": "oncall@example.com" });
+  await page.goto("/shop/incidents");
+  await expect(page.getByRole("table", { name: "Open incidents" })).toBeVisible();
+  await expect(page.getByText("Nobody is notified")).toHaveCount(0);
+});

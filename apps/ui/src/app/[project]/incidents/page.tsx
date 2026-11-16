@@ -22,7 +22,12 @@ export default async function IncidentsPage({ params, searchParams }: { params: 
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
-  const [feed, { apps }] = await Promise.all([load(next, (api, o) => api.incidents(project, { range }, o)), loadApps(project, next)]);
+  const [feed, { apps }, channels, rules] = await Promise.all([
+    load(next, (api, o) => api.incidents(project, { range }, o)),
+    loadApps(project, next),
+    load(next, (api, o) => api.listChannels(project, o)),
+    load(next, (api, o) => api.listAlertRules(project, o)),
+  ]);
   return (
     <AppShell context={context} project={project} view="incidents">
       <IncidentsView
@@ -33,6 +38,9 @@ export default async function IncidentsPage({ params, searchParams }: { params: 
         apps={appNames(apps)}
         now={Date.now()}
         params={sp}
+        // With no channel, nobody is notified: the page says so (#978). Unknown when a read failed.
+        channels={channels ? (channels.channels ?? []).length : null}
+        silent={(rules?.rules ?? []).filter((r) => !(r.channel_ids ?? []).length).map((r) => r.id)}
         // "I'll do this later" on the onboarding install step (#333) opens the project here with a reminder.
         notice={sp[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
       />

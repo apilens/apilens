@@ -275,7 +275,7 @@ export function RuleEditor({
           </div>
         </section>
 
-        <section className="os-card" aria-labelledby={`${id}-notify-h`}>
+        <section className="os-card" id="notify" aria-labelledby={`${id}-notify-h`}>
           <div className="os-card__head">
             <h2 id={`${id}-notify-h`}>Notify</h2>
             <p>
@@ -292,7 +292,12 @@ export function RuleEditor({
                 We couldn’t load the project’s channels. Reload the page to pick them.
               </p>
             ) : channels.length === 0 ? (
-              <p className="al-hint">No alert channels yet. Without one, incidents still open here but nobody is notified.</p>
+              <p className="al-hint">
+                No alert channels yet. Without one, incidents still open here but nobody is notified.{" "}
+                <Link className="cp-link" href={channelsHref(project)}>
+                  Add a channel
+                </Link>
+              </p>
             ) : (
               <fieldset>
                 <legend className="al-sr">Channels</legend>

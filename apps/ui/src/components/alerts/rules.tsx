@@ -109,7 +109,16 @@ function RuleRow({ project, rule: r, app, channels }: { project: string; rule: A
       <td data-label="Checked">
         {scheduleText(r)}
       </td>
-      <td data-label="Notifies">{names.length ? names.join(", ") : <span className="al-muted">No channels</span>}</td>
+      <td data-label="Notifies">
+        {names.length ? (
+          names.join(", ")
+        ) : (
+          // Nobody is notified for this rule: link to its Notify section to pick a channel (#978).
+          <Link className="cp-link" href={`${ruleHref(project, r.id)}#notify`}>
+            No channels
+          </Link>
+        )}
+      </td>
       <td data-label="Status">
         {!r.enabled ? (
           <span className="ah-badge al-badge--none">Disabled</span>
