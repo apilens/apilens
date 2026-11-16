@@ -70,6 +70,7 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
 | `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
 | `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
+| `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. |
 | `capture_content_types` | JSON, `+json`, `text/*`, form-encoded | Media-type globs whose bodies are captured; it replaces the defaults. Other bodies are stored as `[<content-type>, N bytes omitted]`. See [Data privacy](/getting-started/data-privacy#which-bodies-are-captured). |
 | `redact_query_params` | `None` | Regexes matched against query parameter names; matched values stored as `[redacted]`. |
 | `redact_headers` | `None` | Regexes matched against header names, on top of the built-in sensitive-header list. |
@@ -119,6 +120,7 @@ parsed values as a dict.
 | `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | `capture_validation_errors` | bool | `true` |
+| `APILENS_CAPTURE_LOCALS` | `capture_locals` | bool | `false` |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
 | `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |

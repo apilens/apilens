@@ -31,7 +31,7 @@ from ._capture import (
 from ._app import resolve_and_log_app_id
 from ._env import env_defaults
 from ._exception import describe_exception
-from ._profile import CaptureProfile, normalize_profile
+from ._profile import CaptureProfile, effective_capture_locals, normalize_profile
 from ._exclusions import RequestExcluder
 from .log_handler import CaptureLogs, install_log_handler, normalize_capture_logs
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
@@ -105,7 +105,13 @@ async def _flush_inline_async(client: ApiLensClient) -> None:
 
 
 def _error_message(
-    exc: BaseException | None, status_code: int, method: str, path: str
+    exc: BaseException | None,
+    status_code: int,
+    method: str,
+    path: str,
+    *,
+    capture_locals: bool = False,
+    redactor: Redactor | None = None,
 ) -> tuple[str, str, dict[str, str] | None]:
     """Build (message, payload, attributes) for the auto error log.
 
@@ -114,9 +120,10 @@ def _error_message(
     sub-exception (head+tail capped, see :mod:`._exception`); attributes carry
     ``exception.type``, ``exception.message`` and ``exception.chain_depth``.
     ``payload`` is empty for a plain 5xx response that didn't raise.
+    ``capture_locals`` adds each innermost frame's masked locals.
     """
     if exc is not None:
-        return describe_exception(exc)
+        return describe_exception(exc, capture_locals=capture_locals, redactor=redactor)
     return f"HTTP {status_code} on {method} {path}", "", None
 
 
@@ -132,6 +139,8 @@ def _maybe_record_error(
     client: ApiLensClient | None = None,
     app_id: str = "",
     environment: str | None = None,
+    capture_locals: bool = False,
+    redactor: Redactor | None = None,
 ) -> None:
     """Emit one ERROR log when the request raised or returned 5xx.
 
@@ -146,7 +155,9 @@ def _maybe_record_error(
         # Frameworks and servers log the exception again after this; the
         # logging handler skips it.
         mark_exception_reported(exc)
-    message, payload, attributes = _error_message(exc, status_code, method, path)
+    message, payload, attributes = _error_message(
+        exc, status_code, method, path, capture_locals=capture_locals, redactor=redactor
+    )
     record_error_log(
         trace_id=trace_id,
         span_id=span_id,
@@ -515,6 +526,7 @@ class ApiLensASGIMiddleware:
         capture_payloads: bool = True,
         capture_headers: bool = True,
         capture_validation_errors: bool = True,
+        capture_locals: bool = False,
         capture_spans: bool = True,
         capture_logs: CaptureLogs = "errors",
         service_name: str = "",
@@ -551,6 +563,10 @@ class ApiLensASGIMiddleware:
         self.enable_request_logging = enable_request_logging
         # Parse 400/422 validation error bodies into ``validation_errors``.
         self.capture_validation_errors = capture_validation_errors
+        # Opt-in frame locals in exception traces (innermost 10 frames, 20
+        # names, 256 chars each, masked). Forced off under the ``metadata``
+        # and ``redacted`` profiles.
+        self.capture_locals = effective_capture_locals(capture_locals, self.capture_profile)
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
         self.capture_payloads = capture_payloads and enable_request_logging
@@ -986,6 +1002,8 @@ class ApiLensASGIMiddleware:
                 client=self.client,
                 app_id=self.app_id,
                 environment=self.environment,
+                capture_locals=getattr(self, "capture_locals", False),
+                redactor=self.redactor,
             )
             _consumer_ctx.reset(token)
             end_request_attributes(attributes_token)
@@ -1015,6 +1033,7 @@ class ApiLensWSGIMiddleware:
         log_response_body: bool = True,
         capture_payloads: bool = True,
         capture_headers: bool = True,
+        capture_locals: bool = False,
         capture_spans: bool = True,
         capture_logs: CaptureLogs = "errors",
         service_name: str = "",
@@ -1045,6 +1064,9 @@ class ApiLensWSGIMiddleware:
         self.app_id = app_id = resolve_and_log_app_id(app_id)
         self.environment = environment
         self.capture_profile = normalize_profile(capture_profile)
+        # Opt-in frame locals in exception traces; off under ``metadata`` /
+        # ``redacted`` (same as the ASGI middleware).
+        self.capture_locals = effective_capture_locals(capture_locals, self.capture_profile)
         self.enable_request_logging = enable_request_logging
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
@@ -1346,6 +1368,8 @@ class ApiLensWSGIMiddleware:
                 client=self.client,
                 app_id=self.app_id,
                 environment=self.environment,
+                capture_locals=getattr(self, "capture_locals", False),
+                redactor=self.redactor,
             )
             ctx.request_payload = (
                 capture_body(

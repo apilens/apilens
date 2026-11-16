@@ -577,6 +577,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `log_request_body` / `log_response_body` | `True` | Toggle each body independently. |
 | `max_payload_bytes` | `65536` | Per-body capture cap; set `0` to disable body capture. |
 | `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
+| `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. |
 | `capture_content_types` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `capture_spans` | `True` | Emit trace spans for this app. |
 | `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. |
@@ -749,6 +750,7 @@ parsed values as a dict.
 | `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | `capture_validation_errors` | bool | `true` |
+| `APILENS_CAPTURE_LOCALS` | `capture_locals` | bool | `false` |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
 | `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |
@@ -791,6 +793,7 @@ the setting wins when both are set.
 | `APILENS_CAPTURE_PAYLOADS` | `True` | Capture request/response bodies. |
 | `APILENS_LOG_REQUEST_BODY` / `APILENS_LOG_RESPONSE_BODY` | `True` | Toggle each body independently. |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | `True` | Parse Django Ninja 422 responses into `validation_errors`. |
+| `APILENS_CAPTURE_LOCALS` | `False` | Frame locals in exception traces (masked, capped). Ignored under the `metadata` and `redacted` profiles. |
 | `APILENS_REDACT_QUERY_PARAMS` / `APILENS_REDACT_HEADERS` / `APILENS_REDACT_BODY_FIELDS` | `[]` | Redaction regexes (list, or comma-separated in the env var). |
 | `APILENS_CAPTURE_IP` / `APILENS_ANONYMIZE_IP` | `True` / `False` | Client IP privacy. |
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |
