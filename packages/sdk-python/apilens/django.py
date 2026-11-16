@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import replace
 from types import MappingProxyType
@@ -58,6 +59,28 @@ from .client.trace import (
 )
 
 _client_singleton: ApiLensClient | None = None
+
+
+def _note_django_exception(sender: Any = None, request: Any = None, **_: Any) -> None:
+    """``got_request_exception`` receiver. Django sends it from inside the
+    ``except`` that turns an exception into a 500 (``handler500``), including
+    exceptions ``process_exception`` never sees (raised in a middleware below
+    this one, or a view exception another middleware's ``process_exception``
+    answered first). Stash it on the request like ``process_exception`` does;
+    the first one stashed wins, so a request logs one exception."""
+    exc = sys.exc_info()[1]
+    if request is None or exc is None or getattr(request, "_apilens_exc", None) is not None:
+        return
+    try:
+        setattr(request, "_apilens_exc", exc)
+    except Exception:
+        pass
+
+
+def _connect_django_signals() -> None:
+    from django.core.signals import got_request_exception
+
+    got_request_exception.connect(_note_django_exception, dispatch_uid="apilens.got_request_exception")
 
 _MISSING = object()
 
@@ -199,6 +222,7 @@ class ApiLensDjangoMiddleware:
     def __init__(self, get_response):
         from django.conf import settings
 
+        _connect_django_signals()
         # Every APILENS_* setting falls back to the env var of the same name
         # (settings win over env vars, env vars over the defaults).
         env = load_env_config()

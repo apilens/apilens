@@ -234,10 +234,10 @@ API Lens ingest still failing after max_retry_seconds=<seconds>; dropping <n> <s
 ```
 
 ```log Java
-API Lens ingest failed after retries; dropping batch of <n> <signal>
+API Lens dropped <n> records (total <total>): <counts>; last error: <error>
 ```
 
-In Python `<error>` is the last failure, `Retryable ingest error status=429` here; `last_error` in the stats adds the response body.
+In Python `<error>` is the last failure, `Retryable ingest error status=429` here; `last_error` in the stats adds the response body. In Java `<counts>` is the drops per reason, such as `{retries_exhausted=<n>}`; the line is logged at most once a minute.
 
 Three different limits answer 429:
 

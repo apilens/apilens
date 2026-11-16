@@ -81,6 +81,11 @@ starlette = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "django", version = "5.2.18", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "django", version = "6.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "fastapi" },
+    { name = "flask" },
+    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -104,7 +109,13 @@ requires-dist = [
 provides-extras = ["all", "blacksheep", "django", "fastapi", "flask", "litestar", "starlette"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0.0" }]
+dev = [
+    { name = "django", specifier = ">=4.2" },
+    { name = "fastapi", specifier = ">=0.110.0" },
+    { name = "flask", specifier = ">=3.0.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+]
 
 [[package]]
 name = "asgiref"
