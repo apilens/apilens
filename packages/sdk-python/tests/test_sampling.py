@@ -211,7 +211,9 @@ def test_asgi_rate_zero_sends_every_base_record_without_detail():
     assert detail_sampled() is True
 
 
-def test_asgi_rate_zero_skips_error_log_and_spans_on_failures():
+def test_asgi_rate_zero_still_keeps_failures():
+    # Errors are never sampled (#904): a 5xx or a raised exception is kept
+    # with its spans and error log even at sample_rate=0.
     client = FakeClient()
     mw = ApiLensASGIMiddleware(_asgi_app(status=503), client, app_id="orders-api", sample_rate=0.0)
     _run_asgi(mw)
@@ -219,8 +221,8 @@ def test_asgi_rate_zero_skips_error_log_and_spans_on_failures():
     with pytest.raises(RuntimeError):
         _run_asgi(mw_raise)
     assert [r["status_code"] for r in client.records] == [503, 500]
-    assert all(r["sampled"] is False for r in client.records)
-    assert client.spans == [] and client.logs == []
+    assert all(r["sampled"] is True for r in client.records)
+    assert len(client.spans) == 2 and len(client.logs) == 2
 
 
 def test_asgi_rate_one_keeps_full_detail():
@@ -355,12 +357,12 @@ def test_django_sample_rate_setting(django_settings, monkeypatch):
 
     from apilens.django import ApiLensDjangoMiddleware
 
-    mw = ApiLensDjangoMiddleware(lambda request: HttpResponse('{"ok":true}', status=500))
+    mw = ApiLensDjangoMiddleware(lambda request: HttpResponse('{"ok":true}', status=404))
     mw(RequestFactory().post("/orders", data=b'{"name":"x"}', content_type="application/json"))
     (rec,) = client.records
     assert rec["sampled"] is False
     assert all(rec[k] == "" for k in DETAIL_KEYS)
-    assert rec["status_code"] == 500 and rec["response_size"] == 11
+    assert rec["status_code"] == 404 and rec["response_size"] == 11
     assert client.spans == [] and client.logs == []
 
 
