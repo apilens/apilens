@@ -2,7 +2,10 @@ package ai.apilens;
 
 import ai.apilens.internal.Strings;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,6 +19,12 @@ public final class TraceContext {
   private final String traceId;
   private final String spanId;
   private final String parentSpanId;
+  // Child spans (outbound HTTP calls) finished while the request's sampling verdict is pending.
+  // The server filter releases them once it knows whether the request is kept.
+  private final Object childLock = new Object();
+  private List<SpanRecord> heldChildSpans = new ArrayList<>();
+  private Consumer<SpanRecord> childSink;
+  private boolean childrenReleased;
 
   private TraceContext(String traceId, String spanId, String parentSpanId) {
     this.traceId = traceId;
@@ -62,6 +71,54 @@ public final class TraceContext {
       return "";
     }
     return "00-" + traceId + "-" + spanId + "-01";
+  }
+
+  /** A fresh random 16-hex-char span id, for a child span of this trace. */
+  public static String newSpanId() {
+    return randomHex(8);
+  }
+
+  /**
+   * Records a finished child span of this request. Until the server filter calls {@link
+   * #releaseChildSpans}, the span is held, because a request's spans are kept or dropped with it
+   * (a sampled-out request that fails is still kept, D1). A span finishing after the release
+   * follows the verdict.
+   */
+  public void recordChildSpan(SpanRecord span) {
+    if (span == null || traceId.isEmpty()) {
+      return;
+    }
+    Consumer<SpanRecord> sink;
+    synchronized (childLock) {
+      if (!childrenReleased) {
+        heldChildSpans.add(span);
+        return;
+      }
+      sink = childSink;
+    }
+    if (sink != null) {
+      sink.accept(span);
+    }
+  }
+
+  /**
+   * Sends the held child spans to {@code sink} when {@code keep}, or discards them. Spans recorded
+   * afterwards follow the same verdict. Only the first call has an effect.
+   */
+  public void releaseChildSpans(boolean keep, Consumer<SpanRecord> sink) {
+    List<SpanRecord> held;
+    synchronized (childLock) {
+      if (childrenReleased) {
+        return;
+      }
+      childrenReleased = true;
+      childSink = keep ? sink : null;
+      held = heldChildSpans;
+      heldChildSpans = List.of();
+    }
+    if (keep && sink != null) {
+      held.forEach(sink);
+    }
   }
 
   public static String currentTraceId() {
