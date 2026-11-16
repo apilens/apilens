@@ -106,8 +106,8 @@ export const apdexBandRange = (b: { from: number; to: number }) => `${b.from.toF
  */
 export function apdexExplanation(app?: { name: string; thresholdMs: number } | null): string[] {
   return [
-    "Apdex scores response times from 0 (all frustrated) to 1 (all satisfied) against a threshold T.",
-    "Satisfied: answered within T. Tolerating: within 4T. Frustrated: slower than 4T.",
+    "Apdex scores requests from 0 (all frustrated) to 1 (all satisfied) against a response time threshold T.",
+    "Satisfied: answered within T. Tolerating: within 4T. Frustrated: slower than 4T, or a server error (5xx) the endpoint does not expect.",
     "Apdex = (satisfied + tolerating / 2) / requests.",
     app
       ? `T is the endpoint’s own threshold, else its app’s (${app.name}: ${app.thresholdMs} ms), else ${DEFAULT_THRESHOLD_MS} ms.`

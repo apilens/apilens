@@ -36,11 +36,19 @@ import (
 	"github.com/apilens/apilens/internal/testutil"
 )
 
-// TestApdex checks the Apdex of summary, endpoints and endpoint latency
-// against real Postgres, ClickHouse and SpiceDB as thresholds are set:
-// 500 ms by default, then an app-wide threshold, then an endpoint's own,
-// which wins over its app's.
-func TestApdex(t *testing.T) {
+// apdexEnv is a query API over real Postgres, ClickHouse and SpiceDB with a
+// seeded project (storefront app), a second app (backoffice), an org admin
+// and a member.
+type apdexEnv struct {
+	seed          bootstrap.Result
+	other         uuid.UUID
+	admin, member uuid.UUID
+	ins           pipeline.Inserters
+	do            func(method, path, user string, body any, out any) int
+}
+
+func newApdexEnv(t *testing.T) apdexEnv {
+	t.Helper()
 	ctx := context.Background()
 	logger := testutil.Logger(t)
 	pool := testutil.MigratedPostgres(t)
@@ -52,12 +60,12 @@ func TestApdex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = conn.Close() }()
+	t.Cleanup(func() { _ = conn.Close() })
 	sdb, err := spicedb.Connect(testutil.SpiceDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = sdb.Close() }()
+	t.Cleanup(func() { _ = sdb.Close() })
 	if err := spicedb.ApplySchema(ctx, sdb, schema.Schema, logger); err != nil {
 		t.Fatal(err)
 	}
@@ -87,26 +95,7 @@ func TestApdex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Each of storefront GET /a, storefront GET /b and backoffice GET /a
-	// answers in 100, 300, 900 and 3000 ms.
 	ins := pipeline.ClickHouseInserters(conn)
-	now := time.Now().UTC()
-	var rows []pipeline.RequestRow
-	add := func(app uuid.UUID, path string) {
-		for _, ms := range []float64{100, 300, 900, 3000} {
-			rows = append(rows, pipeline.RequestRow{
-				ProjectID: seed.ProjectID, AppID: app, Environment: "production", Timestamp: now.Add(-time.Duration(len(rows)+1) * time.Minute),
-				Method: "GET", Path: path, RawPath: path, StatusCode: 200, ResponseTimeMs: ms,
-			})
-		}
-	}
-	add(seed.AppID, "/a")
-	add(seed.AppID, "/b")
-	add(other, "/a")
-	if err := ins.Requests(ctx, rows); err != nil {
-		t.Fatal(err)
-	}
-
 	srv := server.New(config.ServerConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry())
 	api := srv.API()
 	api.UseMiddleware(func(hctx huma.Context, next func(huma.Context)) {
@@ -121,7 +110,7 @@ func TestApdex(t *testing.T) {
 	api.UseMiddleware(query.AuthMiddleware(api, verifier, guard))
 	query.Register(api, query.NewService(conn, q), guard)
 	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	do := func(method, path, user string, body any, out any) int {
 		t.Helper()
@@ -151,6 +140,37 @@ func TestApdex(t *testing.T) {
 		}
 		return resp.StatusCode
 	}
+	return apdexEnv{seed: seed, other: other, admin: admin, member: member, ins: ins, do: do}
+}
+
+// TestApdex checks the Apdex of summary, endpoints and endpoint latency
+// against real Postgres, ClickHouse and SpiceDB as thresholds are set:
+// 500 ms by default, then an app-wide threshold, then an endpoint's own,
+// which wins over its app's.
+func TestApdex(t *testing.T) {
+	ctx := context.Background()
+	env := newApdexEnv(t)
+	seed, other, admin, member, ins, do := env.seed, env.other, env.admin, env.member, env.ins, env.do
+
+	// Each of storefront GET /a, storefront GET /b and backoffice GET /a
+	// answers in 100, 300, 900 and 3000 ms.
+	now := time.Now().UTC()
+	var rows []pipeline.RequestRow
+	add := func(app uuid.UUID, path string) {
+		for _, ms := range []float64{100, 300, 900, 3000} {
+			rows = append(rows, pipeline.RequestRow{
+				ProjectID: seed.ProjectID, AppID: app, Environment: "production", Timestamp: now.Add(-time.Duration(len(rows)+1) * time.Minute),
+				Method: "GET", Path: path, RawPath: path, StatusCode: 200, ResponseTimeMs: ms,
+			})
+		}
+	}
+	add(seed.AppID, "/a")
+	add(seed.AppID, "/b")
+	add(other, "/a")
+	if err := ins.Requests(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
 	near := func(got *float64, want float64) bool {
 		return got != nil && math.Abs(*got-want) < 0.006
 	}
@@ -242,4 +262,88 @@ func TestApdex(t *testing.T) {
 		t.Fatalf("clear app threshold = %d %+v", code, app)
 	}
 	check("cleared app threshold", 8.5/12, 6.0/8, 0.625)
+}
+
+// TestApdexServerErrors checks that a request answered with a 5xx is
+// frustrated whatever its response time, unless its endpoint expects that
+// status code, and that a 4xx is scored by response time alone.
+func TestApdexServerErrors(t *testing.T) {
+	ctx := context.Background()
+	env := newApdexEnv(t)
+	seed, admin, do := env.seed, env.admin, env.do
+
+	// GET /boom answers 500 in 50 ms every time. GET /mixed answers
+	// 200 in 100 ms, 200 in 900 ms, 404 in 100 ms, 500 in 100 ms, 503 in
+	// 100 ms and 502 in 900 ms.
+	now := time.Now().UTC()
+	var rows []pipeline.RequestRow
+	add := func(path string, status uint16, ms float64) {
+		rows = append(rows, pipeline.RequestRow{
+			ProjectID: seed.ProjectID, AppID: seed.AppID, Environment: "production", Timestamp: now.Add(-time.Duration(len(rows)+1) * time.Minute),
+			Method: "GET", Path: path, RawPath: path, StatusCode: status, ResponseTimeMs: ms,
+		})
+	}
+	for range 4 {
+		add("/boom", 500, 50)
+	}
+	add("/mixed", 200, 100)
+	add("/mixed", 200, 900)
+	add("/mixed", 404, 100)
+	add("/mixed", 500, 100)
+	add("/mixed", 503, 100)
+	add("/mixed", 502, 900)
+	if err := env.ins.Requests(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	near := func(got *float64, want float64) bool {
+		return got != nil && math.Abs(*got-want) < 0.006
+	}
+	check := func(stage string, summary, boom, mixed float64) {
+		t.Helper()
+		var s struct {
+			Apdex *float64 `json:"apdex"`
+		}
+		if code := do(http.MethodGet, "/api/v1/traffic/summary?range=1h", "", nil, &s); code != 200 || !near(s.Apdex, summary) {
+			t.Fatalf("%s: summary apdex = %d %v, want %v", stage, code, s.Apdex, summary)
+		}
+		var eps struct {
+			Endpoints []struct {
+				Path  string   `json:"path"`
+				Apdex *float64 `json:"apdex"`
+			} `json:"endpoints"`
+		}
+		if code := do(http.MethodGet, "/api/v1/traffic/endpoints?range=1h", "", nil, &eps); code != 200 || len(eps.Endpoints) != 2 {
+			t.Fatalf("%s: endpoints = %d %+v", stage, code, eps)
+		}
+		want := map[string]float64{"/boom": boom, "/mixed": mixed}
+		for _, e := range eps.Endpoints {
+			if !near(e.Apdex, want[e.Path]) {
+				t.Fatalf("%s: endpoint %s apdex = %v, want %v", stage, e.Path, e.Apdex, want[e.Path])
+			}
+		}
+		for path, w := range want {
+			var l struct {
+				Summary struct {
+					Apdex *float64 `json:"apdex"`
+				} `json:"summary"`
+			}
+			if code := do(http.MethodGet, "/api/v1/endpoints/GET/"+url.PathEscape(path)+"/latency?range=1h", "", nil, &l); code != 200 || !near(l.Summary.Apdex, w) {
+				t.Fatalf("%s: latency %s apdex = %d %v, want %v", stage, path, code, l.Summary.Apdex, w)
+			}
+		}
+	}
+
+	// T = 500. /boom: all frustrated, 0. /mixed: 200@100 and 404@100
+	// satisfied, 200@900 tolerating, the three 5xx frustrated:
+	// (2 + 0.5) / 6. Summary: 2.5 / 10.
+	check("default", 0.25, 0, 2.5/6)
+
+	// With 503 expected for /mixed, the 503 in 100 ms is satisfied:
+	// (3 + 0.5) / 6; summary 3.5 / 10. /boom stays 0.
+	if code := do(http.MethodPut, "/api/v1/apps/"+seed.AppID.String()+"/endpoints/GET/"+url.PathEscape("/mixed")+"/settings", admin.String(),
+		map[string]any{"expected_status_codes": []int{503}, "excluded": false}, nil); code != 200 {
+		t.Fatalf("expected status = %d", code)
+	}
+	check("expected 503", 0.35, 0, 3.5/6)
 }
