@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning className={`${sans.variable} ${mono.variable}`}>
       <body>
-        <ThemeProvider attribute="data-theme" themes={["dark", "light"]} defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+        <ThemeProvider attribute="data-theme" themes={["dark", "light"]} defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>
       </body>
