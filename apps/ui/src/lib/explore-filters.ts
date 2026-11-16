@@ -7,6 +7,8 @@ import { formatBytes } from "./explore";
 /** The filters of the request log. Text filters are "" when off, ranges null at an open end. */
 export interface ExploreFilters {
   env: string;
+  /** An app's id (#975): only the requests that app served. */
+  app: string;
   method: string;
   status: string;
   path: string;
@@ -29,6 +31,7 @@ export type FilterKey = keyof ExploreFilters;
 /** The URL (and API) order of the filters; a link always lists them in this order. */
 export const FILTER_KEYS: readonly FilterKey[] = [
   "env",
+  "app",
   "method",
   "status",
   "path",
@@ -48,6 +51,7 @@ export const FILTER_KEYS: readonly FilterKey[] = [
 
 export const NO_FILTERS: ExploreFilters = {
   env: "",
+  app: "",
   method: "",
   status: "",
   path: "",
@@ -83,6 +87,13 @@ const NUMBER_KEYS: readonly NumberKey[] = ["request_size_min", "request_size_max
 const isNumberKey = (k: FilterKey): k is NumberKey => (NUMBER_KEYS as readonly string[]).includes(k);
 /** Sizes are whole bytes; latency may be fractional milliseconds. */
 const isWhole = (k: NumberKey) => k !== "latency_min" && k !== "latency_max";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An app filter as the API takes it: an app id (a UUID), lower case; "" for none or one that is not an id. */
+const parseApp = (input: string): string => {
+  const s = input.trim().toLowerCase();
+  return UUID_RE.test(s) ? s : "";
+};
 
 /** The methods offered in the picker; a link may name another, which stays selectable. */
 export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
@@ -139,6 +150,7 @@ export function parseFilters(params: SearchParams): ExploreFilters {
     const v = (first(params[k]) ?? "").trim();
     if (v.length <= TEXT_MAX[k]) f[k] = v;
   }
+  f.app = parseApp(first(params.app) ?? "");
   const method = (first(params.method) ?? "").trim();
   if (METHOD_RE.test(method)) f.method = method.toUpperCase();
   f.status = normalizeStatus(first(params.status) ?? "") ?? "";
@@ -185,14 +197,21 @@ function rangeLabel(name: string, lo: number | null, hi: number | null, fmt: (n:
 
 /**
  * The chips for the filters that are on, in URL order. A consumer filter reads as the consumer's
- * name, as the log shows it, when `consumers` knows the id (#983).
+ * name, as the log shows it, when `consumers` knows the id (#983). `appName` names an app by its
+ * id (#975); an app it does not know (archived, or the apps could not be read) shows the start of
+ * its id.
  */
-export function filterChips(f: ExploreFilters, consumers: readonly { id: string; name: string }[] = []): FilterChip[] {
+export function filterChips(
+  f: ExploreFilters,
+  consumers: readonly { id: string; name: string }[] = [],
+  appName?: (id: string) => string | null,
+): FilterChip[] {
   const chips: FilterChip[] = [];
   const text = (k: FilterKey, label: string) => {
     if (f[k] !== "") chips.push({ id: k, label, keys: [k] });
   };
   text("env", `Environment ${f.env}`);
+  if (f.app !== "") text("app", `App ${appName?.(f.app) ?? f.app.slice(0, 8)}`);
   text("method", `Method ${f.method}`);
   text("status", `Status ${f.status.split(",").join(", ")}`);
   text("path", `Path ${f.path}`);
@@ -243,6 +262,9 @@ export function fromDraft(d: FilterDraft): { ok: true; filters: ExploreFilters }
     if (v.length > TEXT_MAX[k]) errors[k] = `At most ${TEXT_MAX[k]} characters.`;
     else f[k] = v;
   }
+  const app = d.app.trim();
+  if (app !== "" && parseApp(app) === "") errors.app = "Pick an app from the list.";
+  else f.app = parseApp(app);
   const method = d.method.trim();
   if (method !== "" && !METHOD_RE.test(method)) errors.method = "A method is letters only, like GET.";
   else f.method = method.toUpperCase();

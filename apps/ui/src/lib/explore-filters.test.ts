@@ -20,8 +20,11 @@ import {
   withoutChip,
 } from "./explore-filters";
 
+const APP = "7b1f0c2e-9a4d-4e3b-8c5a-1d2e3f4a5b6c";
+
 const ALL: ExploreFilters = {
   env: "production",
+  app: APP,
   method: "POST",
   status: "4xx,500-503",
   path: "/orders/{id}",
@@ -97,6 +100,11 @@ describe("parseFilters", () => {
     expect(f.latency_min).toBe(0.25);
     expect(f.latency_max).toBe(0);
   });
+  it("reads the app as a lower-case id and drops one that is not an id", () => {
+    expect(parseFilters({ app: ` ${APP.toUpperCase()} ` }).app).toBe(APP);
+    expect(parseFilters({ app: "shop" }).app).toBe("");
+    expect(parseFilters({ app: `${APP}x` }).app).toBe("");
+  });
   it("drops text longer than the API takes", () => {
     expect(parseFilters({ env: "e".repeat(65), ip: "1".repeat(64) })).toEqual({ ...NO_FILTERS, ip: "1".repeat(64) });
   });
@@ -106,7 +114,7 @@ describe("the URL round trip", () => {
   it("a deep link reproduces the exact filtered view", () => {
     const q = { range: "6h" as const, filters: ALL };
     const href = exploreHref("my shop", q);
-    expect(href.startsWith("/my%20shop/explore?range=6h&env=production&method=POST&status=4xx%2C500-503&")).toBe(true);
+    expect(href.startsWith(`/my%20shop/explore?range=6h&env=production&app=${APP}&method=POST&status=4xx%2C500-503&`)).toBe(true);
     expect(parseExploreQuery(paramsOf(href))).toEqual(q);
     // The same link, built again, is byte-for-byte the same.
     expect(exploreHref("my shop", parseExploreQuery(paramsOf(href)))).toBe(href);
@@ -142,6 +150,7 @@ describe("filterChips / withoutChip", () => {
   it("names each active filter, with a min/max pair as one chip", () => {
     expect(filterChips(ALL).map((c) => c.label)).toEqual([
       "Environment production",
+      "App 7b1f0c2e",
       "Method POST",
       "Status 4xx, 500-503",
       "Path /orders/{id}",
@@ -155,7 +164,13 @@ describe("filterChips / withoutChip", () => {
       "Latency 100.5 ms to 2000 ms",
       "Sampled out",
     ]);
-    expect(activeCount(ALL)).toBe(13);
+    expect(activeCount(ALL)).toBe(14);
+  });
+  it("names the app by its name when known, else by the start of its id", () => {
+    const f = { ...NO_FILTERS, app: APP };
+    expect(filterChips(f, [], (id) => (id === APP ? "Orders" : null)).map((c) => c.label)).toEqual(["App Orders"]);
+    expect(filterChips(f, [], () => null).map((c) => c.label)).toEqual(["App 7b1f0c2e"]);
+    expect(withoutChip(f, filterChips(f)[0])).toEqual(NO_FILTERS);
   });
   it("reads open-ended ranges", () => {
     const labels = filterChips({ ...NO_FILTERS, latency_min: 500, response_size_max: 0, sampled: "true" }).map((c) => c.label);
@@ -185,6 +200,12 @@ describe("the edit form", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(Object.keys(r.errors).sort()).toEqual(["ip", "latency_max", "method", "request_size_min", "status"]);
+  });
+  it("takes the app picked from the list and refuses anything else", () => {
+    expect(fromDraft({ ...toDraft(NO_FILTERS), app: APP })).toEqual({ ok: true, filters: { ...NO_FILTERS, app: APP } });
+    const r = fromDraft({ ...toDraft(NO_FILTERS), app: "orders" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(Object.keys(r.errors)).toEqual(["app"]);
   });
   it("refuses a maximum below the minimum", () => {
     const r = fromDraft({ ...toDraft(NO_FILTERS), latency_min: "500", latency_max: "100" });

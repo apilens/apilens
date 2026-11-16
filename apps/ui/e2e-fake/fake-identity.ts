@@ -175,9 +175,10 @@
 //   POST /__fake/consumers {project, summary, points, consumers, details, anonymous?}
 //                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
-//                                                  `project` (narrowed by method, path, consumer_id and
-//                                                  status, #586, #983) instead of what the edge stored
-//                                                  (#585); rows null forgets it
+//                                                  `project` (narrowed by method, path, consumer_id,
+//                                                  status and app, #586, #983, #975) instead of what the
+//                                                  edge stored (#585); rows null forgets it;
+//                                                  `environments` sets shop's in the context (#975)
 //   GET  /api/v1/requests/{id}?project=            one request (#588): the seeded row with that `id`, merged with
 //                                                  its `detail` ({request?, spans?, logs?}); 404 for any other id
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
@@ -745,6 +746,8 @@ interface FakeApp {
   managed?: Record<string, unknown>;
 }
 let shopApps: FakeApp[] = [DEFAULT_APP];
+/** shop's environments as the context lists them, set by `/__fake/requests` {environments} (#975). */
+let shopEnvironments: string[] = ["production"];
 /** Records the ingest edge rejected for app names (`GET /projects/shop/app-rejections`), seeded by `/__fake/apps`. */
 let appRejectionSeed: Record<string, unknown>[] = [];
 
@@ -1096,7 +1099,7 @@ function shopContextName(): string {
 function shopInContext(id: string) {
   const p = projectState.project;
   if (p.deleted_at !== null) return [];
-  return [{ id: "prj_fake", slug: p.slug, name: shopContextName(), environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }];
+  return [{ id: "prj_fake", slug: p.slug, name: shopContextName(), environments: shopEnvironments, app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }];
 }
 
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
@@ -2117,6 +2120,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const b = await readBody(req);
     if (Array.isArray(b.rows)) requestsSeed.set(String(b.project), b.rows as Record<string, unknown>[]);
     else requestsSeed.delete(String(b.project));
+    shopEnvironments = Array.isArray(b.environments) ? b.environments.map(String) : ["production"];
     return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/traffic") {
@@ -2237,12 +2241,14 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const step = steps.find((s) => (hi - lo) / 1000 <= s * 100) ?? 86400;
     const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
     const method = (url.searchParams.get("method") ?? "").toUpperCase();
+    const app = url.searchParams.get("app") ?? "";
     const rows = (requestsSeed.get(slug) ?? []).filter((r) => {
       const t = Date.parse(String(r.timestamp));
       return (
         t >= lo &&
         t < hi &&
         (!method || r.method === method) &&
+        (!app || r.app_id === app) &&
         (!status.length || status.some((s) => (/^[1-5]xx$/.test(s) ? String(r.status_code)[0] === s[0] : String(r.status_code) === s)))
       );
     });
@@ -2512,6 +2518,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         const template = /[{<]|\/:/.test(route);
         const consumer = url.searchParams.get("consumer_id") ?? "";
         const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
+        const app = url.searchParams.get("app") ?? "";
         // The timeline's zoom and jump point (#587): from (inclusive) and to (exclusive).
         const from = Date.parse(url.searchParams.get("from") ?? "");
         const to = Date.parse(url.searchParams.get("to") ?? "");
@@ -2521,6 +2528,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (!method || r.method === method) &&
           (!route || r.path === route || (!template && String(r.raw_path ?? "").toLowerCase().includes(route.toLowerCase()))) &&
           (!consumer || r.consumer_id === consumer || r.consumer_name === consumer) &&
+          (!app || r.app_id === app) &&
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);

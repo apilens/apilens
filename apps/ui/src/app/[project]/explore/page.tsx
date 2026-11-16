@@ -7,7 +7,7 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { LOG_LIMIT, exploreHref, parseExploreQuery } from "@/lib/explore";
 import { type FilterSuggestions, filterQuery, uniqueEndpoints } from "@/lib/explore-filters";
 import { chartWindow, logWindow } from "@/lib/explore-timeline";
-import { type RequestRow, type RequestTimeline, type SavedView, identity, isApiError } from "@/lib/identity";
+import { type NamedApp, type RequestRow, type RequestTimeline, type SavedView, identity, isApiError } from "@/lib/identity";
 import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
 import { parseTrail, trailCursor } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
@@ -40,9 +40,10 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
   let older = "";
   let timeline: RequestTimeline | null = null;
   let views: SavedView[] | null = null;
-  // The log, the timeline (#587) and the saved views (#589) are read together; each can fail
-  // without the others.
-  const [log, chart, saved, endpoints, consumers] = await Promise.allSettled([
+  let apps: NamedApp[] | null = null;
+  // The log, the timeline (#587), the saved views (#589) and the project's apps (#975, the App
+  // filter and column) are read together; each can fail without the others.
+  const [log, chart, saved, endpoints, consumers, appList] = await Promise.allSettled([
     session.call((o) => identity().listRequests(project, { range: q.range, ...logWindow(q), limit: LOG_LIMIT, ...filterQuery(q.filters), ...(cursor ? { cursor } : {}) }, o)),
     session.call((o) => identity().requestTimeline(project, { range: q.range, ...chartWindow(q), ...filterQuery(q.filters) }, o)),
     session.call((o) => identity().listSavedViews(project, "explore", o)),
@@ -50,8 +51,9 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
     // busiest first. Without them the fields still take typed text.
     session.call((o) => identity().listEndpoints(project, { range: q.range, ...(q.filters.env ? { env: q.filters.env } : {}), limit: SUGGEST_LIMIT }, o)),
     session.call((o) => identity().listConsumers(project, { range: q.range, sort: "requests", limit: SUGGEST_LIMIT }, o)),
+    session.call((o) => identity().projectApps(project, o)),
   ]);
-  for (const r of [log, chart, saved, endpoints, consumers]) {
+  for (const r of [log, chart, saved, endpoints, consumers, appList]) {
     if (r.status === "fulfilled") continue;
     if (isSessionExpired(r.reason)) redirectToRefresh(next);
     if (!isApiError(r.reason)) throw r.reason;
@@ -67,6 +69,7 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
   }
   if (chart.status === "fulfilled") timeline = chart.value;
   if (saved.status === "fulfilled") views = saved.value.views ?? [];
+  if (appList.status === "fulfilled") apps = appList.value.apps ?? [];
 
   return (
     <AppShell context={context} project={project} view="explore">
@@ -77,6 +80,7 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
         projectName={found.project.name}
         environments={found.project.environments ?? []}
         suggestions={suggestions}
+        apps={apps}
         query={q}
         rows={rows}
         trail={trail}
