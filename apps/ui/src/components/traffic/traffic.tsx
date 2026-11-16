@@ -163,7 +163,10 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
           <span className="tr-tile__value">
             <LiveNumber text={formatCount(s.requests)} />
           </span>
-          <span className="tr-tile__sub">{formatPerMinute(s.requests_per_minute)} per minute</span>
+          <span className="tr-tile__sub">
+            {formatPerMinute(s.requests_per_minute)} per minute
+            {s.current_per_minute != null && ` · now ${formatCount(s.current_per_minute)}/min`}
+          </span>
           <Sparkline
             values={points.map((p) => p.requests)}
             hover={{ label: "Requests", range, points: points.map((p) => ({ ts: p.ts, text: formatCount(p.requests) })) }}

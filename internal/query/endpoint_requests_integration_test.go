@@ -179,8 +179,10 @@ func TestEndpointRequests(t *testing.T) {
 	if out.Method != "GET" || out.Path != tmpl || out.BucketSeconds != 60 || len(out.Points) != 60 {
 		t.Fatalf("all: method=%q path=%q bucket=%d points=%d", out.Method, out.Path, out.BucketSeconds, len(out.Points))
 	}
-	if r := out.Summary.RequestsPerMinute; r < 0.116 || r > 0.117 {
-		t.Fatalf("all: rpm = %v, want 7/60", r)
+	// The oldest matching row is 6 minutes old, so the rate divides by the
+	// 6-7 minutes since its bucket, not the whole hour.
+	if r := out.Summary.RequestsPerMinute; r < 0.99 || r > 7.0/6+0.01 {
+		t.Fatalf("all: rpm = %v, want 7 over the 6-7 active minutes", r)
 	}
 	alice := out.Consumers[0]
 	if alice.ConsumerName != "Alice" || alice.split != (split{4, 3, 1, 0}) {
