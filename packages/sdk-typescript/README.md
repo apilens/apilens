@@ -377,10 +377,25 @@ code you get:
   `diagnostics_channel`), with the W3C `traceparent` header injected so
   downstream services join the same trace. Span names carry the URL without
   query string or credentials;
+- **database spans** (`kind: "db"`) for every `pg` and `mysql2` statement
+  (pools and `mysql2/promise` included), with `db.system`, `db.operation` and
+  `db.statement`. The statement is obfuscated before it leaves the process:
+  string, number and hex literals become `?`, comments are removed, and it is
+  cut to 2 KiB; bound parameters are never read. Prisma has no shared
+  prototype to patch, so use the client returned by `instrumentPrisma`:
+
+  ```ts
+  import { instrumentPrisma } from "apilens-js-sdk";
+  export const prisma = instrumentPrisma(new PrismaClient());
+  ```
+
+  `captureDbSpans: false` turns database spans off;
 - **cross-service stitching** — an inbound `traceparent` is continued, so a call
   chain across several of your services shows up as one waterfall in the dashboard.
 
 Spans are captured **entirely automatically** — there is no manual span API.
+A request keeps at most 2,000 child spans; the rest are dropped and counted as
+`span_cap` in the heartbeat's drop report, so Ingest health shows them.
 Calls made outside a request and the SDK's own uploads are never traced.
 
 ### Automatic error capture

@@ -21,6 +21,7 @@ import type { IncomingHttpHeaders } from "node:http";
 
 import { ApiLensClient } from "./client.js";
 import { resolveConfig } from "./env.js";
+import { instrumentDatabases } from "./db.js";
 import { applyStackTraceLimit } from "./exception.js";
 import { RequestExcluder } from "./exclusions.js";
 import { effectiveConfig } from "./metadata.js";
@@ -595,6 +596,9 @@ export class CaptureCore {
     if (this.captureSpans) {
       this.spanRecorder = this.logRecorder;
       instrumentOutboundHttp();
+      if (config.captureDbSpans !== false) {
+        instrumentDatabases();
+      }
     }
 
     // Heartbeats for this app and environment.

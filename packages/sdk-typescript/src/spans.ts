@@ -35,6 +35,7 @@ import {
   type SpanSink,
   type TraceContext,
 } from "./trace.js";
+import { MAX_DB_STATEMENT_CHARS } from "./db.js";
 import { exceptionContent, MAX_EXCEPTION_PAYLOAD_CHARS, truncateHeadTail } from "./exception.js";
 import type { ApiLensLogRecord, ApiLensSpanRecord } from "./types.js";
 
@@ -45,8 +46,15 @@ const MAX_ATTRIBUTE_VALUE_CHARS = 512;
 const MAX_NAME_CHARS = 256;
 const MAX_URL_CHARS = 512;
 const MAX_LOG_MESSAGE_CHARS = 4000;
-/** Child spans held per request until it is known to be sampled in. */
-export const MAX_PENDING_SPANS = 256;
+/**
+ * Child spans kept per request (D8). Spans past it are dropped and counted
+ * as `span_cap` drops when the request is sent.
+ */
+export const MAX_SPANS_PER_REQUEST = 2000;
+/** @deprecated Use `MAX_SPANS_PER_REQUEST`. */
+export const MAX_PENDING_SPANS = MAX_SPANS_PER_REQUEST;
+/** Attributes allowed past `MAX_ATTRIBUTE_VALUE_CHARS`. */
+const LONG_ATTRIBUTE_CHARS: Readonly<Record<string, number>> = { "db.statement": MAX_DB_STATEMENT_CHARS };
 
 /**
  * Process-wide kill switch: false when `APILENS_CAPTURE_SPANS` is set to
@@ -61,7 +69,10 @@ export function envSpansEnabled(): boolean {
   return !["0", "false", "no", "off", "disabled"].includes(raw.trim().toLowerCase());
 }
 
-/** String-valued attributes, at most 32, values cut to 512 characters. */
+/**
+ * String-valued attributes, at most 32, values cut to 512 characters
+ * (`db.statement`: 2 KiB).
+ */
 export function cleanAttributes(attributes: Record<string, unknown> | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!attributes) {
@@ -75,7 +86,7 @@ export function cleanAttributes(attributes: Record<string, unknown> | undefined)
     if (!name || (typeof value === "object" && value !== null)) {
       continue;
     }
-    out[name] = String(value ?? "").slice(0, MAX_ATTRIBUTE_VALUE_CHARS);
+    out[name] = String(value ?? "").slice(0, LONG_ATTRIBUTE_CHARS[name] ?? MAX_ATTRIBUTE_VALUE_CHARS);
   }
   return out;
 }
@@ -195,29 +206,46 @@ export class SpanRecorder {
  * The child spans of one request. They are held until the request finishes,
  * then sent only when the request was sampled in (its root span is sent
  * too); spans of work that outlives the response follow the same decision.
+ * At most `MAX_SPANS_PER_REQUEST` are kept; the rest of a sent request are
+ * counted as `span_cap` drops (spans of a sampled-out request are not drops).
  */
 export class RequestSpans implements SpanSink {
   private pending: ChildSpan[] = [];
   private decided = false;
   private keep = false;
   private ctx?: TraceContext;
+  /** Child spans seen so far, kept or not. */
+  private seen = 0;
+  /** Spans past the cap while the request was undecided. */
+  private overflow = 0;
 
-  constructor(private readonly recorder: SpanRecorder) {}
+  constructor(
+    private readonly recorder: SpanRecorder,
+    private readonly maxSpans: number = MAX_SPANS_PER_REQUEST,
+  ) {}
 
   bind(ctx: TraceContext): void {
     this.ctx = ctx;
   }
 
   childSpan(span: ChildSpan): void {
-    if (!this.decided) {
-      if (this.pending.length < MAX_PENDING_SPANS) {
-        this.pending.push(span);
+    if (this.decided && !this.keep) {
+      return;
+    }
+    this.seen += 1;
+    if (this.seen > this.maxSpans) {
+      if (this.decided) {
+        this.countCapDrops(1);
+      } else {
+        this.overflow += 1;
       }
       return;
     }
-    if (this.keep) {
-      this.emit(span);
+    if (!this.decided) {
+      this.pending.push(span);
+      return;
     }
+    this.emit(span);
   }
 
   /** The request finished: send (`keep`) or discard its child spans. */
@@ -225,11 +253,25 @@ export class RequestSpans implements SpanSink {
     this.decided = true;
     this.keep = keep;
     const pending = this.pending;
+    const overflow = this.overflow;
     this.pending = [];
+    this.overflow = 0;
     if (keep) {
       for (const span of pending) {
         this.emit(span);
       }
+      this.countCapDrops(overflow);
+    }
+  }
+
+  private countCapDrops(count: number): void {
+    if (count <= 0) {
+      return;
+    }
+    try {
+      this.recorder.client.reportDrop("spans", "span_cap", count);
+    } catch {
+      // Never break the request over drop bookkeeping.
     }
   }
 

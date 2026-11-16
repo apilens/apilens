@@ -57,6 +57,7 @@ const DROP_QUEUE_BYTES = "queue_bytes"; // memory cap (maxQueueBytes) hit
 const DROP_NON_RETRYABLE = "non_retryable"; // ingest rejected the batch with a 4xx
 const DROP_RETRIES_EXHAUSTED = "retries_exhausted"; // still failing after maxRetrySeconds
 const DROP_SHUTDOWN = "shutdown"; // still queued when the shutdown flush ran out of time
+const DROP_SPAN_CAP = "span_cap"; // a request had more child spans than MAX_SPANS_PER_REQUEST
 // Left out of a 200 by ingest (invalid record, app not allowed). Ingest counts
 // these itself, so they are not reported again in the heartbeat's `dropped`.
 const DROP_SERVER_REJECTED = "server_rejected";
@@ -69,6 +70,7 @@ const DROP_REASONS: readonly ApiLensDropReason[] = [
   DROP_NON_RETRYABLE,
   DROP_RETRIES_EXHAUSTED,
   DROP_SHUTDOWN,
+  DROP_SPAN_CAP,
   DROP_SERVER_REJECTED,
   DROP_TRUNCATED,
 ];
@@ -948,6 +950,14 @@ class ApiLensClient {
   public hasPending(): boolean {
     return this.queue.length > 0 || this.spanQueue.length > 0 || this.logQueue.length > 0
       || this.inFlight.size > 0;
+  }
+
+  /**
+   * Count records dropped before they reached the queue (the per-request
+   * span cap); reported in the next heartbeat like every other drop.
+   */
+  public reportDrop(signal: ApiLensSignal, reason: ApiLensDropReason, count = 1): void {
+    this.recordDrop(signal, reason, Math.max(Math.trunc(Number(count) || 0), 0));
   }
 
   private recordDrop(signal: ApiLensSignal, reason: ApiLensDropReason, count = 1): void {
