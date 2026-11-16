@@ -97,8 +97,10 @@ type requestValidationError struct {
 type requestDetailOutput struct {
 	Body struct {
 		Request requestDetail `json:"request" doc:"The request record."`
-		Spans   []spanOut     `json:"spans" doc:"Spans of the request's trace, oldest first (at most 2000); empty without a trace id."`
-		Logs    []traceLog    `json:"logs" doc:"Logs of the request's trace, oldest first (at most 500); empty without a trace id."`
+		Spans   []spanOut     `json:"spans" doc:"Spans of the request's trace, oldest first (at most 10000); empty without a trace id."`
+		Logs    []traceLog    `json:"logs" doc:"Logs of the request's trace, oldest first (at most 2000); empty without a trace id."`
+		// TraceTruncated mirrors GET /traces/{trace_id}'s truncated flag.
+		TraceTruncated bool `json:"trace_truncated" doc:"True when the trace had more than 10000 spans or 2000 logs and the rest were left out."`
 	}
 }
 
@@ -148,7 +150,7 @@ func (s *Service) requestDetail(ctx context.Context, in *requestDetailInput) (*r
 
 	out.Body.Spans, out.Body.Logs = []spanOut{}, []traceLog{}
 	if r.TraceID != "" {
-		out.Body.Spans, out.Body.Logs, err = s.traceSpansAndLogs(qctx, p.ProjectID, r.TraceID)
+		out.Body.Spans, out.Body.Logs, out.Body.TraceTruncated, err = s.traceSpansAndLogs(qctx, p.ProjectID, r.TraceID)
 		if err != nil {
 			return nil, err
 		}

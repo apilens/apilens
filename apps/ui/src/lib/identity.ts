@@ -1130,15 +1130,40 @@ export interface TraceSpan {
   duration_ms: number;
   status: string;
   status_code: number;
+  /** Status description, e.g. why the span failed; empty when none was reported. */
+  status_message: string;
+  attributes: Record<string, string> | null;
+  /** Timestamped span events, oldest first, e.g. an `exception` event with exception.* attributes. */
+  events: TraceSpanEvent[] | null;
+  /** Spans this span links to. */
+  links: TraceSpanLink[] | null;
+}
+
+/** One timestamped event inside a span. */
+export interface TraceSpanEvent {
+  time: string;
+  name: string;
   attributes: Record<string, string> | null;
 }
 
-/** One log line of a trace. */
+/** A link from a span to another span. */
+export interface TraceSpanLink {
+  trace_id: string;
+  span_id: string;
+}
+
+/**
+ * One log line of a trace. For an `apilens.exception` log, `payload` holds the full exception
+ * (type, message, frames, chained causes; at most 64 KiB with head and tail kept).
+ */
 export interface TraceLog {
   timestamp: string;
   level: string;
   message: string;
+  logger_name: string;
   span_id: string;
+  payload: string;
+  attributes: Record<string, string> | null;
 }
 
 /** `GET /requests/{id}`: the request with the spans and logs of its trace, oldest first. */
@@ -1146,6 +1171,16 @@ export interface RequestDetailRead {
   request: RequestDetail;
   spans: TraceSpan[] | null;
   logs: TraceLog[] | null;
+  /** True when the trace had more than 10,000 spans or 2,000 logs and the rest were left out. */
+  trace_truncated: boolean;
+}
+
+/** `GET /traces/{trace_id}`: the spans (at most 10,000) and logs (at most 2,000) of one trace. */
+export interface TraceRead {
+  trace_id: string;
+  spans: TraceSpan[] | null;
+  logs: TraceLog[] | null;
+  truncated: boolean;
 }
 
 /**
