@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Logged exceptions: Spring Boot attaches a Logback appender (and a Log4j2
+  appender when Log4j2 is the logging system) that ships every event logged at
+  `ERROR` with a throwable as an `apilens.exception` log with the full
+  exception payload, tied to the current request's trace. Handled exceptions
+  that are only logged are now captured. `apilens.capture-logs=off` turns it
+  off; outside Spring Boot use `ApiLensLogbackAppender.attach(client)` or
+  `ApiLensLog4j2Appender.attach(client)`.
 - Full exception payload: the `apilens.exception` log now reports the
   qualified class name (`java.lang.IllegalStateException: ...`), unwraps the
   `ServletException` Spring MVC wraps handler exceptions in, and carries the

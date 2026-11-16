@@ -44,6 +44,8 @@
     <spring.boot.version>3.5.16</spring.boot.version>
     <junit.version>5.11.4</junit.version>
     <micrometer.version>1.15.0</micrometer.version>
+    <logback.version>1.5.34</logback.version>
+    <log4j2.version>2.24.3</log4j2.version>
     <maven.compiler.release>${java.version}</maven.compiler.release>
   </properties>
 
@@ -94,6 +96,18 @@
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-core</artifactId>
       <version>${micrometer.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>${logback.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j2.version}</version>
       <optional>true</optional>
     </dependency>
     <dependency>
