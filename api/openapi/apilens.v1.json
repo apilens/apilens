@@ -3726,8 +3726,12 @@
             "description": "Exception class; empty when the SDK reported none.",
             "type": "string"
           },
+          "fingerprint": {
+            "description": "Group key: a hash of the exception type and the top in-app frame (else the message with ids replaced).",
+            "type": "string"
+          },
           "message": {
-            "description": "Exception message.",
+            "description": "Message of the latest occurrence.",
             "type": "string"
           },
           "method": {
@@ -3741,11 +3745,17 @@
           "path": {
             "description": "Route of the endpoint that last raised it; empty when not reported.",
             "type": "string"
+          },
+          "top_frame": {
+            "description": "Top in-app frame of the stack trace, line number left out; empty when none was found.",
+            "type": "string"
           }
         },
         "required": [
+          "fingerprint",
           "exception_type",
           "message",
+          "top_frame",
           "before",
           "after",
           "new",
@@ -4270,7 +4280,7 @@
             "type": "integer"
           },
           "exceptions": {
-            "description": "Server exceptions grouped by (exception_type, message), most frequent first (at most 50).",
+            "description": "Server exceptions grouped by fingerprint (type and top in-app frame), most frequent first (at most 50).",
             "items": {
               "$ref": "#/components/schemas/EndpointException"
             },
@@ -4417,6 +4427,10 @@
             "description": "Exception class, e.g. ValueError or IllegalStateException; empty when the SDK reported none.",
             "type": "string"
           },
+          "fingerprint": {
+            "description": "Group key: a hash of the exception type and the top in-app frame (else the message with ids replaced).",
+            "type": "string"
+          },
           "first_seen": {
             "description": "First occurrence in the range.",
             "format": "date-time",
@@ -4428,11 +4442,15 @@
             "type": "string"
           },
           "message": {
-            "description": "Exception message.",
+            "description": "Message of the latest occurrence.",
             "type": "string"
           },
           "stack_trace": {
             "description": "Stack trace of the latest occurrence.",
+            "type": "string"
+          },
+          "top_frame": {
+            "description": "Top in-app frame of the stack trace, line number left out, e.g. app/orders.py:get_order; empty when none was found.",
             "type": "string"
           },
           "trace_id": {
@@ -4441,8 +4459,10 @@
           }
         },
         "required": [
+          "fingerprint",
           "exception_type",
           "message",
+          "top_frame",
           "count",
           "consumers",
           "first_seen",

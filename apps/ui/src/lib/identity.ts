@@ -1394,8 +1394,13 @@ export interface DeployStatusCount {
 }
 
 export interface DeployException {
+  /** Group key: hash of the exception type and the top in-app frame (else the message with ids replaced). */
+  fingerprint: string;
   exception_type: string;
+  /** Message of the latest occurrence. */
   message: string;
+  /** Top in-app frame, line number left out; empty when none was found. */
+  top_frame: string;
   before: number;
   after: number;
   new: boolean;
@@ -2168,10 +2173,18 @@ export interface EndpointValidationError {
   last_seen: string;
 }
 
-/** Server exceptions grouped by (exception_type, message), with the latest stack trace. */
+/**
+ * Server exceptions grouped by fingerprint (exception type and top in-app frame, else the message
+ * with ids replaced), with the latest message and stack trace.
+ */
 export interface EndpointException {
+  /** Group key: hash of the exception type and the top in-app frame (else the message with ids replaced). */
+  fingerprint: string;
   exception_type: string;
+  /** Message of the latest occurrence. */
   message: string;
+  /** Top in-app frame, line number left out, e.g. `app/orders.py:get_order`; empty when none was found. */
+  top_frame: string;
   count: number;
   consumers: number;
   first_seen: string;

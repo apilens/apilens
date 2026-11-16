@@ -441,7 +441,7 @@ function NewErrors({ project, comparison, range, env }: { project: string; compa
             </li>
           ))}
           {newExceptions.map((x) => (
-            <li key={`x${x.exception_type}:${x.message}`}>
+            <li key={`x${x.fingerprint}`}>
               <span className="chd-exc">{x.exception_type || "Exception"}</span>
               <span className="chd-err__what" title={x.message}>
                 {x.message}

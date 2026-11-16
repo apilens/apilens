@@ -49,14 +49,29 @@ const ERRORS = {
   validation_errors: [{ loc: "query.limit", msg: "Input should be less than or equal to 100", type: "less_than_equal", count: 80, consumers: 2, last_seen: "2026-11-05T10:40:00Z" }],
   exceptions: [
     {
+      fingerprint: "5787a1eaf68e6d73",
       exception_type: "KeyError",
       message: "'currency'",
+      top_frame: "orders.py:get_order",
       count: 2,
       consumers: 1,
       first_seen: "2026-11-05T10:05:00Z",
       last_seen: "2026-11-05T10:20:00Z",
       stack_trace: 'Traceback (most recent call last):\n  File "orders.py", line 42, in get_order\n    total = order["currency"]\nKeyError: \'currency\'',
       trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+    },
+    // Same type, another top in-app frame: a group of its own.
+    {
+      fingerprint: "0932d6799a356d51",
+      exception_type: "KeyError",
+      message: "'currency'",
+      top_frame: "refunds.py:refund",
+      count: 1,
+      consumers: 1,
+      first_seen: "2026-11-05T10:10:00Z",
+      last_seen: "2026-11-05T10:10:00Z",
+      stack_trace: 'Traceback (most recent call last):\n  File "refunds.py", line 7, in refund\n    amount = order["currency"]\nKeyError: \'currency\'',
+      trace_id: "",
     },
   ],
 };
@@ -202,9 +217,12 @@ test("Errors tab: error rates, status codes, validation errors and server except
   ]);
 
   const exceptions = page.getByRole("list", { name: "Server exceptions" });
+  // Grouped by type and top in-app frame: the same type and message raised in two places are two rows.
+  await expect(exceptions.getByRole("listitem")).toHaveCount(2);
+  await expect(exceptions.locator(".ep-exc__frame")).toHaveText(["in orders.py:get_order", "in refunds.py:refund"]);
   const first = exceptions.getByRole("listitem").first();
   await expect(first.locator("summary")).toContainText("KeyError 'currency'");
-  await expect(first.locator("summary")).toContainText("2 times, 1 consumers");
+  await expect(first.locator("summary")).toContainText("2 times, 1 consumers, first Nov 5, 2026, 10:05 AM UTC");
   await expect(first.locator("pre.ep-stack")).toBeHidden();
   await first.locator("summary").click();
   await expect(first.locator("pre.ep-stack")).toContainText('total = order["currency"]');
