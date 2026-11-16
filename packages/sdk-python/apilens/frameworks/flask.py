@@ -7,7 +7,19 @@ from ..client import ApiLensClient
 from ..client._env import env_defaults
 from ..client._profile import CaptureProfile
 from ..client._routes import flask_route_template
-from ..client.middleware import ApiLensWSGIMiddleware, set_consumer, track_consumer
+from ..client.middleware import (
+    ApiLensWSGIMiddleware,
+    note_handled_exception,
+    set_consumer,
+    track_consumer,
+)
+
+
+def _note_flask_exception(sender: Any, exception: BaseException | None = None, **_: Any) -> None:
+    """``got_request_exception`` receiver: Flask's ``handle_exception`` turns
+    the exception into a 500 inside ``wsgi_app``, so the WSGI middleware never
+    sees it raise. Note it so the request's error log keeps the stack."""
+    note_handled_exception(exception)
 
 
 @env_defaults
@@ -72,6 +84,12 @@ def instrument_flask(
             get_consumer=lambda environ: environ.get("HTTP_X_USER_ID"),
         )
     """
+    # Unhandled exceptions become a 500 inside wsgi_app; the signal fires
+    # before that (and also when PROPAGATE_EXCEPTIONS re-raises, where the
+    # middleware logs the raised one only).
+    from flask import got_request_exception
+
+    got_request_exception.connect(_note_flask_exception, app, weak=False)
     # Close over the Flask app so the resolver can match the WSGI environ
     # against its url_map (rule.rule → /product/<int:id> → /product/{id}).
     app.wsgi_app = ApiLensWSGIMiddleware(  # type: ignore[assignment]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import functools
+import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -155,6 +157,103 @@ def _maybe_record_error(
         app_id=app_id,
         environment=environment,
     )
+
+
+# A framework that turns an exception into a 5xx response itself (Flask's
+# ``handle_exception``, a Starlette/FastAPI exception handler, Django's
+# ``handler500``) never lets it reach the middleware, which would log a bare
+# "HTTP 500". Its hook notes the exception in this per-request slot instead;
+# the middleware logs it once, and only when nothing raised past it.
+_handled_exc_ctx: contextvars.ContextVar[list[BaseException] | None] = contextvars.ContextVar(
+    "apilens_handled_exc_ctx",
+    default=None,
+)
+
+
+def note_handled_exception(exc: BaseException | None) -> None:
+    """Record an exception the framework handled itself for the current
+    request. A no-op outside a captured request. The slot holds one
+    exception (the latest), so a request logs at most one."""
+    slot = _handled_exc_ctx.get()
+    if slot is None or exc is None:
+        return
+    slot[:] = [exc]
+
+
+def _begin_handled_exceptions() -> tuple[list[BaseException], contextvars.Token]:
+    # A mutable slot (not the value itself) so a hook running in a copied
+    # context (a worker thread, a child task) still reaches this request.
+    slot: list[BaseException] = []
+    return slot, _handled_exc_ctx.set(slot)
+
+
+def _end_handled_exceptions(token: contextvars.Token) -> None:
+    try:
+        _handled_exc_ctx.reset(token)
+    except ValueError:  # finalized in another context (e.g. a GC'd WSGI iterator)
+        _handled_exc_ctx.set(None)
+
+
+def _request_exception(
+    captured: BaseException | None, slot: list[BaseException], status_code: int
+) -> BaseException | None:
+    """The exception to log for a request: the one that raised past the
+    middleware wins (no double reporting); else a framework-handled one when
+    the response is a 5xx (a handler that answered 4xx is not an error)."""
+    if captured is not None:
+        return captured
+    if slot and status_code >= 500:
+        return slot[-1]
+    return None
+
+
+def _is_async_callable(fn: Any) -> bool:
+    while isinstance(fn, functools.partial):
+        fn = fn.func
+    return inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None))
+
+
+def _noting_handler(handler: Any) -> Any:
+    """Wrap a Starlette exception handler so it notes the exception before
+    rendering the response. Keeps the handler sync or async as it was."""
+    if getattr(handler, "_apilens_noting", False):
+        return handler
+    if _is_async_callable(handler):
+
+        async def async_wrapper(conn: Any, exc: BaseException) -> Any:
+            note_handled_exception(exc)
+            return await handler(conn, exc)
+
+        wrapper: Any = async_wrapper
+    else:
+
+        def sync_wrapper(conn: Any, exc: BaseException) -> Any:
+            note_handled_exception(exc)
+            return handler(conn, exc)
+
+        wrapper = sync_wrapper
+    wrapper._apilens_noting = True
+    return wrapper
+
+
+def _wrap_starlette_exception_handlers(app: Any, max_depth: int = 32) -> None:
+    """Find Starlette's ``ExceptionMiddleware`` below this middleware and wrap
+    its handlers in place (Starlette reads the same dict on every request).
+    Errors handled there (a FastAPI ``@app.exception_handler(ValueError)``
+    answering 500) then keep their stack. ``Exception``/500 handlers live in
+    ``ServerErrorMiddleware`` above us: those exceptions raise past the
+    middleware and are captured directly."""
+    node = app
+    for _ in range(max_depth):
+        if node is None:
+            return
+        handlers = getattr(node, "_exception_handlers", None)
+        if isinstance(handlers, dict):
+            for key, handler in list(handlers.items()):
+                if callable(handler):
+                    handlers[key] = _noting_handler(handler)
+            return
+        node = getattr(node, "app", None)
 
 
 def _is_error(exc: BaseException | None, status_code: int) -> bool:
@@ -526,6 +625,10 @@ class ApiLensASGIMiddleware:
         # templates and the effective config above, once per process, sent
         # from a background thread. ``__call__`` hands it ``scope["app"]``.
         self._metadata_hint = start_asgi_metadata(self)
+        try:
+            _wrap_starlette_exception_handlers(app)
+        except Exception:  # pragma: no cover - best effort, never break the app
+            logger.debug("API Lens could not wrap exception handlers", exc_info=True)
 
     async def _lifespan(self, scope, receive, send) -> None:
         """Pass the lifespan protocol through, draining the queue on shutdown.
@@ -724,12 +827,17 @@ class ApiLensASGIMiddleware:
             await send(message)
 
         captured_exc: BaseException | None = None
+        handled_exc, handled_token = _begin_handled_exceptions()
         try:
             await self.app(scope, wrapped_receive, wrapped_send)
         except BaseException as exc:
             captured_exc = exc
             raise
         finally:
+            _end_handled_exceptions(handled_token)
+            # The exception to log: one that raised past us, else one the
+            # framework rendered as a 5xx itself (exception handlers).
+            error_exc = _request_exception(captured_exc, handled_exc, status_code)
             # Routing has resolved now, so ask the framework for the matched
             # route template and group under it. raw_path keeps the real URL.
             if self.route_resolver is not None:
@@ -775,7 +883,7 @@ class ApiLensASGIMiddleware:
                 response_time_ms=response_time_ms,
                 sampled=sampled,
             )
-            is_error = _is_error(captured_exc, status_code)
+            is_error = _is_error(error_exc, status_code)
             # Errors are never sampled: a failing request is kept whatever
             # sample_rate or sample_on_response said.
             kept = is_error or self.response_sampler.decide(sampled, lambda: response_info)
@@ -856,7 +964,7 @@ class ApiLensASGIMiddleware:
                 )
             # The exception log does not depend on span capture.
             _maybe_record_error(
-                exc=captured_exc,
+                exc=error_exc,
                 status_code=status_code,
                 trace_id=trace_id,
                 span_id=span_id if self.capture_spans else "",
@@ -1108,6 +1216,7 @@ class ApiLensWSGIMiddleware:
 
         result = None
         captured_exc: BaseException | None = None
+        handled_exc, handled_token = _begin_handled_exceptions()
         try:
             result = self.app(environ, wrapped_start_response)
             for chunk in result:
@@ -1126,6 +1235,10 @@ class ApiLensWSGIMiddleware:
             close = getattr(result, "close", None)
             if callable(close):
                 close()
+            _end_handled_exceptions(handled_token)
+            # The exception to log: one that raised past us, else one the
+            # framework rendered as a 5xx itself (Flask's handle_exception).
+            error_exc = _request_exception(captured_exc, handled_exc, status_code)
             # Group under the matched route template; raw_path keeps the real
             # URL (query string included) for the request log.
             if self.route_resolver is not None:
@@ -1166,7 +1279,7 @@ class ApiLensWSGIMiddleware:
                 response_time_ms=response_time_ms,
                 sampled=sampled,
             )
-            is_error = _is_error(captured_exc, status_code)
+            is_error = _is_error(error_exc, status_code)
             # Errors are never sampled: a failing request is kept whatever
             # sample_rate or sample_on_response said.
             kept = is_error or self.response_sampler.decide(sampled, lambda: response_info)
@@ -1205,7 +1318,7 @@ class ApiLensWSGIMiddleware:
                 )
             # The exception log does not depend on span capture.
             _maybe_record_error(
-                exc=captured_exc,
+                exc=error_exc,
                 status_code=status_code,
                 trace_id=trace_id,
                 span_id=span_id if self.capture_spans else "",
