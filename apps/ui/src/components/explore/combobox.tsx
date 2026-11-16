@@ -35,6 +35,8 @@ export function Combobox({
   label: string;
   placeholder?: string;
   mono?: boolean;
+  /** The field's own name when no visible label names it (the bar's search, #985). */
+  "aria-label"?: string;
   "aria-invalid"?: boolean;
   "aria-describedby"?: string;
 }) {
