@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appHealth, appHref, formatLastSeen, needsAttention, reportingTone, sdkUpdate, sdkVersions } from "./apps";
+import { appHealth, appHref, appIsEmpty, formatLastSeen, instanceRelease, instanceSdk, needsAttention, reportingTone, sdkUpdate, sdkVersions } from "./apps";
 
 const NOW = Date.parse("2026-11-05T12:00:00Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -68,5 +68,32 @@ describe("needsAttention", () => {
     expect(needsAttention({ status: "stale", sdks: null })).toBe(true);
     expect(needsAttention({ status: "silent", sdks: [] })).toBe(true);
     expect(needsAttention({ status: "reporting", sdks: [sdk(["0.3.2"], "0.4.0", 1)] })).toBe(true);
+  });
+});
+
+describe("appIsEmpty", () => {
+  it("is empty only without requests and without a heartbeat ever", () => {
+    expect(appIsEmpty({ requests: 0 }, { status: "never" })).toBe(true);
+    expect(appIsEmpty({ requests: 3 }, { status: "never" })).toBe(false);
+    expect(appIsEmpty({ requests: 0 }, { status: "silent" })).toBe(false);
+  });
+
+  it("is not empty when a read failed", () => {
+    expect(appIsEmpty(null, { status: "never" })).toBe(false);
+    expect(appIsEmpty({ requests: 0 }, null)).toBe(false);
+  });
+});
+
+describe("instanceSdk and instanceRelease", () => {
+  it("names the SDK and its version", () => {
+    expect(instanceSdk({ sdk_name: "apilens-python", sdk_version: "0.4.0" })).toBe("apilens-python 0.4.0");
+    expect(instanceSdk({ sdk_name: "apilens-python", sdk_version: "" })).toBe("apilens-python");
+  });
+
+  it("shows the release with a short commit, either alone, or nothing", () => {
+    expect(instanceRelease({ release: "2026.11.05", commit: "3f9a2c1d5e6f" })).toBe("2026.11.05 (3f9a2c1)");
+    expect(instanceRelease({ release: "", commit: "3f9a2c1d5e6f" })).toBe("3f9a2c1");
+    expect(instanceRelease({ release: "v2", commit: "" })).toBe("v2");
+    expect(instanceRelease({ release: "", commit: "" })).toBe("");
   });
 });

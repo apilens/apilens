@@ -2,7 +2,7 @@
 // (requests per minute, error rate, p95 and a requests sparkline), its health, whether its SDKs
 // are reporting and the SDK version against the latest release. Pure helpers, unit-tested in
 // apps.test.ts.
-import type { AppReporting, AppSdk, AppStatus, QueryRange, TrafficSummary } from "./identity";
+import type { AppInstance, AppReporting, AppSdk, AppStatus, QueryRange, TrafficSummary } from "./identity";
 
 /** The range every card covers. */
 export const APPS_RANGE: QueryRange = "24h";
@@ -99,3 +99,35 @@ export function needsAttention(status: Pick<AppStatus, "status" | "sdks">): bool
 export const APPS_LOAD_FAILED = "We couldn’t load this project’s apps just now.";
 export const STATUS_LOAD_FAILED = "SDK status unavailable.";
 export const TRAFFIC_LOAD_FAILED = "Traffic unavailable.";
+
+// One app's page (#995): its overview over the same range as the cards.
+
+/** How many endpoints, deploys and SDK instances the app's page lists. */
+export const APP_TOP_ENDPOINTS = 10;
+export const APP_RECENT_DEPLOYS = 5;
+export const APP_INSTANCES_SHOWN = 10;
+/** The range the app's page reads its recent deploys over. */
+export const APP_DEPLOYS_RANGE: QueryRange = "7d";
+
+/**
+ * Whether the app has sent nothing yet: no requests in the range and no SDK heartbeat ever. Its
+ * page then shows how to set the SDK up instead of empty tiles. Unknown (a read failed) is not empty.
+ */
+export function appIsEmpty(summary: Pick<TrafficSummary, "requests"> | null, status: Pick<AppStatus, "status"> | null): boolean {
+  return summary !== null && status !== null && summary.requests <= 0 && status.status === "never";
+}
+
+/** An instance's SDK: `apilens-python 0.4.0`. */
+export function instanceSdk(i: Pick<AppInstance, "sdk_name" | "sdk_version">): string {
+  return i.sdk_version ? `${i.sdk_name} ${i.sdk_version}` : i.sdk_name;
+}
+
+/** An instance's release and commit: `2026.11.05 (3f9a2c1)`, either alone, or "" when neither is configured. */
+export function instanceRelease(i: Pick<AppInstance, "release" | "commit">): string {
+  const commit = /^[0-9a-f]{8,}$/i.test(i.commit) ? i.commit.slice(0, 7) : i.commit;
+  if (i.release && commit) return `${i.release} (${commit})`;
+  return i.release || commit;
+}
+
+export const DEPLOYS_LOAD_FAILED = "Deploys unavailable.";
+export const ENDPOINTS_LOAD_FAILED = "Endpoints unavailable.";
