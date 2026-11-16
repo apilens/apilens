@@ -29,6 +29,7 @@ import {
   spanName,
   waterfall,
 } from "@/lib/request-detail";
+import { type ExceptionBlock, type StackFrame, exceptionLog, frameLocation, parseException } from "@/lib/stack-trace";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 
@@ -217,7 +218,7 @@ function Panel({ tab, data }: { tab: DrawerTab; data: RequestDetailRead }) {
     case "validation":
       return <ValidationTable errors={r.validation_errors ?? []} />;
     case "trace":
-      return <Waterfall spans={data.spans ?? []} traced={Boolean(r.trace_id)} />;
+      return <TraceView spans={data.spans ?? []} logs={data.logs ?? []} at={r.timestamp} traced={Boolean(r.trace_id)} />;
     case "logs":
       return <Logs logs={data.logs ?? []} spans={data.spans ?? []} at={r.timestamp} traced={Boolean(r.trace_id)} />;
   }
@@ -481,37 +482,228 @@ function ValidationTable({ errors }: { errors: { loc: string; msg: string; type:
 
 // ---------------------------------------------------------------- trace
 
-function Waterfall({ spans, traced }: { spans: TraceSpan[]; traced: boolean }) {
+/**
+ * The Trace tab (#924): the request's exception first, when its trace has an `apilens.exception`
+ * log, then the waterfall. A span opens its detail below the waterfall: status, attributes and
+ * events, an `exception` event rendered like the exception above.
+ */
+function TraceView({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: TraceLog[]; at: string; traced: boolean }) {
+  const exc = useMemo(() => exceptionLog(logs), [logs]);
+  return (
+    <>
+      {exc ? (
+        <ExceptionView
+          label="Exception"
+          payload={exc.payload || exc.message}
+          type={exc.attributes?.["exception.type"]}
+          message={exc.attributes?.["exception.message"]}
+        />
+      ) : null}
+      <Waterfall spans={spans} at={at} traced={traced} />
+    </>
+  );
+}
+
+/**
+ * One exception: type and message, then each exception of the chain as a collapsible block of
+ * frames (the raised one open), the app's own frames emphasised. A payload that parses as no
+ * known stack shows as raw text. Copy copies the payload exactly as stored.
+ */
+function ExceptionView({ label, payload, type, message }: { label: string; payload: string; type?: string; message?: string }) {
+  const parsed = useMemo(() => parseException(payload), [payload]);
+  const [copied, setCopied] = useState<string | null>(null);
+  const head = parsed.blocks[0];
+  const shownType = type || head?.type || "";
+  const shownMessage = message ?? head?.message ?? "";
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopied("Copied the full exception.");
+    } catch {
+      setCopied("Couldn’t copy. Your browser blocked the clipboard.");
+    }
+  };
+  return (
+    <section className="rd-section rd-exc" aria-label={label}>
+      <div className="rd-exc__bar">
+        <h3 className="rd-h">{label}</h3>
+        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={copy} disabled={!payload} aria-disabled={!payload || undefined}>
+          Copy exception
+        </button>
+      </div>
+      <p className="rd-copied rd-exc__copied" role="status">
+        {copied}
+      </p>
+      {shownType || shownMessage ? (
+        <p className="rd-exc__title">
+          {shownType ? <code className="rd-exc__type">{shownType}</code> : null}
+          {shownMessage ? <span className="rd-exc__msg">{shownMessage}</span> : null}
+        </p>
+      ) : null}
+      {parsed.truncated !== null ? (
+        <Notice>
+          {parsed.truncated.toLocaleString("en-US")} chars were cut from the middle of this exception to fit the 64 KiB limit. The start and the root cause are kept.
+        </Notice>
+      ) : null}
+      {parsed.format === "raw" ? (
+        payload ? (
+          <pre className="rd-pre">{payload}</pre>
+        ) : null
+      ) : (
+        parsed.blocks.map((b, i) => <ExceptionBlockView key={i} block={b} open={i === 0} />)
+      )}
+    </section>
+  );
+}
+
+function ExceptionBlockView({ block: b, open }: { block: ExceptionBlock; open: boolean }) {
+  return (
+    <details className={`rd-exb rd-exb--${b.relation}`} open={open}>
+      <summary>
+        <span className="rd-exb__label">{b.label}</span>
+        <code className="rd-exb__type">{b.type}</code>
+        {b.message ? <span className="rd-exb__msg">{b.message}</span> : null}
+      </summary>
+      {b.frames.length ? (
+        <ol className="rd-frames">
+          {b.frames.map((f, i) => (
+            <FrameLine key={i} frame={f} />
+          ))}
+        </ol>
+      ) : (
+        <p className="rd-empty rd-exb__none">No frames were reported for this exception.</p>
+      )}
+    </details>
+  );
+}
+
+function FrameLine({ frame: f }: { frame: StackFrame }) {
+  if (f.note) return <li className="rd-frame rd-frame--note">{f.note}</li>;
+  return (
+    <li className={`rd-frame${f.inApp ? " is-app" : ""}`}>
+      <span className="rd-frame__loc">{frameLocation(f)}</span>
+      {f.inApp ? <span className="rd-frame__tag">app</span> : null}
+      {f.code ? <code className="rd-frame__code">{f.code}</code> : null}
+    </li>
+  );
+}
+
+function Waterfall({ spans, at, traced }: { spans: TraceSpan[]; at: string; traced: boolean }) {
   const { rows, total } = useMemo(() => waterfall(spans), [spans]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const detailId = useId();
   if (!rows.length) {
     return <p className="rd-empty">{traced ? "No spans were reported for this request’s trace." : "This request has no trace id, so there is no trace to show."}</p>;
   }
+  const span = picked ? spans.find((s) => s.span_id === picked) : undefined;
   return (
-    <section className="rd-section" aria-label="Trace waterfall">
-      <p className="rd-meta">
-        {rows.length === 1 ? "1 span" : `${rows.length} spans`} over {formatLatency(total)}
-      </p>
-      <ol className="rd-wf">
-        {rows.map(({ span: s, depth, offset, width }) => {
-          const failed = spanFailed(s);
-          return (
-            <li key={s.span_id} className={`rd-wf__row${failed ? " is-error" : ""}`}>
-              <div className="rd-wf__name" style={{ paddingLeft: depth * 14 }} title={s.name}>
-                <span>{s.name || s.span_id}</span>
-                {s.service_name ? <span className="rd-wf__svc">{s.service_name}</span> : null}
-              </div>
-              <div className="rd-wf__track">
-                <span className="rd-wf__bar" style={{ left: `${offset}%`, width: `${width}%` }} />
-              </div>
-              <div className="rd-wf__dur">
-                {formatLatency(s.duration_ms)}
-                {failed ? <span className="rd-wf__err">Error</span> : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+    <>
+      <section className="rd-section" aria-label="Trace waterfall">
+        <p className="rd-meta">
+          {rows.length === 1 ? "1 span" : `${rows.length} spans`} over {formatLatency(total)}. Select a span to see its detail.
+        </p>
+        <ol className="rd-wf">
+          {rows.map(({ span: s, depth, offset, width }) => {
+            const failed = spanFailed(s);
+            const on = picked === s.span_id;
+            return (
+              <li key={s.span_id} className={`rd-wf__row${failed ? " is-error" : ""}${on ? " is-on" : ""}`}>
+                <button type="button" className="rd-wf__btn" aria-pressed={on} aria-controls={on ? detailId : undefined} onClick={() => setPicked(on ? null : s.span_id)}>
+                  <span className="rd-wf__name" style={{ paddingLeft: depth * 14 }} title={s.name}>
+                    <span>{s.name || s.span_id}</span>
+                    {s.service_name ? <span className="rd-wf__svc">{s.service_name}</span> : null}
+                  </span>
+                  <span className="rd-wf__track">
+                    <span className="rd-wf__bar" style={{ left: `${offset}%`, width: `${width}%` }} />
+                  </span>
+                  <span className="rd-wf__dur">
+                    {formatLatency(s.duration_ms)}
+                    {failed ? <span className="rd-wf__err">Error</span> : null}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+      {span ? <SpanDetail id={detailId} span={span} at={at} /> : null}
+    </>
+  );
+}
+
+const EXCEPTION_EVENT_KEYS = new Set(["exception.type", "exception.message", "exception.stacktrace"]);
+
+function SpanDetail({ id, span: s, at }: { id: string; span: TraceSpan; at: string }) {
+  const items: [string, ReactNode][] = [
+    ["Span ID", <code key="id">{s.span_id}</code>],
+    ["Kind", s.kind],
+    ["Service", s.service_name],
+    ["Started", <time key="start" dateTime={s.start} title={formatExact(s.start)}>{offsetMs(s.start, at)}</time>],
+    ["Duration", formatLatency(s.duration_ms)],
+    ["Status", `${s.status || "unset"}${s.status_code ? ` (${s.status_code})` : ""}`],
+    ["Status message", s.status_message ? <Marked key="msg" text={s.status_message} /> : null],
+  ];
+  const attrs = Object.entries(s.attributes ?? {});
+  const events = s.events ?? [];
+  return (
+    <section id={id} className="rd-section rd-span" aria-label={`Span ${s.name || s.span_id}`}>
+      <h3 className="rd-h">Span: {s.name || s.span_id}</h3>
+      <dl className="rd-dl">
+        {items
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+      </dl>
+      <h4 className="rd-h rd-h--sub">Attributes</h4>
+      {attrs.length ? <AttrTable attrs={attrs} label="Span attributes" /> : <p className="rd-empty">No attributes were reported for this span.</p>}
+      <h4 className="rd-h rd-h--sub">Events</h4>
+      {events.length ? (
+        <ol className="rd-events">
+          {events.map((e, i) => {
+            const ea = e.attributes ?? {};
+            const isExc = e.name === "exception";
+            const rest = Object.entries(ea).filter(([k]) => !isExc || !EXCEPTION_EVENT_KEYS.has(k));
+            return (
+              <li key={`${e.time}#${i}`} className="rd-event">
+                <p className="rd-event__head">
+                  <code>{e.name}</code>
+                  <time className="rd-num" dateTime={e.time} title={formatExact(e.time)}>
+                    {offsetMs(e.time, at)}
+                  </time>
+                </p>
+                {isExc ? (
+                  <ExceptionView label="Exception event" payload={ea["exception.stacktrace"] ?? ""} type={ea["exception.type"]} message={ea["exception.message"]} />
+                ) : null}
+                {rest.length ? <AttrTable attrs={rest} label={`${e.name} attributes`} /> : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="rd-empty">No events were reported for this span.</p>
+      )}
     </section>
+  );
+}
+
+function AttrTable({ attrs, label }: { attrs: [string, string][]; label: string }) {
+  return (
+    <table className="rd-table rd-table--kv" aria-label={label}>
+      <tbody>
+        {attrs.map(([k, v]) => (
+          <tr key={k}>
+            <th scope="row">{k}</th>
+            <td>
+              <Marked text={v} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
