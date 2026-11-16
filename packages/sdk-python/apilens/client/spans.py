@@ -5,7 +5,9 @@ middleware records a root ``server`` span per request, and outbound HTTP calls
 made with ``requests`` or ``httpx`` become child ``http`` spans (with
 ``traceparent`` propagation downstream) when the middleware is installed with
 ``capture_spans=True``. Database statements become child ``db`` spans
-(see :mod:`.db_spans`) unless ``capture_db_spans=False``.
+(see :mod:`.db_spans`) unless ``capture_db_spans=False``. A request records
+at most ``MAX_SPANS_PER_REQUEST`` (2,000) child spans; the rest are dropped
+and counted as ``span_cap`` (``drop_counts()`` and the heartbeat).
 
 When a request fails — an unhandled exception or a 5xx response — the
 middleware also emits one ERROR log correlated to the trace (see
@@ -25,7 +27,13 @@ from typing import TYPE_CHECKING, Any
 
 from ._exception import MAX_EXCEPTION_MESSAGE, MAX_EXCEPTION_PAYLOAD, truncate_head_tail
 from .models import LogRecord, SpanRecord
-from .trace import current_span_id, current_trace_id, detail_sampled, generate_span_id
+from .trace import (
+    current_span_budget,
+    current_span_id,
+    current_trace_id,
+    detail_sampled,
+    generate_span_id,
+)
 
 if TYPE_CHECKING:
     from .client import ApiLensClient
@@ -114,13 +122,16 @@ class _HeldSpans:
     """Child spans recorded while a request awaits ``sample_on_response``.
 
     ``keep`` is None while the decision is pending; a span finishing later (a
-    background thread outliving the request) follows the decision.
+    background thread outliving the request) follows the decision. ``capped``
+    counts the spans over the per-request cap: reported as ``span_cap`` drops
+    only if the request is kept (a sampled-out request's spans were never due).
     """
 
-    __slots__ = ("spans", "keep", "lock")
+    __slots__ = ("spans", "capped", "keep", "lock")
 
     def __init__(self) -> None:
         self.spans: list[SpanRecord] = []
+        self.capped = 0
         self.keep: bool | None = None
         self.lock = threading.Lock()
 
@@ -148,10 +159,13 @@ def release_child_spans(token: contextvars.Token | None, keep: bool) -> None:
     with held.lock:
         held.keep = bool(keep)
         spans, held.spans = held.spans, []
+        capped, held.capped = held.capped, 0
     recorder = _recorder
     if keep and recorder is not None:
         for span in spans:
             recorder.client.capture_span(span)
+        if capped:
+            recorder.client.count_span_cap_drops(recorder.app_id, capped)
 
 
 def record_span(
@@ -177,6 +191,18 @@ def record_span(
     # a request that fails is kept whatever sampling said, so its child spans
     # wait for that verdict.
     if held is None and not detail_sampled():
+        return
+    # Per-request span cap (D8): the request's own server span is exempt.
+    budget = current_span_budget()
+    if budget is not None and span_id != current_span_id() and not budget.take():
+        if held is not None:
+            with held.lock:
+                if held.keep is None:
+                    held.capped += 1
+                    return
+                if not held.keep:
+                    return
+        recorder.client.count_span_cap_drops(recorder.app_id)
         return
     ended = end_time or datetime.now(tz=timezone.utc)
     record = SpanRecord(

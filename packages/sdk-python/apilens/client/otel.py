@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,8 +12,9 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, Spa
 from opentelemetry.trace import SpanKind, StatusCode
 
 from ._capture import apply_ip_policy
+from ._exception import MAX_EXCEPTION_MESSAGE, MAX_EXCEPTION_PAYLOAD, truncate_head_tail
 from .client import ApiLensClient
-from .models import RequestRecord, SpanRecord
+from .models import RequestRecord, SpanEvent, SpanRecord
 from .spans import env_spans_enabled
 
 _HTTP_METHOD_KEYS = ("http.request.method", "http.method")
@@ -29,6 +32,18 @@ _HTTP_RESPONSE_SIZE_KEYS = (
 )
 _HTTP_IP_KEYS = ("client.address", "http.client_ip", "net.peer.ip")
 _HTTP_USER_AGENT_KEYS = ("user_agent.original", "http.user_agent")
+
+# Span attribute and event caps, the same as ingest's (/v1/traces): longer
+# values and extra keys would be cut there anyway.
+_MAX_SPAN_ATTRIBUTES = 64
+_MAX_ATTRIBUTE_VALUE_CHARS = 512
+_MAX_SPAN_EVENTS = 128
+_EXCEPTION_EVENT = "exception"
+# Event attributes allowed past the default cap (head and tail kept, D4).
+_LONG_EVENT_ATTRIBUTES = {
+    "exception.stacktrace": MAX_EXCEPTION_PAYLOAD,
+    "exception.message": MAX_EXCEPTION_MESSAGE,
+}
 
 
 def _pick_attr(attrs: dict[str, Any], keys: tuple[str, ...], default: Any = None) -> Any:
@@ -62,6 +77,66 @@ def _coerce_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _attribute_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        # OTel array attribute: keep every element, as JSON.
+        return json.dumps(list(value), default=str, ensure_ascii=False)
+    return "" if value is None else str(value)
+
+
+def _otel_attributes(
+    attrs: Mapping[str, Any] | None, long_values: Mapping[str, int] | None = None
+) -> dict[str, str]:
+    """OTel span/event attributes as the string map of the JSON span schema."""
+    output: dict[str, str] = {}
+    for key, value in (attrs or {}).items():
+        if len(output) >= _MAX_SPAN_ATTRIBUTES:
+            break
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            continue
+        limit = (long_values or {}).get(clean_key)
+        text = _attribute_text(value)
+        output[clean_key] = truncate_head_tail(text, limit) if limit else text[:_MAX_ATTRIBUTE_VALUE_CHARS]
+    return output
+
+
+def _ns_to_datetime(ns: int) -> datetime:
+    return datetime.fromtimestamp(ns / 1_000_000_000, tz=timezone.utc)
+
+
+def _span_events(span: ReadableSpan, is_error: bool, status_message: str) -> list[SpanEvent]:
+    """The span's events (``exception`` events keep their full stack trace);
+    an errored span without one gets an ``exception`` event built from its
+    status, so the failure always carries its reason."""
+    events = [
+        SpanEvent(
+            timestamp=_ns_to_datetime(event.timestamp or span.start_time),
+            name=str(event.name or ""),
+            attributes=_otel_attributes(event.attributes, _LONG_EVENT_ATTRIBUTES),
+        )
+        for event in list(span.events or ())[:_MAX_SPAN_EVENTS]
+    ]
+    if is_error and not any(event.name == _EXCEPTION_EVENT for event in events):
+        attrs = span.attributes or {}
+        exc_type = _attribute_text(attrs.get("exception.type") or attrs.get("error.type") or "")
+        exc_attrs = {"exception.type": exc_type, "exception.message": status_message}
+        event = SpanEvent(
+            timestamp=_ns_to_datetime(span.end_time or span.start_time),
+            name=_EXCEPTION_EVENT,
+            attributes={k: v for k, v in exc_attrs.items() if v},
+        )
+        if len(events) >= _MAX_SPAN_EVENTS:
+            events[-1] = event
+        else:
+            events.append(event)
+    return events
 
 
 def _coerce_float(value: Any, default: float = 0.0) -> float:
@@ -99,6 +174,8 @@ class ApiLensSpanExporter(SpanExporter):
         span_context = span.get_span_context()
         duration_ms = max((span.end_time - span.start_time) / 1_000_000.0, 0.0)
         is_error = span.status is not None and span.status.status_code is StatusCode.ERROR
+        description = span.status.description if span.status is not None else ""
+        status_message = truncate_head_tail(str(description or "").strip(), MAX_EXCEPTION_MESSAGE)
         return SpanRecord(
             timestamp=datetime.fromtimestamp(span.start_time / 1_000_000_000, tz=timezone.utc),
             environment=self.environment,
@@ -113,6 +190,9 @@ class ApiLensSpanExporter(SpanExporter):
             status_code=_coerce_int(_pick_attr(attrs, _HTTP_STATUS_KEYS, 0), 0),
             project_slug=self.client.config.project_slug,
             app_id=self.app_id,
+            attributes=_otel_attributes(attrs),
+            status_message=status_message,
+            events=_span_events(span, is_error, status_message),
         )
 
     def export(self, spans: list[ReadableSpan]) -> SpanExportResult:

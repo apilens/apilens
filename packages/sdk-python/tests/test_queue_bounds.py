@@ -181,5 +181,6 @@ def test_retryable_failure_counts_retries_exhausted(monkeypatch):
         "retries_exhausted": 1,
         "invalid": 0,
         "shutdown": 0,
+        "span_cap": 0,
         "truncated": 0,
     }

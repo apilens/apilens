@@ -110,6 +110,22 @@ def _iso_utc(ts: datetime) -> str:
 
 
 @dataclass(slots=True)
+class SpanEvent:
+    """One timestamped event of a span (e.g. OTel's ``exception`` event)."""
+
+    timestamp: datetime
+    name: str
+    attributes: dict[str, str] | None = None
+
+    def to_wire(self) -> dict[str, object]:
+        return {
+            "timestamp": _iso_utc(self.timestamp),
+            "name": self.name or "",
+            "attributes": {str(k): str(v) for k, v in (self.attributes or {}).items()},
+        }
+
+
+@dataclass(slots=True)
 class SpanRecord:
     """One span of a distributed trace (the unit sent to /v1/traces)."""
 
@@ -129,8 +145,20 @@ class SpanRecord:
     attributes: dict[str, str] | None = None
     release: str = ""
     commit: str = ""
+    # Why the span failed (the OTel status description).
+    status_message: str = ""
+    # Timestamped span events (e.g. OTel's ``exception`` event).
+    events: list[SpanEvent] | None = None
 
     def to_wire(self) -> dict[str, object]:
+        wire = self._base_wire()
+        if self.status_message:
+            wire["status_message"] = self.status_message
+        if self.events:
+            wire["events"] = [event.to_wire() for event in self.events]
+        return wire
+
+    def _base_wire(self) -> dict[str, object]:
         return {
             "project_slug": self.project_slug or "",
             "app_id": self.app_id or "",
