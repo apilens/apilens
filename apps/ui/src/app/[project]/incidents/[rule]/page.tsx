@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { getContext } from "@/lib/auth/server";
 import { EVENTS_PAGE, incidentHref } from "@/lib/alerts";
 import { type SearchParams, parseTrail, trailCursor } from "@/lib/pagination";
+import { chartRange, hasSeries } from "@/lib/incident-metric";
 import { findProject } from "@/lib/scope";
 import { appNames, load, loadApps, loadRule } from "../load";
 
@@ -27,6 +28,13 @@ export default async function IncidentPage({ params, searchParams }: { params: P
     loadApps(project, next),
   ]);
   if (rule === "gone") notFound();
+  // The rule's metric over its app and environment (#980): 6 h, or 24 h for an older incident.
+  const now = Date.now();
+  const range = chartRange(events?.events?.[0]?.started_at, now);
+  const series =
+    rule && hasSeries(rule.metric)
+      ? await load(next, (api, o) => api.trafficTimeseries(project, { range, app: rule.app_id, env: rule.environment }, o))
+      : null;
   return (
     <AppShell context={context} project={project} view="incidents">
       {rule === null ? (
@@ -42,7 +50,9 @@ export default async function IncidentPage({ params, searchParams }: { params: P
           events={events ? (events.events ?? []) : null}
           nextCursor={events?.next_cursor ?? null}
           params={sp}
-          now={Date.now()}
+          now={now}
+          series={series}
+          range={range}
         />
       )}
     </AppShell>
