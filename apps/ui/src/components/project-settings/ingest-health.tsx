@@ -17,6 +17,8 @@ import {
   formatCount,
   ingestPath,
   plural,
+  type SdkDropRow,
+  sdkDropRows,
   sdkLine,
   shortenedRecords,
 } from "@/lib/ingest-health";
@@ -100,22 +102,59 @@ function AppPicker({ project, apps, current }: { project: string; apps: NamedApp
   );
 }
 
-function Tiles({ counts, label }: { counts: IngestCounts; label: string }) {
+/** The edge counters; `sdkDropped` > 0 adds the SDK drops next to the server-side rejects (#927). */
+function Tiles({ counts, sdkDropped, label }: { counts: IngestCounts; sdkDropped: number; label: string }) {
   return (
-    <dl className="ih-tiles" aria-label={label}>
-      {EDGE_COUNTERS.map((c) => {
+    <dl className={sdkDropped > 0 ? "ih-tiles ih-tiles--5" : "ih-tiles"} aria-label={label}>
+      {EDGE_COUNTERS.flatMap((c) => {
         const sub = counterShare(c.key, counts);
-        return (
+        return [
           <div key={c.key}>
             <dt>{c.label}</dt>
             <dd>
               <span className="ih-tile__value">{formatCount(counts[c.key])}</span>
               <span className="ih-tile__sub">{sub ?? c.help}</span>
             </dd>
-          </div>
-        );
+          </div>,
+          c.key === "rejected" && sdkDropped > 0 ? (
+            <div key="sdk_dropped">
+              <dt>Dropped by the SDK</dt>
+              <dd>
+                <span className="ih-tile__value ih-tile__value--hot">{formatCount(sdkDropped)}</span>
+                <span className="ih-tile__sub">Lost before reaching the edge</span>
+              </dd>
+            </div>
+          ) : null,
+        ];
       })}
     </dl>
+  );
+}
+
+/** The records the SDKs dropped before sending, by signal and reason, most first. */
+function SdkDropTable({ rows }: { rows: SdkDropRow[] }) {
+  return (
+    <table className="pk-table ih-table ih-reasons ih-sdk-drops" aria-label="Dropped by the SDK, by reason">
+      <thead>
+        <tr>
+          <th scope="col">Reason</th>
+          <th scope="col">Signal</th>
+          <th scope="col">Records</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} className="pk-row">
+            <th scope="row" data-label="Reason">
+              {r.label}
+              {r.label !== r.reason ? <code>{r.reason}</code> : null}
+            </th>
+            <td data-label="Signal">{r.signal}</td>
+            <td data-label="Records">{formatCount(r.count)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -190,6 +229,8 @@ function DaysChart({ days }: { days: IngestDay[] }) {
 function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off" | null }) {
   const oldestFirst = stats && stats !== "off" ? (stats.daily ?? []) : [];
   const days = [...oldestFirst].reverse();
+  const drops = stats && stats !== "off" ? sdkDropRows(stats) : [];
+  const dropped = drops.reduce((n, r) => n + r.count, 0);
   return (
     <section className="os-card" aria-labelledby="ih-edge">
       <div className="os-card__head">
@@ -207,7 +248,8 @@ function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off"
           <p className="cps-empty">This APILens install keeps no ingest counters: they need the Valkey store, which isn’t configured.</p>
         ) : (
           <>
-            <Tiles counts={stats.totals} label={`Last ${INGEST_DAYS} days`} />
+            <Tiles counts={stats.totals} sdkDropped={dropped} label={`Last ${INGEST_DAYS} days`} />
+            {drops.length ? <SdkDropTable rows={drops} /> : null}
             <DaysChart days={oldestFirst} />
             <table className="pk-table ih-table" aria-label="Ingest counters per day">
               <thead>
@@ -218,6 +260,7 @@ function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off"
                       {c.label}
                     </th>
                   ))}
+                  {dropped > 0 ? <th scope="col">Dropped by the SDK</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -231,6 +274,11 @@ function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off"
                         {formatCount(d[c.key])}
                       </td>
                     ))}
+                    {dropped > 0 ? (
+                      <td data-label="Dropped by the SDK" className={(d.sdk_dropped ?? 0) > 0 ? "ih-hot" : undefined}>
+                        {formatCount(d.sdk_dropped ?? 0)}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

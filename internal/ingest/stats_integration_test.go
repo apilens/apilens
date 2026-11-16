@@ -79,3 +79,44 @@ func TestValkeyStats(t *testing.T) {
 		t.Fatalf("billing = %+v, Prometheus accepted %d masked %d", got[0], accepted, masked)
 	}
 }
+
+// TestValkeySDKDrops runs the SDK drop counters against a real Valkey: drops
+// add up per app and UTC hour, read back summed per day, and expire after
+// the retention.
+func TestValkeySDKDrops(t *testing.T) {
+	ctx := context.Background()
+	client, err := cache.Connect(ctx, testutil.Valkey(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	stats := NewValkeyStats(client)
+
+	app := uuid.New()
+	day := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	q, r := SDKDropKey{"requests", "queue_full"}, SDKDropKey{"spans", "retries_exhausted"}
+	for _, w := range []struct {
+		at    time.Time
+		drops map[SDKDropKey]int64
+	}{
+		{day.Add(time.Hour), map[SDKDropKey]int64{q: 3}},
+		{day.Add(23*time.Hour + 59*time.Minute), map[SDKDropKey]int64{q: 2, r: 12}},
+		{day.AddDate(0, 0, 1), map[SDKDropKey]int64{r: 1}},
+	} {
+		if err := stats.AddSDKDrops(ctx, app, w.at, w.drops); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := stats.SDKDrops(ctx, app, []time.Time{day.AddDate(0, 0, -1), day, day.AddDate(0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || len(got[0]) != 0 || len(got[1]) != 2 || len(got[2]) != 1 ||
+		got[1][0] != (SDKDrop{r, 12}) || got[1][1] != (SDKDrop{q, 5}) || got[2][0] != (SDKDrop{r, 1}) {
+		t.Fatalf("drops = %+v", got)
+	}
+	ttl, err := client.Do(ctx, client.B().Ttl().Key(sdkDropsKey(app, day.Add(time.Hour))).Build()).AsInt64()
+	if err != nil || ttl <= int64(StatsRetentionDays*24*time.Hour/time.Second) {
+		t.Errorf("ttl = %ds, %v", ttl, err)
+	}
+}

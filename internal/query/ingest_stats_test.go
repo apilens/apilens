@@ -96,3 +96,56 @@ func TestAppIngestStatsErrors(t *testing.T) {
 		t.Error("other project: want 404")
 	}
 }
+
+// fakeIngestDrops also reads SDK drops, like *ingest.ValkeyStats.
+type fakeIngestDrops struct {
+	fakeIngestStats
+	drops map[string][]ingest.SDKDrop
+}
+
+func (f *fakeIngestDrops) SDKDrops(_ context.Context, appID uuid.UUID, days []time.Time) ([][]ingest.SDKDrop, error) {
+	if appID != f.app {
+		return nil, errors.New("wrong app")
+	}
+	out := make([][]ingest.SDKDrop, len(days))
+	for i, d := range days {
+		out[i] = f.drops[d.Format(time.DateOnly)]
+	}
+	return out, nil
+}
+
+func TestAppIngestStatsSDKDrops(t *testing.T) {
+	now := time.Date(2026, 11, 5, 9, 30, 0, 0, time.UTC)
+	project, app := uuid.New(), uuid.New()
+	cat := &fakeAppStatusCatalog{project: project, app: db.GetProjectAppRow{ID: app, Slug: "storefront"}}
+	drop := func(signal, reason string, n int64) ingest.SDKDrop {
+		return ingest.SDKDrop{SDKDropKey: ingest.SDKDropKey{Signal: signal, Reason: reason}, Records: n}
+	}
+	reader := &fakeIngestDrops{fakeIngestStats: fakeIngestStats{app: app}, drops: map[string][]ingest.SDKDrop{
+		"2026-11-05": {drop("spans", "retries_exhausted", 12), drop("requests", "queue_full", 3)},
+		"2026-11-04": {drop("requests", "queue_full", 4)},
+		"2026-10-01": {drop("logs", "queue_full", 99)}, // outside the window
+	}}
+	s := NewService(nil, cat).WithIngestStats(reader)
+	s.now = func() time.Time { return now }
+	ctx := context.WithValue(context.Background(), principalKey{}, scope{ProjectID: project})
+
+	out, err := s.appIngestStats(ctx, &appIngestStatsInput{ID: app.String(), Days: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := out.Body
+	want := []SDKDroppedRecords{{"spans", "retries_exhausted", 12}, {"requests", "queue_full", 7}}
+	if len(b.SDKDropped) != len(want) || b.SDKDropped[0] != want[0] || b.SDKDropped[1] != want[1] {
+		t.Errorf("sdk_dropped = %+v, want %+v", b.SDKDropped, want)
+	}
+	if b.Daily[0].SDKDropped != 0 || b.Daily[1].SDKDropped != 4 || b.Daily[2].SDKDropped != 15 {
+		t.Errorf("daily = %+v", b.Daily)
+	}
+
+	// No drops: an empty list, never null.
+	reader.drops = nil
+	if out, err = s.appIngestStats(ctx, &appIngestStatsInput{ID: app.String(), Days: 3}); err != nil || out.Body.SDKDropped == nil || len(out.Body.SDKDropped) != 0 {
+		t.Errorf("no drops = %+v, %v", out, err)
+	}
+}
