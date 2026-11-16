@@ -1961,14 +1961,27 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const days = Number(url.searchParams.get("days") ?? 7);
       const zero = { accepted: 0, rejected: 0, truncated: 0, masked: 0 };
       const keys = Object.keys(zero) as (keyof typeof zero)[];
+      // A seeded day may carry `sdk_dropped` ([{signal, reason, records}], #927): the day gets their
+      // sum, the app the list summed over the days, most records first.
+      type Drop = { signal: string; reason: string; records: number };
+      const dropped = new Map<string, Drop>();
       const daily = Array.from({ length: days }, (_, i) => {
         const date = new Date(Date.now() - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10);
         const fromEnd = days - 1 - i;
-        const day = seeded[seeded.length - 1 - fromEnd];
-        return { date, ...zero, ...(day ?? {}) };
+        const { sdk_dropped: drops, ...day } = (seeded[seeded.length - 1 - fromEnd] ?? {}) as Record<string, unknown>;
+        let sum = 0;
+        for (const d of (Array.isArray(drops) ? drops : []) as Drop[]) {
+          const k = `${d.signal}|${d.reason}`;
+          const cur = dropped.get(k) ?? { signal: d.signal, reason: d.reason, records: 0 };
+          cur.records += d.records;
+          dropped.set(k, cur);
+          sum += d.records;
+        }
+        return { date, ...zero, ...day, sdk_dropped: sum };
       });
       const totals = Object.fromEntries(keys.map((k) => [k, daily.reduce((n, d) => n + Number(d[k]), 0)]));
-      return send(res, 200, { app_id: app.id, app: app.slug, days, totals, daily });
+      const sdk_dropped = [...dropped.values()].sort((a, b) => b.records - a.records);
+      return send(res, 200, { app_id: app.id, app: app.slug, days, totals, daily, sdk_dropped });
     }
     if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
     const stats = appSdkStats.get(app.id);

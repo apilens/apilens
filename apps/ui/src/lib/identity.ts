@@ -1755,6 +1755,16 @@ export interface IngestCounts {
 /** One UTC day of `IngestCounts`; `date` is `YYYY-MM-DD`. */
 export interface IngestDay extends IngestCounts {
   date: string;
+  /** Records the app's SDKs dropped before sending that day (#927); absent from older servers. */
+  sdk_dropped?: number;
+}
+
+/** Records of one signal the app's SDKs dropped for one reason, as their heartbeats reported them (#927). */
+export interface SdkDroppedRecords {
+  signal: "requests" | "spans" | "logs";
+  /** As the SDKs name it: `queue_full`, `retries_exhausted`, ... */
+  reason: string;
+  records: number;
 }
 
 /** `GET /apps/{id}/ingest-stats?days=`: oldest day first; 503 when the counter store is not configured. */
@@ -1764,6 +1774,8 @@ export interface AppIngestStats {
   days: number;
   totals: IngestCounts;
   daily: IngestDay[] | null;
+  /** SDK drops over the days by signal and reason, most first (#927); absent from older servers. */
+  sdk_dropped?: SdkDroppedRecords[] | null;
 }
 
 // Project usage (#790, #819): the per-app edge counters summed over a project's apps, with the

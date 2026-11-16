@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { AppSdkStats } from "./identity";
-import { INGEST_RUNBOOK, counterShare, dayBars, daysSummary, dropReasons, dropSummary, formatCount, ingestPath, plural, sdkLine, share, shortenedRecords } from "./ingest-health";
+import type { AppIngestStats, AppSdkStats } from "./identity";
+import {
+  INGEST_RUNBOOK,
+  counterShare,
+  dayBars,
+  daysSummary,
+  dropReasons,
+  dropSummary,
+  formatCount,
+  ingestPath,
+  plural,
+  sdkDropRows,
+  sdkDropped,
+  sdkLine,
+  share,
+  shortenedRecords,
+} from "./ingest-health";
 
 const sdk = (over: Partial<AppSdkStats> = {}): AppSdkStats => ({
   instances: 2,
@@ -75,6 +90,39 @@ describe("SDK drops", () => {
     expect(sdkLine(sdk({ instances: 0 }))).toMatch(/^No SDK instance sent a heartbeat in the last hour/);
     expect(sdkLine(sdk())).toBe("Nothing dropped by the 2 instances seen in the last hour.");
     expect(sdkLine(sdk({ instances: 1, dropped_records: 2 }))).toBe("Summed over the 1 instance seen in the last hour, since each process started.");
+  });
+});
+
+describe("SDK drops reported in heartbeats (#927)", () => {
+  const edge = (sdk_dropped?: AppIngestStats["sdk_dropped"]): AppIngestStats => ({
+    app_id: "a",
+    app: "shop",
+    days: 7,
+    totals: { accepted: 0, rejected: 0, truncated: 0, masked: 0 },
+    daily: [],
+    sdk_dropped,
+  });
+
+  it("lists drops by reason and signal, most first, named for people", () => {
+    const stats = edge([
+      { signal: "requests", reason: "queue_full", records: 3 },
+      { signal: "spans", reason: "retries_exhausted", records: 12 },
+      { signal: "logs", reason: "span_cap", records: 3 },
+      { signal: "logs", reason: "queue_bytes", records: 0 },
+    ]);
+    expect(sdkDropRows(stats)).toEqual([
+      { key: "spans|retries_exhausted", signal: "Spans", reason: "retries_exhausted", label: "Still failing after retries", count: 12 },
+      { key: "logs|span_cap", signal: "Logs", reason: "span_cap", label: "span_cap", count: 3 },
+      { key: "requests|queue_full", signal: "Requests", reason: "queue_full", label: "Queue full (record limit)", count: 3 },
+    ]);
+    expect(sdkDropped(stats)).toBe(18);
+  });
+
+  it("is empty when nothing was dropped or the server does not report drops", () => {
+    for (const stats of [edge([]), edge(null), edge(undefined)]) {
+      expect(sdkDropRows(stats)).toEqual([]);
+      expect(sdkDropped(stats)).toBe(0);
+    }
   });
 });
 

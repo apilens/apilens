@@ -2,7 +2,7 @@
 // (`GET /apps/{id}/ingest-stats`: accepted, rejected, truncated, masked per UTC day) and what its
 // SDKs dropped before sending (`sdk_stats` of `GET /apps/{id}/status`). The labels, sentences and
 // shares the panel shows. Pure; safe in Client and Server Components alike.
-import type { AppSdkStats, IngestCounts } from "./identity";
+import type { AppIngestStats, AppSdkStats, IngestCounts } from "./identity";
 import { LINKS } from "./links";
 
 /** The section of project settings that shows an app's ingest health. */
@@ -62,6 +62,33 @@ const DROP_REASONS: Record<string, string> = {
   non_retryable: "Refused by ingest (4xx)",
   retries_exhausted: "Still failing after retries",
 };
+
+/** What the signals of `sdk_dropped` (#927) are called on screen. */
+const DROP_SIGNALS: Record<string, string> = { requests: "Requests", spans: "Spans", logs: "Logs" };
+
+export interface SdkDropRow {
+  key: string;
+  signal: string;
+  reason: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * The records the app's SDKs dropped before sending over the period (`sdk_dropped` of
+ * `GET /apps/{id}/ingest-stats`, #927), by signal and reason, most first; empty when none.
+ */
+export function sdkDropRows(stats: AppIngestStats): SdkDropRow[] {
+  return (stats.sdk_dropped ?? [])
+    .filter((d) => d.records > 0)
+    .map((d) => ({ key: `${d.signal}|${d.reason}`, signal: DROP_SIGNALS[d.signal] ?? d.signal, reason: d.reason, label: DROP_REASONS[d.reason] ?? d.reason, count: d.records }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+/** All records the app's SDKs dropped before sending over the period. */
+export function sdkDropped(stats: AppIngestStats): number {
+  return sdkDropRows(stats).reduce((n, r) => n + r.count, 0);
+}
 
 /** Not a drop: a record the SDK shortened to fit a batch and still sent. */
 const SHORTENED = "truncated";

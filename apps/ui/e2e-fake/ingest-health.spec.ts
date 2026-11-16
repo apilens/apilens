@@ -56,6 +56,8 @@ test("shows the edge counters, the SDK drops by reason and links to the runbook"
   // Totals over the last 7 days, with shares.
   const tiles = edge(page).getByRole("definition");
   await expect(tiles).toHaveText(["1,900Records stored", "1005% of received", "90.5% of accepted", "1005.3% of accepted"]);
+  // No SDK drops reported: nothing extra (#927).
+  await expect(edge(page).getByRole("table", { name: "Dropped by the SDK, by reason" })).toHaveCount(0);
   await expect(edge(page)).toContainText("Records Shop sent in the last 7 days (UTC)");
 
   // One row per day, newest first.
@@ -87,6 +89,34 @@ test("shows the edge counters, the SDK drops by reason and links to the runbook"
   await expect(reasons.getByRole("rowheader")).toHaveText(["Still failing after retriesretries_exhausted", "Queue full (record limit)queue_full"]);
   await expect(reasons.getByRole("cell")).toHaveText(["12", "3"]);
   await expect(sdks(page)).toContainText("4 records were shortened to fit a batch and still sent.");
+});
+
+test("shows what the SDKs dropped before sending next to the server-side rejects (#927)", async ({ page }) => {
+  const days = [
+    { ...INGEST_DAYS[0], sdk_dropped: [{ signal: "requests", reason: "queue_full", records: 4 }] },
+    {
+      ...INGEST_DAYS[1],
+      sdk_dropped: [
+        { signal: "spans", reason: "retries_exhausted", records: 12 },
+        { signal: "requests", reason: "queue_full", records: 3 },
+      ],
+    },
+  ];
+  await seedApps([{ id: SHOP, slug: "shop", name: "Shop", ingest: days }]);
+  await signIn(page);
+
+  const tiles = edge(page).getByRole("definition");
+  await expect(edge(page).getByRole("term")).toHaveText(["Accepted", "Rejected", "Dropped by the SDK", "Truncated", "Masked"]);
+  await expect(tiles.nth(2)).toHaveText("19Lost before reaching the edge");
+
+  const reasons = edge(page).getByRole("table", { name: "Dropped by the SDK, by reason" });
+  await expect(reasons.getByRole("rowheader")).toHaveText(["Still failing after retriesretries_exhausted", "Queue full (record limit)queue_full"]);
+  await expect(reasons.getByRole("cell")).toHaveText(["Spans", "12", "Requests", "7"]);
+
+  const table = edge(page).getByRole("table", { name: "Ingest counters per day" });
+  await expect(table.getByRole("columnheader")).toHaveText(["Day (UTC)", "Accepted", "Rejected", "Truncated", "Masked", "Dropped by the SDK"]);
+  await expect(table.getByRole("row").nth(1).getByRole("cell")).toHaveText(["900", "100", "9", "90", "15"]);
+  await expect(table.getByRole("row").nth(2).getByRole("cell")).toHaveText(["1,000", "0", "0", "10", "4"]);
 });
 
 test("says so when nothing was counted or the install keeps no counters", async ({ page }) => {
@@ -125,7 +155,7 @@ test("screenshots", async ({ page }) => {
   const dir = process.env.INGEST_SHOTS;
   test.skip(!dir, "set INGEST_SHOTS to a directory to capture screenshots");
   await seedApps([
-    { id: SHOP, slug: "shop", name: "Shop", ingest: INGEST_DAYS, sdk_stats: SDK_STATS },
+    { id: SHOP, slug: "shop", name: "Shop", ingest: [INGEST_DAYS[0], { ...INGEST_DAYS[1], sdk_dropped: [{ signal: "spans", reason: "retries_exhausted", records: 12 }] }], sdk_stats: SDK_STATS },
     { id: WORKER, slug: "worker", name: "Worker" },
   ]);
   await signIn(page);

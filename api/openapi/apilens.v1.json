@@ -929,6 +929,16 @@
             "format": "int64",
             "type": "integer"
           },
+          "sdk_dropped": {
+            "description": "Records the app's SDKs dropped before sending over the days, per signal and reason, most first; empty when none were dropped. Reported in SDK heartbeats and kept per hour.",
+            "items": {
+              "$ref": "#/components/schemas/SDKDroppedRecords"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "totals": {
             "$ref": "#/components/schemas/IngestCounts",
             "description": "Sum over the days."
@@ -939,7 +949,8 @@
           "app",
           "days",
           "totals",
-          "daily"
+          "daily",
+          "sdk_dropped"
         ],
         "type": "object"
       },
@@ -6219,6 +6230,27 @@
             ],
             "type": "string"
           },
+          "dropped": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "description": "Records dropped since the previous heartbeat answered 200, per signal (requests, spans, logs) and reason (queue_full, retries_exhausted, ...). The SDK resets them on 200 and adds them to the next heartbeat otherwise. Shown per app and hour in Ingest health; other signals are ignored. At most 32 reasons per signal; reasons are lowercase letters, digits, '_', '.' or '-', up to 64 characters; counts are not negative.",
+            "examples": [
+              {
+                "requests": {
+                  "queue_full": 3
+                },
+                "spans": {
+                  "retries_exhausted": 12
+                }
+              }
+            ],
+            "type": "object"
+          },
           "environment": {
             "description": "Defaults to production",
             "examples": [
@@ -6509,6 +6541,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "sdk_dropped": {
+            "description": "Records the app's SDKs dropped before sending, all signals and reasons (see sdk_dropped of the app).",
+            "format": "int64",
+            "type": "integer"
+          },
           "truncated": {
             "description": "Request record fields (payloads, headers) cut to the server-side cap; a record can count up to four times.",
             "format": "int64",
@@ -6517,6 +6554,7 @@
         },
         "required": [
           "date",
+          "sdk_dropped",
           "accepted",
           "rejected",
           "truncated",
@@ -10670,6 +10708,35 @@
         ],
         "type": "object"
       },
+      "SDKDroppedRecords": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "The drop reason as the SDKs name it: queue_full, queue_bytes, non_retryable, retries_exhausted, ...",
+            "type": "string"
+          },
+          "records": {
+            "description": "Records dropped.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "signal": {
+            "description": "The signal of the dropped records.",
+            "enum": [
+              "requests",
+              "spans",
+              "logs"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal",
+          "reason",
+          "records"
+        ],
+        "type": "object"
+      },
       "SSOConnectionBody": {
         "additionalProperties": false,
         "properties": {
@@ -12907,7 +12974,7 @@
     },
     "/api/v1/apps/{id}/ingest-stats": {
       "get": {
-        "description": "Counters the ingest edge keeps per app and UTC day, the per-app split of the Prometheus totals apilens_ingest_records_total (accepted, rejected), apilens_ingest_truncated_total and apilens_ingest_masked_total. Records not tied to an app (project-wide deploys, OTLP resources of unknown services) are not counted. Days are kept for 30 days. An app that is not in the project answers 404; 503 when the counter store (Valkey) is not configured.",
+        "description": "Counters the ingest edge keeps per app and UTC day, the per-app split of the Prometheus totals apilens_ingest_records_total (accepted, rejected), apilens_ingest_truncated_total and apilens_ingest_masked_total. Records not tied to an app (project-wide deploys, OTLP resources of unknown services) are not counted. sdk_dropped holds the records the app's SDKs dropped before sending, by signal and reason, as their heartbeats reported them. Days are kept for 30 days. An app that is not in the project answers 404; 503 when the counter store (Valkey) is not configured.",
         "operationId": "get-app-ingest-stats",
         "parameters": [
           {
@@ -12980,7 +13047,7 @@
             "readKey": []
           }
         ],
-        "summary": "Per-app ingest health: accepted, rejected, truncated and masked records",
+        "summary": "Per-app ingest health: accepted, rejected, truncated, masked and SDK-dropped records",
         "tags": [
           "Dashboard"
         ]
@@ -30711,7 +30778,7 @@
     },
     "/v1/heartbeat": {
       "post": {
-        "description": "Sent by every SDK process on start and then about once a minute. Records the instance as last seen now (the app shows as reporting for 5 minutes) and answers the app's remote capture policy, which the SDK applies until the next heartbeat. At most one heartbeat per instance every 10 seconds; a faster one answers 429 with Retry-After. On 503 the SDK keeps its previous policy. A body with an `api_key` field at any depth is rejected with 422.",
+        "description": "Sent by every SDK process on start and then about once a minute. Records the instance as last seen now (the app shows as reporting for 5 minutes), adds the SDK's drop counts (`dropped`) to the app's hourly counters, and answers the app's remote capture policy, which the SDK applies until the next heartbeat. At most one heartbeat per instance every 10 seconds; a faster one answers 429 with Retry-After. On 503 the SDK keeps its previous policy. A body with an `api_key` field at any depth is rejected with 422.",
         "operationId": "ingest-heartbeat",
         "requestBody": {
           "content": {
