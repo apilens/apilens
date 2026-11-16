@@ -337,6 +337,64 @@ test("sorts before paging and starts again at page 1 (#1001)", async ({ page }) 
   await expect(endpointsTable(page).locator("tbody .tr-ep code").first()).toHaveText("/items/29");
 });
 
+test("collapses routes declared without traffic into one group under the table (#1003)", async ({ page }) => {
+  const declared = (method: string, path: string) => ({ method, path, requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null, discovered_only: true });
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: [...ENDPOINTS, declared("GET", "/health"), declared("DELETE", "/orders/{id}")] } });
+  await signIn(page);
+  // Only the endpoints with traffic are rows: no "0 / 0 ms / n/a" row reads like a fast endpoint.
+  await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(2);
+  await expect(endpointsTable(page)).not.toContainText("/health");
+
+  const group = page.locator("details.tr-declared");
+  const summary = group.locator("summary");
+  await expect(summary).toHaveText("2 declared routes without traffic");
+  await expect(group).not.toHaveAttribute("open", /.*/);
+  const list = page.getByRole("list", { name: "Declared routes without traffic" });
+  await expect(list).toBeHidden();
+  await summary.click();
+  await expect(list.getByRole("link")).toHaveText(["GET /health", "DELETE /orders/{id}"]);
+  await expect(group).toContainText("Your apps declared these routes, but none was called in the last 24 hours.");
+  await expect(list.getByRole("link", { name: "GET /health" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Fhealth");
+
+  const a11y = await new AxeBuilder({ page }).include(".tr-card--table").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
+test("searches the endpoints table by path, in the URL, keeping the scope and sort (#1003)", async ({ page }) => {
+  const declared = { method: "GET", path: "/orders/export", requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null, discovered_only: true };
+  const many = [...ENDPOINTS, { method: "GET", path: "/users", requests: 600, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 12, p95_ms: 90, apdex: 0.99 }, declared];
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many } });
+  await signIn(page, `${PAGE}?range=6h&sort=p95&dir=desc`);
+  const paths = () => endpointsTable(page).locator("tbody .tr-ep code");
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users"]);
+
+  const search = page.getByRole("searchbox", { name: "Search endpoint paths" });
+  await search.fill("ORDERS");
+  await search.press("Enter");
+  await page.waitForURL((url) => url.searchParams.get("q") === "ORDERS" && url.searchParams.get("range") === "6h" && url.searchParams.get("sort") === "p95");
+  await expect(search).toHaveValue("ORDERS");
+  await expect(paths()).toHaveText(["/orders/{id}"]);
+  // The declared routes are searched too, and their group opens to show the matches.
+  const group = page.locator("details.tr-declared");
+  await expect(group.locator("summary")).toHaveText("1 declared route without traffic");
+  await expect(page.getByRole("list", { name: "Declared routes without traffic" }).getByRole("link")).toHaveText(["GET /orders/export"]);
+
+  // No match says so; Clear takes the search back out, keeping the rest.
+  await search.fill("/nothing");
+  const form = page.getByRole("search", { name: "Endpoints" });
+  await form.getByRole("button", { name: "Search" }).click();
+  await page.waitForURL((url) => url.searchParams.get("q") === "/nothing");
+  await expect(page.getByRole("status").filter({ hasText: "No endpoints with requests match “/nothing” in the last 6 hours." })).toBeVisible();
+  await expect(endpointsTable(page)).toHaveCount(0);
+  await expect(group).toHaveCount(0);
+  await form.getByRole("link", { name: "Clear" }).click();
+  await page.waitForURL((url) => !url.searchParams.has("q") && url.searchParams.get("sort") === "p95");
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users"]);
+
+  const a11y = await new AxeBuilder({ page }).include(".tr-card--table").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
 test("stays live with a pause", async ({ page }) => {
   await seed();
   await signIn(page);

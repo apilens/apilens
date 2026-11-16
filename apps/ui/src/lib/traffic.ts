@@ -244,6 +244,43 @@ export function sortEndpoints(endpoints: readonly EndpointTraffic[], sort: Endpo
     .map((x) => x.e);
 }
 
+// Declared routes and path search (#1003) ---------------------------------------------------------
+
+/** The longest path search the table takes. */
+export const MAX_ENDPOINT_SEARCH = 200;
+
+/** Reads the endpoints table's path search, `?q=`: trimmed, "" for none. */
+export function parseEndpointSearch(params: SearchParams): string {
+  return (first(params.q) ?? "").trim().slice(0, MAX_ENDPOINT_SEARCH);
+}
+
+/**
+ * The endpoints whose path (or `METHOD path`) contains `search`, ignoring case; every endpoint
+ * without a search.
+ */
+export function searchEndpoints(endpoints: readonly EndpointTraffic[], search: string): EndpointTraffic[] {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return [...endpoints];
+  return endpoints.filter((e) => `${e.method.toUpperCase()} ${e.path}`.toLowerCase().includes(needle));
+}
+
+/**
+ * The endpoints with traffic apart from the routes an app declared without any (`discovered_only`):
+ * those have zero counts, so the table would show them like fast endpoints; they are listed on
+ * their own instead.
+ */
+export function splitDeclared(endpoints: readonly EndpointTraffic[]): { active: EndpointTraffic[]; declared: EndpointTraffic[] } {
+  const active: EndpointTraffic[] = [];
+  const declared: EndpointTraffic[] = [];
+  for (const e of endpoints) (e.discovered_only ? declared : active).push(e);
+  return { active, declared };
+}
+
+/** `3 declared routes without traffic`, `1 declared route without traffic`. */
+export function declaredLabel(n: number): string {
+  return `${n.toLocaleString("en-US")} declared ${n === 1 ? "route" : "routes"} without traffic`;
+}
+
 export const TRAFFIC_LOAD_FAILED ="We couldn’t load traffic just now.";
 export const TIMESERIES_LOAD_FAILED = "We couldn’t load traffic over time just now.";
 export const ENDPOINTS_LOAD_FAILED = "We couldn’t load endpoints just now.";
