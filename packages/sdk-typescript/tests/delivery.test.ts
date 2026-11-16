@@ -276,6 +276,8 @@ describe("retry policy", () => {
       queue_bytes: 0,
       non_retryable: 0,
       retries_exhausted: 1,
+      shutdown: 0,
+      server_rejected: 0,
       truncated: 0,
     });
   });

@@ -470,8 +470,9 @@ adapter (which builds the client for you).
 | `flushMode` | `"background"` | `"background"`: timers flush every `flushIntervalMs`. `"inline"`: no timers; `client.flushInline()` sends what is queued, and the Hono adapter calls it at the end of each request. Hono defaults to `"auto"` (inline on an edge runtime). See [serverless](#serverless). |
 | `timeoutMs` | `5000` | Per-request HTTP timeout, in milliseconds. |
 | `maxQueueSize` | `10_000` | Record cap per queue; oldest records drop once full. |
-| `maxQueueBytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `maxRetries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
+| `maxQueueBytes` | `64 * 1024 * 1024` | Memory cap of each of the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
+| `maxRetrySeconds` | `300` | How long a batch that failed with 408, 429, 5xx or a network error keeps being retried (full-jitter exponential backoff, or the server's `Retry-After`) before it is dropped as `retries_exhausted`. One batch retries at a time while the queues keep filling. |
+| `maxRetries` | no cap | Optional cap on retry attempts per batch, on top of `maxRetrySeconds` (`0` never retries). Inline flush mode defaults to `3`. |
 | `compress` | `true` | gzip each batch (level 5, `Content-Encoding: gzip`) off the request path; falls back to plain JSON if compression fails. `false` sends plain JSON. |
 | `verifyTls` | — | **Not in the JS SDK**: the runtime's `fetch` always verifies certificates. |
 | `caBundlePath` | — | **Not in the JS SDK**: on Node, set `NODE_EXTRA_CA_CERTS=/path/corp-root.pem`. See [network requirements](#network-requirements). |
@@ -554,8 +555,8 @@ options.
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | `undefined` | Optional resolver `(req, res) => consumer` (see [consumer attribution](#consumer-attribution)). |
 | `maskRequestBody` / `maskResponseBody` | `undefined` | `(info, body: Buffer) => Buffer \| string \| null` callbacks on the captured (truncated) raw body; see [body mask callbacks](#body-mask-callbacks). |
-| `flushOnShutdown` | — | **Not in the JS SDK**: call `client.handleShutdown({ flush: true })` from your shutdown handler (see [Deployment shapes](#deployment-shapes)). |
-| `shutdownTimeoutMs` | — | **Not in the JS SDK**: bound the `handleShutdown` promise yourself. |
+| `flushOnShutdown` | `true` | Flush the queues and send the final heartbeat on `beforeExit`, `SIGTERM` and `SIGINT` (Node, background flush mode); the signal is raised again afterwards unless your app has its own listener (see [Deployment shapes](#deployment-shapes)). `APILENS_FLUSH_ON_SHUTDOWN=false` (env var) disables it. |
+| `shutdownTimeoutMs` | `5000` | Upper bound, in milliseconds, on the shutdown flush (`handleShutdown` and the exit hooks). |
 | `excludePaths` | `undefined` | Regexes (strings or `RegExp`) for paths to skip entirely (no record, span or log), e.g. `["^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex throws at startup. |
 | `excludeUserAgents` | `undefined` | Regexes for `User-Agent` values to skip entirely, e.g. `["^uptimerobot"]`. Case-insensitive search. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `defaultExclusions` | `true` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `excludePaths`). `false` turns them off; your own `excludePaths` / `excludeUserAgents` still apply. |
@@ -768,10 +769,11 @@ serverless and proxies are covered end to end in the
   request path. Ingest latency and outages never slow or fail your requests.
 - **Bounded memory.** Queued records are capped both by count
   (`maxQueueSize`, 10,000 per queue) and by size (`maxQueueBytes`, 64 MB
-  shared by the request, span and log queues). Whichever limit is hit first,
+  per queue for requests, spans and logs). Whichever limit is hit first,
   the oldest records are dropped rather than the queue growing without limit.
   A record's size is estimated as the length of its payload, header, path and
-  user-agent strings plus a fixed 512 B overhead.
+  user-agent strings (a span's or log's string fields and attributes) plus a
+  fixed 512 B overhead.
 - **Drop accounting.** `client.droppedCount` is the total; `client.dropCounts()`
   returns it by reason:
 
@@ -780,18 +782,28 @@ serverless and proxies are covered end to end in the
   | `queue_full` | The queue reached `maxQueueSize`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `maxQueueBytes`; the oldest record(s) were dropped. |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetries`. |
-  | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads (then headers) were cut before sending. Not counted in `droppedCount`. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetrySeconds` (or `maxRetries`, when set). |
+  | `shutdown` | Still queued when the shutdown flush reached `shutdownTimeoutMs`. |
+  | `server_rejected` | Ingest stored the batch but left these records out (invalid record, app not allowed); see the `invalid` / `rejected` fields of its answer. |
+  | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads (then headers) were cut before sending; a span or log has its `payload` and `message` cut (head and tail kept), then its attributes. Not counted in `droppedCount`. |
+
+  Every drop is also reported to APILens: the next heartbeat carries the drops
+  since the previous one, per signal (`requests`, `spans`, `logs`) and reason,
+  and **Ingest health** shows them as *Dropped by the SDK*. `server_rejected`
+  and `truncated` are left out (ingest counts its own rejects).
+  `client.signalDropCounts()` returns the per-signal counts.
 - **Size-bounded batches.** A POST is cut at `batchSize` records or
   `maxBatchBytes` (default 4 MB, measured on the uncompressed JSON), whichever
   comes first, so a backlog of large records goes out as several requests
   instead of one oversized body that ingest would reject whole. A single record
   over the cap is truncated rather than dropped. With body capture on,
   `batchSize: 100` / `maxBatchBytes: 4 * 1024 * 1024` is a good starting point.
-- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
-  `maxRetries` times with full-jitter exponential backoff (a random wait between
-  0 and `250 ms × 2^attempt`, capped at 5 s), so many workers do not retry in
-  lockstep. A `Retry-After` header takes precedence, capped at 60 s. Any other
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors are
+  retried for up to `maxRetrySeconds` (default 300 s) with full-jitter
+  exponential backoff (a random wait between 0 and `250 ms × 2^attempt`,
+  capped at 5 s), so a short ingest outage loses nothing and many workers do
+  not retry in lockstep. One batch retries at a time; the queues keep filling
+  (bounded) meanwhile. A `Retry-After` header takes precedence, capped at 60 s. Any other
   4xx drops the batch immediately and logs the response body at most once per
   status every 5 minutes; a 401 logs a single clear message.
 - **Never throws into your app.** All SDK errors are caught and logged to
@@ -809,7 +821,8 @@ is fine to call from a health or metrics endpoint.
 | `queuedRecords` | Records waiting in the request, span and log queues. |
 | `queuedBytes` | Estimated size of those records (bounded by `maxQueueBytes`). |
 | `sentBatches` / `sentRecords` | Batches and records ingest accepted (2xx), since start. |
-| `failedBatches` | Batches dropped after a non-retryable 4xx or after `maxRetries`. |
+| `queuedSpanBytes` / `queuedLogBytes` | Estimated size of the span and log queues (each bounded by `maxQueueBytes`). |
+| `failedBatches` | Batches dropped after a non-retryable 4xx or after the retry window. |
 | `dropCounts` | Records dropped, by reason (same keys as `client.dropCounts()`). |
 | `droppedCount` | Sum of `dropCounts`, excluding `truncated` (those were still sent). |
 | `lastError` | The most recent ingest failure; `null` until one happens. |
@@ -915,8 +928,13 @@ capture policy.
 ## Deployment shapes
 
 The SDK delivers from timers, so whatever is still queued when a process exits
-is lost unless it is flushed first. The SDK does not install signal handlers of
-its own (that would change how your process exits), so flush from yours:
+must be flushed first. On Node the client does this itself
+(`flushOnShutdown`, default on): on `beforeExit`, `SIGTERM` and `SIGINT` it
+flushes the queues and sends the final heartbeat, bounded by
+`shutdownTimeoutMs` (default 5 s). It never swallows the signal: when no other
+listener handles it, the signal is raised again after the flush and the
+process exits as it would have. When your app has its own handler, that
+handler decides when to exit, so flush from it before calling `process.exit`:
 
 ```js
 process.on("SIGTERM", async () => {
@@ -954,7 +972,8 @@ metadata report.
   end of each invocation. It never throws for delivery failures (they are
   retried, then dropped and counted in `client.stats()`).
 
-Keep `timeoutMs` and `maxRetries` low there so a slow ingest cannot stretch an
+In inline mode `maxRetries` defaults to 3 rather than the 300 s retry window;
+keep `timeoutMs` and `maxRetries` low there so a slow ingest cannot stretch an
 invocation.
 
 **Scripts and jobs.** `await client.handleShutdown({ flush: true })` before exit.
