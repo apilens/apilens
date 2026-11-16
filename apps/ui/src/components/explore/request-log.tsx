@@ -26,7 +26,7 @@ import {
   statusClass,
   visibleWindow,
 } from "@/lib/explore";
-import { NO_FILTERS, activeCount } from "@/lib/explore-filters";
+import { type FilterSuggestions, NO_FILTERS, activeCount } from "@/lib/explore-filters";
 import { formatAgo, shownPath } from "@/lib/first-data";
 import type { RequestRow, RequestTimeline } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
@@ -54,6 +54,7 @@ const SKELETON_ROWS = 8;
 export function RequestLog({
   project,
   environments,
+  suggestions,
   query: q,
   initial,
   trail,
@@ -64,6 +65,8 @@ export function RequestLog({
 }: {
   project: string;
   environments: readonly string[];
+  /** What the Path and Consumer filters suggest (#983). */
+  suggestions?: FilterSuggestions;
   query: ExploreState;
   initial: RequestRow[] | null;
   trail: string[];
@@ -166,7 +169,7 @@ export function RequestLog({
             );
           })}
         </nav>
-        <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
+        <FilterBar project={project} environments={environments} suggestions={suggestions} query={q} navigate={navigate} />
         <div className="ex-tools__end">
           {actions}
           {paged ? (

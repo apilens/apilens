@@ -8,14 +8,19 @@ import {
   type FilterChip,
   type FilterDraft,
   type FilterKey,
+  type FilterSuggestions,
   METHODS,
   NO_FILTERS,
+  NO_SUGGESTIONS,
+  consumerSuggestions,
+  endpointSuggestions,
   filterChips,
   fromDraft,
   sameFilters,
   toDraft,
   withoutChip,
 } from "@/lib/explore-filters";
+import { Combobox } from "./combobox";
 import { SaveView } from "./saved-views";
 
 /** How many of its own recent changes the bar recognises when the page comes back with them. */
@@ -26,16 +31,19 @@ const SENT_KEPT = 8;
  * reproduces the view. Active filters show as chips (each removable) with Clear all; the Filters
  * button opens the form. Pickers apply at once; typed fields apply once typing pauses
  * (FILTER_DEBOUNCE_MS) and only when valid, so the log never reads a filter the API would refuse.
- * `navigate(href, replace)` moves the page; typing replaces the history entry.
+ * `navigate(href, replace)` moves the page; typing replaces the history entry. Path and Consumer
+ * suggest the project's endpoints and consumers (#983); picking one applies at once.
  */
 export function FilterBar({
   project,
   environments,
+  suggestions = NO_SUGGESTIONS,
   query: q,
   navigate,
 }: {
   project: string;
   environments: readonly string[];
+  suggestions?: FilterSuggestions;
   query: ExploreState;
   navigate: (href: string, replace: boolean) => void;
 }) {
@@ -76,11 +84,12 @@ export function FilterBar({
 
   const check = fromDraft(draft);
   const errors = check.ok ? {} : check.errors;
-  const chips = filterChips(q.filters);
+  const chips = filterChips(q.filters, suggestions.consumers);
 
   const type = (k: FilterKey, v: string) => setDraft((d) => ({ ...d, [k]: v }));
-  const pick = (k: FilterKey, v: string) => {
-    const next = { ...draft, [k]: v };
+  const pick = (k: FilterKey, v: string) => pickAll({ [k]: v });
+  const pickAll = (values: Partial<FilterDraft>) => {
+    const next = { ...draft, ...values };
     setDraft(next);
     const r = fromDraft(next);
     if (r.ok) apply(r.filters, false);
@@ -207,10 +216,38 @@ export function FilterBar({
           )}
         </Field>
         {text("status", "Status", { placeholder: "4xx, 500-503", hint: "Codes, classes or ranges, comma-separated.", mono: true })}
-        {text("path", "Path", { placeholder: "/orders/{id}", hint: "The route template, exactly.", mono: true })}
+        <Field id={`${formId}-path`} label="Path" hint="A route template, or part of a URL from the log." error={errors.path}>
+          {(props) => (
+            <Combobox
+              {...props}
+              label="Path suggestions"
+              mono
+              placeholder="/orders/{id}"
+              value={draft.path}
+              options={endpointSuggestions(suggestions.endpoints, draft.path, draft.method).map((e) => ({ key: `${e.method} ${e.path}`, lead: e.method, text: e.path }))}
+              onType={(v) => type("path", v)}
+              onPick={(o) => pickAll({ method: o.lead ?? "", path: o.text })}
+            />
+          )}
+        </Field>
         {text("url_contains", "URL contains", { placeholder: "?expand=", mono: true })}
         {text("payload_contains", "Payload contains", { hint: "Searches request and response bodies, kept only for sampled requests with body capture on." })}
-        {text("consumer_id", "Consumer ID")}
+        <Field id={`${formId}-consumer_id`} label="Consumer" hint="A name or an ID." error={errors.consumer_id}>
+          {(props) => (
+            <Combobox
+              {...props}
+              label="Consumer suggestions"
+              value={draft.consumer_id}
+              options={consumerSuggestions(suggestions.consumers, draft.consumer_id).map((c) => ({
+                key: c.id,
+                text: c.name.trim() || c.id,
+                detail: c.name.trim() && c.name.trim() !== c.id ? c.id : undefined,
+              }))}
+              onType={(v) => type("consumer_id", v)}
+              onPick={(o) => pick("consumer_id", o.key)}
+            />
+          )}
+        </Field>
         {text("consumer_group", "Consumer group")}
         {text("ip", "Client IP", { placeholder: "203.0.113.7", mono: true })}
         {range("request_size_min", "request_size_max", "Request size (bytes)")}

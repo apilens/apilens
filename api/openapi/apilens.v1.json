@@ -5935,7 +5935,7 @@
             "type": "string"
           },
           "consumer_id": {
-            "description": "Only requests from this consumer id.",
+            "description": "As in GET /api/v1/requests: a consumer id or name.",
             "maxLength": 256,
             "type": "string"
           },
@@ -5967,7 +5967,7 @@
             "type": "string"
           },
           "path": {
-            "description": "Route template, e.g. /orders/{id}.",
+            "description": "As in GET /api/v1/requests: a route template, e.g. /orders/{id}, or text the raw URL path contains.",
             "maxLength": 1024,
             "type": "string"
           },
@@ -28904,12 +28904,12 @@
             }
           },
           {
-            "description": "Only requests from this consumer id.",
+            "description": "Only requests from this consumer: its id or its name, exactly.",
             "explode": false,
             "in": "query",
             "name": "consumer_id",
             "schema": {
-              "description": "Only requests from this consumer id.",
+              "description": "Only requests from this consumer: its id or its name, exactly.",
               "maxLength": 256,
               "type": "string"
             }
@@ -28948,12 +28948,12 @@
             }
           },
           {
-            "description": "Route template, e.g. /orders/{id}.",
+            "description": "Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or \u003cparam\u003e) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests.",
             "explode": false,
             "in": "query",
             "name": "path",
             "schema": {
-              "description": "Route template, e.g. /orders/{id}.",
+              "description": "Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or \u003cparam\u003e) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests.",
               "maxLength": 1024,
               "type": "string"
             }
