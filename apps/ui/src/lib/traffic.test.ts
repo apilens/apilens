@@ -3,6 +3,7 @@ import {
   apdexRating,
   appName,
   appOptions,
+  declaredLabel,
   endpointHref,
   formatApdex,
   formatLatency,
@@ -10,9 +11,12 @@ import {
   lineY,
   linePath,
   parseAppParam,
+  parseEndpointSearch,
   parseTrafficQuery,
   plotWidth,
   scopeText,
+  searchEndpoints,
+  splitDeclared,
   statusRows,
   trafficHref,
 } from "./traffic";
@@ -146,5 +150,48 @@ describe("chart helpers", () => {
   it("rounds the latency axis up", () => {
     expect(latencyTop([120, 380, 90])).toBe(500);
     expect(latencyTop([])).toBe(1);
+  });
+});
+
+describe("declared routes and path search (#1003)", () => {
+  const ep = (method: string, path: string, discovered = false) => ({
+    app_id: SHOP,
+    method,
+    path,
+    requests: discovered ? 0 : 10,
+    client_errors: 0,
+    server_errors: 0,
+    error_rate: 0,
+    p50_ms: discovered ? 0 : 12,
+    p95_ms: discovered ? 0 : 40,
+    ...(discovered ? { apdex: null, discovered_only: true } : { apdex: 1 }),
+  });
+  const rows = [ep("GET", "/orders/{id}"), ep("POST", "/charge"), ep("GET", "/health", true), ep("DELETE", "/orders/{id}", true)];
+
+  it("keeps the routes declared without traffic apart, in the API's order", () => {
+    const { active, declared } = splitDeclared(rows);
+    expect(active.map((e) => `${e.method} ${e.path}`)).toEqual(["GET /orders/{id}", "POST /charge"]);
+    expect(declared.map((e) => `${e.method} ${e.path}`)).toEqual(["GET /health", "DELETE /orders/{id}"]);
+  });
+
+  it("names the group's size", () => {
+    expect(declaredLabel(1)).toBe("1 declared route without traffic");
+    expect(declaredLabel(3)).toBe("3 declared routes without traffic");
+    expect(declaredLabel(1200)).toBe("1,200 declared routes without traffic");
+  });
+
+  it("reads ?q= trimmed and capped", () => {
+    expect(parseEndpointSearch({})).toBe("");
+    expect(parseEndpointSearch({ q: "  /orders " })).toBe("/orders");
+    expect(parseEndpointSearch({ q: ["/a", "/b"] })).toBe("/a");
+    expect(parseEndpointSearch({ q: "x".repeat(300) })).toHaveLength(200);
+  });
+
+  it("matches the path or method and path, ignoring case", () => {
+    const paths = (q: string) => searchEndpoints(rows, q).map((e) => `${e.method} ${e.path}`);
+    expect(paths("")).toHaveLength(4);
+    expect(paths("ORDERS")).toEqual(["GET /orders/{id}", "DELETE /orders/{id}"]);
+    expect(paths("post /ch")).toEqual(["POST /charge"]);
+    expect(paths("/nothing")).toEqual([]);
   });
 });

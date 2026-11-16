@@ -1287,6 +1287,11 @@ export interface EndpointTraffic {
   total_time_ms?: number;
   /** Apdex from 0 to 1 against the endpoint's latency threshold; null without requests. */
   apdex?: number | null;
+  /**
+   * A route an app declared (`POST /v1/metadata`) without traffic in the range: its counts are zero
+   * and the API lists it after the endpoints with traffic.
+   */
+  discovered_only?: boolean;
 }
 
 /** One bucket of `GET /traffic/timeseries`, oldest first. */

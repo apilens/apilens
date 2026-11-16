@@ -13,15 +13,20 @@ import {
   type TrafficState,
   apdexRating,
   appName,
+  declaredLabel,
   appOptions,
   ariaSort,
   endpointHref,
   formatApdex,
   formatLatency,
+  MAX_ENDPOINT_SEARCH,
   nextEndpointSort,
+  parseEndpointSearch,
   parseEndpointSort,
   scopeText,
+  searchEndpoints,
   sortEndpoints,
+  splitDeclared,
   statusRows,
   trafficHref,
 } from "@/lib/traffic";
@@ -71,8 +76,12 @@ export function TrafficView({
   // Every endpoint the API listed, paged here; the range and environment links leave `page` out,
   // so they start again at page 1, and a page past the end (the list shrank while live) clamps.
   // Sorted by the column in `?sort=&dir=` (#1001) before paging, so a page is a slice of the order.
+  // `?q=` (#1003) narrows the table to the paths matching it; the routes an app declared without
+  // traffic (`discovered_only`) are not rows but one collapsed group under the table.
   const sort = parseEndpointSort(params);
-  const page = slicePage(sortEndpoints(endpoints ?? [], sort, (id) => appName(apps, id)), parsePage(params));
+  const search = parseEndpointSearch(params);
+  const { active, declared } = splitDeclared(searchEndpoints(endpoints ?? [], search));
+  const page = slicePage(sortEndpoints(active, sort, (id) => appName(apps, id)), parsePage(params));
   const sortHref = (key: EndpointSortKey) => hrefWithoutPage(trafficHref(project, {}), params, nextEndpointSort(sort, key));
   const scope = scopeText(q, q.app ? appName(apps, q.app) : undefined);
   // The App column (#976): which app serves each row, when the rows can be of several apps.
@@ -138,14 +147,20 @@ export function TrafficView({
               </p>
             ) : (
               <>
-                {apps && apps.length > 0 ? (
+                <EndpointSearch project={project} value={search} params={params} />
+                {active.length === 0 ? (
+                  <p className="tr-empty" role="status">
+                    {search ? <>No endpoints with requests match “{search}” in {scope}.</> : <>No endpoints with requests in {scope}.</>}
+                  </p>
+                ) : apps && apps.length > 0 ? (
                   <EndpointRowMenus project={project} apps={apps}>
                     <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} menus />
                   </EndpointRowMenus>
                 ) : (
                   <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} />
                 )}
-                <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" />
+                {active.length > 0 ? <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" /> : null}
+                {declared.length > 0 ? <DeclaredRoutes project={project} q={q} routes={declared} apps={appColumn} scope={scope} open={search !== ""} /> : null}
                 {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
               </>
             )}
@@ -153,6 +168,63 @@ export function TrafficView({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The endpoints table's path search (#1003): a plain GET form, so it works before JavaScript,
+ * keeping the rest of the URL (range, environment, app, sort, page size) and starting at page 1.
+ */
+function EndpointSearch({ project, value, params }: { project: string; value: string; params: SearchParams }) {
+  const kept = Object.entries(params).flatMap(([k, v]) => (k === "q" || k === "page" || v === undefined ? [] : (Array.isArray(v) ? v : [v]).map((x) => [k, x] as const)));
+  const clear = hrefWithoutPage(trafficHref(project, {}), params, { q: null });
+  return (
+    <form className="tr-search" role="search" aria-label="Endpoints" method="get" action={trafficHref(project, {})}>
+      {kept.map(([k, v], i) => (
+        <input key={`${k}-${i}`} type="hidden" name={k} value={v} />
+      ))}
+      <label htmlFor="tr-search" className="tr-vh">
+        Search endpoint paths
+      </label>
+      <span className="tr-search__box">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="m10.5 10.5 3 3" />
+        </svg>
+        <input id="tr-search" name="q" type="search" defaultValue={value} placeholder="Search paths" maxLength={MAX_ENDPOINT_SEARCH} autoComplete="off" spellCheck={false} />
+      </span>
+      <button type="submit" className="tr-btn">
+        Search
+      </button>
+      {value ? (
+        <a className="cp-link" href={clear}>
+          Clear
+        </a>
+      ) : null}
+    </form>
+  );
+}
+
+/**
+ * The routes an app declared without traffic in the range (#1003), collapsed into one line under
+ * the table so their zero counts never read like fast endpoints; open while a search narrows them.
+ */
+function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: string; q: TrafficState; routes: EndpointTraffic[]; apps: NamedApp[] | null; scope: string; open: boolean }) {
+  return (
+    <details className="tr-declared" open={open}>
+      <summary>{declaredLabel(routes.length)}</summary>
+      <p className="tr-declared__lead">Your apps declared these routes, but none was called in {scope}.</p>
+      <ul aria-label="Declared routes without traffic">
+        {routes.map((ep) => (
+          <li key={`${ep.app_id} ${ep.method} ${ep.path}`}>
+            <a className="tr-declared__link" href={endpointHref(project, ep, { ...q, app: ep.app_id || q.app })}>
+              <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
+            </a>
+            {apps ? <span className="tr-muted"> · {appName(apps, ep.app_id)}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
