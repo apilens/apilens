@@ -292,6 +292,27 @@ or `captureSpans(false)`, or env `APILENS_CAPTURE_SPANS=false`. Request records
 keep their `trace_id` either way, and errored requests still send their
 exception log: this turns spans off, never exceptions.
 
+### Logged exceptions
+
+A handler that catches an exception, logs it and answers normally never
+reaches the filter's error capture. In Spring Boot the SDK therefore attaches
+an appender to the root logger: `ApiLensLogbackAppender` when Logback is the
+logging system, `ApiLensLog4j2Appender` when Log4j2 is. Every event logged at
+`ERROR` with a throwable becomes an `apilens.exception` log with the full
+exception (qualified type, every `Caused by` and `Suppressed`, 64 KiB head and
+tail), linked to the current request's trace when it is logged inside a
+request. The logger name and the formatted message travel as the `log.logger`
+and `log.message` attributes. Events without a throwable, events below
+`ERROR` and the SDK's own `ai.apilens.*` loggers are ignored.
+
+```properties
+apilens.capture-logs=off
+```
+
+turns it off (`errors`, the default, turns it on). Outside Spring Boot call
+`ApiLensLogbackAppender.attach(client)` or `ApiLensLog4j2Appender.attach(client)`
+once at startup.
+
 ---
 
 ## Configuration reference
@@ -621,6 +642,7 @@ description and default.
 | `apilens.capture-payloads` | `true`* | Capture request/response bodies. |
 | `apilens.capture-headers` | `true`* | Capture request/response headers (redacted). |
 | `apilens.capture-spans` | `true` | Emit a server span per request. |
+| `apilens.capture-logs` | `errors` | Ship exceptions logged at `ERROR` through Logback or Log4j2; `off` attaches no appender. See [Logged exceptions](#logged-exceptions). |
 | `apilens.service-name` | app id | Service name on spans. |
 | `apilens.max-payload-bytes` | `65536`* | Body capture cap; `0` disables bodies. |
 | `apilens.redact-query-params` | empty | Extra query-param name regexes; built-ins always apply. |
