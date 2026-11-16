@@ -1,5 +1,6 @@
 import { formatCount, formatPerMinute } from "@/lib/consumers";
 import { compare } from "@/lib/compare";
+import { bucketHrefs, exploreHrefFor } from "@/lib/explore";
 import { formatPercent, ratio } from "@/lib/format";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
@@ -127,6 +128,7 @@ export function TrafficView({
                   summary={`${formatCount(summary.requests)} requests in ${scope}: ${formatCount(summary.client_errors)} 4xx and ${formatCount(summary.server_errors)} 5xx.`}
                   rows={statusRows(points)}
                   range={q.range}
+                  hrefs={bucketHrefs(project, q, points)}
                 />
                 <LatencyChart
                   label="Response time"
@@ -357,43 +359,59 @@ function EndpointsTable({
         </tr>
       </thead>
       <tbody>
-        {endpoints.map((ep) => (
-          <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
-            <td className="tr-ep" data-label="Endpoint">
-              <a className="tr-ep__link" href={endpointHref(project, ep, { ...q, app: ep.app_id || q.app })}>
-                <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
-              </a>
-            </td>
-            {apps ? (
-              <td className="tr-app" data-label="App">
-                {appName(apps, ep.app_id)}
+        {endpoints.map((ep) => {
+          // The row's requests in Explore (#977): this endpoint of the row's app, in the page's scope.
+          const drill = (s: { status?: string; latency_min?: number }) =>
+            exploreHrefFor(project, { range: q.range, env: q.env, app: ep.app_id || q.app, method: ep.method, path: ep.path, ...s });
+          return (
+            <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
+              <td className="tr-ep" data-label="Endpoint">
+                <a className="tr-ep__link" href={endpointHref(project, ep, { ...q, app: ep.app_id || q.app })}>
+                  <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
+                </a>
               </td>
-            ) : null}
-            <td className="tr-num" data-label="Requests">
-              {formatCount(ep.requests)}
-            </td>
-            <td className="tr-num" data-label="4xx">
-              <Errors n={ep.client_errors} requests={ep.requests} />
-            </td>
-            <td className="tr-num" data-label="5xx">
-              <Errors n={ep.server_errors} requests={ep.requests} />
-            </td>
-            <td className="tr-num" data-label="p50">
-              {formatLatency(ep.p50_ms)}
-            </td>
-            <td className="tr-num" data-label="p95">
-              {formatLatency(ep.p95_ms)}
-            </td>
-            <td className="tr-num" data-label="Apdex">
-              {formatApdex(ep.apdex)}
-            </td>
-            {menus ? (
-              <td className="ep-rowmenu__cell">
-                <EndpointRowMenu method={ep.method} path={ep.path} appId={ep.app_id} />
+              {apps ? (
+                <td className="tr-app" data-label="App">
+                  {appName(apps, ep.app_id)}
+                </td>
+              ) : null}
+              <td className="tr-num" data-label="Requests">
+                {formatCount(ep.requests)}
               </td>
-            ) : null}
-          </tr>
-        ))}
+              <td className="tr-num" data-label="4xx">
+                <Errors n={ep.client_errors} requests={ep.requests} href={drill({ status: "4xx" })} label="4xx responses" />
+              </td>
+              <td className="tr-num" data-label="5xx">
+                <Errors n={ep.server_errors} requests={ep.requests} href={drill({ status: "5xx" })} label="5xx responses" />
+              </td>
+              <td className="tr-num" data-label="p50">
+                {formatLatency(ep.p50_ms)}
+              </td>
+              <td className="tr-num" data-label="p95">
+                {ep.requests > 0 && ep.p95_ms > 0 ? (
+                  <a
+                    className="tr-drill"
+                    href={drill({ latency_min: ep.p95_ms })}
+                    title="See the requests at p95 or slower in Explore"
+                    aria-label={`p95 ${formatLatency(ep.p95_ms)}: requests at p95 or slower in Explore`}
+                  >
+                    {formatLatency(ep.p95_ms)}
+                  </a>
+                ) : (
+                  formatLatency(ep.p95_ms)
+                )}
+              </td>
+              <td className="tr-num" data-label="Apdex">
+                {formatApdex(ep.apdex)}
+              </td>
+              {menus ? (
+                <td className="ep-rowmenu__cell">
+                  <EndpointRowMenu method={ep.method} path={ep.path} appId={ep.app_id} />
+                </td>
+              ) : null}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -414,11 +432,19 @@ function SortHeader({ sort, col, href, num, children }: { sort: EndpointSort; co
   );
 }
 
-function Errors({ n, requests }: { n: number; requests: number }) {
+/** An error count and its share; with `href` (#977) the count opens those requests in Explore. */
+function Errors({ n, requests, href, label }: { n: number; requests: number; href?: string; label?: string }) {
   if (n <= 0) return <span className="tr-muted">0</span>;
   return (
     <>
-      {formatCount(n)} <span className="tr-muted">({formatPercent(ratio(n, requests))})</span>
+      {href ? (
+        <a className="tr-drill" href={href} title={label ? `See these ${label} in Explore` : undefined} aria-label={label ? `${formatCount(n)} ${label} in Explore` : undefined}>
+          {formatCount(n)}
+        </a>
+      ) : (
+        formatCount(n)
+      )}{" "}
+      <span className="tr-muted">({formatPercent(ratio(n, requests))})</span>
     </>
   );
 }

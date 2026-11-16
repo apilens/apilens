@@ -3,6 +3,7 @@ import { type Comparison, compare } from "@/lib/compare";
 import { formatPercent, ratio } from "@/lib/format";
 import { RANGE_LABEL, consumerLabel, formatCount } from "@/lib/consumers";
 import { endpointPageHref } from "@/lib/endpoint-detail";
+import { exploreHrefFor } from "@/lib/explore";
 import {
   DETAIL_LOAD_FAILED,
   DETAIL_PAGING,
@@ -296,7 +297,14 @@ function StatusTable({
                 </a>
               </td>
               <td className="tr-num" data-label="Responses">
-                {formatCount(r.count)}
+                <a
+                  className="tr-drill"
+                  href={exploreHrefFor(project, { range: q.range, env: q.env, status: String(r.status_code) })}
+                  title={`See the ${r.status_code} responses in Explore`}
+                  aria-label={`${formatCount(r.count)} ${r.status_code} responses in Explore`}
+                >
+                  {formatCount(r.count)}
+                </a>
               </td>
               <td className="tr-num" data-label="Share of requests">
                 {formatPercent(r.share)}
