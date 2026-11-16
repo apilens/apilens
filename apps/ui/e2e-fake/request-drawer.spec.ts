@@ -451,3 +451,61 @@ test("a span opens its attributes, status message and events", async ({ page }) 
   await pick.click();
   await expect(span).toHaveCount(0);
 });
+
+test("a log row expands to its payload and attributes, and the exception log links to the Exception section", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await seed(EXC_ROWS);
+  await signIn(page);
+  await rowAt(page, 0).click();
+  await tab(page, "Logs").click();
+
+  const toggle = panel(page).getByRole("button", { name: /RuntimeError: payment failed/ });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(panel(page).getByLabel("Log payload")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  // The payload: monospace, scrollable, exactly as stored.
+  const payload = panel(page).getByLabel("Log payload");
+  await expect(payload).toBeVisible();
+  expect(await payload.textContent()).toBe(PY_PAYLOAD);
+  const style = await payload.evaluate((el) => ({ font: getComputedStyle(el).fontFamily, overflow: getComputedStyle(el).overflowY }));
+  expect(style.overflow).toBe("auto");
+  expect(style.font.toLowerCase()).toMatch(/mono/);
+  await expect(panel(page).getByRole("table", { name: "Log attributes" }).getByRole("row")).toHaveText([
+    "exception.typeRuntimeError",
+    "exception.messagepayment failed",
+    "exception.chain_depth1",
+  ]);
+
+  await panel(page).getByRole("button", { name: "Copy payload" }).click();
+  await expect(panel(page).getByRole("status").filter({ hasText: "Copied the payload." })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(PY_PAYLOAD);
+
+  const a11y = await new AxeBuilder({ page }).include(".rd").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  // The exception log links to the Trace tab's Exception section, which takes focus.
+  await panel(page).getByRole("button", { name: "View the exception" }).click();
+  await expect(tab(page, "Trace")).toHaveAttribute("aria-selected", "true");
+  await expect(exception(page)).toBeFocused();
+
+  // A second click on the row collapses it again.
+  await tab(page, "Logs").click();
+  const again = panel(page).getByRole("button", { name: /RuntimeError: payment failed/ });
+  await again.click();
+  await expect(panel(page).getByLabel("Log payload")).toBeVisible();
+  await again.click();
+  await expect(panel(page).getByLabel("Log payload")).toHaveCount(0);
+});
+
+test("a log without payload or attributes says so when expanded", async ({ page }) => {
+  await seed(ROWS);
+  await signIn(page);
+  await rowAt(page, 0).click();
+  await tab(page, "Logs").click();
+  await panel(page).getByRole("button", { name: /validating order/ }).click();
+  await expect(panel(page).getByText("No payload was reported for this log.")).toBeVisible();
+  await expect(panel(page).getByText("No attributes were reported for this log.")).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: "View the exception" })).toHaveCount(0);
+});
