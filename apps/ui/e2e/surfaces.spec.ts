@@ -172,6 +172,55 @@ test("Request detail: the drawer shows what the SDK captured, with validation er
   await expect(drawer).toHaveCount(0);
 });
 
+test("Request detail: a chained exception shows every cause, and Copy exception copies it (#938)", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  // RuntimeError <- ConnectionError <- KeyError (examples/fastapi/main.py). Sent here, not in
+  // beforeAll, so the earlier tests' row counts stay as they are.
+  await send("GET", `/boom/chained?e2e=${RUN}`, 500);
+
+  await page.goto(`/${PROJECT}/explore?path=${encodeURIComponent("/boom/chained")}&url_contains=${RUN}`);
+  await expect(bodyRows(page)).toHaveCount(1, { timeout: 30_000 });
+
+  const drawer = page.getByRole("dialog");
+  const exception = drawer.getByRole("tabpanel").getByRole("region", { name: "Exception", exact: true });
+  // The exception log can land in a later SDK batch than the request: reopen until it is there.
+  await expect(async () => {
+    if (await drawer.count()) await drawer.getByRole("button", { name: "Close request details" }).click();
+    await bodyRows(page).first().click();
+    await expect(drawer.getByRole("heading", { level: 2 })).toHaveText(`GET /boom/chained?e2e=${RUN}`);
+    await drawer.getByRole("tab", { name: /^Trace/ }).click();
+    await expect(exception).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+
+  await expect(exception.locator(".rd-exc__title")).toContainText("RuntimeError");
+  await expect(exception.locator(".rd-exc__title")).toContainText("example failure: cannot load order 42");
+  // All three exceptions of the chain, the raised one first, each its own block.
+  const blocks = exception.locator(".rd-exb");
+  const summaries = exception.locator(".rd-exb > summary");
+  await expect(summaries).toHaveCount(3);
+  await expect(summaries.nth(0)).toContainText(/^Raised\s*RuntimeError\s*example failure: cannot load order 42/);
+  await expect(summaries.nth(1)).toContainText(/^Caused by\s*ConnectionError\s*example failure: cannot connect to the database/);
+  await expect(summaries.nth(2)).toContainText(/^Caused by\s*KeyError.*example failure: config key 'db_url' is missing/);
+  // The raised exception is open with the app's own frames; a cause opens on demand.
+  await expect(blocks.nth(0).locator(".rd-frame.is-app").filter({ hasText: "in _load_order" })).toHaveCount(1);
+  await expect(blocks.nth(2).locator(".rd-frame").first()).toBeHidden();
+  await summaries.nth(2).click();
+  await expect(blocks.nth(2).locator(".rd-frame.is-app").filter({ hasText: "in _read_config" })).toHaveCount(1);
+
+  // Copy exception copies the stored payload: the whole chain, as the SDK formatted it.
+  await exception.getByRole("button", { name: "Copy exception" }).click();
+  await expect(exception.getByRole("status")).toHaveText("Copied the full exception.");
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain("RuntimeError: example failure: cannot load order 42");
+  expect(copied).toContain("ConnectionError: example failure: cannot connect to the database");
+  expect(copied).toContain("KeyError:");
+  expect(copied).toContain("example failure: config key 'db_url' is missing");
+  expect(copied.match(/The above exception was the direct cause of the following exception:/g)).toHaveLength(2);
+
+  await drawer.getByRole("button", { name: "Close request details" }).click();
+  await expect(drawer).toHaveCount(0);
+});
+
 test("Endpoint detail: every tab reads the endpoint's own data", async ({ page }) => {
   const PAGE = endpointPage("POST", "/orders");
   await page.goto(PAGE);
