@@ -122,9 +122,18 @@ def _maybe_record_error(
     method: str,
     path: str,
     consumer: dict[str, str] | None,
+    client: ApiLensClient | None = None,
+    app_id: str = "",
+    environment: str | None = None,
 ) -> None:
-    """Emit one ERROR log when the request raised or returned 5xx."""
-    if exc is None and status_code < 500:
+    """Emit one ERROR log when the request raised or returned 5xx.
+
+    Errors are never sampled and do not depend on span capture: the
+    middlewares call this for every failing request, passing their own
+    ``client`` so it works without a span recorder (``span_id`` is then
+    empty, the log still carries the trace id).
+    """
+    if not _is_error(exc, status_code):
         return
     message, payload = _error_message(exc, status_code, method, path)
     record_error_log(
@@ -138,7 +147,16 @@ def _maybe_record_error(
         consumer=consumer,
         payload=payload,
         logger_name="apilens.exception" if exc is not None else "apilens.http",
+        client=client,
+        app_id=app_id,
+        environment=environment,
     )
+
+
+def _is_error(exc: BaseException | None, status_code: int) -> bool:
+    """A request whose handler raised or that answered 5xx. Errors are never
+    sampled out: such a request is always kept with its trace and exception."""
+    return exc is not None or status_code >= 500
 
 _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
     "apilens_consumer_ctx",
@@ -460,7 +478,9 @@ class ApiLensASGIMiddleware:
         )
         # Fraction of requests (0.0-1.0) whose detail is kept. A sampled-out
         # request still sends its base record (so metrics stay exact) with
-        # ``sampled=False`` and no headers, bodies, spans or error log.
+        # ``sampled=False`` and no headers, bodies, spans or error log. A
+        # request that raised or answered 5xx is always kept (errors are never
+        # sampled).
         # ``sample_on_request(RequestInfo) -> bool | float | None`` decides per
         # request before the app runs: a bool is final, a float is a keep
         # probability, ``None`` (or an exception, logged once) uses the rate.
@@ -590,17 +610,25 @@ class ApiLensASGIMiddleware:
             policy.sample_rate,
         )
         sampled_token = set_detail_sampled(sampled)
-        # sample_on_response may still drop this request's detail: hold its
-        # child spans until it has answered.
-        held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
-        capture_headers = self.capture_headers and sampled and policy.capture_headers
+        # sample_on_response may still drop this request's detail, and a
+        # sampled-out request is still kept if it fails: hold its child spans
+        # until the response decides.
+        held_spans_token = (
+            hold_child_spans()
+            if self.response_sampler.defers(sampled) or (self.capture_spans and not sampled)
+            else None
+        )
+        # What the posture allows; ``sampled`` then decides what is buffered.
+        allow_headers = self.capture_headers and policy.capture_headers
+        allow_response_body = (
+            self.capture_payloads and self.log_response_body and policy.capture_response_body and max_payload_bytes > 0
+        )
+        capture_headers = allow_headers and sampled
         capture_payloads = self.capture_payloads and sampled
         capture_request_body = (
             capture_payloads and self.log_request_body and policy.capture_request_body and max_payload_bytes > 0
         )
-        capture_response_body = (
-            capture_payloads and self.log_response_body and policy.capture_response_body and max_payload_bytes > 0
-        )
+        capture_response_body = allow_response_body and sampled
         request_content_type = headers.get("content-type", "")
         # Only bodies of a captured content type are buffered at all; for the
         # rest just the byte count is kept for the omitted-body placeholder.
@@ -663,9 +691,11 @@ class ApiLensASGIMiddleware:
             if msg_type == "http.response.start":
                 status_code = int(message.get("status") or 500)
                 response_headers = _headers_to_dict(message.get("headers") or [])
-                buffer_response_body = capture_response_body and self.content_types.allows(
-                    response_headers.get("content-type")
-                )
+                # A 5xx is always kept (errors are never sampled), so its body
+                # is buffered even when the request was sampled out.
+                buffer_response_body = (
+                    capture_response_body or (allow_response_body and status_code >= 500)
+                ) and self.content_types.allows(response_headers.get("content-type"))
                 buffer_validation_body = self.capture_validation_errors and is_validation_response(
                     status_code, response_headers.get("content-type")
                 )
@@ -741,8 +771,12 @@ class ApiLensASGIMiddleware:
                 response_time_ms=response_time_ms,
                 sampled=sampled,
             )
-            kept = self.response_sampler.decide(sampled, lambda: response_info)
+            is_error = _is_error(captured_exc, status_code)
+            # Errors are never sampled: a failing request is kept whatever
+            # sample_rate or sample_on_response said.
+            kept = is_error or self.response_sampler.decide(sampled, lambda: response_info)
             release_child_spans(held_spans_token, kept)
+            reset_detail_sampled(sampled_token)
             if not kept:
                 # Dropped after the response: base record only, as if it had
                 # been sampled out at request start.
@@ -750,6 +784,15 @@ class ApiLensASGIMiddleware:
                 ctx.request_headers = ""
                 response_headers_json = ""
                 capture_request_body = capture_response_body = False
+            elif not sampled:
+                # Sampled out at request start but failed: keep it with the
+                # headers and response body the posture allows. Its request
+                # body was never buffered.
+                ctx.sampled = True
+                if allow_headers:
+                    ctx.request_headers = serialize_headers(headers, redactor=self.redactor)
+                    response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
+                capture_response_body = allow_response_body
             request_payload = (
                 capture_body(
                     b"".join(request_payload_chunks),
@@ -796,7 +839,6 @@ class ApiLensASGIMiddleware:
                 response_time_ms=response_time_ms,
             )
             if self.capture_spans and kept:
-                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -808,18 +850,21 @@ class ApiLensASGIMiddleware:
                     status_code=status_code,
                     attributes=span_attributes(attributes),
                 )
-                _maybe_record_error(
-                    exc=captured_exc,
-                    status_code=status_code,
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    method=ctx.method,
-                    path=ctx.path,
-                    consumer=consumer,
-                )
+            # The exception log does not depend on span capture.
+            _maybe_record_error(
+                exc=captured_exc,
+                status_code=status_code,
+                trace_id=trace_id,
+                span_id=span_id if self.capture_spans else "",
+                method=ctx.method,
+                path=ctx.path,
+                consumer=consumer,
+                client=self.client,
+                app_id=self.app_id,
+                environment=self.environment,
+            )
             _consumer_ctx.reset(token)
             end_request_attributes(attributes_token)
-            reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
             # Inline (serverless) mode: the response has been sent by now, so
             # deliver this request's records before the runtime can freeze the
@@ -976,18 +1021,26 @@ class ApiLensWSGIMiddleware:
             policy.sample_rate,
         )
         sampled_token = set_detail_sampled(sampled)
-        # sample_on_response may still drop this request's detail: hold its
-        # child spans until it has answered.
-        held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
-        capture_headers = self.capture_headers and sampled and policy.capture_headers
+        # sample_on_response may still drop this request's detail, and a
+        # sampled-out request is still kept if it fails: hold its child spans
+        # until the response decides.
+        held_spans_token = (
+            hold_child_spans()
+            if self.response_sampler.defers(sampled) or (self.capture_spans and not sampled)
+            else None
+        )
+        # What the posture allows; ``sampled`` then decides what is buffered.
+        allow_headers = self.capture_headers and policy.capture_headers
+        allow_response_body = (
+            self.capture_payloads and self.log_response_body and policy.capture_response_body and max_payload_bytes > 0
+        )
+        capture_headers = allow_headers and sampled
         capture_payloads = self.capture_payloads and sampled
         request_content_type = environ.get("CONTENT_TYPE") or ""
         capture_request_body = (
             capture_payloads and self.log_request_body and policy.capture_request_body and max_payload_bytes > 0
         )
-        capture_response_body = (
-            capture_payloads and self.log_response_body and policy.capture_response_body and max_payload_bytes > 0
-        )
+        capture_response_body = allow_response_body and sampled
         buffer_response_body = False
         # Captured raw here; masked after the app ran, so the mask callback
         # sees the attributes the handler set (``set_request_attribute``).
@@ -1040,9 +1093,11 @@ class ApiLensWSGIMiddleware:
             nonlocal status_code, response_headers_json, response_headers, buffer_response_body
             status_code = _to_int(status.split(" ", 1)[0], 500)
             response_headers = {str(k): str(v) for k, v in (headers or [])}
-            buffer_response_body = capture_response_body and self.content_types.allows(
-                lower_headers(response_headers).get("content-type")
-            )
+            # A 5xx is always kept (errors are never sampled), so its body is
+            # buffered even when the request was sampled out.
+            buffer_response_body = (
+                capture_response_body or (allow_response_body and status_code >= 500)
+            ) and self.content_types.allows(lower_headers(response_headers).get("content-type"))
             if capture_headers:
                 response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             return start_response(status, headers, exc_info)
@@ -1107,7 +1162,10 @@ class ApiLensWSGIMiddleware:
                 response_time_ms=response_time_ms,
                 sampled=sampled,
             )
-            kept = self.response_sampler.decide(sampled, lambda: response_info)
+            is_error = _is_error(captured_exc, status_code)
+            # Errors are never sampled: a failing request is kept whatever
+            # sample_rate or sample_on_response said.
+            kept = is_error or self.response_sampler.decide(sampled, lambda: response_info)
             release_child_spans(held_spans_token, kept)
             if not kept:
                 # Dropped after the response: base record only, as if it had
@@ -1116,12 +1174,20 @@ class ApiLensWSGIMiddleware:
                 ctx.request_headers = ""
                 response_headers_json = ""
                 capture_request_body = capture_response_body = False
+            elif not sampled:
+                # Sampled out at request start but failed: keep it with the
+                # headers and response body the posture allows. Its request
+                # body was never read.
+                ctx.sampled = True
+                if allow_headers:
+                    ctx.request_headers = serialize_headers(request_headers, redactor=self.redactor)
+                    response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
+                capture_response_body = allow_response_body
             _consumer_ctx.reset(consumer_token)
             end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
             if self.capture_spans and kept:
-                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -1133,15 +1199,19 @@ class ApiLensWSGIMiddleware:
                     status_code=status_code,
                     attributes=span_attributes(attributes),
                 )
-                _maybe_record_error(
-                    exc=captured_exc,
-                    status_code=status_code,
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    method=ctx.method,
-                    path=ctx.path,
-                    consumer=consumer,
-                )
+            # The exception log does not depend on span capture.
+            _maybe_record_error(
+                exc=captured_exc,
+                status_code=status_code,
+                trace_id=trace_id,
+                span_id=span_id if self.capture_spans else "",
+                method=ctx.method,
+                path=ctx.path,
+                consumer=consumer,
+                client=self.client,
+                app_id=self.app_id,
+                environment=self.environment,
+            )
             ctx.request_payload = (
                 capture_body(
                     request_body,

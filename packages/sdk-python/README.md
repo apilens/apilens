@@ -436,7 +436,8 @@ doesn't patch (a message queue, a gRPC call, a manually built client).
 
 Tracing is on by default (with or without an `app_id`). Request analytics keep
 working with tracing off — you just stop emitting spans (and the outbound-HTTP
-auto-instrumentation).
+auto-instrumentation). Exceptions are still captured: a failing request still
+sends its exception log, carrying the trace id but no span id.
 
 **Per integration** — pass `capture_spans=False`:
 
@@ -565,9 +566,9 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
 | `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely, e.g. `[r"^uptimerobot"]`. Case-insensitive `re.search`. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `default_exclusions` | `True` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `exclude_paths`). `False` turns them off; your own `exclude_paths` / `exclude_user_agents` still apply. |
-| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range raises at startup. |
+| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. Failed requests (exception or 5xx) are always kept. See [sampling](#sampling). A value outside the range raises at startup. |
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. See [sampling](#sampling). |
-| `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
+| `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one, and never drops a failed request. See [sampling](#sampling). |
 | `route_resolver` | `None` | `(scope_or_environ) -> str \| None` returning the route template for a request; overrides the framework template. See [endpoint grouping](#endpoint-grouping-path-templating). |
 | `parametrize_paths` | `True` | Heuristic templating fallback (`/orders/123` → `/orders/{id}`) when no framework template is known. `APILENS_PARAMETRIZE_PATHS=false` (env var) disables it. |
 
@@ -577,7 +578,14 @@ Sampling never changes metrics. Every request still sends its base record
 (method, path, status, latency, sizes, consumer, IP, user agent, trace id), so
 traffic counts, error rates and latency percentiles stay exact. With
 `sample_rate=0.1`, about 90% of requests are sent with `sampled=false` and no
-headers, bodies, spans or error log. Their bodies are never buffered.
+headers, bodies, spans or error log. Their request bodies are never buffered.
+
+Errors are never sampled. A request whose handler raised, or that answered
+5xx, is always kept with its spans and exception log, whatever `sample_rate`,
+`sample_on_request` or `sample_on_response` decided. If it had been sampled out
+at request start it is sent with the headers and response body your settings
+allow (its request body was not buffered). Only a remote `enabled=false`
+policy turns this off.
 
 `1.0` (the default) sends exactly what earlier SDK versions sent, and `0.0`
 sends the base record only. A sampled-out request still continues the
@@ -629,6 +637,8 @@ request-stage decision. It cannot bring back a request that was sampled out at
 request stage (its headers and bodies were never captured): for those it still
 runs, with `sampled=False`, but the request stays out. Exceptions are logged
 once and treated as `None`. Child spans of a request are held until it answers.
+It is not consulted for failed requests (an exception or a 5xx): those are
+always kept.
 
 Keep the detail of failed requests only:
 

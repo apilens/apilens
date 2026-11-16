@@ -119,7 +119,8 @@ _held_spans_ctx: contextvars.ContextVar[_HeldSpans | None] = contextvars.Context
 
 def hold_child_spans() -> contextvars.Token:
     """Hold the current request's child spans until :func:`release_child_spans`
-    (used while ``sample_on_response`` may still drop the request's detail)."""
+    (used while the request's detail may still be kept or dropped: a pending
+    ``sample_on_response``, or a sampled-out request that may yet fail)."""
     return _held_spans_ctx.set(_HeldSpans())
 
 
@@ -157,9 +158,12 @@ def record_span(
     recorder = _recorder
     if recorder is None or not trace_id or not span_id:
         return
+    held = _held_spans_ctx.get()
     # Child spans of a sampled-out request are dropped (the outbound patches
-    # still propagate traceparent before this point).
-    if not detail_sampled():
+    # still propagate traceparent before this point), unless they are held:
+    # a request that fails is kept whatever sampling said, so its child spans
+    # wait for that verdict.
+    if held is None and not detail_sampled():
         return
     ended = end_time or datetime.now(tz=timezone.utc)
     record = SpanRecord(
@@ -178,7 +182,6 @@ def record_span(
         app_id=recorder.app_id,
         attributes=_clean_attributes(attributes),
     )
-    held = _held_spans_ctx.get()
     if held is not None:
         with held.lock:
             if held.keep is None:
@@ -201,20 +204,31 @@ def record_error_log(
     consumer: dict[str, str] | None = None,
     payload: str = "",
     logger_name: str = "apilens",
+    client: "ApiLensClient | None" = None,
+    app_id: str = "",
+    environment: str | None = None,
 ) -> None:
-    """Queue one ERROR log correlated to a trace (no-op when not configured).
+    """Queue one ERROR log correlated to a trace.
 
     Called by the middlewares when a request raises or returns 5xx, so the
     failing request's trace carries its message. Not a public logging API.
+
+    ``client`` (with ``app_id`` and ``environment``) sends the log without a
+    span recorder, so the exception is captured even with span capture off;
+    without it the log goes to the configured recorder (no-op when none).
     """
-    recorder = _recorder
-    if recorder is None or not trace_id:
+    if client is None:
+        recorder = _recorder
+        if recorder is None:
+            return
+        client, app_id, environment = recorder.client, recorder.app_id, recorder.environment
+    if not trace_id:
         return
     consumer = consumer or {}
-    recorder.client.capture_log(
+    client.capture_log(
         LogRecord(
             timestamp=datetime.now(tz=timezone.utc),
-            environment=recorder.environment,
+            environment=environment or client.config.environment,
             level=(level or "ERROR").upper(),
             message=(message or "")[:4000],
             logger_name=logger_name or "apilens",
@@ -226,8 +240,8 @@ def record_error_log(
             consumer_group=str(consumer.get("consumer_group") or ""),
             trace_id=trace_id,
             span_id=span_id,
-            project_slug=recorder.client.config.project_slug,
-            app_id=recorder.app_id,
+            project_slug=client.config.project_slug,
+            app_id=app_id,
             payload=(payload or "")[:8000],
         )
     )

@@ -32,6 +32,7 @@ from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import (
     _apply_consumer,
     _consumer_ctx,
+    _is_error,
     _maybe_record_error,
     _read_consumer,
     _response_info,
@@ -265,7 +266,8 @@ class ApiLensDjangoMiddleware:
         )
         # APILENS_SAMPLE_RATE (0.0-1.0): fraction of requests whose detail is
         # kept. Sampled-out requests still send the base record (metrics stay
-        # exact) with no headers, bodies, spans or error log.
+        # exact) with no headers, bodies, spans or error log. A request that
+        # raised or answered 5xx is always kept (errors are never sampled).
         # APILENS_SAMPLE_ON_REQUEST (a callable or its dotted path)
         # ``(RequestInfo) -> bool | float | None`` decides per request before
         # the view runs and the body is read: a bool is final, a float is a
@@ -372,10 +374,16 @@ class ApiLensDjangoMiddleware:
             policy.sample_rate,
         )
         sampled_token = set_detail_sampled(sampled)
-        # sample_on_response may still drop this request's detail: hold its
-        # child spans until it has answered.
-        held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
-        capture_headers = self.capture_headers and sampled and policy.capture_headers
+        # sample_on_response may still drop this request's detail, and a
+        # sampled-out request is still kept if it fails: hold its child spans
+        # until the response decides.
+        held_spans_token = (
+            hold_child_spans()
+            if self.response_sampler.defers(sampled) or (self.capture_spans and not sampled)
+            else None
+        )
+        allow_headers = self.capture_headers and policy.capture_headers
+        capture_headers = allow_headers and sampled
         ctx = CaptureContext(
             method=method,
             path=clean_path,
@@ -399,9 +407,11 @@ class ApiLensDjangoMiddleware:
         # view ran, so the mask callback sees ``set_request_attribute`` values.
         request_body = b""
         request_content_type = request.META.get("CONTENT_TYPE") or ""
-        capture_bodies = sampled and max_payload_bytes > 0 and self.capture_payloads
-        capture_request_body = capture_bodies and self.log_request_body and policy.capture_request_body
-        capture_response_body = capture_bodies and self.log_response_body and policy.capture_response_body
+        allow_bodies = max_payload_bytes > 0 and self.capture_payloads
+        allow_request_body = allow_bodies and self.log_request_body and policy.capture_request_body
+        allow_response_body = allow_bodies and self.log_response_body and policy.capture_response_body
+        capture_request_body = allow_request_body and sampled
+        capture_response_body = allow_response_body and sampled
         if capture_request_body and self.content_types.allows(request_content_type):
             try:
                 request_body = request.body[:max_payload_bytes]
@@ -471,7 +481,11 @@ class ApiLensDjangoMiddleware:
                 response_time_ms=response_time_ms,
                 sampled=sampled,
             )
-            kept = self.response_sampler.decide(sampled, lambda: response_info)
+            captured_exc = getattr(request, "_apilens_exc", None)
+            is_error = _is_error(captured_exc, status_code)
+            # Errors are never sampled: a failing request is kept whatever
+            # sample_rate or sample_on_response said.
+            kept = is_error or self.response_sampler.decide(sampled, lambda: response_info)
             release_child_spans(held_spans_token, kept)
             if not kept:
                 # Dropped after the response: base record only, as if it had
@@ -479,6 +493,24 @@ class ApiLensDjangoMiddleware:
                 ctx.sampled = False
                 ctx.request_headers = ""
                 capture_request_body = capture_response_body = False
+            elif not sampled:
+                # Sampled out at request start but failed: keep it with the
+                # headers and bodies the posture allows.
+                ctx.sampled = True
+                capture_headers = allow_headers
+                if allow_headers:
+                    try:
+                        ctx.request_headers = serialize_headers(request_headers, redactor=self.redactor)
+                    except Exception:
+                        ctx.request_headers = ""
+                capture_response_body = allow_response_body
+                capture_request_body = allow_request_body
+                if allow_request_body and self.content_types.allows(request_content_type):
+                    try:
+                        # Raises if the view read the stream without caching it.
+                        request_body = request.body[:max_payload_bytes]
+                    except Exception:
+                        request_body = b""
             response_payload = ""
             if response is not None and capture_response_body:
                 try:
@@ -518,9 +550,7 @@ class ApiLensDjangoMiddleware:
             end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
-            captured_exc = getattr(request, "_apilens_exc", None)
             if self.capture_spans and kept:
-                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -532,15 +562,19 @@ class ApiLensDjangoMiddleware:
                     status_code=status_code,
                     attributes=span_attributes(attributes),
                 )
-                _maybe_record_error(
-                    exc=captured_exc,
-                    status_code=status_code,
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    method=ctx.method,
-                    path=ctx.path,
-                    consumer=consumer,
-                )
+            # The exception log does not depend on span capture.
+            _maybe_record_error(
+                exc=captured_exc,
+                status_code=status_code,
+                trace_id=trace_id,
+                span_id=span_id if self.capture_spans else "",
+                method=ctx.method,
+                path=ctx.path,
+                consumer=consumer,
+                client=self.client,
+                app_id=self.app_id,
+                environment=self.environment,
+            )
             capture_response(
                 self.client,
                 ctx,
