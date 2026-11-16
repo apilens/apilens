@@ -45,6 +45,7 @@ describe("performance URL state", () => {
 
 describe("byP95", () => {
   const ep = (path: string, p95: number, requests = 10): EndpointTraffic => ({
+    app_id: "a1",
     method: "GET",
     path,
     requests,

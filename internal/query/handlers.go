@@ -66,8 +66,9 @@ var dashboardDescriptions = map[string]string{
 		"app narrows to one app.",
 	"get-traffic-timeseries": "Requests, errors and p95 per bucket of the range (1 minute for 1h, 5 minutes for 6h, 15 minutes for 24h, " +
 		"1 hour for 7d), oldest first and zero-filled. app narrows to one app.",
-	"list-endpoints": "Per endpoint (method and route template) traffic, error split, latency percentiles and Apdex over the range, " +
-		"most requests first. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts.",
+	"list-endpoints": "Per endpoint (app, method and route template) traffic, error split, latency percentiles and Apdex over the range, " +
+		"most requests first: a route served by several apps is one row per app. Routes an app declared with POST /v1/metadata but " +
+		"that had no traffic follow with zero counts. app narrows to one app.",
 	"get-endpoint-requests": "The requests tab of an endpoint: totals by outcome, requests per minute, the outcome split per bucket " +
 		"and the top consumers. An endpoint without traffic answers zeros, not 404.",
 	"get-endpoint-latency": "The response-time tab of an endpoint: summary percentiles and Apdex, the p50/p75/p95 trend per bucket " +
@@ -382,10 +383,12 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 
 type endpointsInput struct {
 	RangeInput
-	Limit int `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most endpoints to list, by requests."`
+	App   string `query:"app" format:"uuid" doc:"App id; empty means every app of the project. An app of another project matches nothing."`
+	Limit int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most endpoints to list, by requests."`
 }
 
 type endpoint struct {
+	AppID        string   `json:"app_id" format:"uuid" doc:"The app that serves the endpoint."`
 	Method       string   `json:"method" doc:"HTTP method of the endpoint, upper case."`
 	Path         string   `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
 	Requests     uint64   `json:"requests" doc:"Requests in the range."`
@@ -402,7 +405,7 @@ type endpoint struct {
 
 type endpointsOutput struct {
 	Body struct {
-		Endpoints []endpoint `json:"endpoints" doc:"Endpoints by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out."`
+		Endpoints []endpoint `json:"endpoints" doc:"Endpoints (one per app, method and path) by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out."`
 	}
 }
 
@@ -420,10 +423,14 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		return nil, err
 	}
 	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	tenant, targs, err = withApp(tenant, targs, in.App)
+	if err != nil {
+		return nil, err
+	}
 	where, args := rules.withoutExcluded(tenant, targs)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
-	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "concat(method, ' ', path)")
+	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, endpointKeyExpr)
 	if err != nil {
 		return nil, err
 	}
@@ -431,14 +438,14 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
-	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), "concat(method, ' ', path)")
+	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), endpointKeyExpr)
 	if err != nil {
 		return nil, err
 	}
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
-		SELECT method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), %s
+		SELECT app_id, method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), %s
 		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
-		GROUP BY method, path ORDER BY total DESC, path LIMIT ?`, quantiles, w.table, where),
+		GROUP BY app_id, method, path ORDER BY total DESC, path, method, app_id LIMIT ?`, quantiles, w.table, where),
 		append(args, w.from, w.to, in.Limit)...)
 	if err != nil {
 		return nil, internalError("endpoints", err)
@@ -448,18 +455,21 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	out.Body.Endpoints = []endpoint{}
 	for rows.Next() {
 		var (
-			e endpoint
-			q []float32
+			e   endpoint
+			app uuid.UUID
+			q   []float32
 		)
-		if err := rows.Scan(&e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &q); err != nil {
+		if err := rows.Scan(&app, &e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &q); err != nil {
 			return nil, internalError("endpoints", err)
 		}
-		expected[e.Method+" "+e.Path].subtract(&e.ClientErrors, &e.ServerErrors)
+		e.AppID = app.String()
+		key := endpointRowKey(e.AppID, e.Method, e.Path)
+		expected[key].subtract(&e.ClientErrors, &e.ServerErrors)
 		if e.Requests > 0 {
 			e.ErrorRate = float64(e.ClientErrors+e.ServerErrors) / float64(e.Requests)
 		}
 		e.P50Ms, e.P95Ms = quantile(q, 0), quantile(q, 3)
-		e.Apdex = apdex[e.Method+" "+e.Path].score()
+		e.Apdex = apdex[key].score()
 		out.Body.Endpoints = append(out.Body.Endpoints, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -470,9 +480,18 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		if err != nil {
 			return nil, err
 		}
-		out.Body.Endpoints = withDiscovered(out.Body.Endpoints, routes, rules, in.Limit)
+		out.Body.Endpoints = withDiscovered(out.Body.Endpoints, routes, rules, in.App, in.Limit)
 	}
 	return out, nil
+}
+
+// endpointKeyExpr keys the per-endpoint reads of the endpoints list on the
+// app, method and path of a row, as endpointRowKey does in Go.
+const endpointKeyExpr = "concat(toString(app_id), ' ', method, ' ', path)"
+
+// endpointRowKey is endpointKeyExpr of an endpoint.
+func endpointRowKey(app, method, path string) string {
+	return app + " " + method + " " + path
 }
 
 // statusClasses are the status code ranges of the status filters.

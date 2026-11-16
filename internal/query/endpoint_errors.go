@@ -42,6 +42,7 @@ type endpointErrorsInput struct {
 	RangeInput
 	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" example:"GET" doc:"HTTP method, e.g. GET (case-insensitive)."`
 	Path     string `path:"path" minLength:"1" maxLength:"1024" example:"/orders/{id}" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
+	App      string `query:"app" format:"uuid" doc:"App id; empty means the endpoint across every app of the project. An app of another project matches nothing."`
 	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests and exceptions from this consumer id; empty means all."`
 }
 
@@ -127,9 +128,12 @@ func (s *Service) endpointErrors(ctx context.Context, in *endpointErrorsInput) (
 	}
 	method := strings.ToUpper(in.Method)
 	seconds := int(w.bucket.Seconds())
-	where, args := endpointFilter(p.ProjectID, &endpointRequestsInput{
-		RangeInput: in.RangeInput, Path: in.Path, Consumer: in.Consumer,
+	where, args, err := endpointFilter(p.ProjectID, &endpointRequestsInput{
+		RangeInput: in.RangeInput, Path: in.Path, App: in.App, Consumer: in.Consumer,
 	}, method, "timestamp", w, true)
+	if err != nil {
+		return nil, err
+	}
 	// isError matches a row whose status code is an error not expected for
 	// its endpoint; its arguments precede those of where.
 	isError, errArgs := "status_code >= 400", []any(nil)
@@ -238,6 +242,10 @@ func (s *Service) endpointValidationErrors(ctx context.Context, where string, ar
 
 func (s *Service) endpointExceptions(ctx context.Context, project uuid.UUID, in *endpointErrorsInput, method string, w window) ([]endpointException, error) {
 	where, args := tenantFilter(project, in.Env)
+	where, args, err := withApp(where, args, in.App)
+	if err != nil {
+		return nil, err
+	}
 	where += " AND endpoint_method = ? AND endpoint_path = ? AND timestamp >= ? AND timestamp < ?" +
 		" AND level IN ('ERROR', 'CRITICAL') AND logger_name = ?"
 	args = append(args, method, in.Path, w.from, w.to, exceptionLogger)

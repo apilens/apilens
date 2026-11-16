@@ -80,7 +80,10 @@ func (s *Service) endpointTransfer(ctx context.Context, in *endpointRequestsInpu
 	if raw {
 		table, ts, agg = "api_requests", "timestamp", rawTransfer
 	}
-	where, args := endpointFilter(p.ProjectID, in, method, ts, w, raw)
+	where, args, err := endpointFilter(p.ProjectID, in, method, ts, w, raw)
+	if err != nil {
+		return nil, err
+	}
 
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
@@ -123,7 +126,7 @@ func (s *Service) endpointTransfer(ctx context.Context, in *endpointRequestsInpu
 	}
 
 	// One scan for both histograms: count per (request bucket, response bucket).
-	where, args = endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
+	where, args, _ = endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
 	hrows, err := s.ch.Query(qctx, `
 		SELECT `+bucketIndex("request_size", sizeEdgesBytes)+` AS ri,
 		       `+bucketIndex("response_size", sizeEdgesBytes)+` AS si, count()

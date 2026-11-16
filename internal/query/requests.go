@@ -36,6 +36,7 @@ const maxStatusTerms = 20
 
 type requestsInput struct {
 	RangeInput
+	App             string  `query:"app" format:"uuid" doc:"Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing."`
 	ConsumerID      string  `query:"consumer_id" maxLength:"256" doc:"Only requests from this consumer id."`
 	ConsumerGroup   string  `query:"consumer_group" maxLength:"256" doc:"Only requests from consumers of this group."`
 	IP              string  `query:"ip" maxLength:"64" doc:"Only requests from this client IP address (exact match)."`
@@ -193,6 +194,14 @@ func requestFilter(in *requestsInput, clauses []string, args []any) ([]string, [
 			clauses = append(clauses, col+" = ?")
 			args = append(args, v)
 		}
+	}
+	if in.App != "" {
+		id, err := uuid.Parse(in.App)
+		if err != nil {
+			return nil, nil, huma.Error422UnprocessableEntity("app must be a UUID")
+		}
+		clauses = append(clauses, "app_id = ?")
+		args = append(args, id)
 	}
 	eq("consumer_id", in.ConsumerID)
 	eq("consumer_group", in.ConsumerGroup)

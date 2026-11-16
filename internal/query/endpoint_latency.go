@@ -89,9 +89,11 @@ func (s *Service) endpointLatency(ctx context.Context, in *endpointRequestsInput
 	if raw {
 		table, ts, agg = "api_requests", "timestamp", rawLatency
 	}
-	where, args := endpointFilter(p.ProjectID, in, method, ts, w, raw)
-
-	rawWhere, rawArgs := endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
+	where, args, err := endpointFilter(p.ProjectID, in, method, ts, w, raw)
+	if err != nil {
+		return nil, err
+	}
+	rawWhere, rawArgs, _ := endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
 
 	out := &endpointLatencyOutput{}
 	b := &out.Body

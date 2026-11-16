@@ -1184,13 +1184,14 @@ export interface TraceRead {
 }
 
 /**
- * The filters of `GET /requests` (#576), as query parameters: equality on env, method, path,
- * consumer, group and IP; case-insensitive substrings on the URL and the bodies; status codes,
+ * The filters of `GET /requests` (#576), as query parameters: equality on env, app (id, #974),
+ * method, path, consumer, group and IP; case-insensitive substrings on the URL and the bodies; status codes,
  * classes and ranges (`4xx,500-503`); inclusive size and latency bounds; sampled `true`/`false`.
  */
 export type RequestLogFilters = Partial<
   Record<
     | "env"
+    | "app"
     | "method"
     | "status"
     | "path"
@@ -1251,8 +1252,10 @@ export interface TrafficSummary {
   apdex?: number | null;
 }
 
-/** One row of `GET /traffic/endpoints`. */
+/** One row of `GET /traffic/endpoints`: one per app, method and path (#974). */
 export interface EndpointTraffic {
+  /** The app that serves the endpoint; a path several apps serve is one row per app. */
+  app_id: string;
   method: string;
   path: string;
   requests: number;
@@ -1285,7 +1288,7 @@ export interface TrafficTimeseries {
 export interface TrafficQuery {
   range?: QueryRange;
   env?: string;
-  /** An app's id: the summary and timeseries of that app only (#591); absent means every app. */
+  /** An app's id: the reads of that app only (#591, #974); absent means every app. */
   app?: string;
 }
 
@@ -2100,10 +2103,12 @@ export interface PutPrivacyPolicyRequest {
 /** Status class filter of the endpoint reads (the errors read takes none). */
 export type StatusClass = "all" | "2xx" | "3xx" | "4xx" | "5xx";
 
-/** The scope of the endpoint reads: range, environment, status class and consumer; empty means all. */
+/** The scope of the endpoint reads: range, environment, app, status class and consumer; empty means all. */
 export interface EndpointQuery {
   range?: QueryRange;
   env?: string;
+  /** An app's id (#974): the endpoint as that app serves it; absent means every app. */
+  app?: string;
   status?: StatusClass;
   consumer?: string;
 }
@@ -2273,6 +2278,8 @@ export interface SavedViewBody {
 export interface ExportFilterBody {
   range?: QueryRange;
   env?: string;
+  /** An app's id (#974); absent means every app. */
+  app?: string;
   consumer_id?: string;
   consumer_group?: string;
   ip?: string;
