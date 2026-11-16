@@ -25,23 +25,20 @@ import type { AccessMember, DefaultAccess, Invitation } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { PROJECT_ROLES, ROLE_LABELS } from "@/lib/project-access";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../org-settings/members.css";
 import { type OrgRef, PendingInvitations } from "./invite";
 import { type Announce, AddPeople, MemberRowMenu } from "./manage";
 import "./members.css";
 
-/** The Members tab's title and tabs, around the list (or its skeleton while it loads). */
-export function MembersFrame({ projectName, nav, badge, children }: { projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
+/** The Members tab's header (Access, then the tabs), around the list (or its skeleton while it loads). */
+export function MembersFrame({ project, projectName, nav, badge, children }: { project: string; projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
   return (
     <div className="page os om am">
-      <header className="os-head">
-        <p className="cp-h">
-          {projectName} · Access{badge}
-        </p>
-        <h1 className="cp-lede">Members</h1>
+      <PageHeader project={project} projectName={projectName} title="Access" badge={badge} className="os-head">
         {nav}
-      </header>
+      </PageHeader>
       {children}
     </div>
   );

@@ -163,7 +163,7 @@ export function RuleEditor({
 
   return (
     <div className="page page--measure al">
-      <AlertsHeader project={project} projectName={projectName} tab="rules" title={editing ? rule.name : "New alert rule"}>
+      <AlertsHeader project={project} projectName={projectName} tab="rules" section={editing ? rule.name : "New alert rule"}>
         {editing ? (
           <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={incidentHref(project, rule.id)}>
             View incidents

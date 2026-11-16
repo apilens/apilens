@@ -23,6 +23,8 @@ import {
   shortenedRecords,
 } from "@/lib/ingest-health";
 import { formatDay } from "@/lib/passkey-settings";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -48,16 +50,14 @@ export function IngestHealth({ project, projectName, load }: { project: string; 
   const { apps, app } = load;
   return (
     <div className="page page--measure os cps ih">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Ingest health</h1>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Ingest health" className="os-head">
         <p className="ih-lede">
           What reached APILens from each app and what was lost on the way.{" "}
           <a className="cp-link" href={INGEST_RUNBOOK} target="_blank" rel="noreferrer">
             What to do when a counter moves
           </a>
         </p>
-      </header>
+      </PageHeader>
 
       {apps === null ? (
         <p className="pk-load-err" role="alert">

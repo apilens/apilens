@@ -77,7 +77,7 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1, name: "Apps" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
-  await expect(page.locator(".ap-lead")).toContainText("2 apps need attention.");
+  await expect(page.locator(".ph-lead")).toContainText("2 apps need attention.");
   await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(3);
   // The project switcher counts the project's apps from the context (app_count).
   await expect(page.locator(".oh--project small")).toHaveText("Project · 3 apps");
@@ -199,7 +199,7 @@ test("an app that never sent a heartbeat says so", async ({ page }) => {
   await expect(shop.locator(".ap-pill")).toHaveText("Never reported");
   await expect(shop).toContainText("No SDK reported yet");
   await expect(shop).toContainText("No heartbeat yet");
-  await expect(page.locator(".ap-lead")).not.toContainText("attention");
+  await expect(page.locator(".ph-lead")).not.toContainText("attention");
 });
 
 test("says when an app’s status or traffic cannot be read", async ({ page }) => {

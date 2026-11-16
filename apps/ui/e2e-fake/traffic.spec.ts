@@ -218,6 +218,23 @@ test("filters by range and environment, kept in the URL", async ({ page }) => {
   await expect(ranges.getByRole("link", { name: "7d" })).toHaveAttribute("href", "/shop/traffic?range=7d&env=production");
 });
 
+test("the range and environment travel with the sidebar (#992)", async ({ page }) => {
+  await seed();
+  await signIn(page, "/shop/traffic?range=7d&env=production");
+  // The range picker sits in the page header, next to the title.
+  await expect(page.locator("header.ph").getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
+  const views = page.getByRole("navigation", { name: "Views" });
+  await expect(views.getByRole("link", { name: "Errors" })).toHaveAttribute("href", "/shop/errors?range=7d&env=production");
+  await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Project settings" })).toHaveAttribute("href", "/shop/settings?range=7d&env=production");
+
+  await views.getByRole("link", { name: "Errors" }).click();
+  await page.waitForURL((url) => url.pathname === "/shop/errors");
+  await expect(page.getByRole("heading", { level: 1, name: "Errors" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("combobox", { name: "Environment" })).toHaveValue("production");
+  await expect(views.getByRole("link", { name: "Performance" })).toHaveAttribute("href", "/shop/performance?range=7d&env=production");
+});
+
 test("pages the endpoints table in the URL, starting again at page 1 when the scope changes", async ({ page }) => {
   const many = Array.from({ length: 30 }, (_, i) => ({ ...ENDPOINTS[0], path: `/items/${String(i).padStart(2, "0")}`, requests: 1000 - i }));
   await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many }, production: { ...PRODUCTION, endpoints: many.slice(0, 3) } });

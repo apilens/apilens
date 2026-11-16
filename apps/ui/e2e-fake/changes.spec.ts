@@ -87,7 +87,7 @@ test.afterEach(async () => {
 test("lists deploys with before → after error rate and p95, colored by the change", async ({ page }) => {
   await seed(DEPLOYS);
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Deploys" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Changes" })).toBeVisible();
   await expect(table(page).getByRole("columnheader")).toHaveText(["Release", "Deployed", "Error rate", "p95 latency", "Explore"]);
   await expect(rows(page)).toHaveCount(3);
 

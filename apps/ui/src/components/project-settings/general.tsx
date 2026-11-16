@@ -8,6 +8,8 @@ import { useCan } from "@/lib/permissions";
 import { type GeneralDraft, type GeneralErrors, PROJECT_DESCRIPTION_MAX, PROJECT_NAME_MAX, checkGeneral, generalDraftOf } from "@/lib/project-general";
 import { CopyValue } from "../copy-value";
 import { ObIcon } from "../onboarding/ob";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./general.css";
@@ -27,10 +29,7 @@ export function ProjectGeneralSettings({ project, projectName, loaded }: { proje
   const edit = useCan("project.update").allowed;
   return (
     <div className="page page--measure os pgen">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">General</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="General" className="os-head" />
       {loaded === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s settings. Reload the page to try again.

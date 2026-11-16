@@ -60,7 +60,7 @@ test("shows a failing check with the failed request's details", async ({ page })
     },
   });
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Health checks", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Health checks" })).toBeVisible();
   const check = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "GET https://api.example.com/healthz" }) });
   await expect(check.getByText("Failing", { exact: true })).toBeVisible();
   await expect(check).toContainText("Shop · production · expects 200");

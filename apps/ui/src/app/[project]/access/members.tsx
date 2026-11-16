@@ -101,6 +101,7 @@ async function Restricted({ ctx }: { ctx: SectionContext }) {
 export function render(ctx: SectionContext, nav: ReactNode) {
   return (
     <MembersFrame
+      project={ctx.project}
       projectName={ctx.projectName}
       nav={nav}
       badge={

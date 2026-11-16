@@ -40,7 +40,7 @@ test.afterAll(async () => {
 
 test("shows the details and identifiers with copy controls", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "General" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "General" })).toBeVisible();
   await expect(page).toHaveTitle(/^General · Project settings/);
   await expect(details(page).getByLabel("Name")).toHaveValue("Shop");
   await expect(details(page).getByLabel("Description")).toHaveValue("Storefront API: catalogue, cart and checkout.");
@@ -67,7 +67,7 @@ test("edits and saves; the new name shows in the sidebar and header without a re
   await expect(form.getByRole("status")).toHaveText("Saved.");
   await expect(form.getByLabel("Name")).toHaveValue("Shop API");
   await expect(page.getByRole("button", { name: "Project Shop API. Switch project" })).toBeVisible();
-  await expect(page.getByText("Shop API · Settings")).toBeVisible();
+  await expect(page.locator(".ph-eyebrow").getByRole("link", { name: "Shop API", exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { marker?: number }).marker)).toBe(815);
 
   await page.reload();

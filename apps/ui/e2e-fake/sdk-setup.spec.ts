@@ -54,7 +54,7 @@ test.afterAll(async () => {
 test("tabs switch the snippets, which carry the key placeholder, app name and ingest URL", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "SDK setup", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "SDK setup" })).toBeVisible();
   await expect(page.getByRole("navigation").getByRole("link", { name: "SDK setup" })).toHaveAttribute("aria-current", "page");
 
   const tabs = install(page).getByRole("tab");

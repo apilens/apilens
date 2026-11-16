@@ -6,19 +6,18 @@ import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { Pagination } from "../pagination/pagination";
 import { ActivityFilters, type PersonOption, type ProjectOption } from "./activity-filters";
 import { ActivityTable } from "./activity-table";
+import { PageHeader } from "../page-header";
 import "../security/security.css";
 import "../org-settings/org-settings.css";
 import "./activity.css";
 
 /** Access › Activity's frame (#812): the title, the tabs and the tab's content. */
-export function ActivityFrame({ projectName, nav, children }: { projectName: string; nav: ReactNode; children: ReactNode }) {
+export function ActivityFrame({ project, projectName, nav, children }: { project: string; projectName: string; nav: ReactNode; children: ReactNode }) {
   return (
     <div className="page os acl">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Access</p>
-        <h1 className="cp-lede">Activity</h1>
+      <PageHeader project={project} projectName={projectName} title="Access" className="os-head">
         {nav}
-      </header>
+      </PageHeader>
       {children}
     </div>
   );

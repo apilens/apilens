@@ -21,6 +21,8 @@ import type { AppEnvironmentReport, CapturePolicy, NamedApp, PutCapturePolicyReq
 import { formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -50,10 +52,7 @@ export function CaptureSettings({ project, projectName, userId, load }: { projec
 
   return (
     <div className="page page--measure os cps">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Capture</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Capture" className="os-head" />
 
       {apps === null ? (
         <p className="pk-load-err" role="alert">

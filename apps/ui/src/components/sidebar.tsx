@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { badgeText } from "@/lib/alerts";
 import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
 import type { User } from "@/lib/identity";
+import { sidebarHref } from "@/lib/nav-scope";
 import type { ContextOrg, ContextProject } from "@/lib/scope";
 import { Icon } from "./icons";
 import { NavIcon, type NavIconName } from "./nav-icons";
@@ -30,13 +32,14 @@ interface Props {
 /**
  * One sidebar: the organization in the top cell, the project under it, the main pages as one list,
  * then the settings pages, and at the foot your account and the collapse control. The app (service) and environment are
- * chosen in the top bar.
+ * chosen in the top bar. The page links keep the current `range` and `env` (#992), so the scope travels.
  */
 export function Sidebar({ user, orgs, org, project, view, orgScope, account = false, collapsed, drawer, onCollapse }: Props) {
+  const search = useSearchParams();
   const row = (p: ContextProject, slug: string, label: string, icon: NavIconName, extra?: React.ReactNode) => {
     const on = !orgScope && view === slug;
     return (
-      <Link key={slug} href={`/${p.slug}/${slug}`} className={`cp-sitem${on ? " on" : ""}`} aria-current={on ? "page" : undefined} aria-label={collapsed ? label : undefined} data-tip={collapsed ? label : undefined}>
+      <Link key={slug} href={sidebarHref(p.slug, slug, search)} className={`cp-sitem${on ? " on" : ""}`} aria-current={on ? "page" : undefined} aria-label={collapsed ? label : undefined} data-tip={collapsed ? label : undefined}>
         <span className="sl">
           <NavIcon name={icon} active={on} />
         </span>

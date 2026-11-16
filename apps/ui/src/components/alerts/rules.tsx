@@ -35,7 +35,7 @@ export function RulesView({
   const { rows: shown, window } = slicePage(rules ?? [], parsePage(params));
   return (
     <div className="page al">
-      <AlertsHeader project={project} projectName={projectName} tab="rules" title="Alert rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
+      <AlertsHeader project={project} projectName={projectName} tab="rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
         {manage && rules !== null ? (
           <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newRuleHref(project)}>
             New rule

@@ -48,7 +48,7 @@ test.afterEach(async () => {
 
 test("create a channel and a rule, then see its incident open and resolve", async ({ page }) => {
   await signIn(page, "/shop/settings/alerts");
-  await expect(page.getByRole("heading", { level: 1, name: "Alert channels" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Alert channels" })).toBeVisible();
 
   // Channels: add, send a test (accepted and refused), the config is never shown again.
   await addChannel(page, "On-call", "Email", { "Email addresses": "oncall@example.com" });
@@ -113,7 +113,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await expect(page.getByRole("heading", { level: 2, name: "Open, 1 incident" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Resolved, 0 incidents" })).toBeVisible();
   const range = page.getByRole("navigation", { name: "Resolved in" });
-  await expect(range.getByRole("link", { name: "7 days" })).toHaveAttribute("aria-current", "page");
+  await expect(range.getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
   await expect(open.getByRole("columnheader", { name: "Times fired" })).toBeVisible();
 
   const a11y = await new AxeBuilder({ page }).include(".al").analyze();

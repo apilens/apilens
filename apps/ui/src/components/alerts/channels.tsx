@@ -22,6 +22,8 @@ import { parsePage, slicePage } from "@/lib/pagination";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/members.css";
 import "../org-settings/org-settings.css";
 import "./alerts.css";
@@ -42,9 +44,7 @@ export function ChannelsSettings({ project, projectName, channels }: { project: 
   const { rows: shown, window } = slicePage(channels ?? [], parsePage(params));
   return (
     <div className="page page--measure os al-form">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Alert channels</h1>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Alert channels" className="os-head">
         <p className="al-lead">
           Where the{" "}
           <a className="cp-link" href={rulesHref(project)}>
@@ -52,7 +52,7 @@ export function ChannelsSettings({ project, projectName, channels }: { project: 
           </a>{" "}
           send notifications when an incident opens and when it resolves.
         </p>
-      </header>
+      </PageHeader>
 
       {manage ? null : (
         <p className="os-note">

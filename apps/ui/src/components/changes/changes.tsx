@@ -19,6 +19,7 @@ import type { DeployChange, DeploySide, NamedApp } from "@/lib/identity";
 import { hrefWithoutPage, type SearchParams } from "@/lib/pagination";
 import { commitHref } from "@/lib/repository";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { ChangesFilters } from "./filters";
 import "./changes.css";
 
@@ -65,11 +66,12 @@ export function ChangesView({
   const filtered = filter.app !== "" || filter.env !== "";
   return (
     <div className="page ch">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Changes</p>
-        <h1 className="cp-lede">Deploys</h1>
-        <p className="ch-lead">Error rate and p95 latency in the hour before and the hour after each deploy, over the last 7 days. Open a deploy to see what changed with it.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Changes"
+        lead="Error rate and p95 latency in the hour before and the hour after each deploy, over the last 7 days. Open a deploy to see what changed with it."
+      />
 
       <ChangesFilters pathname={pathname} params={params} filter={filter} apps={apps} environments={environments} />
 

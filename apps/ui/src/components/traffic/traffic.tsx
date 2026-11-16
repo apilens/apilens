@@ -1,4 +1,4 @@
-import { RANGE_LABEL, formatCount, formatPerMinute } from "@/lib/consumers";
+import { formatCount, formatPerMinute } from "@/lib/consumers";
 import { formatPercent, ratio } from "@/lib/format";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
@@ -28,7 +28,9 @@ import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/
 import { ScopeSelect } from "../endpoint/filters";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
+import { RangePicker } from "../range-picker";
 import { LatencyChart, Sparkline, StatusChart } from "./charts";
 import { EnvPicker } from "./env-picker";
 import { LiveControl, LiveNumber } from "./live";
@@ -75,21 +77,16 @@ export function TrafficView({
   const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
   return (
     <div className="page tr">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Traffic</p>
-        <h1 className="cp-lede">Traffic</h1>
-        <p className="tr-lead">Requests, errors and response times of your API, overall and per endpoint.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Traffic"
+        lead="Requests, errors and response times of your API, overall and per endpoint."
+        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => trafficHref(project, { ...q, range: r })} />}
+      />
 
       <div className="tr-bar">
         <div className="tr-bar__scope">
-          <nav className="tr-seg" aria-label="Time range">
-            {TRAFFIC_RANGES.map((r) => (
-              <a key={r} href={trafficHref(project, { ...q, range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-                {r}
-              </a>
-            ))}
-          </nav>
           <EnvPicker project={project} query={q} environments={environments} />
           {apps && (apps.length > 1 || q.app) ? (
             <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: trafficHref(project, { ...q, app: o.value }) }))} />

@@ -7,6 +7,8 @@ import type { Project } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { MAX_REPOSITORY_URL, PREVIEW_COMMIT, checkRepositoryUrl, commitHref, commitTemplateOf } from "@/lib/repository";
 import { ObIcon } from "../onboarding/ob";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./integrations.css";
@@ -22,10 +24,7 @@ export function IntegrationsSettings({ project, projectName, loaded }: { project
   const manage = useCan("project.update").allowed;
   return (
     <div className="page page--measure os int">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Integrations</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Integrations" className="os-head" />
       {loaded === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s integrations. Reload the page to try again.

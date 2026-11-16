@@ -49,7 +49,7 @@ test.beforeEach(async () => {
 test("shows records per day, by app and environment, rejections by reason and the quota", async ({ page }) => {
   await seed(TRAFFIC);
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Usage" })).toBeVisible();
   await expect(page).toHaveTitle(/^Usage · Project settings/);
   await expect(card(page, "Accepted records")).toContainText("1,950 records stored and 5.1 MB received in the last 30 days.");
 

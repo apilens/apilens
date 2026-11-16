@@ -62,7 +62,8 @@ for (const [slug, title] of SECTIONS) {
         await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
         await page.goto(path(slug));
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-        await expect(page.locator(".psf-main").getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible();
+        await expect(page.locator(".psf-main").getByRole("heading", { level: 1, name: "Project settings", exact: true })).toBeVisible();
+        await expect(page.locator(".psf-main header.ph").getByRole("heading", { level: 2, name: title, exact: true })).toBeVisible();
 
         const { headings, cards } = await outline(page);
         expect(headings.filter((l) => l === 1), "one h1").toHaveLength(1);
