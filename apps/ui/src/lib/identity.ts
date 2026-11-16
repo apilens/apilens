@@ -2029,11 +2029,31 @@ export interface AppHealthStatus {
   ingest_today?: IngestCounts;
 }
 
-/** `GET /apps/{id}/status?project=` (#582) as the Apps overview (#591) reads it: also per environment and per SDK. Instances are left out. */
+/** One SDK instance (process) of `GET /apps/{id}/status`, as its last heartbeat described it. */
+export interface AppInstance {
+  instance_id: string;
+  environment: string;
+  sdk_name: string;
+  sdk_version: string;
+  /** Empty for an SDK APILens does not publish. */
+  sdk_latest_version: string;
+  sdk_outdated: boolean;
+  /** Language runtime and version, e.g. `python 3.13.1`. */
+  runtime: string;
+  /** Empty when not configured. */
+  release: string;
+  commit: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+/** `GET /apps/{id}/status?project=` (#582) as the Apps overview (#591) and an app's page (#995) read it: also per environment, per SDK and per instance. */
 export interface AppStatus extends AppHealthStatus {
   status: AppReporting;
   environments: AppEnvironmentStatus[] | null;
   sdks: AppSdk[] | null;
+  /** The 100 most recently seen instances, newest first; absent from older servers. */
+  instances?: AppInstance[] | null;
 }
 
 // Health checks (#608): active HTTP checks of an app environment (`/projects/{project}/alerts/

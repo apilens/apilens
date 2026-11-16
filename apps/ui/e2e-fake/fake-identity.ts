@@ -211,13 +211,17 @@
 //                                                  `status` (#591) overrides any field of the read
 //   GET  /api/v1/traffic/{summary|timeseries}?app= one app's traffic (#591): its `traffic` seed
 //                                                  ({summary, points}), else none
-//   GET  /api/v1/projects/shop/usage?days=         project usage (#819): the seeded ingest days summed over
+//   GET  /api/v1/traffic/endpoints?app=            one app's endpoints (#995) when its `traffic` seed has
+//                                                  `endpoints`; else as below
+//   GET  /api/v1/deploys/changes?app=              one app's deploys (#995) when it was seeded `deploys`;
+//                                                  else as below
+//   GET  /api/v1/projects/shop/usage?days=       project usage (#819): the seeded ingest days summed over
 //                                                  shop's apps (a day may add rejected_by, environments,
 //                                                  bytes); 503 when an app's ingest is "off", 500 when
 //                                                  seeded usage: "error"; quota from /__fake/apps {quota}
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
-//                                                  traffic?, managed?}], their policies, reports, health
+//                                                  traffic?, deploys?, managed?}], their policies, reports, health
 //                                                  counters, SDK status, traffic and lifecycle (managed:
 //                                                  any ManagedApp field), plus {rejections?}
 //   POST /__fake/ingested {project?, last_at}      test hook (#817): when the edge last stored data for a
@@ -777,7 +781,9 @@ const appIngest = new Map<string, Record<string, unknown>[] | "off">();
 const appSdkStats = new Map<string, Record<string, unknown>>();
 /** The Apps overview (#591): each app's SDK status and its traffic ({summary, points}), by app id. */
 const appStatuses = new Map<string, Record<string, unknown>>();
-const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[] }>();
+const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[]; endpoints?: unknown[] }>();
+/** App id → the deploys `GET /deploys/changes?app=` answers (#995), seeded by `/__fake/apps` {deploys}. */
+const appDeploys = new Map<string, Record<string, unknown>[]>();
 /** Project usage (#819): the install's ingest quota, seeded by `/__fake/apps` {quota}; `usage: "error"` answers 500. */
 let usageQuota = { records_per_minute: 0, bytes_per_day: 0 };
 let usageError = false;
@@ -2038,6 +2044,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     appSdkStats.clear();
     appStatuses.clear();
     appTraffic.clear();
+    appDeploys.clear();
     shopApps = list.length
       ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug), managed: typeof a.managed === "object" && a.managed !== null ? (a.managed as Record<string, unknown>) : undefined }))
       : [DEFAULT_APP];
@@ -2048,19 +2055,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (a.ingest === "off" || Array.isArray(a.ingest)) appIngest.set(id, a.ingest as Record<string, unknown>[] | "off");
       if (typeof a.sdk_stats === "object" && a.sdk_stats !== null) appSdkStats.set(id, a.sdk_stats as Record<string, unknown>);
       if (typeof a.status === "object" && a.status !== null) appStatuses.set(id, a.status as Record<string, unknown>);
-      if (typeof a.traffic === "object" && a.traffic !== null) appTraffic.set(id, a.traffic as { summary?: Record<string, unknown>; points?: unknown[] });
+      if (typeof a.traffic === "object" && a.traffic !== null) appTraffic.set(id, a.traffic as { summary?: Record<string, unknown>; points?: unknown[]; endpoints?: unknown[] });
+      if (Array.isArray(a.deploys)) appDeploys.set(id, a.deploys as Record<string, unknown>[]);
     });
     return send(res, 204);
   }
-  // One app's traffic for the Apps overview (#591); same access rules as below.
-  const appScoped = (path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app");
+  // One app's traffic for the Apps overview (#591) and the app's page (#995); same access rules as below.
+  const appParam = url.searchParams.get("app") ?? "";
+  const appEndpoints = path === "/api/v1/traffic/endpoints" && Array.isArray(appTraffic.get(appParam)?.endpoints);
+  const appScoped = ((path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app")) || appEndpoints;
   if (req.method === "GET" && appScoped) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
     if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
     const range = url.searchParams.get("range") ?? "24h";
-    const seed = appTraffic.get(url.searchParams.get("app") ?? "");
+    const seed = appTraffic.get(appParam);
+    if (appEndpoints) return send(res, 200, { endpoints: (seed?.endpoints ?? []).slice(0, Number(url.searchParams.get("limit") ?? 100) || 100) });
     if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 1800, points: seed?.points ?? [] });
     const none = { requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, p99_ms: 0, requests_per_minute: 0, apdex: null };
     return send(res, 200, { range, from: "", to: "", ...none, ...seed?.summary });
@@ -2562,7 +2573,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const slug = url.searchParams.get("project") ?? "";
     if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
-    const all = (deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
+    // An app seeded with its own deploys (#995) answers those for `?app=`.
+    const own = slug === PROJECT ? appDeploys.get(url.searchParams.get("app") ?? "") : undefined;
+    const all = (own ?? deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
     const offset = Number(url.searchParams.get("offset") ?? 0) || 0;
     const limit = Number(url.searchParams.get("limit") ?? 25) || 25;
     return send(res, 200, { window_minutes: 60, total: all.length, deploys: all.slice(offset, offset + limit) });
