@@ -101,7 +101,7 @@ type consumerInput struct {
 
 type consumerSummary struct {
 	StatusSplit
-	RequestsPerMinute float64 `json:"requests_per_minute" doc:"requests / minutes of the range."`
+	RequestsPerMinute float64 `json:"requests_per_minute" doc:"requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter."`
 }
 
 // consumerEndpoint is one of the endpoints a consumer called most in the range.
@@ -357,7 +357,8 @@ func (s *Service) consumer(ctx context.Context, in *consumerInput) (*consumerOut
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	now := s.now()
+	w, err := resolveWindow(in.Range, now)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +412,7 @@ func (s *Service) consumer(ctx context.Context, in *consumerInput) (*consumerOut
 	if err := rows.Err(); err != nil {
 		return nil, internalError("consumer timeseries", err)
 	}
-	b.Summary.RequestsPerMinute = float64(b.Summary.Requests) / w.to.Sub(w.from).Minutes()
+	b.Summary.RequestsPerMinute = perMinute(b.Summary.Requests, w, now, firstBucket(got))
 	b.Points = make([]endpointRequestsPoint, 0, int(w.to.Sub(w.from)/w.bucket))
 	for t := w.from; t.Before(w.to); t = t.Add(w.bucket) {
 		b.Points = append(b.Points, endpointRequestsPoint{TS: t, StatusSplit: got[t.Unix()]})

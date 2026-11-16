@@ -232,7 +232,8 @@ type summaryOutput struct {
 		P50Ms             float64   `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
 		P95Ms             float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
 		P99Ms             float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
-		RequestsPerMinute float64   `json:"requests_per_minute" doc:"requests / minutes of the range."`
+		RequestsPerMinute float64   `json:"requests_per_minute" doc:"requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter."`
+		CurrentPerMinute  float64   `json:"current_per_minute" doc:"Requests in the last full minute."`
 		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests."`
 	}
 }
@@ -242,7 +243,8 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	now := s.now()
+	w, err := resolveWindow(in.Range, now)
 	if err != nil {
 		return nil, err
 	}
@@ -259,15 +261,22 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 	var (
-		requests, clientErrors, serverErrors uint64
-		q                                    []float32
+		requests, clientErrors, serverErrors, current uint64
+		q                                             []float32
+		first                                         time.Time
 	)
 	err = s.ch.QueryRow(qctx, fmt.Sprintf(`
-		SELECT sum(requests), sum(client_errors), sum(server_errors), %s
+		SELECT sum(requests), sum(client_errors), sum(server_errors), %s, min(bucket)
 		FROM %s WHERE %s AND bucket >= ? AND bucket < ?`, quantiles, w.table, where),
-		append(args, w.from, w.to)...).Scan(&requests, &clientErrors, &serverErrors, &q)
+		append(args, w.from, w.to)...).Scan(&requests, &clientErrors, &serverErrors, &q, &first)
 	if err != nil {
 		return nil, internalError("summary", err)
+	}
+	lastMinute := now.UTC().Truncate(time.Minute).Add(-time.Minute)
+	err = s.ch.QueryRow(qctx, `SELECT sum(requests) FROM api_requests_1m WHERE `+where+` AND bucket = ?`,
+		append(append([]any{}, args...), lastMinute)...).Scan(&current)
+	if err != nil {
+		return nil, internalError("summary current rate", err)
 	}
 	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "''")
 	if err != nil {
@@ -290,7 +299,11 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 		b.ErrorRate = float64(clientErrors+serverErrors) / float64(requests)
 		b.P50Ms, b.P95Ms, b.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
 	}
-	b.RequestsPerMinute = float64(requests) / w.to.Sub(w.from).Minutes()
+	if requests == 0 {
+		first = time.Time{}
+	}
+	b.RequestsPerMinute = perMinute(requests, w, now, first.UTC())
+	b.CurrentPerMinute = float64(current)
 	b.Apdex = apdex[""].score()
 	return out, nil
 }

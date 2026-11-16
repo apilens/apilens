@@ -2426,7 +2426,7 @@
             "type": "integer"
           },
           "requests_per_minute": {
-            "description": "requests / minutes of the range.",
+            "description": "requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter.",
             "format": "double",
             "type": "number"
           },
@@ -4664,7 +4664,7 @@
             "type": "integer"
           },
           "requests_per_minute": {
-            "description": "requests / minutes of the range.",
+            "description": "requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter.",
             "format": "double",
             "type": "number"
           },
@@ -11601,6 +11601,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "current_per_minute": {
+            "description": "Requests in the last full minute.",
+            "format": "double",
+            "type": "number"
+          },
           "error_rate": {
             "description": "(client_errors + server_errors) / requests",
             "format": "double",
@@ -11637,7 +11642,7 @@
             "type": "integer"
           },
           "requests_per_minute": {
-            "description": "requests / minutes of the range.",
+            "description": "requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter.",
             "format": "double",
             "type": "number"
           },
@@ -11665,6 +11670,7 @@
           "p95_ms",
           "p99_ms",
           "requests_per_minute",
+          "current_per_minute",
           "apdex"
         ],
         "type": "object"

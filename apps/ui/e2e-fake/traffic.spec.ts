@@ -21,6 +21,7 @@ const SUMMARY = {
   p95_ms: 412.6,
   p99_ms: 1240,
   requests_per_minute: 8.61,
+  current_per_minute: 12,
   apdex: 0.912,
 };
 
@@ -108,7 +109,7 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
   const summary = page.locator("dl.tr-tiles");
   await expect(summary.locator("dt")).toHaveText(["Requests", "Error rate", "p95 response time", "Apdex"]);
   await expect(tiles(page)).toHaveText(["12,400", "3.0%", "413 ms", "0.91"]);
-  await expect(summary.locator(".tr-tile__sub")).toHaveText(["8.6 per minute", "310 4xx, 62 5xx", "p50 38 ms, p99 1.24 s", "Good"]);
+  await expect(summary.locator(".tr-tile__sub")).toHaveText(["8.6 per minute · now 12/min", "310 4xx, 62 5xx", "p50 38 ms, p99 1.24 s", "Good"]);
   await expect(summary.locator(".tr-spark polyline")).toHaveCount(3);
 
   const status = page.getByRole("img", { name: /Requests by status/ });

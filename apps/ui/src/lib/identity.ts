@@ -1247,7 +1247,10 @@ export interface TrafficSummary {
   p50_ms: number;
   p95_ms: number;
   p99_ms: number;
+  /** Requests / minutes of the active span (the range, or since the first data when shorter). */
   requests_per_minute: number;
+  /** Requests in the last full minute. */
+  current_per_minute?: number;
   /** Apdex from 0 to 1 against each endpoint's latency threshold (else its app's, else 500 ms); null without requests. */
   apdex?: number | null;
 }
