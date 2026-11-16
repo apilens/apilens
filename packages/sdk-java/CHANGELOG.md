@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Full exception payload: the `apilens.exception` log now reports the
+  qualified class name (`java.lang.IllegalStateException: ...`), unwraps the
+  `ServletException` Spring MVC wraps handler exceptions in, and carries the
+  full `printStackTrace` output (every `Caused by` and `Suppressed`). Log
+  payloads are capped at 64 KiB keeping the head and the tail with a
+  `\n…[N chars truncated]…\n` marker, so the root cause survives. The log
+  carries `exception.type`, `exception.message` and `exception.chain_depth`
+  attributes.
 - README restructured to match the Python SDK's: the `ApiLensConfig` and
   filter option tables list the same options in the same order (options the
   Java SDK does not offer are marked), plus the full environment-variable and

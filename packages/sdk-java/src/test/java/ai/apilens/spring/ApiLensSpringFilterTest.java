@@ -514,6 +514,36 @@ class ApiLensSpringFilterTest {
   }
 
   @Test
+  void servletWrappedHandlerExceptionIsReportedAsTheHandlerException() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(client, ApiLensSpringOptions.builder().build());
+
+      IllegalStateException handler = new IllegalStateException("payment gateway down",
+          new java.io.IOException("socket reset"));
+      handler.addSuppressed(new IllegalArgumentException("rollback failed"));
+      assertThrows(jakarta.servlet.ServletException.class, () ->
+          filter.doFilter(new MockHttpServletRequest("POST", "/charge"), new MockHttpServletResponse(),
+              (req, res) -> {
+                // What DispatcherServlet does with a handler exception nothing resolved.
+                throw new jakarta.servlet.ServletException("Request processing failed: " + handler, handler);
+              }));
+      client.flushAll();
+
+      String log = server.bodies().get(server.paths().indexOf("/v1/logs"));
+      assertTrue(log.contains("\"message\":\"java.lang.IllegalStateException: payment gateway down\""), log);
+      assertTrue(log.contains("\"exception.type\":\"java.lang.IllegalStateException\""), log);
+      assertTrue(log.contains("\"exception.message\":\"payment gateway down\""), log);
+      assertTrue(log.contains("\"exception.chain_depth\":\"2\""), log);
+      assertTrue(log.contains("Caused by: java.io.IOException: socket reset"), log);
+      assertTrue(log.contains("Suppressed: java.lang.IllegalArgumentException: rollback failed"), log);
+      assertFalse(log.contains("Request processing failed"), "the wrapper is not reported");
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
   void errorsOverrideDropDecisionsFromSamplingCallbacks() throws Exception {
     try (IngestServer server = IngestServer.start()) {
       ApiLensClient client = testClient(server);
