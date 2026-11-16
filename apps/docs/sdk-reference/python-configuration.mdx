@@ -70,7 +70,7 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
 | `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
 | `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
-| `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. |
+| `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. See [Local variables](/sdk-reference/exceptions#local-variables-python). |
 | `capture_content_types` | JSON, `+json`, `text/*`, form-encoded | Media-type globs whose bodies are captured; it replaces the defaults. Other bodies are stored as `[<content-type>, N bytes omitted]`. See [Data privacy](/getting-started/data-privacy#which-bodies-are-captured). |
 | `redact_query_params` | `None` | Regexes matched against query parameter names; matched values stored as `[redacted]`. |
 | `redact_headers` | `None` | Regexes matched against header names, on top of the built-in sensitive-header list. |
@@ -79,12 +79,12 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` adds to it. |
 | `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely (case-insensitive search). `APILENS_EXCLUDE_USER_AGENTS` adds to it. |
 | `default_exclusions` | `True` | Skip the built-in health/probe paths and probe user agents. `False` turns them off; your own exclusions still apply. See [Default exclusions](/getting-started/data-privacy#default-exclusions). |
-| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail (headers, bodies, spans, error log) is kept. The base record is always sent. See [Sampling](/sdk-reference/sampling). |
+| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail (headers, bodies, spans) is kept. The base record is always sent, and a request that raised or answered 5xx is always kept. See [Sampling](/sdk-reference/sampling). |
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. |
 | `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. |
-| `capture_spans` | `True` | Automatic tracing + error-trace capture. |
+| `capture_spans` | `True` | Automatic tracing. Exception logs are sent even when it is off. |
 | `capture_db_spans` | `True` | Database statements (SQLAlchemy, Django ORM, psycopg, asyncpg) become `db` spans with literals replaced by `?`. Needs `capture_spans`. |
-| `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. |
+| `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. See [Logging integrations](/sdk-reference/exceptions#logging-integrations). |
 | `service_name` | `""` | Span service name (defaults to the app id). |
 | `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
 | `route_resolver` | `None` | Custom callback returning the route template for a request. |

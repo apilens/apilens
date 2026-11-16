@@ -57,15 +57,15 @@ Log records surface in the request's **Exceptions** tab. The SDKs use this exclu
 | `app_id` | string | **Yes** | |
 | `timestamp` | ISO 8601 datetime | Yes | |
 | `level` | string | Yes | e.g. `ERROR`. |
-| `message` | string | Yes | Keep under 4,000 chars. |
+| `message` | string | Yes | Up to 8,192 chars; longer is cut, keeping the head. |
 | `logger_name` | string | No | SDKs use `apilens.exception` / `apilens.http`. |
-| `payload` | string | No | Long-form detail (stack trace); keep under 8,000 chars. |
+| `payload` | string | No | Long-form detail (the full stack trace). Up to 64 KiB; longer is cut in the middle, keeping the head and the tail around `\n…[N chars truncated]…\n`. |
 | `endpoint_method` / `endpoint_path` | string | No | Correlate to an endpoint. |
 | `status_code` | integer | No | |
 | `consumer_id` / `consumer_name` / `consumer_group` | string | No | |
 | `trace_id` / `span_id` | string | No | Required in practice to appear on a request's Trace tab. |
-| `attributes` | object | No | Free-form key/values. |
+| `attributes` | object | No | Free-form key/values. Exception logs carry `exception.type`, `exception.message` and `exception.chain_depth`. |
 
 <Note>
-Validation is strict: one malformed record fails the whole batch with `422` and nothing is stored. Validate locally against these tables, and keep batches ≤ 1,000 records.
+Each record is validated on its own: a malformed record is left out and named in the `200` answer's `errors`, and the rest of the batch is stored (see [Ingest API](/ingest/ingest-api)). Validate locally against these tables, and keep batches ≤ 1,000 records.
 </Note>

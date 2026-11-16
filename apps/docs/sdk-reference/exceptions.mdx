@@ -1,0 +1,155 @@
+---
+title: "Exception capture"
+description: "What an exception record contains, why errors are never sampled, frame locals, logging integrations, process-level capture and how long exceptions are kept."
+---
+
+When a request fails, APILens keeps the **whole** exception: its qualified type, its message, every frame and every chained cause, attached to the request's trace. The Python, TypeScript and Java SDKs do this automatically; there is nothing to call for an exception that escapes a handler. This page covers what is captured, the options that change it, and how it travels to storage without being lost.
+
+## When an exception is captured
+
+| Trigger | Python | TypeScript | Java |
+|---|---|---|---|
+| The handler raises and the exception escapes the middleware | Yes | Yes | Yes |
+| The framework's own error handler turns it into a 5xx | Yes: Flask `handle_exception`, Starlette / FastAPI exception handlers, Django `handler500` | Yes: Express error middleware, Fastify `setErrorHandler`, Nest exception filters, Koa downstream middleware | Yes: `@ExceptionHandler` / `@ControllerAdvice` (Spring MVC); WebFlux handlers call `ApiLensWebFilter.recordException(exchange, ex)` |
+| A 5xx with no exception | `apilens.http` log, `HTTP <code> on <method> <path>` | Same | Same |
+| An exception your code logs (`logger.exception(...)`, `log.error("…", ex)`) | Yes, [`capture_logs`](#logging-integrations) | Not available | Yes, [`apilens.capture-logs`](#logging-integrations) |
+| An exception your code catches and wants reported | Log it (see the row above) | [`captureException(err)`](#typescript-process-level-and-manual-capture) | Log it (see the row above) |
+| `uncaughtException` / `unhandledRejection` outside a request | Not applicable | Yes, [`captureUnhandled`](#typescript-process-level-and-manual-capture) | Not applicable |
+
+One request produces at most one exception log from the middleware: the exception that escaped wins over one a framework handler noted, and an exception the middleware already reported is not shipped again by the logging integration. An exception that a framework handler answered with a 4xx is sent at `WARN` by TypeScript and Java; Python reports framework-handled exceptions only when the response is a 5xx.
+
+## What an exception contains
+
+Each exception is sent as a log record with logger name `apilens.exception`, the request's `trace_id` and, when span capture is on, the `span_id` of the failing span. It shows on the request's **Exceptions** tab, inline on the failing span in the **Trace** tab, and on the [Errors](/dashboard/errors) page.
+
+| Field | Content |
+|---|---|
+| `message` | `<qualified type>: <message>`, for example `payments.errors.CardDeclined: card 4242 declined`. |
+| `payload` | The full stack trace, every frame of every exception in the chain (format below). |
+| `exception.type` | The qualified type: `module.QualName` (Python), the error's `name` (TypeScript), the fully qualified class (Java). |
+| `exception.message` | The exception's own message. |
+| `exception.chain_depth` | How many exceptions the chain holds; `1` when there is no cause. |
+| `exception.mechanism` | TypeScript only: how it was caught, `captureException`, `uncaughtException` or `unhandledRejection`. |
+
+The payload is each runtime's own rendering, with every cause included:
+
+- **Python**: `traceback.format_exception` output. Every `__cause__` ("The above exception was the direct cause of…") and `__context__` ("During handling of the above exception…") is printed, root cause first and the raised exception last, and every sub-exception of an `ExceptionGroup` (the standard library's limit of 15 sub-exceptions and depth 10 is lifted).
+- **TypeScript**: `name: message` and the stack, then a `Caused by:` block for each `error.cause` (up to 10 deep, cycles detected) and every member of an `AggregateError`. A thrown value that is not an `Error` is sent as `String(value)` plus a JSON preview. Node keeps only 10 frames per stack by default, so the SDK raises `Error.stackTraceLimit` to `stackTraceLimit` (default **50**) at startup, never lowering a limit your app set higher.
+- **Java**: the `printStackTrace` rendering of the handler's exception, with servlet wrappers (`ServletException`, `NestedServletException`) unwrapped, every `Caused by:` (`getCause()`) and every `Suppressed:` (`getSuppressed()`).
+
+### Size caps
+
+| Part | SDK cap | Ingest cap |
+|---|---|---|
+| `payload` (stack trace) | 64 KiB, head **and** tail kept | 64 KiB, head and tail kept |
+| `message` | 8 KiB in Python, 4,000 chars in TypeScript and Java | 8,192 chars, head kept |
+
+When a payload is over the cap, its middle is replaced by a `\n…[N chars truncated]…\n` marker. Both ends survive: in Python the root cause is printed first, in TypeScript and Java the raised exception is, so a 200-frame recursion still shows both the exception your handler raised and the cause at the bottom of the chain. A record cut by ingest counts as **Truncated** in [Ingest health](/ingest/ingest-health); it is never dropped for its size.
+
+## Errors are never sampled
+
+[Sampling](/sdk-reference/sampling) thins healthy traffic only. A request whose handler raised, or that answered 5xx, is always kept, whatever `sample_rate`, `sample_on_request`, `sample_on_response` or the [remote capture policy](/getting-started/data-privacy#remote-capture-policy) decided:
+
+- the request record is marked `sampled: true` and keeps the headers and response body your capture settings allow (a request body that a request-time decision chose not to buffer cannot be recovered);
+- its server span and child spans are kept when span capture is on;
+- its exception log is always sent.
+
+Two things still stop it: `enabled=False` in code, and a remote policy with capture **off**. Those turn all capture off, errors included.
+
+The exception log does not depend on span capture either. With `capture_spans=False` (`captureSpans: false`, `apilens.capture-spans=false`) or `APILENS_CAPTURE_SPANS=false`, spans stop but exceptions are still sent, with the request's trace id and no span id.
+
+## Local variables (Python)
+
+`capture_locals` adds the value of each frame's local variables to the Python stack trace. It is **off by default** and Python only: Node and the JVM cannot read frame locals without a debugger attached.
+
+| Where | Name | Default |
+|---|---|---|
+| Code | `capture_locals=True` on the middleware or `ApiLensConfig` | `False` |
+| Environment | `APILENS_CAPTURE_LOCALS=true` | `false` |
+| Django settings | `APILENS_CAPTURE_LOCALS = True` | `False` |
+
+When it is on, each of the innermost **10** frames of every exception in the chain gets a `Locals:` section under its source line:
+
+```text
+  File "/app/payments/charge.py", line 42, in charge
+    raise CardDeclined(card.last4)
+    Locals:
+      amount = 4999
+      card = Card(last4='4242', brand='visa')
+      api_token = [redacted]
+```
+
+- At most **20** names per frame. Modules, functions, classes and dunder names are skipped.
+- Each value is its `repr`, masked by the same rules as bodies and headers before it is cut: a name that matches a sensitive pattern (`password`, `token`, `secret`, `api_key`… plus your `redact_body_fields` and `redact_query_params`) becomes `[redacted]`, and so does a `key=value` pair inside a repr. Then the value is capped at **256** characters.
+- The locals count towards the 64 KiB payload cap like the rest of the stack trace.
+- The `metadata` and `redacted` [capture profiles](/getting-started/data-privacy#capture-profiles) force it off even when it is set: they promise that no free-form application data leaves the process.
+
+<Warning>
+Local variables hold whatever your code held when it failed: request payloads, database rows, customer data. Masking catches values whose **name** looks sensitive, not a card number in a variable called `value`. Turn `capture_locals` on for a service only after checking what its handlers keep in locals, and keep [`mask_log_record`](/getting-started/data-privacy#masking-error-trace-logs) as a last filter.
+</Warning>
+
+## Logging integrations
+
+Handled exceptions are often logged and never raised. The logging integrations ship them to the trace of the request that logged them.
+
+| | Python | Java (Spring Boot) |
+|---|---|---|
+| Option | `capture_logs` (env and Django `APILENS_CAPTURE_LOGS`) | `apilens.capture-logs` |
+| Values | `"errors"` (default) or `"off"` | `errors` (default) or `off` |
+| What is installed | `apilens.logging.ApiLensHandler` on the root logger at level `ERROR`, when the middleware starts | A Logback appender on the root logger, or a Log4j2 appender when Log4j2 is the logging system |
+| A record with an exception (`logger.exception(...)`, `exc_info=True`, `log.error("…", ex)`) | An `apilens.exception` log with the full payload above; the logger name and the logged text go in the `log.logger` and `log.message` attributes | An `apilens.exception` log with the full payload above |
+| An `ERROR` record without an exception | A plain `ERROR` log under the record's logger name | Ignored |
+| Outside a request (a worker, a scheduled job) | Sent without a trace id | Sent without a trace id |
+
+The SDK's own `apilens` loggers are never shipped, so a delivery problem cannot loop back into the queue. In a Java app without Spring Boot, attach the appender yourself:
+
+```java
+ApiLensLogbackAppender appender = ApiLensLogbackAppender.attach(client); // or ApiLensLog4j2Appender.attach(client)
+```
+
+The TypeScript SDK has no logging integration; use [`captureException`](#typescript-process-level-and-manual-capture).
+
+## TypeScript: process-level and manual capture
+
+**`captureUnhandled`** (default `true`) listens for `uncaughtException` and `unhandledRejection` on Node (background flush mode). The error is shipped as an `ERROR` exception log and the queues are flushed, bounded by `shutdownTimeoutMs` (default 5,000 ms), before the process goes on as Node would have without the SDK: an error that would have crashed the process still crashes it with exit code 1, the `--unhandled-rejections` mode you run with is honoured, and if your app has its own listener it stays in charge and the SDK only ships the error. Set `captureUnhandled: false` to install no listeners.
+
+**`captureException(err, options?)`** ships an error your code caught. Inside a request it carries that request's trace and span id (through `AsyncLocalStorage`), so it lines up with the request in the trace view; outside one it is sent without a trace id. It is a no-op before the client is created or while capture is off.
+
+```ts
+import { captureException } from "apilens-js-sdk";
+
+try {
+  await chargeCard(order);
+} catch (err) {
+  captureException(err, { level: "WARN" }); // level: "ERROR" (default) or "WARN"
+  return res.status(402).json({ error: "payment_failed" });
+}
+```
+
+`options.mechanism` overrides the `exception.mechanism` attribute (default `captureException`).
+
+## Getting it to storage
+
+An exception is only useful if it arrives. Between the SDK and ClickHouse:
+
+1. **The SDK retries for 5 minutes.** A batch that fails with 408, 429, 5xx or a network error is retried with backoff until `max_retry_seconds` (`maxRetrySeconds`, `apilens.max-retry-duration`, default **300 s**) has passed, then dropped. See [Delivery](/sdk-reference/delivery#retries).
+2. **Every drop is counted and reported.** The SDK counts each record it drops by signal and reason and sends the counts in its next [heartbeat](/ingest/heartbeat#drop-counters). **Project settings → Ingest health** shows them under *Dropped by the SDK*, next to what the edge rejected. See [Ingest health](/ingest/ingest-health#dropped-by-the-sdk).
+3. **One bad record never rejects the batch.** Ingest stores the valid records and answers with the index and reason of each invalid one; the SDK counts those and does not retry them. See [Ingest API](/ingest/ingest-api).
+4. **Storage outages are retried, not dropped.** If ClickHouse cannot take the rows, the ingest pipeline keeps retrying the insert for 30 seconds; after that, a batch still waiting on it is answered `503` so the SDK retries it; those records show as rejected for `storage_unavailable` in Ingest health.
+5. **Process exit flushes the queues** in all three SDKs, bounded by a 5 s timeout. See [Delivery › Shutdown](/sdk-reference/delivery#shutdown).
+
+## Retention
+
+Exception logs (`api_logs`) and spans (`api_spans`) are kept **90 days**, the same as the requests they belong to, so a request's trace and exception are available for as long as the request itself. Self-hosted installs change this with `retention.logs` and `retention.spans`; see [Retention](/getting-started/data-privacy#retention).
+
+## Options at a glance
+
+| Python | TypeScript | Java (Spring property) | Default | Section |
+|---|---|---|---|---|
+| `capture_locals` | not available | not available | `False` | [Local variables](#local-variables-python) |
+| `capture_logs` | not available | `apilens.capture-logs` | `"errors"` | [Logging integrations](#logging-integrations) |
+| not applicable | `captureUnhandled` | not applicable | `true` | [Process-level capture](#typescript-process-level-and-manual-capture) |
+| not applicable | `stackTraceLimit` | not applicable | `50` | [What an exception contains](#what-an-exception-contains) |
+| `max_retry_seconds` | `maxRetrySeconds` | `maxRetryDuration` (`apilens.max-retry-duration`) | 300 s | [Delivery](/sdk-reference/delivery#retries) |
+| `shutdown_timeout` | `shutdownTimeoutMs` | `shutdownTimeout` (`apilens.shutdown-timeout`) | 5 s | [Delivery › Shutdown](/sdk-reference/delivery#shutdown) |
+| `mask_log_record` | not available | not available | none | [Masking error-trace logs](/getting-started/data-privacy#masking-error-trace-logs) |

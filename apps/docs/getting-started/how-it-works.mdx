@@ -3,7 +3,7 @@ title: "How it works"
 description: "What the SDK actually does inside your service, and what happens to your data after it leaves."
 ---
 
-APILens integrates through a lightweight middleware provided by our SDKs. There is no agent to install, no sidecar to run, and no proxy in front of your API. If APILens is ever unreachable, your API is unaffected — telemetry is queued, retried, and eventually dropped, never raised into your application.
+APILens integrates through a lightweight middleware provided by our SDKs. There is no agent to install, no sidecar to run, and no proxy in front of your API. If APILens is ever unreachable, your API is unaffected: telemetry is queued and retried for up to 5 minutes, and anything that is finally dropped is counted and reported, never raised into your application.
 
 ## Inside your service
 
@@ -14,23 +14,30 @@ APILens integrates through a lightweight middleware provided by our SDKs. There 
   <Step title="Trace">
     Every request opens a root span. If an inbound `traceparent` header is present, the trace is continued (so calls that hop between your services stitch into one trace). Outbound `requests`/`httpx` calls become child spans and propagate `traceparent` downstream automatically.
   </Step>
+  <Step title="Capture exceptions">
+    When a handler raises or a response is 5xx, the SDK records the full exception (qualified type, message, every frame and every chained cause, up to 64 KiB with head and tail kept) as a log on the request's trace. A failing request is never sampled out, and its exception is sent even with span capture off. Logged exceptions (`logger.exception`, Logback / Log4j2 at ERROR) are shipped the same way. See [Exception capture](/sdk-reference/exceptions).
+  </Step>
   <Step title="Batch and ship">
-    A single daemon thread drains three queues — requests, spans, and error logs — and POSTs them as JSON batches to `ingest.apilens.ai`. Batches flush every **3 seconds**, or immediately once **200 records** accumulate.
+    A background worker drains three queues (requests, spans and logs) and POSTs them as gzipped JSON batches to `ingest.apilens.ai`. Batches flush every **3 seconds**, or immediately once **200 records** accumulate.
   </Step>
 </Steps>
 
 ## Resilience guarantees
 
-The client is deliberately boring about failure:
+The client is deliberately boring about failure, and loses nothing silently:
 
-- **Retries**: failed batches retry up to 3 times with exponential backoff (0.25 s → 5 s cap). Client errors other than 429 are not retried.
-- **Backpressure**: each queue holds at most 10,000 records; when full, the *oldest* record is dropped and a counter increments. Memory use is bounded.
-- **Isolation**: transport uses the Python standard library only. The SDK's two runtime dependencies are the OpenTelemetry API and SDK.
-- **Shutdown**: the client flushes remaining records on interpreter exit (and when used as a context manager).
+- **Retries**: a batch that fails with a network error, 408, 429 or 5xx is retried with jittered exponential backoff (0.25 s up to 5 s, or the server's `Retry-After`) for up to **5 minutes** (`max_retry_seconds`). Other client errors are not retried.
+- **Partial accept**: ingest validates each record on its own. One bad record is refused and counted; the rest of its batch is stored.
+- **Backpressure**: each queue holds at most 10,000 records and the three share 64 MB; when full, the *oldest* record is dropped and counted. Memory use is bounded.
+- **Drop reporting**: every dropped record is counted by signal and reason and reported in the next heartbeat, so **Project settings → Ingest health** shows what was lost and why.
+- **Shutdown**: the client flushes its queues when the process exits (exit hooks in Python, `beforeExit` / `SIGTERM` / `SIGINT` in Node, a JVM shutdown hook or the Spring bean's close in Java), bounded by 5 s. See [Delivery](/sdk-reference/delivery).
+- **Isolation**: SDK errors are caught and logged under the SDK's own logger; they never reach your handlers.
 
 ## After ingest
 
 The ingest service validates your API key (project-level, verified against our identity service and cached for 60 seconds), then writes telemetry to ClickHouse and endpoint metadata to Postgres. Metrics typically appear on the dashboard within a few seconds of the SDK's next flush.
+
+If ClickHouse cannot take a batch, ingest retries the insert for 30 seconds before answering `503`, and the SDK then retries the batch itself, so a short storage outage delays data instead of losing it. Requests, spans and exception logs are all kept **90 days**, so a request's trace and exception stay available as long as the request itself.
 
 The dashboard itself stays current by polling: pages like Traffic re-query every ~5 seconds with a rolling time window while the tab is visible, so during an incident the chart moves without you touching anything.
 

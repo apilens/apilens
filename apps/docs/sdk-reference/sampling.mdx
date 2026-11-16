@@ -15,9 +15,16 @@ APILens derives traffic counts, error rates and latency percentiles from the req
 | `sampled` field | `true` | `false` |
 | Request / response headers | sent (redacted) | dropped |
 | Request / response bodies | sent (redacted) | dropped, never buffered |
-| Server span and automatic error log | sent | dropped |
+| Server span and child spans | sent | dropped |
+| Exception log | sent | sent |
 
 The request log shows sampled-out requests like any other; their detail panes are empty. Trace context is still continued and propagated downstream for a sampled-out request, so child services make their own decision.
+
+## Errors are never sampled
+
+A request whose handler raised an exception, or that answered **5xx**, is always kept with its detail, spans and exception, whatever `sample_rate`, the callbacks below or the remote policy's sample rate decided. It is sent with `sampled: true`. Sampling only thins healthy traffic; you do not need a callback to keep failures. Two limits: a request body that a request-time decision chose not to buffer cannot be recovered (the headers and response body are), and `enabled=False` or a remote policy with capture off still sends nothing. See [Exception capture](/sdk-reference/exceptions#errors-are-never-sampled).
+
+4xx responses are not errors in this sense: they follow the sampling decision like any other request. Use a response callback to [keep them](#keep-every-error-sample-the-rest).
 
 <Note>
 Sampling is not [exclusion](/sdk-reference/exclusions). An excluded path (health checks, probes) is never recorded at all and does not count in metrics. A sampled-out request is always counted.
@@ -111,7 +118,7 @@ ApiLensSpringOptionsCustomizer apiLensSampling() {
 
 ## Keep every error, sample the rest
 
-Return a probability from the response callback instead of setting a low rate. This works the same in all three SDKs.
+Exceptions and 5xx are kept anyway. To keep 4xx detail too, return a probability from the response callback instead of setting a low rate. This works the same in all three SDKs.
 
 <CodeGroup>
 ```python Python
