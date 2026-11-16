@@ -11,7 +11,8 @@ import java.util.logging.Logger;
  * Per-request sampling decision shared by the framework integrations.
  *
  * <p>Sampling decides whether a request's <em>detail</em> (headers, bodies, span, error log) is
- * kept. The base request record is always sent; a sampled-out record carries
+ * kept. The framework filters keep every errored (thrown or 5xx) request regardless of this
+ * decision. The base request record is always sent; a sampled-out record carries
  * {@code sampled=false}, so metrics derived from records never change.
  *
  * <p>Order: {@code sampleOnRequest} runs first. {@link SampleDecision#KEEP} / {@link

@@ -204,10 +204,14 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
     int finalStatusCode = statusCode <= 0 ? response.getStatus() : statusCode;
     double elapsedMs = Math.max((System.nanoTime() - startedNanos) / 1_000_000.0, 0.0);
     ApiLensConsumer consumer = resolveConsumer(request, response);
+    boolean isError = capturedException != null || capturedError != null || finalStatusCode >= 500;
     // Sampled out: the base record is still sent (sampled=false) so metrics stay exact, but
-    // without headers, bodies, span or error log. The trace context was still made current.
+    // without headers, bodies or span. The trace context was still made current.
     // The remote sample rate applies on top of the local decision, so it only ever drops more.
-    boolean sampled = sampler.onResponse(sampling, () -> new SampleResponseInfo(
+    // Errors are never sampled (D1): a request that threw or answered 5xx is always kept, even
+    // at sampleRate 0 or when a sampling callback drops it. Remote enabled=false still wins,
+    // because shouldNotFilter bypasses the filter entirely.
+    boolean sampled = isError || sampler.onResponse(sampling, () -> new SampleResponseInfo(
         requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()))
         && policy.keeps(random);
     int maxPayloadBytes = policy.limitPayloadBytes(options.maxPayloadBytes());
@@ -263,7 +267,6 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .build());
 
     if (sampled && options.captureSpans()) {
-      boolean isError = capturedException != null || capturedError != null || finalStatusCode >= 500;
       client.captureSpan(SpanRecord.builder()
           .timestamp(startedAt)
           .environment(options.environment())
@@ -279,10 +282,12 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
           .projectSlug(client.config().projectSlug())
           .appId(client.config().appId())
           .build());
+    }
 
-      if (isError) {
-        captureErrorLog(capturedException, capturedError, finalStatusCode, method, endpointPath, trace, consumer);
-      }
+    // The exception log does not depend on span capture (D2): captureSpans=false turns spans
+    // off, never exceptions.
+    if (isError) {
+      captureErrorLog(capturedException, capturedError, finalStatusCode, method, endpointPath, trace, consumer);
     }
   }
 

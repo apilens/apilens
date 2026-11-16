@@ -289,7 +289,8 @@ apilens.capture-spans=false
 ```
 
 or `captureSpans(false)`, or env `APILENS_CAPTURE_SPANS=false`. Request records
-keep their `trace_id` either way.
+keep their `trace_id` either way, and errored requests still send their
+exception log: this turns spans off, never exceptions.
 
 ---
 
@@ -388,7 +389,7 @@ fails at startup.
 | `maxPayloadBytes` | `65536` | Per-body capture cap; set `0` to disable body capture. |
 | `captureValidationErrors` | **not available** | Python only. 400/422 bodies are captured as ordinary response bodies. |
 | `captureContentTypes` | **not available** | Python only. The captured types are fixed: `application/json`, `*+json`, `text/*`, `application/x-www-form-urlencoded`; see [body capture](#body-capture-and-mask-callbacks). |
-| `captureSpans` | `true` | Emit a server span (and the automatic error log) per request. |
+| `captureSpans` | `true` | Emit a server span per request. The automatic error log is sent either way. |
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | — | Register an `ApiLensConsumerResolver` (MVC) or `ApiLensWebFluxConsumerResolver` (WebFlux) bean, or pass it to the filter constructor (see [consumer attribution](#consumer-attribution)). |
 | `maskRequestBody` / `maskResponseBody` | `null` | `BiFunction<RequestInfo/ResponseInfo, byte[], byte[]>` callbacks on the captured (truncated) raw body; see [body mask callbacks](#body-capture-and-mask-callbacks). |
@@ -397,7 +398,7 @@ fails at startup.
 | `excludePaths` | `[]` | Regexes for paths to skip entirely (no record, span or log), e.g. `^/health$`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex fails at startup. |
 | `excludeUserAgents` | `[]` | Regexes for `User-Agent` values to skip entirely, e.g. `^uptimerobot`. Case-insensitive search. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `defaultExclusions` | `true` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `excludePaths`). `false` turns them off; your own `excludePaths` / `excludeUserAgents` still apply. |
-| `sampleRate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, span, auto error log — is kept. See [sampling](#sampling). A value outside the range fails at startup. |
+| `sampleRate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, span — is kept. Errors are always kept. See [sampling](#sampling). A value outside the range fails at startup. |
 | `sampleOnRequest` | `null` | `RequestSampler` evaluated before the handler; overrides `sampleRate` per request. See [sampling](#sampling). |
 | `sampleOnResponse` | `null` | `ResponseSampler` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
 | `enabled` | `true` | `false` makes the filter pass every request through untouched. |
@@ -415,6 +416,11 @@ headers, bodies, its span and its automatic error log, and its record carries
 `sampled: false`. Its request body is never buffered. The trace context is
 still propagated to the handler and downstream services, so they can decide
 independently.
+
+Errors are never sampled. A request whose handler threw, or that answered 5xx,
+is always kept with its span and its exception log, whatever `sampleRate`, the
+callbacks or the remote sample rate say. The exception log is also sent when
+`captureSpans` is `false`. Only a remote `enabled=false` turns it off.
 
 `sampleRate` (`0.0`–`1.0`, default `1.0`) is the fraction of requests whose
 detail is kept. Two callbacks refine it, each returning a `SampleDecision`:

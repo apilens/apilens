@@ -118,6 +118,66 @@ class ApiLensWebFilterTest {
   }
 
   @Test
+  void sampleRateZeroStillKeepsAFailingRequestWithItsExceptionLog() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensWebFilter filter = new ApiLensWebFilter(client, ApiLensSpringOptions.builder().sampleRate(0.0).build());
+
+      filter.filter(MockServerWebExchange.from(MockServerHttpRequest.get("/orders/7").build()),
+          ex -> Mono.error(new IllegalStateException("payment gateway down")))
+          .onErrorResume(ex -> Mono.empty()).block();
+      MockServerWebExchange unavailable = MockServerWebExchange.from(MockServerHttpRequest.get("/orders/8").build());
+      filter.filter(unavailable, ex -> {
+        ex.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+        return Mono.empty();
+      }).block();
+      filter.filter(MockServerWebExchange.from(MockServerHttpRequest.get("/orders/9").build()),
+          ex -> Mono.empty()).block();
+      client.flushAll();
+
+      List<JsonNode> records = ApiLensWebFilterE2ETest.records(server, "raw_path");
+      assertEquals(3, records.size());
+      assertTrue(records.get(0).get("sampled").asBoolean(), "a thrown error is never sampled out");
+      assertEquals(500, records.get(0).get("status_code").asInt());
+      assertTrue(records.get(1).get("sampled").asBoolean(), "a 5xx is never sampled out");
+      assertFalse(records.get(2).get("sampled").asBoolean(), "healthy traffic is still sampled");
+
+      List<JsonNode> spans = ApiLensWebFilterE2ETest.records(server, "kind");
+      assertEquals(2, spans.size());
+      spans.forEach(span -> assertEquals("error", span.get("status").asText()));
+
+      List<JsonNode> logs = ApiLensWebFilterE2ETest.records(server, "logger_name");
+      assertEquals(2, logs.size());
+      JsonNode exception = logs.stream()
+          .filter(log -> log.get("logger_name").asText().equals("apilens.exception")).findFirst().orElseThrow();
+      assertTrue(exception.get("message").asText().contains("IllegalStateException: payment gateway down"));
+      assertEquals(records.get(0).get("trace_id").asText(), exception.get("trace_id").asText());
+      assertTrue(logs.stream().anyMatch(log -> log.get("status_code").asInt() == 503));
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void captureSpansFalseStillSendsTheExceptionLog() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensWebFilter filter = new ApiLensWebFilter(client, ApiLensSpringOptions.builder().captureSpans(false).build());
+
+      filter.filter(MockServerWebExchange.from(MockServerHttpRequest.post("/charge").build()),
+          ex -> Mono.error(new IllegalArgumentException("card declined")))
+          .onErrorResume(ex -> Mono.empty()).block();
+      client.flushAll();
+
+      assertTrue(ApiLensWebFilterE2ETest.records(server, "kind").isEmpty(), "no span");
+      List<JsonNode> logs = ApiLensWebFilterE2ETest.records(server, "logger_name");
+      assertEquals(1, logs.size());
+      assertEquals("apilens.exception", logs.get(0).get("logger_name").asText());
+      assertTrue(logs.get(0).get("message").asText().contains("IllegalArgumentException: card declined"));
+      client.shutdown(false);
+    }
+  }
+
+  @Test
   void consumerResolverStatusExceptionsAndTraceContext() throws Exception {
     try (IngestServer server = IngestServer.start()) {
       ApiLensClient client = testClient(server);
