@@ -12,11 +12,14 @@ import {
   METHODS,
   NO_FILTERS,
   NO_SUGGESTIONS,
+  STATUS_SEGMENTS,
   consumerSuggestions,
-  endpointSuggestions,
   filterChips,
   fromDraft,
+  moreCount,
   sameFilters,
+  searchSuggestions,
+  statusSegment,
   toDraft,
   withoutChip,
 } from "@/lib/explore-filters";
@@ -30,11 +33,13 @@ const SENT_KEPT = 8;
 
 /**
  * The Explore filter bar (#586): every filter of the request log, kept in the URL so a link
- * reproduces the view. Active filters show as chips (each removable) with Clear all; the Filters
- * button opens the form. Pickers apply at once; typed fields apply once typing pauses
- * (FILTER_DEBOUNCE_MS) and only when valid, so the log never reads a filter the API would refuse.
- * `navigate(href, replace)` moves the page; typing replaces the history entry. Path and Consumer
- * suggest the project's endpoints and consumers (#983); picking one applies at once.
+ * reproduces the view. Search (the path, which falls back to part of the URL), the Status segments,
+ * Environment and App are always in view (#985); More filters opens the form with the rest. Active
+ * filters show as chips (each removable) with Clear all. Pickers apply at once; typed fields apply
+ * once typing pauses (FILTER_DEBOUNCE_MS) and only when valid, so the log never reads a filter the
+ * API would refuse. `navigate(href, replace)` moves the page; typing replaces the history entry.
+ * Search suggests the project's endpoints and consumers, Consumer its consumers (#983); picking
+ * one applies at once.
  */
 export function FilterBar({
   project,
@@ -172,62 +177,92 @@ export function FilterBar({
   ];
   const methodOptions: readonly string[] = draft.method && !(METHODS as readonly string[]).includes(draft.method) ? [...METHODS, draft.method] : METHODS;
 
+  const segment = statusSegment(q.filters.status);
+  const more = moreCount(q.filters);
+
   return (
     <section className="ex-filters" aria-label="Filters">
+      {/* The filters people reach for first stay in view (#985): search, Status, Environment, App.
+          The rest sit under More filters. */}
       <div className="ex-filters__bar">
-        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" aria-expanded={open} aria-controls={formId} onClick={() => setOpen((o) => !o)}>
-          Filters{chips.length ? ` (${chips.length})` : ""}
-        </button>
-        {chips.length ? (
-          <ul className="ex-chips" aria-label="Active filters">
-            {chips.map((c) => (
-              <li key={c.id} className="ex-chip">
-                <span title={c.label}>{c.label}</span>
-                <button type="button" className="ex-chip__x" aria-label={`Remove filter: ${c.label}`} onClick={() => remove(c)}>
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M4 4l8 8M12 4l-8 8" />
-                  </svg>
-                </button>
-              </li>
+        <div className="ex-search">
+          <Combobox
+            id={`${formId}-search`}
+            aria-label="Search"
+            aria-invalid={errors.path ? true : undefined}
+            aria-describedby={errors.path ? `${formId}-search-error` : undefined}
+            label="Search suggestions"
+            placeholder="Search path, URL or consumer"
+            value={draft.path}
+            options={searchSuggestions(suggestions, draft.path, draft.method).map((s) =>
+              s.kind === "endpoint"
+                ? { key: `e:${s.method} ${s.path}`, lead: s.method, text: s.path }
+                : { key: `c:${s.id}`, lead: "Consumer", text: s.name.trim() || s.id, detail: s.name.trim() && s.name.trim() !== s.id ? s.id : undefined },
+            )}
+            onType={(v) => type("path", v)}
+            onPick={(o) =>
+              o.key.startsWith("c:") ? pickAll({ consumer_id: o.key.slice(2), path: "" }) : pickAll({ method: o.lead ?? "", path: o.text })
+            }
+          />
+        </div>
+        <div className="ex-seg" role="group" aria-label="Status">
+          {STATUS_SEGMENTS.map((s) => (
+            <button key={s.label} type="button" className="ex-seg__btn" aria-pressed={segment === s.value} onClick={() => pick("status", s.value)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <select aria-label="Environment" className="ex-input ex-input--pick" value={draft.env} onChange={(e) => pick("env", e.target.value)}>
+          <option value="">All environments</option>
+          {envOptions.map((env) => (
+            <option key={env} value={env}>
+              {env}
+            </option>
+          ))}
+        </select>
+        {appOptions.length ? (
+          <select aria-label="App" className="ex-input ex-input--pick" value={draft.app} onChange={(e) => pick("app", e.target.value)}>
+            <option value="">All apps</option>
+            {appOptions.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.label}
+              </option>
             ))}
-            <li>
-              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={clearAll}>
-                Clear all
-              </button>
-            </li>
-          </ul>
+          </select>
         ) : null}
+        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" aria-expanded={open} aria-controls={formId} onClick={() => setOpen((o) => !o)}>
+          More filters{more ? ` (${more})` : ""}
+        </button>
         {/* Saved views (#589): name the filters on now. */}
         <SaveView />
       </div>
+      {errors.path ? (
+        <p className="ex-error ex-filters__error" id={`${formId}-search-error`}>
+          {errors.path}
+        </p>
+      ) : null}
+
+      {chips.length ? (
+        <ul className="ex-chips ex-filters__chips" aria-label="Active filters">
+          {chips.map((c) => (
+            <li key={c.id} className="ex-chip">
+              <span title={c.label}>{c.label}</span>
+              <button type="button" className="ex-chip__x" aria-label={`Remove filter: ${c.label}`} onClick={() => remove(c)}>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </button>
+            </li>
+          ))}
+          <li>
+            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={clearAll}>
+              Clear all
+            </button>
+          </li>
+        </ul>
+      ) : null}
 
       <div id={formId} className="ex-form" hidden={!open}>
-        <Field id={`${formId}-env`} label="Environment">
-          {(props) => (
-            <select {...props} className="ex-input" value={draft.env} onChange={(e) => pick("env", e.target.value)}>
-              <option value="">All environments</option>
-              {envOptions.map((env) => (
-                <option key={env} value={env}>
-                  {env}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-        {appOptions.length ? (
-          <Field id={`${formId}-app`} label="App">
-            {(props) => (
-              <select {...props} className="ex-input" value={draft.app} onChange={(e) => pick("app", e.target.value)}>
-                <option value="">All apps</option>
-                {appOptions.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        ) : null}
         <Field id={`${formId}-method`} label="Method">
           {(props) => (
             <select {...props} className="ex-input" value={draft.method} onChange={(e) => pick("method", e.target.value)}>
@@ -240,21 +275,7 @@ export function FilterBar({
             </select>
           )}
         </Field>
-        {text("status", "Status", { placeholder: "4xx, 500-503", hint: "Codes, classes or ranges, comma-separated.", mono: true })}
-        <Field id={`${formId}-path`} label="Path" hint="A route template, or part of a URL from the log." error={errors.path}>
-          {(props) => (
-            <Combobox
-              {...props}
-              label="Path suggestions"
-              mono
-              placeholder="/orders/{id}"
-              value={draft.path}
-              options={endpointSuggestions(suggestions.endpoints, draft.path, draft.method).map((e) => ({ key: `${e.method} ${e.path}`, lead: e.method, text: e.path }))}
-              onType={(v) => type("path", v)}
-              onPick={(o) => pickAll({ method: o.lead ?? "", path: o.text })}
-            />
-          )}
-        </Field>
+        {text("status", "Status codes", { placeholder: "404, 500-503", hint: "Codes, classes or ranges, comma-separated.", mono: true })}
         {text("url_contains", "URL contains", { placeholder: "?expand=", mono: true })}
         {text("payload_contains", "Payload contains", { hint: "Searches request and response bodies, kept only for sampled requests with body capture on." })}
         <Field id={`${formId}-consumer_id`} label="Consumer" hint="A name or an ID." error={errors.consumer_id}>

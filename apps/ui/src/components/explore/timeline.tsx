@@ -63,6 +63,15 @@ function Tip({ text, center, width }: { text: string; center: number; width: num
   );
 }
 
+/** A funnel: marks the legend's error counts as filters you can press (#985). */
+function FilterIcon() {
+  return (
+    <svg className="ex-tl__icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 3.5h11l-4.25 5v4l-2.5 1v-5z" />
+    </svg>
+  );
+}
+
 /**
  * The Explore timeline (#587): requests per bucket over the range (or the zoom), stacked by status
  * class. A click on a bar shows the log from that bar's time back (`?at=`); a drag across bars zooms
@@ -247,6 +256,7 @@ export function Timeline({
                   onClick={(e) => go(e, href)}
                 >
                   {label}
+                  <FilterIcon />
                 </a>
               </li>
             );
@@ -259,6 +269,7 @@ export function Timeline({
                   <a className="ex-tl__quick" href={href} aria-current={active ? "true" : undefined} title={active ? "Show every status again" : "Show only errors (4xx and 5xx) in the log"} onClick={(e) => go(e, href)}>
                     All errors{" "}
                     <span className="ex-tl__n">{formatPercent((totals.client_errors + totals.server_errors) / Math.max(1, totals.requests))}</span>
+                    <FilterIcon />
                   </a>
                 );
               })()}

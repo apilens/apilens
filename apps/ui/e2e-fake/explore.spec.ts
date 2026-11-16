@@ -260,10 +260,12 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   await expect(rowAt(page, 0).getByRole("gridcell").nth(3)).toHaveText("/charge");
   await expect(page.getByText("The newest request in the last 6 hours matching the filters, newest first.")).toBeVisible();
 
-  const toggle = page.getByRole("button", { name: "Filters (2)" });
+  // Status 5xx is a segment of the visible row; only Method sits under More filters.
+  await expect(page.getByRole("group", { name: "Status" }).getByRole("button", { name: "5xx" })).toHaveAttribute("aria-pressed", "true");
+  const toggle = page.getByRole("button", { name: "More filters (1)" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
-  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("5xx");
+  await expect(page.getByLabel("Status codes", { exact: true })).toHaveValue("5xx");
   await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
 
   // The poll reads the same filters: a new GET row does not show up.
@@ -272,12 +274,13 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   await expect(bodyRows(page)).toHaveCount(1);
 
   // An invalid status says why and leaves the URL alone; a valid one applies once typing pauses.
-  await page.getByLabel("Status", { exact: true }).fill("9xx");
+  await page.getByLabel("Status codes", { exact: true }).fill("9xx");
   await expect(page.getByText("Codes (404), classes (4xx) or ranges (500-503)")).toBeVisible();
   await page.waitForTimeout(800);
   expect(new URL(page.url()).searchParams.get("status")).toBe("5xx");
-  await page.getByLabel("Status", { exact: true }).fill("4XX, 5xx");
+  await page.getByLabel("Status codes", { exact: true }).fill("4XX, 5xx");
   await page.waitForURL((u) => u.searchParams.get("status") === "4xx,5xx");
+  await expect(page.getByRole("group", { name: "Status" }).getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
   expect(new URL(page.url()).searchParams.get("range")).toBe("6h");
 
@@ -291,7 +294,7 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   await page.goBack();
   await page.waitForURL((u) => u.searchParams.get("method") === "POST");
   await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
-  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("4xx,5xx");
+  await expect(page.getByLabel("Status codes", { exact: true })).toHaveValue("4xx,5xx");
   await page.goForward();
   await page.waitForURL((u) => u.searchParams.get("method") === "GET");
   await expect(page.getByLabel("Method", { exact: true })).toHaveValue("GET");
@@ -304,7 +307,7 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   await chips.getByRole("button", { name: "Clear all" }).click();
   await page.waitForURL((u) => u.search === "?range=6h");
   await expect(page.getByRole("list", { name: "Active filters" })).toHaveCount(0);
-  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Status codes", { exact: true })).toHaveValue("");
   await expect(bodyRows(page)).toHaveCount(4);
 
   const a11y = await new AxeBuilder({ page }).include(".ex").analyze();
@@ -334,8 +337,10 @@ test("Path and Consumer take what the log shows and suggest endpoints and consum
   try {
     await signIn(page);
     await expect(bodyRows(page)).toHaveCount(3);
-    await page.getByRole("button", { name: "Filters" }).click();
-    const path = page.getByRole("combobox", { name: "Path" });
+    // Search (always in view) takes the path or URL and suggests endpoints and consumers (#985);
+    // Consumer sits under More filters.
+    await page.getByRole("button", { name: "More filters" }).click();
+    const path = page.getByRole("combobox", { name: "Search" });
     const consumer = page.getByRole("combobox", { name: "Consumer" });
 
     // A raw URL copied from the log finds its request.
@@ -358,9 +363,9 @@ test("Path and Consumer take what the log shows and suggest endpoints and consum
     // Suggestions by keyboard: ↓ opens and moves, Enter picks; the route sets method and path.
     await path.focus();
     await path.press("ArrowDown");
-    const paths = page.getByRole("listbox", { name: "Path suggestions" });
+    const paths = page.getByRole("listbox", { name: "Search suggestions" });
     await expect(path).toHaveAttribute("aria-expanded", "true");
-    await expect(paths.getByRole("option")).toHaveText(["GET/orders/{id}", "POST/charge"]);
+    await expect(paths.getByRole("option")).toHaveText(["GET/orders/{id}", "POST/charge", "ConsumerAcme Corpc_acme", "Consumerc_beta"]);
     await path.pressSequentially("char");
     await expect(paths.getByRole("option")).toHaveText(["POST/charge"]);
     await path.press("ArrowDown");
@@ -388,6 +393,78 @@ test("Path and Consumer take what the log shows and suggest endpoints and consum
     await expect(bodyRows(page)).toHaveCount(1);
   } finally {
     await post("/__fake/traffic", { project: "shop", envs: {} });
+    await post("/__fake/consumers", { project: "shop", consumers: [] });
+  }
+});
+
+test("the visible row filters by Status segment, search, environment and app; 5xx rows are tinted (#985)", async ({ page }) => {
+  await seed(ROWS, ["production", "staging"]);
+  await post("/__fake/consumers", { project: "shop", consumers: [{ consumer_id: "c_acme", consumer_name: "Acme Corp", consumer_group: "", requests: 2 }] });
+  try {
+    await signIn(page);
+    await expect(bodyRows(page)).toHaveCount(3);
+
+    // Search, Status, Environment and App are in view without opening anything.
+    const status = page.getByRole("group", { name: "Status" });
+    await expect(status.getByRole("button")).toHaveText(["All", "Errors", "4xx", "5xx"]);
+    await expect(status.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("combobox", { name: "Search" })).toBeVisible();
+    await expect(page.getByLabel("Environment", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "More filters" })).toHaveAttribute("aria-expanded", "false");
+
+    // A failed (5xx) row carries a faint tint; a successful one does not.
+    const bg = (i: number) => rowAt(page, i).evaluate((el) => getComputedStyle(el).backgroundColor);
+    const ok = await bg(0);
+    const failed = await bg(1);
+    expect(failed).not.toBe(ok);
+    expect(failed).not.toBe("rgba(0, 0, 0, 0)");
+
+    // Errors: 4xx and 5xx only, in the URL and the legend's quick filter agrees.
+    await status.getByRole("button", { name: "Errors" }).click();
+    await page.waitForURL((u) => u.searchParams.get("status") === "4xx,5xx");
+    await expect(bodyRows(page)).toHaveCount(2);
+    await expect(status.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "true");
+    await expect(status.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".ex-tl__quick[aria-current=true]")).toContainText("All errors");
+    // 5xx narrows to the server error.
+    await status.getByRole("button", { name: "5xx" }).click();
+    await page.waitForURL((u) => u.searchParams.get("status") === "5xx");
+    await expect(bodyRows(page)).toHaveCount(1);
+    await expect(rowAt(page, 0).getByRole("gridcell").nth(5)).toHaveText("502");
+    // A code typed under More filters is no segment, and counts on the More filters button.
+    await page.goto(`${PAGE}?status=404`);
+    await expect(bodyRows(page)).toHaveCount(1);
+    await expect(status.getByRole("button", { pressed: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "More filters (1)" })).toBeVisible();
+    // All clears it.
+    await status.getByRole("button", { name: "All" }).click();
+    await page.waitForURL((u) => !u.searchParams.has("status"));
+    await expect(bodyRows(page)).toHaveCount(3);
+
+    // Search picks a consumer by name.
+    const search = page.getByRole("combobox", { name: "Search" });
+    await search.focus();
+    await search.pressSequentially("acme");
+    await expect(page.getByRole("listbox", { name: "Search suggestions" }).getByRole("option")).toHaveText(["ConsumerAcme Corpc_acme"]);
+    await search.press("ArrowDown");
+    await search.press("Enter");
+    await page.waitForURL((u) => u.searchParams.get("consumer_id") === "c_acme" && !u.searchParams.has("path"));
+    await expect(search).toHaveValue("");
+    await expect(bodyRows(page)).toHaveCount(1);
+
+    // Environment applies at once.
+    await page.getByLabel("Environment", { exact: true }).selectOption("staging");
+    await page.waitForURL((u) => u.searchParams.get("env") === "staging");
+
+    for (const theme of ["light", "dark"] as const) {
+      await page.evaluate((t) => localStorage.setItem("theme", t), theme);
+      await page.goto(`${PAGE}?status=4xx,5xx`);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expect(bodyRows(page)).toHaveCount(2);
+      const a11y = await new AxeBuilder({ page }).include(".ex").analyze();
+      expect(a11y.violations).toEqual([]);
+    }
+  } finally {
     await post("/__fake/consumers", { project: "shop", consumers: [] });
   }
 });
@@ -430,7 +507,7 @@ test("filters by app, names each row's app and keeps the app in the URL", async 
   await expect(grid(page)).not.toContainText(BILLING);
 
   // The picker lists the project's apps and applies at once.
-  await page.getByRole("button", { name: "Filters" }).click();
+  // The App picker is in view, no need to open More filters (#985).
   const picker = page.getByLabel("App", { exact: true });
   await expect(picker.locator("option")).toHaveText(["All apps", "Shop", "Billing"]);
   await picker.selectOption({ label: "Billing" });
@@ -450,7 +527,7 @@ test("filters by app, names each row's app and keeps the app in the URL", async 
   await page.goto(link);
   await expect(bodyRows(page)).toHaveCount(1);
   await expect(chips.getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText(["App Billing"]);
-  await page.getByRole("button", { name: "Filters (1)" }).click();
+  await expect(page.getByRole("button", { name: "More filters", exact: true })).toBeVisible();
   await expect(page.getByLabel("App", { exact: true })).toHaveValue(BILLING);
 
   // Removing the chip shows every app again.

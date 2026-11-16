@@ -37,4 +37,13 @@ describe.each(["dark", "light"] as const)("%s theme", (theme) => {
   it("muted text on a disabled primary button (surface-2) reads at 4.5:1 or better", () => {
     expect(contrast(get("ink-muted", theme), get("surface-2", theme))).toBeGreaterThanOrEqual(4.5);
   });
+
+  // A failed row's wash (#985): text on it keeps 4.5:1, and the wash differs from the row's surface.
+  it.each(["ink", "ink-muted", "error", "warn", "accent-ink"])("%s reads at 4.5:1 or better on error-tint", (fg) => {
+    expect(contrast(get(fg, theme), get("error-tint", theme))).toBeGreaterThanOrEqual(4.5);
+  });
+  it("error-tint is a faint wash: not surface-1, fainter than error-soft", () => {
+    expect(get("error-tint", theme)).not.toBe(get("surface-1", theme));
+    expect(contrast(get("error-tint", theme), get("surface-1", theme))).toBeLessThan(contrast(get("error-soft", theme), get("surface-1", theme)));
+  });
 });

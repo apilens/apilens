@@ -12,9 +12,13 @@ import {
   filterEntries,
   filterQuery,
   fromDraft,
+  STATUS_SEGMENTS,
+  moreCount,
   normalizeStatus,
   parseFilters,
   sameFilters,
+  searchSuggestions,
+  statusSegment,
   toDraft,
   uniqueEndpoints,
   withoutChip,
@@ -259,5 +263,32 @@ describe("filter suggestions (#983)", () => {
     expect(filterChips({ ...NO_FILTERS, consumer_id: "c_acme" }, CONSUMERS).map((c) => c.label)).toEqual(["Consumer Acme Corp"]);
     expect(filterChips({ ...NO_FILTERS, consumer_id: "c_beta" }, CONSUMERS).map((c) => c.label)).toEqual(["Consumer c_beta"]);
     expect(filterChips({ ...NO_FILTERS, consumer_id: "Acme Corp" }).map((c) => c.label)).toEqual(["Consumer Acme Corp"]);
+  });
+  it("search suggests endpoints then consumers, consumers keeping a few places (#985)", () => {
+    const s = { endpoints: ENDPOINTS, consumers: CONSUMERS };
+    expect(searchSuggestions(s, "acme")).toEqual([{ kind: "consumer", id: "c_acme", name: "Acme Corp" }]);
+    expect(searchSuggestions(s, "/charge")).toEqual([{ kind: "endpoint", method: "POST", path: "/charge" }]);
+    expect(searchSuggestions(s, "").map((x) => x.kind)).toEqual(["endpoint", "endpoint", "endpoint", "consumer", "consumer"]);
+    const many = { endpoints: Array.from({ length: 20 }, (_, i) => ({ method: "GET", path: `/c${i}` })), consumers: CONSUMERS };
+    const out = searchSuggestions(many, "c");
+    expect(out).toHaveLength(MAX_SUGGESTIONS);
+    expect(out.filter((x) => x.kind === "consumer")).toHaveLength(2);
+  });
+});
+
+describe("status segments and the More filters count (#985)", () => {
+  it("knows the segments and nothing else", () => {
+    expect(STATUS_SEGMENTS.map((s) => s.label)).toEqual(["All", "Errors", "4xx", "5xx"]);
+    expect(statusSegment("")).toBe("");
+    expect(statusSegment(normalizeStatus("4XX, 5xx") ?? "x")).toBe("4xx,5xx");
+    expect(statusSegment("5xx")).toBe("5xx");
+    expect(statusSegment("404")).toBeNull();
+    expect(statusSegment("5xx,4xx")).toBeNull();
+  });
+  it("counts only the filters the visible row does not show", () => {
+    expect(moreCount(NO_FILTERS)).toBe(0);
+    expect(moreCount({ ...NO_FILTERS, env: "production", app: APP, path: "/x", status: "5xx" })).toBe(0);
+    expect(moreCount({ ...NO_FILTERS, status: "404" })).toBe(1);
+    expect(moreCount({ ...NO_FILTERS, method: "GET", latency_min: 1, latency_max: 9, status: "4xx" })).toBe(2);
   });
 });

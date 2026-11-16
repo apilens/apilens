@@ -355,3 +355,47 @@ export function consumerSuggestions(list: readonly ConsumerSuggestion[], typed: 
   const t = typed.trim().toLowerCase();
   return list.filter((c) => c.id && (!t || c.id.toLowerCase().includes(t) || c.name.toLowerCase().includes(t))).slice(0, MAX_SUGGESTIONS);
 }
+
+/** One suggestion of the search field (#985): an endpoint (sets method and path) or a consumer. */
+export type SearchSuggestion = ({ kind: "endpoint" } & EndpointSuggestion) | ({ kind: "consumer" } & ConsumerSuggestion);
+
+/**
+ * What the search field suggests for typed text (#985): the matching endpoints, then the matching
+ * consumers, at most MAX_SUGGESTIONS in all. Consumers keep at least a few places when both match.
+ */
+export function searchSuggestions(s: FilterSuggestions, typed: string, method = ""): SearchSuggestion[] {
+  const consumers = consumerSuggestions(s.consumers, typed);
+  const endpoints = endpointSuggestions(s.endpoints, typed, method).slice(0, MAX_SUGGESTIONS - Math.min(consumers.length, 3));
+  return [
+    ...endpoints.map((e) => ({ kind: "endpoint" as const, ...e })),
+    ...consumers.slice(0, MAX_SUGGESTIONS - endpoints.length).map((c) => ({ kind: "consumer" as const, ...c })),
+  ];
+}
+
+/**
+ * The Status segments of the filter bar (#985): every status, errors (4xx and 5xx), client errors
+ * or server errors. Each is a status filter value; any other status filter (codes, ranges) is set
+ * under More filters and leaves no segment on.
+ */
+export const STATUS_SEGMENTS: readonly { label: string; value: string }[] = [
+  { label: "All", value: "" },
+  { label: "Errors", value: "4xx,5xx" },
+  { label: "4xx", value: "4xx" },
+  { label: "5xx", value: "5xx" },
+];
+
+/** The segment a status filter is, or null when it is something else (a code, a range). */
+export function statusSegment(status: string): string | null {
+  return STATUS_SEGMENTS.some((s) => s.value === status) ? status : null;
+}
+
+/**
+ * How many filters are on that the bar's always-visible row does not show (#985): the row shows
+ * search (the path), Status (when it is a segment), Environment and App; the rest sit under More
+ * filters. A min/max pair counts once.
+ */
+export function moreCount(f: ExploreFilters): number {
+  const shown = new Set<FilterKey>(["env", "app", "path"]);
+  if (statusSegment(f.status) !== null) shown.add("status");
+  return filterChips(f).filter((c) => !c.keys.every((k) => shown.has(k))).length;
+}

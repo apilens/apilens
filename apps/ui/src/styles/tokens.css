@@ -20,6 +20,7 @@
   --ok-soft: #132a1e;
   --warn-soft: #2b2415;
   --error-soft: #311a1a;
+  --error-tint: #221517;
   --shadow-frame: 0 20px 48px rgba(0,0,0,0.55);
 }
 [data-theme="light"] {
@@ -43,6 +44,7 @@
   --ok-soft: #e6f4ec;
   --warn-soft: #fbf0d9;
   --error-soft: #fbe5e2;
+  --error-tint: #fdf1f0;
   --shadow-frame: 0 24px 64px rgba(13,17,23,0.10);
 }
 :root {
