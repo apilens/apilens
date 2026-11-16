@@ -6,6 +6,7 @@ from .client._sampling import SampleOnRequest, SampleOnResponse
 from .client import ApiLensClient, ApiLensConfig
 from .client._env import env_defaults
 from .client._profile import CaptureProfile
+from .client.log_handler import CaptureLogs
 from .client._routes import starlette_route_template
 from .client.middleware import ApiLensASGIMiddleware
 from .frameworks.fastapi import instrument_fastapi, set_consumer, track_consumer
@@ -62,6 +63,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         log_request_body: bool = True,
         log_response_body: bool = True,
         capture_spans: bool = True,
+        capture_logs: CaptureLogs = "errors",
         service_name: str = "",
         max_payload_bytes: int = 65536,
         redact_query_params: list[str] | None = None,
@@ -114,6 +116,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             log_request_body=log_request_body,
             log_response_body=log_response_body,
             capture_spans=capture_spans,
+            capture_logs=capture_logs,
             service_name=service_name,
             max_payload_bytes=max_payload_bytes,
             redact_query_params=redact_query_params,

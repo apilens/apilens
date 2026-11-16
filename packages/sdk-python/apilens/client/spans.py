@@ -8,8 +8,9 @@ made with ``requests`` or ``httpx`` become child ``http`` spans (with
 
 When a request fails — an unhandled exception or a 5xx response — the
 middleware also emits one ERROR log correlated to the trace (see
-:func:`record_error_log`), so the failing request carries its message. This is
-the only thing written to ``/v1/logs``; it is not a general logging API.
+:func:`record_error_log`), so the failing request carries its message. ERROR
+records the app logs itself (``logger.exception(...)``) reach ``/v1/logs``
+through the logging handler (see :mod:`.log_handler`).
 """
 
 from __future__ import annotations
@@ -191,6 +192,24 @@ def record_span(
             if not held.keep:
                 return
     recorder.client.capture_span(record)
+
+
+_REPORTED_ATTR = "__apilens_reported__"
+
+
+def mark_exception_reported(exc: BaseException) -> None:
+    """Flag ``exc`` as already shipped (or about to be, by the middleware), so
+    the logging handler does not send it a second time when a framework or
+    server logs it again."""
+    try:
+        setattr(exc, _REPORTED_ATTR, True)
+    except Exception:
+        pass
+
+
+def exception_reported(exc: BaseException) -> bool:
+    """True once :func:`mark_exception_reported` has flagged ``exc``."""
+    return getattr(exc, _REPORTED_ATTR, False) is True
 
 
 def record_error_log(

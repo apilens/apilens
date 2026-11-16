@@ -423,7 +423,27 @@ async def get_order(order_id: str):
 ```
 
 Nothing to call — a clean request has no trace messages; a failing one does.
-This is the only thing written to `/v1/logs`; it is not a general logging API.
+
+### Logged exceptions
+
+Exceptions your code handles and logs never reach the middleware, so the
+middleware also installs `apilens.logging.ApiLensHandler` on the root logger at
+level `ERROR`. `logger.exception(...)` (any record with `exc_info`) becomes an
+`apilens.exception` log with the full exception, on the current request's
+trace; other `ERROR`/`CRITICAL` records become plain error logs. Records logged
+outside a request are shipped too, without a trace id. The SDK's own `apilens`
+loggers are ignored, and an exception the middleware already reports is not
+sent twice.
+
+```python
+try:
+    charge(order)
+except PaymentError:
+    logger.exception("charge failed")   # full stack on this request's trace
+```
+
+Turn it off with `capture_logs="off"` (Django: `APILENS_CAPTURE_LOGS = "off"`,
+env: `APILENS_CAPTURE_LOGS=off`).
 
 ### Propagating the trace
 
@@ -559,6 +579,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
 | `capture_content_types` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `capture_spans` | `True` | Emit trace spans for this app. |
+| `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. |
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
 | `mask_request_body` / `mask_response_body` | `None` | `(info, body: bytes) -> bytes \| None` callbacks on the captured (truncated) raw body; see [body mask callbacks](#security--privacy). |
@@ -739,6 +760,7 @@ parsed values as a dict.
 | `APILENS_CAPTURE_IP` | `capture_ip` | bool; `false` wins over code | `true` |
 | `APILENS_ANONYMIZE_IP` | `anonymize_ip` | bool; `true` wins over code | `false` |
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_LOGS` | `capture_logs` | `errors` or `off` | `errors` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
 | `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
@@ -772,6 +794,7 @@ the setting wins when both are set.
 | `APILENS_REDACT_QUERY_PARAMS` / `APILENS_REDACT_HEADERS` / `APILENS_REDACT_BODY_FIELDS` | `[]` | Redaction regexes (list, or comma-separated in the env var). |
 | `APILENS_CAPTURE_IP` / `APILENS_ANONYMIZE_IP` | `True` / `False` | Client IP privacy. |
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |
+| `APILENS_CAPTURE_LOGS` | `"errors"` | Ship `ERROR` log records to the trace; `"off"` disables. |
 | `APILENS_SERVICE_NAME` | `APILENS_APP_ID` | Service name on spans. |
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
 | `APILENS_MASK_REQUEST_BODY` / `APILENS_MASK_RESPONSE_BODY` | `None` | Body mask callbacks (callable or dotted path). An unimportable path raises at startup. |
