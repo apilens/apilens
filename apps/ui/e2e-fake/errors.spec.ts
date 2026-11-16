@@ -94,6 +94,29 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
   await expect(statusTable(page).getByRole("link", { name: "404 Not Found" })).toHaveAttribute("href", `${PAGE}?range=7d&code=404`);
 });
 
+test("Status codes tab: tiles compare with the previous window, and hide that without one (#1000)", async ({ page }) => {
+  const previous = { requests: 8000, client_errors: 80, server_errors: 0, client_error_rate: 0.01, server_error_rate: 0 };
+  const res = await fetch(`${IDENTITY}/__fake/errors`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", buckets: BUCKETS, requests: [2000, 2200, 1800, 2200], rows: ROWS, previous }),
+  });
+  expect(res.status).toBe(204);
+  await signIn(page);
+  await expect(tiles(page).locator(".tr-compare")).toHaveText([
+    "▲ 2.5% vs previous 24h",
+    "▲ 3.0 pts vs previous 24h",
+    "▲ 3.0 pts vs previous 24h",
+    "No change vs previous 24h",
+  ]);
+  await expect(tiles(page).locator(".tr-compare--bad")).toHaveCount(2);
+
+  await seed();
+  await page.reload();
+  await expect(tiles(page).locator(".tr-tile__value").first()).toHaveText("8,200");
+  await expect(tiles(page).locator(".tr-compare")).toHaveCount(0);
+});
+
 test("a status code opens its detail: summary and frequency, consumers and per-endpoint details", async ({ page }) => {
   await seed();
   await signIn(page);

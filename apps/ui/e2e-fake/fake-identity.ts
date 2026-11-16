@@ -141,7 +141,7 @@
 //   GET  /api/v1/errors/status?project=            the errors dashboard (#594), computed from the rows
 //   GET  /api/v1/errors/status/{code}?project=     `/__fake/errors` seeded: a status code an endpoint's
 //   GET  /api/v1/errors?project=                   saved settings (any app) mark as expected is no error
-//   POST /__fake/errors {project, buckets, requests, rows, down?}
+//   POST /__fake/errors {project, buckets, requests, rows, down?, previous?}
 //                                                  test hook: bucket starts, requests per bucket and error
 //                                                  rows [{method, path, status_code, bucket, count, consumer_id?,
 //                                                  consumer_name?, validation_errors?, exceptions?}]; forgets
@@ -690,7 +690,7 @@ type ErrorRow = {
   exceptions?: number;
 };
 /** Project slug → what the errors dashboard reads count (#594), as seeded by `/__fake/errors`. */
-const errorsSeed = new Map<string, { buckets: string[]; requests: number[]; rows: ErrorRow[]; down: boolean }>();
+const errorsSeed = new Map<string, { buckets: string[]; requests: number[]; rows: ErrorRow[]; down: boolean; previous?: unknown }>();
 
 /** Forgets the saved settings of one endpoint in every app. */
 function forgetSettings(method: string, path: string) {
@@ -2369,6 +2369,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         points: seed.buckets.map((ts, i) => ({ ts, ...split(seed.requests[i] ?? 0, rows.filter((r) => r.bucket === i)) })),
         series: statuses.map((st) => ({ status_code: st.status_code, counts: seed.buckets.map((_, i) => sum(rows.filter((r) => r.bucket === i && r.status_code === st.status_code))) })),
         statuses,
+        ...(seed.previous ? { previous: seed.previous } : {}),
       });
     }
     const code = Number(errorsStatus?.[1]);
@@ -2423,6 +2424,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       requests: (b.requests as number[] | undefined) ?? [],
       rows: (b.rows as ErrorRow[] | undefined) ?? [],
       down: b.down === true,
+      // The previous window's split (#1000), answered as `previous` as seeded.
+      previous: b.previous ?? undefined,
     });
     for (const r of (b.rows as ErrorRow[] | undefined) ?? []) forgetSettings(r.method, r.path);
     return send(res, 204);

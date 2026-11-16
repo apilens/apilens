@@ -1,3 +1,4 @@
+import { compare } from "@/lib/compare";
 import { formatCount } from "@/lib/consumers";
 import { latencyBucketLabel } from "@/lib/endpoint-detail";
 import { logTime, statusClass } from "@/lib/explore";
@@ -23,6 +24,7 @@ import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
 import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
+import { CompareLine } from "../traffic/compare";
 import { LiveControl, LiveNumber } from "../traffic/live";
 import { ApdexTile } from "./apdex";
 import { AppThresholdMenu } from "./threshold";
@@ -186,6 +188,7 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
 
 function Tiles({ latency, explanation, range }: { latency: TrafficLatency; explanation: readonly string[]; range: QueryRange }) {
   const s = latency.summary;
+  const prev = latency.previous;
   const points = latency.points ?? [];
   const tiles = [
     { label: "p50 response time", short: "p50", value: s.p50_ms, sub: `average ${formatLatency(s.avg_ms)}`, key: "p50_ms" as const },
@@ -202,11 +205,12 @@ function Tiles({ latency, explanation, range }: { latency: TrafficLatency; expla
               <LiveNumber text={formatLatency(t.value)} />
             </span>
             <span className="tr-tile__sub">{t.sub}</span>
+            <CompareLine comparison={compare(t.value, prev?.[t.key], { kind: "relative", better: "down", range })} />
             <Sparkline values={points.map((p) => p[t.key])} hover={{ label: t.short, range, points: points.map((p) => ({ ts: p.ts, text: formatLatency(p[t.key]) })) }} />
           </dd>
         </div>
       ))}
-      <ApdexTile apdex={s.apdex} explanation={explanation} />
+      <ApdexTile apdex={s.apdex} explanation={explanation} comparison={compare(s.apdex, prev?.apdex, { kind: "score", better: "up", range })} />
     </dl>
   );
 }

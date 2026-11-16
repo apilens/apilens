@@ -224,20 +224,80 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 
 type summaryOutput struct {
 	Body struct {
-		Range             string    `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
-		From              time.Time `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
-		To                time.Time `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
-		Requests          uint64    `json:"requests" doc:"Requests in the range."`
-		ClientErrors      uint64    `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
-		ServerErrors      uint64    `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
-		ErrorRate         float64   `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
-		P50Ms             float64   `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
-		P95Ms             float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
-		P99Ms             float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
-		RequestsPerMinute float64   `json:"requests_per_minute" doc:"requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter."`
-		CurrentPerMinute  float64   `json:"current_per_minute" doc:"Requests in the last full minute."`
-		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests."`
+		Range             string         `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From              time.Time      `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To                time.Time      `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		Requests          uint64         `json:"requests" doc:"Requests in the range."`
+		ClientErrors      uint64         `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
+		ServerErrors      uint64         `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
+		ErrorRate         float64        `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
+		P50Ms             float64        `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
+		P95Ms             float64        `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
+		P99Ms             float64        `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
+		RequestsPerMinute float64        `json:"requests_per_minute" doc:"requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter."`
+		CurrentPerMinute  float64        `json:"current_per_minute" doc:"Requests in the last full minute."`
+		Apdex             *float64       `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests."`
+		Previous          *summaryTotals `json:"previous,omitempty" doc:"The same totals over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."`
 	}
+}
+
+// summaryTotals are the totals of the summary over one window: the range
+// itself, or the window before it for the comparison (#1000).
+type summaryTotals struct {
+	From         time.Time `json:"from" doc:"Start of the window (inclusive, bucket-aligned)."`
+	To           time.Time `json:"to" doc:"End of the window (exclusive, bucket-aligned)."`
+	Requests     uint64    `json:"requests" doc:"Requests in the window."`
+	ClientErrors uint64    `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
+	ServerErrors uint64    `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
+	ErrorRate    float64   `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
+	P50Ms        float64   `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
+	P95Ms        float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
+	P99Ms        float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
+	Apdex        *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, scored as the range's; null without requests."`
+	first        time.Time // start of the first bucket with data, zero without any
+}
+
+// summaryScope is what a summary window is read with: the tenant filter
+// (app included), the same filter without excluded endpoints, the endpoint
+// rules and the Apdex thresholds.
+type summaryScope struct {
+	rules      metricRules
+	thresholds apdexThresholds
+	tenant     string
+	targs      []any
+	where      string
+	args       []any
+}
+
+// totals reads the summary totals of w.
+func (s *Service) totals(ctx context.Context, sc summaryScope, w window) (summaryTotals, error) {
+	t := summaryTotals{From: w.from, To: w.to}
+	var q []float32
+	err := s.ch.QueryRow(ctx, fmt.Sprintf(`
+		SELECT sum(requests), sum(client_errors), sum(server_errors), %s, min(bucket)
+		FROM %s WHERE %s AND bucket >= ? AND bucket < ?`, quantiles, w.table, sc.where),
+		append(append([]any{}, sc.args...), w.from, w.to)...).Scan(&t.Requests, &t.ClientErrors, &t.ServerErrors, &q, &t.first)
+	if err != nil {
+		return t, internalError("summary", err)
+	}
+	if t.Requests == 0 {
+		t.first = time.Time{}
+		return t, nil
+	}
+	expected, err := s.expectedErrors(ctx, sc.rules, sc.tenant, sc.targs, w.from, w.to, "''")
+	if err != nil {
+		return t, err
+	}
+	expected[""].subtract(&t.ClientErrors, &t.ServerErrors)
+	apdex, err := s.apdex(ctx, sc.thresholds, sc.where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sc.args...), w.from, w.to), "''")
+	if err != nil {
+		return t, err
+	}
+	t.ErrorRate = float64(t.ClientErrors+t.ServerErrors) / float64(t.Requests)
+	t.P50Ms, t.P95Ms, t.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
+	t.Apdex = apdex[""].score()
+	t.first = t.first.UTC()
+	return t, nil
 }
 
 func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutput, error) {
@@ -250,63 +310,46 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	if err != nil {
 		return nil, err
 	}
-	rules, err := s.endpointRules(ctx, p.ProjectID)
-	if err != nil {
+	var sc summaryScope
+	if sc.rules, err = s.endpointRules(ctx, p.ProjectID); err != nil {
 		return nil, err
 	}
-	tenant, targs := tenantFilter(p.ProjectID, in.Env)
-	tenant, targs, err = withApp(tenant, targs, in.App)
-	if err != nil {
+	sc.tenant, sc.targs = tenantFilter(p.ProjectID, in.Env)
+	if sc.tenant, sc.targs, err = withApp(sc.tenant, sc.targs, in.App); err != nil {
 		return nil, err
 	}
-	where, args := rules.withoutExcluded(tenant, targs)
+	sc.where, sc.args = sc.rules.withoutExcluded(sc.tenant, sc.targs)
+	if sc.thresholds, err = s.apdexThresholds(ctx, p.ProjectID); err != nil {
+		return nil, err
+	}
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
-	var (
-		requests, clientErrors, serverErrors, current uint64
-		q                                             []float32
-		first                                         time.Time
-	)
-	err = s.ch.QueryRow(qctx, fmt.Sprintf(`
-		SELECT sum(requests), sum(client_errors), sum(server_errors), %s, min(bucket)
-		FROM %s WHERE %s AND bucket >= ? AND bucket < ?`, quantiles, w.table, where),
-		append(args, w.from, w.to)...).Scan(&requests, &clientErrors, &serverErrors, &q, &first)
+	cur, err := s.totals(qctx, sc, w)
 	if err != nil {
-		return nil, internalError("summary", err)
+		return nil, err
 	}
+	var current uint64
 	lastMinute := now.UTC().Truncate(time.Minute).Add(-time.Minute)
-	err = s.ch.QueryRow(qctx, `SELECT sum(requests) FROM api_requests_1m WHERE `+where+` AND bucket = ?`,
-		append(append([]any{}, args...), lastMinute)...).Scan(&current)
+	err = s.ch.QueryRow(qctx, `SELECT sum(requests) FROM api_requests_1m WHERE `+sc.where+` AND bucket = ?`,
+		append(append([]any{}, sc.args...), lastMinute)...).Scan(&current)
 	if err != nil {
 		return nil, internalError("summary current rate", err)
 	}
-	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "''")
-	if err != nil {
-		return nil, err
-	}
-	expected[""].subtract(&clientErrors, &serverErrors)
-	thresholds, err := s.apdexThresholds(ctx, p.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), "''")
+	prev, err := s.totals(qctx, sc, w.previous())
 	if err != nil {
 		return nil, err
 	}
 	out := &summaryOutput{}
 	b := &out.Body
 	b.Range, b.From, b.To = w.name, w.from, w.to
-	b.Requests, b.ClientErrors, b.ServerErrors = requests, clientErrors, serverErrors
-	if requests > 0 {
-		b.ErrorRate = float64(clientErrors+serverErrors) / float64(requests)
-		b.P50Ms, b.P95Ms, b.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
-	}
-	if requests == 0 {
-		first = time.Time{}
-	}
-	b.RequestsPerMinute = perMinute(requests, w, now, first.UTC())
+	b.Requests, b.ClientErrors, b.ServerErrors = cur.Requests, cur.ClientErrors, cur.ServerErrors
+	b.ErrorRate, b.P50Ms, b.P95Ms, b.P99Ms = cur.ErrorRate, cur.P50Ms, cur.P95Ms, cur.P99Ms
+	b.RequestsPerMinute = perMinute(cur.Requests, w, now, cur.first)
 	b.CurrentPerMinute = float64(current)
-	b.Apdex = apdex[""].score()
+	b.Apdex = cur.Apdex
+	if prev.Requests > 0 {
+		b.Previous = &prev
+	}
 	return out, nil
 }
 

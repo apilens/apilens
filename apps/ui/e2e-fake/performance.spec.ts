@@ -171,6 +171,26 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram, the slow
   expect(a11y.violations).toEqual([]);
 });
 
+test("compares the percentiles and Apdex with the previous window, and hides without one (#1000)", async ({ page }) => {
+  const previous = { requests: 10_000, avg_ms: 40, max_ms: 2000, p50_ms: 31, p75_ms: 80, p90_ms: 120, p95_ms: 330, p99_ms: 1000, apdex: 0.5 };
+  await seed(true, false, { latency: { ...LATENCY, previous } });
+  await signIn(page);
+  await expect(tiles(page).locator(".tr-compare")).toHaveText([
+    "No change vs previous 24h",
+    "▼ 20.0% vs previous 24h",
+    "▲ 25.0% vs previous 24h",
+    "▲ 0.13 vs previous 24h",
+  ]);
+  // Faster and a higher Apdex are good; slower is bad.
+  await expect(tiles(page).locator(".tr-compare--good")).toHaveText(["▼ 20.0% vs previous 24h", "▲ 0.13 vs previous 24h"]);
+  await expect(tiles(page).locator(".tr-compare--bad")).toHaveText(["▲ 25.0% vs previous 24h"]);
+
+  await seed();
+  await page.reload();
+  await expect(tiles(page).locator(".tr-tile__value").first()).toHaveText("31 ms");
+  await expect(tiles(page).locator(".tr-compare")).toHaveCount(0);
+});
+
 test("saving the app's response time threshold reads the Apdex again", async ({ page }) => {
   await seed();
   await signIn(page);

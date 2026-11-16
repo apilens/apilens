@@ -5844,6 +5844,10 @@
               "null"
             ]
           },
+          "previous": {
+            "$ref": "#/components/schemas/ErrorSplit",
+            "description": "Requests and errors over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."
+          },
           "range": {
             "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
@@ -11787,6 +11791,10 @@
             "format": "double",
             "type": "number"
           },
+          "previous": {
+            "$ref": "#/components/schemas/SummaryTotals",
+            "description": "The same totals over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."
+          },
           "range": {
             "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
@@ -11827,6 +11835,80 @@
           "p99_ms",
           "requests_per_minute",
           "current_per_minute",
+          "apdex"
+        ],
+        "type": "object"
+      },
+      "SummaryTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "apdex": {
+            "description": "Apdex score from 0 to 1, scored as the range's; null without requests.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "client_errors": {
+            "description": "4xx responses, leaving out the expected status codes of each endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "error_rate": {
+            "description": "(client_errors + server_errors) / requests",
+            "format": "double",
+            "type": "number"
+          },
+          "from": {
+            "description": "Start of the window (inclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "p50_ms": {
+            "description": "Median response time, in milliseconds (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "p95_ms": {
+            "description": "95th percentile response time, in milliseconds (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "p99_ms": {
+            "description": "99th percentile response time, in milliseconds (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
+            "description": "Requests in the window.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "5xx responses, leaving out the expected status codes of each endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to": {
+            "description": "End of the window (exclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "requests",
+          "client_errors",
+          "server_errors",
+          "error_rate",
+          "p50_ms",
+          "p95_ms",
+          "p99_ms",
           "apdex"
         ],
         "type": "object"
@@ -12107,6 +12189,10 @@
               "array",
               "null"
             ]
+          },
+          "previous": {
+            "$ref": "#/components/schemas/LatencySummary",
+            "description": "The summary over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."
           },
           "range": {
             "description": "Time range of the response: 1h, 6h, 24h or 7d.",

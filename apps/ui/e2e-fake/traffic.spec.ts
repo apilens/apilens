@@ -137,6 +137,31 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
   expect(a11y.violations).toEqual([]);
 });
 
+test("compares each tile with the previous window, coloured by direction, and hides without one (#1000)", async ({ page }) => {
+  const previous = { from: "", to: "", requests: 10_000, client_errors: 100, server_errors: 26, error_rate: 0.0126, p50_ms: 40, p95_ms: 344, p99_ms: 1000, apdex: 0.95 };
+  await seed({ "": { summary: { ...SUMMARY, previous }, points: POINTS, endpoints: ENDPOINTS }, production: PRODUCTION });
+  await signIn(page);
+  const summary = page.locator("dl.tr-tiles");
+  await expect(summary.locator(".tr-compare")).toHaveText([
+    "▲ 24.0% vs previous 24h",
+    "▲ 1.7 pts vs previous 24h",
+    "▲ 19.9% vs previous 24h",
+    "▼ 0.04 vs previous 24h",
+  ]);
+  // More requests is neither good nor bad; more errors, slower and a lower Apdex are bad.
+  await expect(summary.locator(".tr-compare--neutral")).toHaveCount(1);
+  await expect(summary.locator(".tr-compare--bad")).toHaveCount(3);
+  const color = (cls: string) => summary.locator(cls).first().evaluate((el) => getComputedStyle(el).color);
+  expect(await color(".tr-compare--bad")).not.toBe(await color(".tr-compare--neutral"));
+  const a11y = await new AxeBuilder({ page }).include("dl.tr-tiles").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  // Production has no previous window: no comparison at all.
+  await page.goto(`${PAGE}?env=production`);
+  await expect(tiles(page).first()).toHaveText("9,000");
+  await expect(summary.locator(".tr-compare")).toHaveCount(0);
+});
+
 test("draws the charts at their measured width on first load, never blank", async ({ page }) => {
   await seed();
   await signIn(page);

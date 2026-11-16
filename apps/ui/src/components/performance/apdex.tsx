@@ -3,19 +3,30 @@
 import { useEffect, useId, useState } from "react";
 import { pointX, tooltipText } from "@/lib/chart-hover";
 import { APDEX_BANDS, apdexBandAt, apdexBandRange, apdexPosition } from "@/lib/performance";
+import type { Comparison } from "@/lib/compare";
 import { apdexRating, formatApdex } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { ChartAnnounce, ChartTooltip } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
+import { CompareLine } from "../traffic/compare";
 import { LiveNumber } from "../traffic/live";
 
 /**
  * The Apdex tile (#595): the score, its rating and a gauge from 0 to 1 split into the standard
  * rating bands, with a marker at the score. The gauge is a `meter` with a text value for assistive
  * technology, and the rating is written under the score, so the bands are not told apart by color
- * alone. The info button shows how Apdex is scored on hover or focus (Escape hides it).
+ * alone. The info button shows how Apdex is scored on hover or focus (Escape hides it). The
+ * comparison with the previous window (#1000) shows under the rating when there is one.
  */
-export function ApdexTile({ apdex, explanation }: { apdex: number | null | undefined; explanation: readonly string[] }) {
+export function ApdexTile({
+  apdex,
+  explanation,
+  comparison = null,
+}: {
+  apdex: number | null | undefined;
+  explanation: readonly string[];
+  comparison?: Comparison | null;
+}) {
   const rating = apdexRating(apdex);
   const at = apdexPosition(apdex);
   const value = formatApdex(apdex);
@@ -29,6 +40,7 @@ export function ApdexTile({ apdex, explanation }: { apdex: number | null | undef
           <LiveNumber text={value} />
         </span>
         <span className="tr-tile__sub">{rating ?? "No requests to score"}</span>
+        <CompareLine comparison={comparison} />
         <Gauge at={at} value={value} rating={rating} />
       </dd>
     </div>
