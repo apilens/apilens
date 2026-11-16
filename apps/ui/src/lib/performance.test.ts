@@ -6,13 +6,15 @@ import {
   apdexBandRange,
   apdexExplanation,
   apdexPosition,
-  byP95,
+  byTimeSpent,
   checkThreshold,
   checkThresholdDraft,
   endpointLatencyHref,
+  formatTimeSpent,
   parsePerformanceQuery,
   perfScopeText,
   performanceHref,
+  slowRequestHref,
   thresholdDraft,
   thresholdError,
 } from "./performance";
@@ -49,8 +51,8 @@ describe("performance URL state", () => {
   });
 });
 
-describe("byP95", () => {
-  const ep = (path: string, p95: number, requests = 10): EndpointTraffic => ({
+describe("byTimeSpent (#1001)", () => {
+  const ep = (path: string, total: number, requests = 10): EndpointTraffic => ({
     app_id: "a1",
     method: "GET",
     path,
@@ -59,14 +61,44 @@ describe("byP95", () => {
     server_errors: 0,
     error_rate: 0,
     p50_ms: 1,
-    p95_ms: p95,
+    p95_ms: 1,
+    total_time_ms: total,
     apdex: requests ? 1 : null,
   });
 
-  it("ranks the slowest p95 first and leaves out routes without traffic", () => {
-    const list = [ep("/a", 20), ep("/b", 900), ep("/idle", 0, 0), ep("/c", 20, 50), ep("/d", 20, 50)];
-    expect(byP95(list).map((e) => e.path)).toEqual(["/b", "/c", "/d", "/a"]);
+  it("ranks by requests × average, most first, and leaves out routes without traffic", () => {
+    const list = [ep("/a", 100), ep("/b", 600), ep("/idle", 0, 0), ep("/c", 100, 50), ep("/d", 200, 4)];
+    const rows = byTimeSpent(list);
+    expect(rows.map((r) => r.endpoint.path)).toEqual(["/b", "/d", "/c", "/a"]);
+    expect(rows.map((r) => r.avgMs)).toEqual([60, 50, 2, 10]);
+    expect(rows.map((r) => r.share)).toEqual([0.6, 0.2, 0.1, 0.1]);
     expect(list.map((e) => e.path)).toEqual(["/a", "/b", "/idle", "/c", "/d"]);
+  });
+
+  it("keeps the first `limit`, their share still of every endpoint's time", () => {
+    const rows = byTimeSpent([ep("/a", 300), ep("/b", 100)], 1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].share).toBe(0.75);
+    expect(byTimeSpent([ep("/old", 0)])).toEqual([]);
+  });
+});
+
+describe("formatTimeSpent", () => {
+  it("reads in ms, s, minutes or hours", () => {
+    expect(formatTimeSpent(840)).toBe("840 ms");
+    expect(formatTimeSpent(12_400)).toBe("12.4 s");
+    expect(formatTimeSpent(210_000)).toBe("3.5 min");
+    expect(formatTimeSpent(7_560_000)).toBe("2.1 h");
+  });
+});
+
+describe("slowRequestHref (#1001)", () => {
+  const r = { id: "abc_1", environment: "production", method: "post", path: "/charge", response_time_ms: 2310.7 };
+  it("opens Explore on the request: its environment, endpoint and response time or slower", () => {
+    expect(slowRequestHref("shop", r, { range: "24h" })).toBe(
+      "/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=abc_1",
+    );
+    expect(slowRequestHref("shop", { ...r, id: undefined, environment: "" }, { range: "1h" })).toBe("/shop/explore?method=POST&path=%2Fcharge&latency_min=2310");
   });
 });
 

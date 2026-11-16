@@ -1,23 +1,25 @@
 import { RANGE_LABEL, formatCount } from "@/lib/consumers";
 import { latencyBucketLabel } from "@/lib/endpoint-detail";
-import type { AppSettings, EndpointTraffic, NamedApp, QueryRange, TrafficLatency } from "@/lib/identity";
+import { logTime, statusClass } from "@/lib/explore";
+import { formatPercent } from "@/lib/format";
+import type { AppSettings, EndpointTraffic, NamedApp, QueryRange, RequestRow, TrafficLatency } from "@/lib/identity";
 import {
   PERFORMANCE_LOAD_FAILED,
-  PERF_ENDPOINTS_LIMIT,
   PERF_ENDPOINTS_LOAD_FAILED,
   type PerformanceState,
+  SLOWEST_LOAD_FAILED,
   apdexExplanation,
-  byP95,
+  byTimeSpent,
   endpointLatencyHref,
+  formatTimeSpent,
   perfScopeText,
   performanceHref,
+  slowRequestHref,
 } from "@/lib/performance";
-import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
-import { TRAFFIC_RANGES, appName, appOptions, formatApdex, formatLatency } from "@/lib/traffic";
+import { TRAFFIC_RANGES, appName, appOptions, formatLatency } from "@/lib/traffic";
 import { Histogram, LinesChart } from "../endpoint/charts";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
-import { Pagination } from "../pagination/pagination";
 import { Sparkline } from "../traffic/charts";
 import { LiveControl, LiveNumber } from "../traffic/live";
 import { ApdexTile } from "./apdex";
@@ -40,9 +42,10 @@ export interface AppThresholdLoad {
 /**
  * `/<project>/performance` (#595). How fast the project's API answers in a range and environment:
  * p50, p75 and p95 tiles with their trend, the Apdex with a gauge and how it is scored, the
- * response-time histogram and the endpoints by p95, each opening its Response times tab (where the
- * endpoint's own threshold is set). The app settings dialog edits the app-wide response time
- * threshold. The scope is in the URL; each read is null when the API could not answer it.
+ * response-time histogram, then why it is slow (#1001): the slowest requests, each opening in
+ * Explore, and the endpoints by time spent (requests × average), each opening its Response times
+ * tab (where the endpoint's own threshold is set). The app settings dialog edits the app-wide
+ * response time threshold. The scope is in the URL; each read is null when the API could not answer it.
  */
 export function PerformanceView({
   project,
@@ -51,8 +54,9 @@ export function PerformanceView({
   query: q,
   latency,
   endpoints,
+  slowest,
   threshold,
-  params = {},
+  now = Date.now(),
 }: {
   project: string;
   projectName: string;
@@ -60,9 +64,11 @@ export function PerformanceView({
   query: PerformanceState;
   latency: TrafficLatency | null;
   endpoints: EndpointTraffic[] | null;
+  /** The slowest requests of the scope (#1001), slowest first. */
+  slowest: RequestRow[] | null;
   threshold: AppThresholdLoad;
-  /** The page's search params as read, for the endpoints table's `?page=&per=`. */
-  params?: SearchParams;
+  /** When the page was read, for the requests' day. */
+  now?: number;
 }) {
   const href = (patch: Partial<PerformanceState>) => performanceHref(project, { ...q, ...patch });
   // A shared link may name an environment the project no longer lists; keep it selectable.
@@ -71,13 +77,15 @@ export function PerformanceView({
   // Only an app that is the page's whole scope names its threshold: across apps T differs (#976).
   const explanation = apdexExplanation(scoped && app && settings ? { name: app.name, thresholdMs: settings.apdex_threshold_ms } : null);
   const scope = perfScopeText(q, q.app ? appName(apps, q.app) : undefined);
+  // The App column (#976): which app served each row, when the rows can be of several apps.
+  const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
 
   return (
     <div className="page tr pf">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Performance</p>
         <h1 className="cp-lede">Performance</h1>
-        <p className="tr-lead">How fast your API answers: response time percentiles, Apdex and the slowest endpoints.</p>
+        <p className="tr-lead">How fast your API answers: response time percentiles, Apdex, the slowest requests and where the time goes.</p>
       </header>
 
       <div className="tr-bar">
@@ -142,14 +150,24 @@ export function PerformanceView({
       )}
 
       {latency === null || latency.summary.requests > 0 ? (
-        <section className="tr-card tr-card--table" aria-labelledby="pf-endpoints">
-          <h2 id="pf-endpoints">Endpoints by p95</h2>
-          {endpoints === null ? (
-            <LoadFailed text={PERF_ENDPOINTS_LOAD_FAILED} href={href({})} />
-          ) : (
-            <EndpointsTable project={project} q={q} scope={scope} endpoints={byP95(endpoints)} apps={apps && apps.length > 1 && !q.app ? apps : null} params={params} />
-          )}
-        </section>
+        <>
+          <section className="tr-card tr-card--table" aria-labelledby="pf-slowest">
+            <h2 id="pf-slowest">Slowest requests</h2>
+            {slowest === null ? (
+              <LoadFailed text={SLOWEST_LOAD_FAILED} href={href({})} />
+            ) : (
+              <SlowestTable project={project} q={q} scope={scope} requests={slowest} apps={appColumn} now={now} />
+            )}
+          </section>
+          <section className="tr-card tr-card--table" aria-labelledby="pf-time-spent">
+            <h2 id="pf-time-spent">Time spent</h2>
+            {endpoints === null ? (
+              <LoadFailed text={PERF_ENDPOINTS_LOAD_FAILED} href={href({})} />
+            ) : (
+              <TimeSpentTable project={project} q={q} scope={scope} endpoints={endpoints} apps={appColumn} />
+            )}
+          </section>
+        </>
       ) : null}
     </div>
   );
@@ -208,13 +226,83 @@ function HistogramCard({ latency }: { latency: TrafficLatency }) {
   );
 }
 
-function EndpointsTable({
+/** The slowest requests of the scope (#1001), slowest first, each opening in Explore. */
+function SlowestTable({
   project,
   q,
   scope,
-  endpoints: all,
+  requests,
   apps,
-  params,
+  now,
+}: {
+  project: string;
+  q: PerformanceState;
+  /** The scope in words, for the empty state. */
+  scope: string;
+  requests: RequestRow[];
+  /** The project's apps when the table shows the App column (#976); null leaves it out. */
+  apps: NamedApp[] | null;
+  now: number;
+}) {
+  if (requests.length === 0) {
+    return (
+      <p className="tr-empty" role="status">
+        No requests in {scope}.
+      </p>
+    );
+  }
+  return (
+    <table className="tr-table" aria-label="Slowest requests">
+      <thead>
+        <tr>
+          <th scope="col">Request</th>
+          {apps ? <th scope="col">App</th> : null}
+          <th scope="col">Status</th>
+          <th scope="col">Time</th>
+          <th scope="col" className="tr-num" aria-sort="descending">
+            Response time
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {requests.map((r, i) => {
+          const at = logTime(r.timestamp, now);
+          return (
+            <tr key={r.id || `${r.timestamp} ${r.trace_id} ${i}`} className="tr-row">
+              <td className="tr-ep" data-label="Request">
+                <a className="tr-ep__link" href={slowRequestHref(project, r, q)} title={`${r.method.toUpperCase()} ${r.path}`}>
+                  <b>{r.method.toUpperCase()}</b> <code>{r.raw_path || r.path}</code>
+                </a>
+              </td>
+              {apps ? (
+                <td className="tr-app" data-label="App">
+                  {appName(apps, r.app_id ?? "")}
+                </td>
+              ) : null}
+              <td data-label="Status">
+                <span className={`pf-status pf-status--${statusClass(r.status_code)}`}>{r.status_code}</span>
+              </td>
+              <td className="pf-when" data-label="Time">
+                <time dateTime={r.timestamp}>{`${at.day ? `${at.day}, ` : ""}${at.clock} UTC`}</time>
+              </td>
+              <td className="tr-num" data-label="Response time">
+                {formatLatency(r.response_time_ms)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** Endpoints by time spent (#1001): requests × average, most first, with their share of the total. */
+function TimeSpentTable({
+  project,
+  q,
+  scope,
+  endpoints,
+  apps,
 }: {
   project: string;
   q: PerformanceState;
@@ -223,69 +311,69 @@ function EndpointsTable({
   endpoints: EndpointTraffic[];
   /** The project's apps when the table shows the App column (#976); null leaves it out. */
   apps: NamedApp[] | null;
-  params: SearchParams;
 }) {
-  if (all.length === 0) {
+  const rows = byTimeSpent(endpoints);
+  if (rows.length === 0) {
     return (
       <p className="tr-empty" role="status">
         No endpoints with requests in {scope}.
       </p>
     );
   }
-  // Paged here, slowest first; the range, environment and app links leave `page` out (page 1).
-  const { rows: endpoints, window } = slicePage(all, parsePage(params));
   return (
-    <>
-      <table className="tr-table" aria-label="Endpoints by p95 response time">
-        <thead>
-          <tr>
-            <th scope="col">Endpoint</th>
-            {apps ? <th scope="col">App</th> : null}
-            <th scope="col" className="tr-num">
-              Requests
-            </th>
-            <th scope="col" className="tr-num">
-              p50
-            </th>
-            <th scope="col" className="tr-num" aria-sort="descending">
-              p95
-            </th>
-            <th scope="col" className="tr-num">
-              Apdex
-            </th>
+    <table className="tr-table" aria-label="Endpoints by time spent">
+      <caption className="pf-caption">Requests × average response time: the endpoints worth making faster first.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Endpoint</th>
+          {apps ? <th scope="col">App</th> : null}
+          <th scope="col" className="tr-num">
+            Requests
+          </th>
+          <th scope="col" className="tr-num">
+            Average
+          </th>
+          <th scope="col" className="tr-num" aria-sort="descending">
+            Time spent
+          </th>
+          <th scope="col" className="tr-num">
+            Share
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ endpoint: ep, totalMs, avgMs, share }) => (
+          <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
+            <td className="tr-ep" data-label="Endpoint">
+              <a className="tr-ep__link" href={endpointLatencyHref(project, ep, q)}>
+                <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
+              </a>
+            </td>
+            {apps ? (
+              <td className="tr-app" data-label="App">
+                {appName(apps, ep.app_id)}
+              </td>
+            ) : null}
+            <td className="tr-num" data-label="Requests">
+              {formatCount(ep.requests)}
+            </td>
+            <td className="tr-num" data-label="Average">
+              {formatLatency(avgMs)}
+            </td>
+            <td className="tr-num" data-label="Time spent">
+              {formatTimeSpent(totalMs)}
+            </td>
+            <td className="tr-num" data-label="Share">
+              <span className="pf-share">
+                <span className="pf-share__bar" aria-hidden="true">
+                  <span style={{ width: `${Math.max(1, Math.round(share * 100))}%` }} />
+                </span>
+                {formatPercent(share)}
+              </span>
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          {endpoints.map((ep) => (
-            <tr key={`${ep.app_id} ${ep.method} ${ep.path}`} className="tr-row">
-              <td className="tr-ep" data-label="Endpoint">
-                <a className="tr-ep__link" href={endpointLatencyHref(project, ep, q)}>
-                  <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
-                </a>
-              </td>
-              {apps ? (
-                <td className="tr-app" data-label="App">
-                  {appName(apps, ep.app_id)}
-                </td>
-              ) : null}
-              <td className="tr-num" data-label="Requests">
-                {formatCount(ep.requests)}
-              </td>
-              <td className="tr-num" data-label="p50">
-                {formatLatency(ep.p50_ms)}
-              </td>
-              <td className="tr-num" data-label="p95">
-                {formatLatency(ep.p95_ms)}
-              </td>
-              <td className="tr-num" data-label="Apdex">
-                {formatApdex(ep.apdex)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <Pagination pathname={performanceHref(project, {})} params={params} total={window.total} label="Endpoints by p95 pages" />
-      {all.length >= PERF_ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(PERF_ENDPOINTS_LIMIT)} busiest endpoints are ranked.</p> : null}
-    </>
+        ))}
+      </tbody>
+    </table>
   );
 }

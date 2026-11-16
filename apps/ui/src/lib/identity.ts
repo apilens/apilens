@@ -1267,6 +1267,8 @@ export interface EndpointTraffic {
   error_rate: number;
   p50_ms: number;
   p95_ms: number;
+  /** Sum of the range's response times in ms (requests × average, #1001): where the API spends its time. */
+  total_time_ms?: number;
   /** Apdex from 0 to 1 against the endpoint's latency threshold; null without requests. */
   apdex?: number | null;
 }
@@ -2666,6 +2668,12 @@ export function createClient(config: ClientConfig) {
       request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
     requestTimeline: (projectSlug: string, q: { range?: QueryRange } & RequestWindow & RequestLogFilters, o: Authed) =>
       request<RequestTimeline>("GET", "/requests/timeline", { ...o, query: { project: projectSlug, ...q } }),
+    /** `GET /requests/slowest` (#1001): the range's requests with the longest response time, slowest first. */
+    slowestRequests: (projectSlug: string, q: TrafficQuery & { limit?: number }, o: Authed) =>
+      request<{ requests: RequestRow[] | null }>("GET", "/requests/slowest", {
+        ...o,
+        query: { project: projectSlug, ...trafficScope(q), ...(q.limit !== undefined ? { limit: q.limit } : {}) },
+      }),
     getRequest: (projectSlug: string, id: string, o: Authed) =>
       request<RequestDetailRead>("GET", `/requests/${seg(id)}`, { ...o, query: { project: projectSlug } }),
     trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>

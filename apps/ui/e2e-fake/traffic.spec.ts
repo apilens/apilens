@@ -240,6 +240,61 @@ test("pages the endpoints table in the URL, starting again at page 1 when the sc
   await expect(pages).toHaveCount(0);
 });
 
+test("sorts the endpoints table by any column, in the URL, with aria-sort (#1001)", async ({ page }) => {
+  const many = [
+    ...ENDPOINTS,
+    { method: "GET", path: "/users", requests: 600, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 12, p95_ms: 90, apdex: 0.99 },
+    { method: "GET", path: "/health", requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null },
+  ];
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many } });
+  await signIn(page, `${PAGE}?range=6h`);
+  const table = endpointsTable(page);
+  const paths = () => table.locator("tbody .tr-ep code");
+  const header = (name: string) => table.getByRole("columnheader", { name, exact: true });
+
+  // Busiest first by default, as the API lists them.
+  await expect(header("Requests")).toHaveAttribute("aria-sort", "descending");
+  await expect(header("p95")).not.toHaveAttribute("aria-sort", /./);
+  await expect(paths()).toHaveText(["/orders/{id}", "/charge", "/users", "/health"]);
+
+  // A column sorts largest first, then the other way; the scope stays in the URL.
+  await header("p95").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "p95" && url.searchParams.get("dir") === "desc" && url.searchParams.get("range") === "6h");
+  await expect(header("p95")).toHaveAttribute("aria-sort", "descending");
+  await expect(header("Requests")).not.toHaveAttribute("aria-sort", /./);
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users", "/health"]);
+  await header("p95").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("dir") === "asc");
+  await expect(header("p95")).toHaveAttribute("aria-sort", "ascending");
+  await expect(paths()).toHaveText(["/health", "/users", "/orders/{id}", "/charge"]);
+
+  // Apdex sorts worst first; endpoints without a score go last.
+  await header("Apdex").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "apdex");
+  await expect(header("Apdex")).toHaveAttribute("aria-sort", "ascending");
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users", "/health"]);
+
+  // Endpoint sorts A to Z; a sorted link survives a reload.
+  await header("Endpoint").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "endpoint");
+  await page.reload();
+  await expect(header("Endpoint")).toHaveAttribute("aria-sort", "ascending");
+  await expect(paths()).toHaveText(["/charge", "/health", "/orders/{id}", "/users"]);
+
+  const a11y = await new AxeBuilder({ page }).include("table.tr-table").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
+test("sorts before paging and starts again at page 1 (#1001)", async ({ page }) => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ ...ENDPOINTS[0], path: `/items/${String(i).padStart(2, "0")}`, requests: 1000 - i, p95_ms: 10 + i }));
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many } });
+  await signIn(page, `${PAGE}?page=2`);
+  await endpointsTable(page).getByRole("columnheader", { name: "p95", exact: true }).getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "p95" && !url.searchParams.has("page"));
+  // The slowest of all 30 heads page 1, not the slowest of the first 25.
+  await expect(endpointsTable(page).locator("tbody .tr-ep code").first()).toHaveText("/items/29");
+});
+
 test("stays live with a pause", async ({ page }) => {
   await seed();
   await signIn(page);

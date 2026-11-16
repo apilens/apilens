@@ -84,6 +84,13 @@
 .tr-table td { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); vertical-align: middle; }
 .tr-table tbody tr:first-child td { border-top: 0; }
 .tr-table th.tr-num, .tr-table td.tr-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Sortable headers (#1001): the column name is a link; the arrow repeats aria-sort for sight (as
+   generated content with empty alt text, so it is never read twice). */
+.tr-sort { display: inline-flex; align-items: center; gap: 2px; color: inherit; font: inherit; text-decoration: none; }
+.tr-sort:hover, th[aria-sort] .tr-sort { color: var(--ink); }
+th[aria-sort="ascending"] .tr-sort::after { content: "↑" / ""; }
+th[aria-sort="descending"] .tr-sort::after { content: "↓" / ""; }
+.tr-sort:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
 .tr-row { position: relative; }
 .tr-row:hover { background: var(--surface-2); }
 .tr-ep__link { color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }

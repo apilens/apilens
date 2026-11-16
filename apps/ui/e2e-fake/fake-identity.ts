@@ -149,10 +149,15 @@
 //   GET  /api/v1/traffic/latency?project=&env=     the Performance page's report (#595) as seeded, its Apdex
 //                                                  scored over the seed's response times against shop's
 //                                                  first app threshold (else 500 ms); empty without a seed
-//   POST /__fake/performance {project, latency?, samples_ms?, endpoints?, down?}
+//   GET  /api/v1/requests/slowest?project=&env=&app=&limit=
+//                                                  the Performance page's slowest requests (#1001): the seed's
+//                                                  `slowest` rows, slowest first; none without a seed
+//   POST /__fake/performance {project, latency?, samples_ms?, endpoints?, slowest?, down?, slowest_down?}
 //                                                  test hook: what that answers, and what the Performance
-//                                                  page's `/traffic/endpoints?limit=500` read answers
-//                                                  (`down`: both answer 503); clears the app thresholds
+//                                                  page's `/traffic/endpoints?limit=500` and
+//                                                  `/requests/slowest` reads answer (`down`: all answer
+//                                                  503; `slowest_down`: only the slowest requests);
+//                                                  clears the app thresholds
 //   GET|PUT /api/v1/apps/{id}/settings             an app's response time threshold (#595): null until
 //                                                  saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
@@ -662,7 +667,10 @@ const endpointReads: { tab: string; method: string; path: string; query: Record<
 /** "<app id> <METHOD> <path>" → the saved settings of that endpoint (#593). */
 const endpointSettings = new Map<string, Record<string, unknown>>();
 /** Project slug → the response-time report and raw response times of `/traffic/latency` (#595). */
-const performanceSeed = new Map<string, { latency: Record<string, unknown>; samples: number[]; endpoints?: unknown[]; down: boolean }>();
+const performanceSeed = new Map<
+  string,
+  { latency: Record<string, unknown>; samples: number[]; endpoints?: unknown[]; slowest?: unknown[]; down: boolean; slowestDown?: boolean }
+>();
 /** App id → its saved response time threshold in ms (#595); absent means the default. */
 const appThresholds = new Map<string, number>();
 /** An error row the errors dashboard reads count (#594): `count` responses in bucket `bucket`. */
@@ -2244,6 +2252,24 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     return send(res, 200, { from: new Date(lo).toISOString(), to: new Date(hi).toISOString(), bucket_seconds: step, buckets });
   }
+  // The Performance page's slowest requests (#1001): the `/__fake/performance` seed's `slowest`
+  // rows, slowest first, narrowed by env and app and capped by limit; none without a seed.
+  if (req.method === "GET" && path === "/api/v1/requests/slowest") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    const seed = performanceSeed.get(slug);
+    if (queryDown.has(slug) || seed?.down || seed?.slowestDown) return problem(res, 503, "unavailable");
+    const env = url.searchParams.get("env");
+    const app = url.searchParams.get("app");
+    const limit = Number(url.searchParams.get("limit") ?? 10);
+    const rows = ((seed?.slowest ?? []) as Record<string, unknown>[])
+      .filter((r) => (!env || r.environment === env) && (!app || r.app_id === app))
+      .sort((a, b) => Number(b.response_time_ms) - Number(a.response_time_ms))
+      .slice(0, limit);
+    return send(res, 200, { requests: rows });
+  }
   // One request of the log (#588), as `GET /requests/{id}` answers it: the seeded row with that id
   // plus what its `detail` seeds (headers, bodies, validation errors, spans and logs).
   const requestDetail = path.match(/^\/api\/v1\/requests\/([^/]+)$/);
@@ -2420,7 +2446,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         latency: b.latency as Record<string, unknown>,
         samples: Array.isArray(b.samples_ms) ? (b.samples_ms as number[]) : [],
         endpoints: Array.isArray(b.endpoints) ? b.endpoints : undefined,
+        slowest: Array.isArray(b.slowest) ? b.slowest : undefined,
         down: b.down === true,
+        slowestDown: b.slowest_down === true,
       });
     } else performanceSeed.delete(String(b.project));
     appThresholds.clear();
