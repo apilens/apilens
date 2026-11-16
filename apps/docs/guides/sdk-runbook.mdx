@@ -116,7 +116,9 @@ logging.getLogger("apilens").setLevel(logging.DEBUG)
 | `queue_full` | The queue reached `max_queue_size`; the oldest record was dropped. | Read `last_error`: ingest is slow or unreachable. If it is healthy, raise `max_queue_size` or lower the sample rate. |
 | `queue_bytes` | The queue reached `max_queue_bytes`; the oldest records were dropped. | Usually bodies. Turn bodies off or set a **Body size cap** remotely, then size the queue ([Delivery](/sdk-reference/delivery#sizing-table)). |
 | `non_retryable` | Ingest refused a batch with a 4xx; it was not retried. | See [401](#401-unauthorized) and [422](#422-validation-error) below. |
-| `retries_exhausted` | The batch still failed after `max_retries` retries (5xx, 429, timeouts, network or TLS errors). | Check egress, proxy and CA bundle; for 429 see [below](#429-too-many-requests). |
+| `retries_exhausted` | The batch still failed after its retries (5xx, 429, timeouts, network or TLS errors); in Python, for `max_retry_seconds` (default 300 s). | Check egress, proxy and CA bundle; for 429 see [below](#429-too-many-requests). |
+| `invalid` | Python: ingest accepted the batch but refused these records (partial accept); they are not retried. | Read the WARNING log line: it quotes ingest's reason for the first refused record. |
+| `shutdown` | Python: still queued when the client shut down (ingest unreachable during the shutdown flush). | Check egress at shutdown, or give the shutdown more time (`shutdown_timeout`). |
 | `truncated` | Not a drop: a record larger than `max_batch_bytes` was cut and sent. | Raise `max_batch_bytes` or lower `max_payload_bytes` if the cut part matters. |
 
 **Healthy after a rollout:** `last_success` advances, `sent` grows, `dropped` stays flat. Alert when `dropped` rises or `last_success` stops moving for a few flush intervals.
@@ -225,10 +227,10 @@ Records naming an app that cannot be used are refused; when other records of the
 
 ### 429 Too Many Requests
 
-A 429 is retried, after the server's `Retry-After` (capped at 60 s), up to `max_retries` times. While it lasts, records queue; when retries run out the batch is dropped as `retries_exhausted`:
+A 429 is retried, after the server's `Retry-After` (capped at 60 s), up to `max_retries` times (Python: until `max_retry_seconds` has passed). While it lasts, records queue; when retries run out the batch is dropped as `retries_exhausted`:
 
 ```log Python
-API Lens ingest failed after <attempts> attempt(s); dropping batch of <n> records: <error>
+API Lens ingest still failing after max_retry_seconds=<seconds>; dropping <n> <signal> record(s): <error>
 ```
 
 ```log Java

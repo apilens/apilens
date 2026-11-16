@@ -24,7 +24,7 @@ Each SDK delivers from one background worker (a daemon thread in Python and Java
 | `max_queue_bytes` | `maxQueueBytes` | `maxQueueBytes` (`apilens.max-queue-bytes`) | 64 MB, shared by the three queues |
 | `compress` | `compress` | `compress` (`apilens.compress`) | `true` (gzip, level 5) |
 | `timeout` | `timeoutMs` | `timeout` (`apilens.timeout`) | 5 s per POST |
-| `max_retries` | `maxRetries` | `maxRetries` (`apilens.max-retries`) | `3` |
+| `max_retry_seconds` (`max_retries` is a deprecated alias) | `maxRetries` | `maxRetries` (`apilens.max-retries`) | Python: `300` s; TypeScript, Java: `3` retries |
 | `retry_backoff_base` / `retry_backoff_max` | `retryBackoffBaseMs` / `retryBackoffMaxMs` | `retryBackoffBase` / `retryBackoffMax` | 0.25 s / 5 s |
 | `mode` | `flushMode` | not available | `thread` / `background` |
 | `proxy_url` | not available (use `fetchImpl`) | not available (use JVM properties) | none |
@@ -59,7 +59,7 @@ That ceiling is only reached while ingest is unreachable or slower than your tra
 
 A batch is cut at `batch_size` records or `max_batch_bytes`, whichever comes first. The byte cap is measured on the uncompressed JSON because that is what the ingest edge limits: it rejects bodies over 16 MB, counted both on the wire and after decompression. A backlog of large records therefore goes out as several requests rather than one oversized body that ingest would reject whole.
 
-A single record larger than `max_batch_bytes` on its own is not dropped. Its bodies are cut first (then headers, message and attributes), marked `...[truncated]`, and it is sent. Those records are counted under `truncated`, which is not a drop.
+A single record larger than `max_batch_bytes` on its own is not dropped. Its bodies are cut first (then headers, message and attributes), marked `...[truncated]` (Python cuts the middle, keeping the head and the tail around `…[N chars truncated]…`), and it is sent. Those records are counted under `truncated`, which is not a drop.
 
 With body capture on, start from **`batch_size = 100`, `max_batch_bytes = 4 MB`**. Worst-case records (about 145 KB) then go out about 28 per POST, well under the edge limit and cheap to retry; typical records with small bodies still fill the 100-record batch. Without bodies the defaults (200 records / 4 MB) rarely reach the byte cap.
 
@@ -126,7 +126,8 @@ Set `compress` to `false` only when CPU matters more than bandwidth, for example
 | Outcome | What the SDK does | Counted as |
 |---|---|---|
 | 2xx | Done. | `sent_batches`, `sent_records` |
-| 408, 429, 5xx, timeout, network or TLS error | Retried up to `max_retries` times (so `max_retries + 1` attempts). | `retries_exhausted` if every attempt fails |
+| 408, 429, 5xx, timeout, network or TLS error | Retried up to `max_retries` times (so `max_retries + 1` attempts). Python puts the batch back at the front of its queue and retries it until `max_retry_seconds` has passed since its first failure. | `retries_exhausted` if every attempt fails |
+| 2xx naming invalid records (partial accept) | Python: the other records are stored; the invalid ones are counted and not retried. | `invalid` |
 | Any other 4xx (400, 401, 403, 413, 422…) | Dropped at once, not retried. The response body is logged at most once per status every 5 minutes; a 401 logs a single message pointing at [Troubleshooting](/support/troubleshooting). | `non_retryable` |
 
 The wait between attempts is full-jitter exponential backoff: a random time between 0 and `retry_backoff_base × 2^attempt`, capped at `retry_backoff_max` (0.25 s and 5 s by default), so many workers do not retry in lockstep. A `Retry-After` header (seconds or an HTTP date) takes precedence, capped at 60 s.

@@ -157,7 +157,7 @@ def test_non_retryable_failure_is_not_retried_and_counted(monkeypatch):
 
 
 def test_retryable_failure_counts_retries_exhausted(monkeypatch):
-    client = _client(max_retries=2)
+    client = _client(max_retries=2, retry_backoff_base=0.25)
     calls = []
 
     def urlopen(*_a, **_kw):
@@ -167,11 +167,19 @@ def test_retryable_failure_counts_retries_exhausted(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
     client.capture_span(_span())
     client.flush_once()
-    assert len(calls) == 3
+    # max_retries=2 maps to a 0.75 s window: the span waits for its retry.
+    assert len(calls) == 1
+    assert client.retry_window() == 0.75
+    client._retry_at[id(client._span_queue)] = 0.0
+    client._failed_at[id(client._span_queue[0])] -= 1.0  # first failure 1 s ago
+    client.flush_once()
+    assert len(calls) == 2
     assert client.drop_counts() == {
         "queue_full": 0,
         "queue_bytes": 0,
         "non_retryable": 0,
         "retries_exhausted": 1,
+        "invalid": 0,
+        "shutdown": 0,
         "truncated": 0,
     }

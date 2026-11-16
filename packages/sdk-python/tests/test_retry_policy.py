@@ -177,75 +177,119 @@ def test_different_statuses_are_rate_limited_independently(fake_ingest, caplog):
     assert "status 413" in caplog.records[1].getMessage()
 
 
-def test_429_honours_retry_after_seconds(fake_ingest):
+@pytest.fixture
+def clock(monkeypatch):
+    """A fake monotonic clock driving the retry window and backoff."""
+    now = [1000.0]
+    monkeypatch.setattr(client_mod.time, "monotonic", lambda: now[0])
+    return now
+
+
+def _retry_delay(client: ApiLensClient, clock) -> float:
+    return client._retry_at[id(client._queue)] - clock[0]
+
+
+def test_429_honours_retry_after_seconds(fake_ingest, clock):
     server = fake_ingest((429, {"Retry-After": "7"}, b""), OK)
-    client, sleeps = _client(server)
+    client, sleeps = _client(server, max_retries=None, max_retry_seconds=300)
     _capture(client, 2)
+    assert client.flush_once() == 0
+    assert _retry_delay(client, clock) == 7.0
+    assert len(client._queue) == 2  # back at the front, not dropped
+    clock[0] += 6.9
+    assert client.flush_once() == 0  # still waiting out Retry-After
+    assert server.hits == 1
+    clock[0] += 0.1
     assert client.flush_once() == 2
     assert server.hits == 2
-    assert sleeps == [7.0]
+    assert sleeps == []  # the flush path never sleeps
     assert client.dropped_count == 0
 
 
-def test_retry_after_http_date_and_cap(fake_ingest):
+def test_retry_after_http_date_and_cap(fake_ingest, clock):
     future = datetime.now(tz=timezone.utc) + timedelta(seconds=30)
     server = fake_ingest(
         (429, {"Retry-After": format_datetime(future, usegmt=True)}, b""),
         (503, {"Retry-After": "3600"}, b""),
         OK,
     )
-    client, sleeps = _client(server)
+    client, _ = _client(server, max_retries=None, max_retry_seconds=300)
     _capture(client, 1)
-    assert client.flush_once() == 1
-    assert 25 <= sleeps[0] <= 30
-    assert sleeps[1] == RETRY_AFTER_MAX_SECONDS
-
-
-def test_503_retries_with_jittered_backoff_then_counts_exhausted(fake_ingest):
-    server = fake_ingest((503, {}, b"down"))
-    client, sleeps = _client(server, max_retries=3, retry_backoff_base=0.25, retry_backoff_max=5.0)
-    _capture(client, 2)
     assert client.flush_once() == 0
-    assert server.hits == 4
-    assert len(sleeps) == 3
-    for attempt, s in enumerate(sleeps):
-        assert 0 <= s <= min(5.0, 0.25 * 2**attempt)
+    assert 25 <= _retry_delay(client, clock) <= 30
+    clock[0] += 30
+    assert client.flush_once() == 0
+    assert _retry_delay(client, clock) == RETRY_AFTER_MAX_SECONDS
+    clock[0] += RETRY_AFTER_MAX_SECONDS
+    assert client.flush_once() == 1
+
+
+def test_503_retries_with_jittered_backoff_then_counts_exhausted(fake_ingest, clock):
+    server = fake_ingest((503, {}, b"down"))
+    client, _ = _client(
+        server, max_retries=None, max_retry_seconds=10, retry_backoff_base=0.25, retry_backoff_max=5.0
+    )
+    _capture(client, 2)
+    delays = []
+    while client._queue:
+        assert client.flush_once() == 0
+        if client._queue:
+            delays.append(_retry_delay(client, clock))
+            clock[0] += delays[-1]
+    for attempt, d in enumerate(delays):
+        assert 0 <= d <= min(5.0, 0.25 * 2**attempt)
+    assert server.hits == len(delays) + 1
     assert client.drop_counts()["retries_exhausted"] == 2
     assert client.drop_counts()["non_retryable"] == 0
 
 
-def test_408_is_retryable(fake_ingest):
+def test_408_is_retryable(fake_ingest, clock):
     server = fake_ingest((408, {}, b""), OK)
-    client, sleeps = _client(server)
+    client, _ = _client(server, max_retries=None, max_retry_seconds=300)
     _capture(client, 1)
+    assert client.flush_once() == 0
+    clock[0] += 5.0
     assert client.flush_once() == 1
     assert server.hits == 2
-    assert len(sleeps) == 1
 
 
-def test_timeout_is_retried(fake_ingest):
+def test_timeout_is_retried(fake_ingest, clock):
     server = fake_ingest("hang", OK)
-    client, sleeps = _client(server, timeout=0.1)
+    client, _ = _client(server, max_retries=None, max_retry_seconds=300, timeout=0.1)
     _capture(client, 1)
+    assert client.flush_once() == 0
+    clock[0] += 5.0
     assert client.flush_once() == 1
     assert server.hits == 2
-    assert len(sleeps) == 1
     assert client.dropped_count == 0
 
 
-def test_connection_refused_is_retried_then_exhausted(fake_ingest):
+def test_connection_refused_is_retried_then_exhausted(fake_ingest, clock):
     server = fake_ingest(OK)
     url = server.base_url
     server.close()
     client = ApiLensClient(
-        ApiLensConfig(api_key="k", base_url=url, max_retries=2, timeout=0.5), start_worker=False
+        ApiLensConfig(api_key="k", base_url=url, max_retry_seconds=2, timeout=0.5),
+        start_worker=False,
     )
-    sleeps: list[float] = []
-    client._sleep = sleeps.append  # type: ignore[method-assign]
     _capture(client, 1)
     assert client.flush_once() == 0
-    assert len(sleeps) == 2
+    assert client.drop_counts()["retries_exhausted"] == 0
+    clock[0] += 5.0
+    assert client.flush_once() == 0
     assert client.drop_counts()["retries_exhausted"] == 1
+    assert not client._queue
+
+
+def test_partial_accept_over_http_counts_invalid(fake_ingest):
+    body = b'{"invalid":1,"errors":[{"index":1,"reason":"requests[1].method is required"}]}'
+    server = fake_ingest((200, {"Content-Type": "application/json"}, body))
+    client, _ = _client(server)
+    _capture(client, 3)
+    assert client.flush_once() == 3
+    assert server.hits == 1
+    assert client.drop_counts()["invalid"] == 1
+    assert client.stats().sent_records == 2
 
 
 def test_backoff_has_jitter_spread_over_100_runs():
