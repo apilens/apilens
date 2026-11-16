@@ -233,7 +233,8 @@ function DetailsCard({ project, current, edit, onSaved }: { project: string; cur
 }
 
 function IdentifiersCard({ detail, names }: { detail: ProjectDetail; names: Record<string, string> }) {
-  const creator = detail.created_by === null ? "Not recorded" : (names[detail.created_by] ?? "A former member");
+  // The date always; who created it only when that was recorded (#999: not "Not recorded · Nov 6").
+  const creator = detail.created_by === null ? null : (names[detail.created_by] ?? "a former member");
   return (
     <section className="os-card" aria-labelledby="pgen-ids">
       <div className="os-card__head">
@@ -257,10 +258,10 @@ function IdentifiersCard({ detail, names }: { detail: ProjectDetail; names: Reco
           <div>
             <dt>Created</dt>
             <dd>
-              {creator} ·{" "}
               <time dateTime={detail.created_at} title={formatExact(detail.created_at)}>
                 {formatDay(detail.created_at)}
               </time>
+              {creator ? ` by ${creator}` : null}
             </dd>
           </div>
         </dl>

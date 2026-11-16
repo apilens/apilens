@@ -1,6 +1,6 @@
 /* The invite chip input (#346). Tokens from tokens.css only. */
 .ii { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; max-height: 220px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); cursor: text; }
-.ii:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ii:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ii.bad { border-color: var(--error); }
 .ii.off { background: var(--surface-2); cursor: default; }
 .ii-chips { display: contents; list-style: none; margin: 0; padding: 0; }

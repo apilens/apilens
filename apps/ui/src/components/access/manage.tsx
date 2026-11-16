@@ -339,7 +339,11 @@ export function MemberRowMenu({ project, projectName, member, announce }: { proj
     return (
       <Gated gate={{ allowed: false, reason: change.reason }}>
         {(describedBy) => (
-          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm am-menu-btn" disabled aria-label={`Role of ${name} is locked`} aria-describedby={describedBy}>
+          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm am-menu-btn am-locked" disabled aria-label={`Role of ${name} is locked`} aria-describedby={describedBy}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+              <rect x="3" y="7" width="10" height="7" rx="1.5" />
+              <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+            </svg>
             Locked
           </button>
         )}

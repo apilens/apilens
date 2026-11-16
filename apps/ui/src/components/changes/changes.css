@@ -32,7 +32,7 @@
 .ch-filters { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); margin: 0 0 var(--space-4); }
 .ch-field { display: flex; align-items: center; gap: var(--space-2); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ch-select { height: 30px; min-width: 180px; max-width: 100%; padding: 0 28px 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font: 400 13px/1 var(--font-sans); appearance: none; cursor: pointer; }
-.ch-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ch-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ch-select:disabled { opacity: .6; cursor: default; }
 .ch-card + .pg { margin-top: var(--space-4); }
 .ch-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 2px; color: var(--ink-muted); }

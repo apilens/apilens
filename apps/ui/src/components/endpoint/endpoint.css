@@ -79,7 +79,7 @@
 .ep-field--check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .ep-input { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 400 14px/1 var(--font-mono); }
 .ep-input--short { max-width: 200px; }
-.ep-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ep-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ep-input[aria-invalid="true"] { border-color: var(--error); }
 .ep-fields:disabled .ep-input { background: var(--surface-2); color: var(--ink-muted); }
 .ep-hint { margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }

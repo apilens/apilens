@@ -1,11 +1,20 @@
-/* Access › Members › Default access card (#808), on top of org-settings.css (.os-card). Tokens from tokens.css only. */
-.da { margin-bottom: var(--space-6); }
+/* Access › Members › Default access (#808), on top of org-settings.css (.os-card). Under the people
+   table (#999): one line with Change, opening to the three choices. Tokens from tokens.css only. */
+.da { margin: var(--space-6) 0; }
+.da-line { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.da-line__t { flex: 1; min-width: 0; }
+.da-line__text { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.da-line__why { margin: 0; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.da-line .da-status { margin: 0; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.da-line .da-status.ok { color: var(--ok); }
+.da-line .da-status.err { color: var(--error); }
+.da-line .ah-btn { flex: none; }
 .da .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .da-choices { min-width: 0; margin: var(--space-4) 0 0; padding: 0; border: 0; }
 .da-choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; }
 .da-choice + .da-choice { margin-top: var(--space-2); }
-.da-choice.on { border-color: var(--accent); background: var(--ok-soft); }
+.da-choice.on { border-color: var(--accent); background: var(--accent-soft); }
 .da-choice input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
 .da-choice b { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: 500 13px/18px var(--font-sans); color: var(--ink); }
 .da-choice > span > span { display: block; margin-top: 2px; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }

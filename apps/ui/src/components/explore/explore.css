@@ -105,7 +105,7 @@
 .ex-input { box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 400 13px/1 var(--font-sans); }
 .ex-input--mono { font-family: var(--font-mono); }
 .ex-input::placeholder { color: var(--ink-muted); opacity: .8; }
-.ex-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ex-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ex-input[aria-invalid="true"] { border-color: var(--error); }
 select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; }
 /* A legend is not a flex item, so the fieldset's gap skips it: space it like a label. */

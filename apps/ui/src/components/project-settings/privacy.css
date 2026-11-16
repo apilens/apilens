@@ -28,7 +28,7 @@
 .prv-tester { display: grid; gap: var(--space-6); }
 .prv-pair { min-width: 0; }
 .prv-textarea { display: block; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-1); color: var(--ink); font: 400 13px/20px var(--font-mono); resize: vertical; }
-.prv-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.prv-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .prv-out-label { margin: var(--space-3) 0 4px; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
 .prv-out { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--ink); font: 400 13px/20px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 

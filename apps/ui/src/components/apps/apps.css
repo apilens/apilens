@@ -61,7 +61,7 @@
 
 .ap-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .ap-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }
-.ap-tag--new { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--ok-soft); color: var(--accent-ink); }
+.ap-tag--new { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); color: var(--accent-ink); }
 
 /* Notices above the cards: rejected data (warning), new apps, read-only. */
 .ap-notice { margin: 0 0 var(--space-4); }
