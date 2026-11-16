@@ -300,6 +300,8 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
           .appId(client.config().appId())
           .build());
     }
+    // Outbound HTTP child spans are kept or dropped with the request's server span.
+    trace.releaseChildSpans(sampled && options.captureSpans(), client::captureSpan);
 
     // The exception log does not depend on span capture (D2): captureSpans=false turns spans
     // off, never exceptions.

@@ -272,8 +272,20 @@ named `METHOD /route/template`), sent to `/traces`. An incoming W3C
   `currentSpanId()`, `currentTraceparent()`) inside a Spring MVC handler; on
   WebFlux use `ApiLensWebFilter.traceContext(exchange)` (also in the Reactor
   context under `TraceContext.class`).
-- **Propagating the trace.** Send `TraceContext.currentTraceparent()` as the
-  `traceparent` header on outbound calls so downstream services join the trace.
+- **Outbound HTTP calls.** Calls made during a captured request become child
+  spans (`kind=http`, named `METHOD url`, attributes `http.method` and
+  `http.url` with the query string and userinfo stripped, the response status,
+  `error` when the call threw or answered 5xx) and send a `traceparent` header
+  so downstream services join the trace. Spring Boot instruments every
+  `RestTemplateBuilder`, `RestClient.Builder` and `WebClient.Builder` and wraps
+  `java.net.http.HttpClient` beans. By hand: add
+  `new ApiLensClientHttpRequestInterceptor(ApiLensHttpTracing.of(client))` to a
+  `new RestTemplate()`, `new ApiLensExchangeFilterFunction(...)` to a
+  `WebClient`, or use `ApiLensHttpClient.wrap(httpClient, tracing)`. Child spans
+  are kept or dropped with the request's server span, and nothing is traced
+  when span capture is off.
+- **Propagating the trace by hand.** Send `TraceContext.currentTraceparent()`
+  as the `traceparent` header on other outbound calls.
 
 ### Automatic error capture
 
