@@ -1,7 +1,7 @@
 // Node builtins for the core (see runtime.ts); first, before the core runs.
 import "./node.js";
 
-export { ApiLensClient, DROP_REASONS } from "./client.js";
+export { ApiLensClient, DROP_REASONS, captureException } from "./client.js";
 export { describeAppChoice, resolveAppId } from "./app.js";
 export type { AppIdSource } from "./app.js";
 export {
@@ -116,6 +116,7 @@ export type {
   ApiLensSignal,
   ApiLensRecordInput,
   ApiLensSpanRecord,
+  CaptureExceptionOptions,
   CaptureProfile,
   Logger,
   RequestLoggingConfig,

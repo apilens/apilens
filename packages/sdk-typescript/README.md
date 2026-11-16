@@ -410,7 +410,38 @@ of `cause` links). V8 keeps only 10 frames per stack, so the middleware raises
 app already set higher is left alone.
 
 Nothing to call — a clean request has no trace messages; a failing one does.
-This is the only thing written to `/v1/logs`; it is not a general logging API.
+Exception logs are the only thing written to `/v1/logs`; it is not a general
+logging API.
+
+### Errors outside a request and errors you catch
+
+On Node the client also listens for `uncaughtException` and
+`unhandledRejection` (`captureUnhandled`, default `true`; background flush
+mode). The error is shipped as an ERROR exception log (attribute
+`exception.mechanism` `uncaughtException` / `unhandledRejection`) and flushed
+before the process exits, within `shutdownTimeoutMs`. Node's exit behaviour is
+unchanged: an error that would have crashed the process still crashes it
+(printed to stderr, exit code 1) once the flush is done, the
+`--unhandled-rejections` mode is honoured, and when your app has its own
+listener it stays in charge and the process keeps running.
+
+For an error your code catches and handles, call `captureException`. Inside a
+request it carries that request's trace id (through `AsyncLocalStorage`), so
+it shows up under **Trace messages** next to the request:
+
+```js
+import { captureException } from "apilens-js-sdk";
+
+try {
+  await chargeCard(order);
+} catch (err) {
+  captureException(err, { level: "WARN" }); // ERROR by default
+  res.status(402).json({ error: "payment declined" });
+}
+```
+
+It sends the same full exception as above and is a no-op before the client
+is created or while capture is off.
 
 ### Propagating the trace
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Errors outside a request: on Node the client ships `uncaughtException` and
+  `unhandledRejection` as ERROR exception logs and flushes them before the
+  process exits (`captureUnhandled`, default true). Node's exit behaviour is
+  kept: a crash still crashes (exit code 1) after the flush, the
+  `--unhandled-rejections` mode is honoured and an app listener stays in
+  charge. New `captureException(err, { level })` ships an error the app
+  caught, tied to the current request's trace.
 - Full exception payload: the exception log renders `name: message`, the
   stack, every `Caused by:` from `error.cause` (depth 10, cycle-safe) and
   every `AggregateError` member; a non-`Error` throw sends `String(value)`

@@ -9,8 +9,9 @@ import {
 } from "./utils.js";
 import { detectCommit, detectRelease } from "./release.js";
 import { resolveConfig } from "./env.js";
-import { truncateHeadTail } from "./exception.js";
-import { runWithoutTrace } from "./trace.js";
+import { exceptionContent, truncateHeadTail } from "./exception.js";
+import { SpanRecorder } from "./spans.js";
+import { currentTraceContext, runWithoutTrace } from "./trace.js";
 import { gzipText, processEnv, processObject, randomUUID, runtimeName } from "./runtime.js";
 import {
   applyRemotePolicy,
@@ -22,6 +23,7 @@ import type {
   ApiLensClientConfig,
   ApiLensClientStats,
   ApiLensDropReason,
+  CaptureExceptionOptions,
   ApiLensFlushMode,
   ApiLensLogRecord,
   ApiLensRecord,
@@ -145,6 +147,7 @@ type RequiredConfig = {
   maxRetrySeconds: number;
   flushOnShutdown: boolean;
   shutdownTimeoutMs: number;
+  captureUnhandled: boolean;
   retryBackoffBaseMs: number;
   retryBackoffMaxMs: number;
   enabled: boolean;
@@ -436,6 +439,193 @@ function installExitHooks(): void {
   }
 }
 
+// ── Process-level exception capture (`captureUnhandled`) ────────────────────
+//
+// A listener for `uncaughtException` / `unhandledRejection` changes what Node
+// does: the process no longer crashes. So when the SDK's listener is the only
+// one, it does what Node would have done itself, after shipping the error:
+// a crash flushes (bounded by `shutdownTimeoutMs`) and then rethrows, so Node
+// prints the error and exits with code 1 as before. When the app has its own
+// listener, it stays in charge and the SDK only ships the error.
+
+type UnhandledProcess = ExitProcess & {
+  emit: (event: string, ...args: unknown[]) => boolean;
+  emitWarning?: (warning: string, type?: string) => void;
+  exitCode?: number | string;
+  execArgv?: string[];
+  env?: Record<string, string | undefined>;
+  nextTick?: (fn: () => void) => void;
+};
+
+/** Values thrown or rejected that were already shipped (one log per error). */
+const shippedErrors = new WeakSet<object>();
+let unhandledHooksInstalled = false;
+
+function unhandledProcess(): UnhandledProcess | undefined {
+  const proc = exitProcess() as UnhandledProcess | undefined;
+  return proc && typeof proc.emit === "function" ? proc : undefined;
+}
+
+/**
+ * Node's `--unhandled-rejections` mode, from the command line or
+ * `NODE_OPTIONS` ("throw", Node's default, when unset).
+ */
+function unhandledRejectionsMode(proc: UnhandledProcess): string {
+  const args = [
+    ...(Array.isArray(proc.execArgv) ? proc.execArgv : []),
+    ...String(proc.env?.NODE_OPTIONS || "").split(/\s+/),
+  ];
+  let mode = "throw";
+  args.forEach((arg, i) => {
+    if (arg.startsWith("--unhandled-rejections=")) {
+      mode = arg.slice("--unhandled-rejections=".length);
+    } else if (arg === "--unhandled-rejections" && args[i + 1]) {
+      mode = args[i + 1];
+    }
+  });
+  return mode.trim().toLowerCase() || "throw";
+}
+
+/** Ship `error` once (ERROR exception log); false when it was shipped already. */
+function shipProcessError(error: unknown, mechanism: string): boolean {
+  if (typeof error === "object" && error !== null) {
+    if (shippedErrors.has(error)) {
+      return false;
+    }
+    shippedErrors.add(error);
+  }
+  try {
+    ApiLensClient.current()?.captureException(error, { level: "ERROR", mechanism });
+  } catch {
+    // Never let capture get in the way of the app's own error handling.
+  }
+  return true;
+}
+
+/** Start sending what is queued now (the process keeps running). */
+function flushSoon(): void {
+  const client = ApiLensClient.current();
+  if (client) {
+    void client.flushOnce().catch(() => undefined);
+  }
+}
+
+/**
+ * The error would have crashed the process: flush, then rethrow it with the
+ * SDK's listeners gone so Node prints it and exits with code 1, as it would
+ * have without the SDK. A second fatal error during the flush crashes at once.
+ */
+function crashAfterFlush(proc: UnhandledProcess, error: unknown): void {
+  proc.removeListener("uncaughtException", onUncaughtException);
+  proc.removeListener("unhandledRejection", onUnhandledRejection);
+  unhandledHooksInstalled = false;
+  const client = ApiLensClient.current();
+  const flush = client ? client.handleShutdown().catch(() => undefined) : Promise.resolve();
+  void flush.then(() => {
+    const raise = (): void => {
+      throw error;
+    };
+    if (typeof proc.nextTick === "function") {
+      proc.nextTick(raise);
+    } else {
+      setTimeout(raise, 0);
+    }
+  });
+}
+
+/** The error Node raises for an unhandled rejection whose reason is not an Error. */
+function rejectionError(reason: unknown): unknown {
+  if (reason instanceof Error) {
+    return reason;
+  }
+  let shown: string;
+  try {
+    shown = typeof reason === "string" ? reason : JSON.stringify(reason) ?? String(reason);
+  } catch {
+    shown = Object.prototype.toString.call(reason);
+  }
+  const error = new Error(
+    "This error originated either by throwing inside of an async function without a catch block, "
+      + "or by rejecting a promise which was not handled with .catch(). The promise rejected with the"
+      + ` reason "${shown}".`,
+  ) as Error & { code?: string };
+  error.code = "ERR_UNHANDLED_REJECTION";
+  return error;
+}
+
+function onUncaughtException(error: unknown, origin?: unknown): void {
+  const proc = unhandledProcess();
+  shipProcessError(error, origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException");
+  if (!proc) {
+    return;
+  }
+  if (proc.listenerCount("uncaughtException") > 1) {
+    // The app handles it: the process keeps running.
+    flushSoon();
+    return;
+  }
+  crashAfterFlush(proc, error);
+}
+
+function onUnhandledRejection(reason: unknown): void {
+  const proc = unhandledProcess();
+  shipProcessError(reason, "unhandledRejection");
+  if (!proc) {
+    return;
+  }
+  if (proc.listenerCount("unhandledRejection") > 1) {
+    flushSoon();
+    return;
+  }
+  // What Node does when no listener is set, per `--unhandled-rejections`.
+  switch (unhandledRejectionsMode(proc)) {
+    case "throw": {
+      // Raised as an uncaught exception: the app's listener gets it, else a crash.
+      const error = rejectionError(reason);
+      if (typeof error === "object" && error !== null) {
+        shippedErrors.add(error);
+      }
+      if (proc.listenerCount("uncaughtException") > 1) {
+        proc.emit("uncaughtException", error, "unhandledRejection");
+      } else {
+        crashAfterFlush(proc, error);
+      }
+      return;
+    }
+    case "warn-with-error-code": {
+      proc.emitWarning?.(String(reason instanceof Error ? reason.stack : reason), "UnhandledPromiseRejectionWarning");
+      proc.exitCode = 1;
+      flushSoon();
+      return;
+    }
+    default:
+      // "strict" already raised it as an uncaught exception; "warn" warns
+      // whether or not a listener is set; "none" stays silent.
+      flushSoon();
+  }
+}
+
+/** Install the process-level exception listeners once per process (Node; no-op elsewhere). */
+function installUnhandledHooks(): void {
+  const proc = unhandledProcess();
+  if (unhandledHooksInstalled || !proc) {
+    return;
+  }
+  unhandledHooksInstalled = true;
+  proc.on("uncaughtException", onUncaughtException);
+  proc.on("unhandledRejection", onUnhandledRejection);
+}
+
+/**
+ * Ship `error` as an exception log (ERROR by default, or WARN for an error
+ * the app handled), tied to the trace of the request being handled when
+ * called inside one. A no-op before the client is created or while capture
+ * is off.
+ */
+function captureException(error: unknown, options: CaptureExceptionOptions = {}): void {
+  ApiLensClient.current()?.captureException(error, options);
+}
+
 /**
  * Parse a `Retry-After` header (delta-seconds or HTTP date) into a delay in
  * milliseconds, capped at 60 s. Undefined when absent or invalid.
@@ -669,6 +859,7 @@ class ApiLensClient {
       maxRetrySeconds: Math.max(toNumber(config.maxRetrySeconds, MAX_RETRY_SECONDS), 0),
       flushOnShutdown: config.flushOnShutdown !== false && envFlagEnabled(ENV_FLUSH_ON_SHUTDOWN),
       shutdownTimeoutMs: Math.max(toNonNegativeInt(config.shutdownTimeoutMs, SHUTDOWN_TIMEOUT_MS), 0),
+      captureUnhandled: config.captureUnhandled !== false,
       retryBackoffBaseMs: Math.max(
         toNonNegativeInt(config.retryBackoffBaseMs, 250),
         1,
@@ -856,6 +1047,9 @@ class ApiLensClient {
     if (this.config.flushOnShutdown) {
       installExitHooks();
     }
+    if (this.config.captureUnhandled) {
+      installUnhandledHooks();
+    }
 
     this.flushIntervalId = setInterval(() => {
       this.flushInBackground();
@@ -946,6 +1140,36 @@ class ApiLensClient {
   /** Queue one log for `POST /v1/logs` (dropped while not capturing). */
   public captureLog(record: ApiLensLogRecord): void {
     this.captureSignal(this.logQueue, record, "logs");
+  }
+
+  /**
+   * Queue `error` as an exception log (`apilens.exception`: the full
+   * exception, causes and AggregateError members included; ERROR unless
+   * `options.level` says WARN). Inside a request it carries that request's
+   * trace and span id, so it lines up with the request in the trace view.
+   */
+  public captureException(error: unknown, options: CaptureExceptionOptions = {}): void {
+    if (!this.isCapturing()) {
+      return;
+    }
+    const content = exceptionContent(error);
+    const recorder = new SpanRecorder(this, this.config.appId, this.config.environment, this.config.appId);
+    recorder.errorLog(currentTraceContext(), {
+      level: options.level === "WARN" ? "WARN" : "ERROR",
+      message: content.message,
+      payload: content.payload,
+      loggerName: "apilens.exception",
+      attributes: {
+        ...content.attributes,
+        "exception.mechanism": options.mechanism || "captureException",
+      },
+      method: "",
+      path: "",
+      statusCode: 0,
+      consumerId: "",
+      consumerName: "",
+      consumerGroup: "",
+    });
   }
 
   private sizesOf(queue: unknown[]): { sizes: number[]; bytes: number } {
@@ -1810,6 +2034,7 @@ class ApiLensClient {
 export {
   ApiLensClient,
   DROP_REASONS,
+  captureException,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MIN_INTERVAL_MS,
   METADATA_DELAY_MS,
