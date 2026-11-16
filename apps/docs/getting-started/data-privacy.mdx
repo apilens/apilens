@@ -28,11 +28,13 @@ The two lines use the same built-in lists, so a pattern you add on the server ca
 | **Validation errors** (400/422 field errors: `loc`, `msg`, `type`) | Yes (Python: FastAPI, Litestar, Django Ninja) | `capture_validation_errors=False` | Not captured | Not captured |
 | Health checks, probes, static housekeeping files | **No**, [excluded by default](#default-exclusions) | `default_exclusions=False` to record them | `defaultExclusions: false` | `default-exclusions=false` |
 | Requests to your own paths / user agents | Yes, unless excluded | `exclude_paths`, `exclude_user_agents` | `excludePaths`, `excludeUserAgents` | `exclude-paths`, `exclude-user-agents` |
-| Detail (headers, bodies, spans, error log) | Yes, for 100% of requests | `sample_rate`, `sample_on_request`, `sample_on_response` | `sampleRate`, `sampleOnRequest`, `sampleOnResponse` | `sample-rate`, `sampleOnRequest`, `sampleOnResponse` |
+| Detail (headers, bodies, spans) | Yes, for 100% of requests; failing requests (exception or 5xx) are always kept | `sample_rate`, `sample_on_request`, `sample_on_response` | `sampleRate`, `sampleOnRequest`, `sampleOnResponse` | `sample-rate`, `sampleOnRequest`, `sampleOnResponse` |
 | Consumer identity | **No**, only what you set | `set_consumer(...)` | `setConsumer(req, …)` | `ApiLensConsumerResolver` bean |
 | Custom request attributes | **No**, only what you set (sent on the record and span; keep secrets out of them) | `set_request_attribute(key, value)` | Not available | Not available |
 | Trace spans (timing and endpoint/URL names, no payloads) | Yes | `capture_spans=False` | `captureSpans: false` | `capture-spans=false` |
-| Error log (message and stack trace on an unhandled exception or 5xx) | Yes | Off with spans; [`mask_log_record`](#masking-error-trace-logs) | Off with spans | Off with spans |
+| Exception log (message and full stack trace on an exception or 5xx; [never sampled](/sdk-reference/exceptions#errors-are-never-sampled), sent even with spans off) | Yes | [`mask_log_record`](#masking-error-trace-logs); `enabled=False` | `enabled: false` | `enabled=false` |
+| Logged exceptions (`ERROR` log records, with their stack) | Yes | `capture_logs="off"` | Not captured | `capture-logs=off` |
+| Frame local variables in stack traces | **No** | `capture_locals=True` opts in ([details](/sdk-reference/exceptions#local-variables-python)); forced off by the `metadata` and `redacted` profiles | Not available | Not available |
 
 Every option also has an `APILENS_*` environment variable with the same name in all three SDKs (`APILENS_CAPTURE_HEADERS`, `APILENS_REDACT_BODY_FIELDS`, `APILENS_SAMPLE_RATE`, …). Django reads the same names as settings. See [deploy-time kill switches](#deploy-time-kill-switches).
 
@@ -243,7 +245,7 @@ ApiLensSpringOptionsCustomizer apiLensBodyMasking() {
 When a request raises or returns a 5xx, the SDK sends an `ERROR` log record (message plus stack trace) correlated to the request's trace. Messages and stack traces can contain secrets.
 
 - **All SDKs:** the ingest edge masks every log record before it is stored. Any `name=value`, `name: value` or `'name': 'value'` pair in the message whose name matches a built-in or [policy](#server-side-privacy-policy) pattern has its value replaced, and JSON fields in the payload are masked like a body.
-- **Python only:** `mask_log_record` lets you edit or drop a record in your process, and the same built-in `key=value` masking then runs in the SDK too. TypeScript and Java do not have this callback; turn the error log off with `captureSpans: false` / `apilens.capture-spans=false` if its content must not leave the process.
+- **Python only:** `mask_log_record` lets you edit or drop a record in your process, and the same built-in `key=value` masking then runs in the SDK too. TypeScript and Java do not have this callback. The exception log no longer depends on span capture, so `captureSpans: false` does not stop it; only turning capture off (`enabled: false`, `apilens.enabled=false` or the remote policy) does.
 
 ```python
 import re
@@ -347,7 +349,7 @@ That covers `/health`, `/healthz`, `/health_checks`, `/heartbeat`, `/ping`, `/re
 
 ## Sampling request detail
 
-`sample_rate` / `sampleRate` (0.0–1.0, default `1.0`) keeps the request **detail** (headers, bodies, and in Python and Java the spans and error log) for that fraction of requests. **Sampling never changes metrics:** every request still sends its base record (method, path, status, latency, sizes, consumer, trace id) with `sampled=false`, so counts, error rates and latency percentiles stay exact. The bodies of sampled-out requests are never buffered.
+`sample_rate` / `sampleRate` (0.0–1.0, default `1.0`) keeps the request **detail** (headers, bodies and spans) for that fraction of requests. A request that raised or answered 5xx is always kept with its detail and exception, whatever the rate or callbacks say. **Sampling never changes metrics:** every request still sends its base record (method, path, status, latency, sizes, consumer, trace id) with `sampled=false`, so counts, error rates and latency percentiles stay exact. The bodies of sampled-out requests are never buffered.
 
 Two callbacks refine the rate per request in every SDK: `sample_on_request` / `sampleOnRequest` before the handler runs, and `sample_on_response` / `sampleOnResponse` after the response, once the status, latency and consumer are known. The response callback can drop a kept request's detail but never bring back one the request stage dropped. A callback that throws is logged once and ignored.
 
@@ -408,7 +410,7 @@ A value cut by the edge ends with `…[truncated]` and is counted as `truncated`
 
 Every option above can be set from the environment in all three SDKs, so tightening capture needs no code change (`APILENS_CAPTURE_PROFILE=metadata`, `APILENS_CAPTURE_HEADERS=false`, `APILENS_REDACT_BODY_FIELDS=…`). Most env vars lose to a value set explicitly in code; these act as kill switches and win over code, but only in the direction that captures less:
 
-- `APILENS_CAPTURE_SPANS=false`: stop all span and error-trace capture
+- `APILENS_CAPTURE_SPANS=false`: stop all span capture (exception logs are still sent)
 - `APILENS_CAPTURE_IP=false`: stop sending client IPs (Python, Java)
 - `APILENS_ANONYMIZE_IP=true`: truncate client IPs to IPv4 /24, IPv6 /48 (Python, Java)
 - `APILENS_PARAMETRIZE_PATHS=false`: disable heuristic path templating

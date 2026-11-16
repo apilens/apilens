@@ -42,3 +42,16 @@ This page is the contract the Python, TypeScript and Java SDKs implement.
 
 `status` is `reporting` (a heartbeat in the last 2 minutes), `stale` (in the last hour), `silent` (older) or `never`. `instances` lists the 100 most recently seen.
 `sdk_latest_version` is the latest release of that SDK; `sdk_stats` sums the `stats` counters of the instances seen in the last hour, and `ingest_today` is today's (UTC) counters from `GET /api/v1/apps/{id}/ingest-stats`, left out when that store is not configured.
+
+## Drop counters
+
+The heartbeat body may carry `dropped`: the records the SDK dropped since its previous heartbeat was answered `200`, per signal and reason.
+
+```json
+{ "dropped": { "requests": { "queue_full": 3 }, "logs": { "retries_exhausted": 12, "shutdown": 1 } } }
+```
+
+- Signals are `requests`, `spans` and `logs`; other keys are ignored. Reasons are the SDK's drop reasons (`queue_full`, `queue_bytes`, `non_retryable`, `retries_exhausted`, `shutdown`, …), lowercase letters, digits, `_`, `.` or `-`, up to 64 characters, at most 32 per signal. Counts must not be negative; a malformed field is refused with `422`.
+- The SDK resets its counts when the heartbeat is answered `200` and otherwise adds them to the next one, so a failed heartbeat loses nothing. The final heartbeat at shutdown carries the records the shutdown flush could not send.
+- The edge adds the counts to the app's hourly counters, shown in [Ingest health](/ingest/ingest-health#dropped-by-the-sdk) as **Dropped by the SDK**. If the counter store is unavailable the heartbeat is still accepted.
+- Records an SDK shortened to fit a batch (`truncated`) were sent and are not reported.
