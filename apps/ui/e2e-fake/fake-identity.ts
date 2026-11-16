@@ -161,11 +161,13 @@
 //                                                  each with its seeded SDK consumer_group; `group` filters by it
 //   GET  /api/v1/consumers/{consumer_id}?project=  detail as seeded, recent lists paged by limit/offset
 //   GET  /api/v1/consumer-groups?project=          the seeded consumers rolled up by consumer_group
+//   GET  /api/v1/anonymous-callers?project=&limit= requests without a consumer and their top callers (#989), as
+//                                                  seeded by /__fake/consumers {anonymous}; zero when not seeded
 //   GET|POST /api/v1/projects/shop/views?surface=  shop's saved views (#578, #589): shared ones and the caller's
 //   GET|PUT|DELETE /api/v1/projects/shop/views/{id} own; the creator edits, capture.manage edits shared ones (else
 //                                                  403); a name the creator uses on the surface answers 409
 //   POST /__fake/views {views?, down?}             test hook: replaces shop's saved views; `down`: writes answer 503
-//   POST /__fake/consumers {project, summary, points, consumers, details}
+//   POST /__fake/consumers {project, summary, points, consumers, details, anonymous?}
 //                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
 //                                                  `project` (narrowed by method, path and status,
@@ -696,7 +698,14 @@ function expectedFor(method: string, path: string, code: number): boolean {
 /** Project slug → what the consumers reads answer (#596), as seeded by `/__fake/consumers`. */
 const consumersSeed = new Map<
   string,
-  { summary: unknown; points: unknown[]; consumers: Record<string, unknown>[]; details: Record<string, Record<string, unknown>> }
+  {
+    summary: unknown;
+    points: unknown[];
+    consumers: Record<string, unknown>[];
+    details: Record<string, Record<string, unknown>>;
+    /** `GET /anonymous-callers` (#989): {totals, callers}. */
+    anonymous?: { totals: Record<string, number>; callers: unknown[] };
+  }
 >();
 /** shop's saved views (#578, #589): shared ones for everyone, private ones for their creator. */
 interface FakeView {
@@ -2514,6 +2523,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const limit = Number(url.searchParams.get("limit") ?? 25) || 25;
     return send(res, 200, { window_minutes: 60, total: all.length, deploys: all.slice(offset, offset + limit) });
   }
+  // Requests without a consumer and their top callers (#989), as seeded; same access rules as above.
+  if (req.method === "GET" && path === "/api/v1/anonymous-callers") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    const seeded = consumersSeed.get(slug)?.anonymous;
+    const limit = Number(url.searchParams.get("limit") ?? 10) || 10;
+    return send(res, 200, {
+      range: url.searchParams.get("range") ?? "24h",
+      from: "2026-11-05T10:00:00Z",
+      to: "",
+      totals: seeded?.totals ?? { requests: 0, successful: 0, client_errors: 0, server_errors: 0 },
+      callers: (seeded?.callers ?? []).slice(0, limit),
+    });
+  }
   // Consumers (#596), as seeded, each with the SDK group it was seeded with (consumer_group); same
   // access rules as above. The list and the group roll-up search, sort and page like the API.
   const consumerPath = path.match(/^\/api\/v1\/(consumers|consumer-groups)(?:\/([^/]+))?$/);
@@ -2580,6 +2606,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       points: Array.isArray(b.points) ? b.points : [],
       consumers: Array.isArray(b.consumers) ? (b.consumers as Record<string, unknown>[]) : [],
       details: (b.details as Record<string, Record<string, unknown>>) ?? {},
+      anonymous: typeof b.anonymous === "object" && b.anonymous !== null ? (b.anonymous as { totals: Record<string, number>; callers: unknown[] }) : undefined,
     });
     return send(res, 204);
   }

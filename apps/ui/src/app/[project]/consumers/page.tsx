@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { type ConsumersData, ConsumersView, type DetailState } from "@/components/consumers/consumers";
+import { type AnonymousData, type ConsumersData, ConsumersView, type DetailState } from "@/components/consumers/consumers";
 import { getContext, getSession } from "@/lib/auth/server";
+import { pickConsumerSdks } from "@/lib/consumer-setup";
 import { type ConsumersQuery, consumersHref, errorsOf, parseConsumersQuery } from "@/lib/consumers";
 import {
   type CallOptions,
@@ -91,7 +92,30 @@ async function load(project: string, q: ConsumersQuery, page: PageState, next: s
       ),
     (l) => ({ rows: (l.consumers ?? []).length, total: l.total }),
   );
-  return { view: "consumers", list: list === 404 ? null : list };
+  if (list === null || list === 404) return { view: "consumers", list: null };
+  const nobody = list.summary.consumers === 0 && list.total === 0 && !q.q && !q.group;
+  if (!nobody) return { view: "consumers", list };
+  return { view: "consumers", list, anonymous: await loadAnonymous(project, q, next) };
+}
+
+/** The most anonymous callers the empty state lists. */
+const ANONYMOUS_CALLERS = 10;
+
+/**
+ * No user identified in the range (#989): the requests without a consumer and their top callers,
+ * and the SDKs the project's apps run (from what each app's SDK reported), which pick the snippet
+ * tabs. An app whose report cannot be read is skipped.
+ */
+async function loadAnonymous(project: string, q: ConsumersQuery, next: string): Promise<AnonymousData> {
+  const api = identity();
+  const [callers, apps] = await Promise.all([
+    read(next, (o) => api.listAnonymousCallers(project, { range: q.range, limit: ANONYMOUS_CALLERS }, o)),
+    read(next, (o) => api.projectApps(project, o)),
+  ]);
+  const listed = apps === null || apps === 404 ? [] : (apps.apps ?? []);
+  const reports = await Promise.all(listed.map((app) => read(next, (o) => api.appReports(app.id, o))));
+  const frameworks = reports.flatMap((r) => (r === null || r === 404 ? [] : (r.environments ?? []).map((e) => e.framework)));
+  return { callers: callers === 404 ? null : callers, sdks: pickConsumerSdks(frameworks) };
 }
 
 // Consumers (#596): the users of the API, new vs returning, the paged users table with sparklines
