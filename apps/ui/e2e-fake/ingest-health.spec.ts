@@ -48,7 +48,7 @@ test.beforeEach(async () => {
 test("shows the edge counters, the SDK drops by reason and links to the runbook", async ({ page }) => {
   await seedApps([{ id: SHOP, slug: "shop", name: "Shop", ingest: INGEST_DAYS, sdk_stats: SDK_STATS }]);
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Ingest health", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Ingest health" })).toBeVisible();
   const runbook = page.getByRole("link", { name: "What to do when a counter moves" });
   await expect(runbook).toHaveAttribute("href", /\/ingest\/ingest-health$/);
   await expect(runbook).toHaveAttribute("target", "_blank");

@@ -24,7 +24,9 @@ import { formatExact } from "@/lib/passkey-settings";
 import { TRAFFIC_RANGES } from "@/lib/traffic";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
+import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
 import { CountBars } from "./charts";
 import { ErrorModal, MarkExpected } from "./modal";
@@ -70,21 +72,16 @@ export function ErrorsView({
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
   return (
     <div className="page tr er">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Errors</p>
-        <h1 className="cp-lede">Errors</h1>
-        <p className="tr-lead">Client and server error responses of your API by status code. Status codes you mark as expected for an endpoint stop counting as errors.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Errors"
+        lead="Client and server error responses of your API by status code. Status codes you mark as expected for an endpoint stop counting as errors."
+        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => scopeHref({ range: r })} />}
+      />
 
       <div className="tr-bar">
         <div className="tr-bar__scope">
-          <nav className="tr-seg" aria-label="Time range">
-            {TRAFFIC_RANGES.map((r) => (
-              <a key={r} href={scopeHref({ range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-                {r}
-              </a>
-            ))}
-          </nav>
           <ScopeSelect
             label="Environment"
             value={q.env}

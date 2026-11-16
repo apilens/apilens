@@ -12,6 +12,8 @@ import { formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
 import { radioKeyTarget } from "@/lib/radio-group";
 import { type AppSetupStatus, SDK_LANGUAGES, lastDataLine, reportedSdk, sdkDocs, setupSnippets } from "@/lib/sdk-setup";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "../onboarding/install.css";
@@ -34,10 +36,7 @@ export interface SdkSetupLoad {
 export function SdkSetup({ project, projectName, load }: { project: string; projectName: string; load: SdkSetupLoad }) {
   return (
     <div className="page page--measure os sdk">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">SDK setup</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="SDK setup" className="os-head" />
       <InstallCard project={project} ingestUrl={load.ingestUrl} />
       <StatusCard apps={load.apps} ingest={load.ingest} />
     </div>

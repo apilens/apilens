@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import type { Retention } from "@/lib/identity";
 import { LINKS, extLink } from "@/lib/links";
 import { afterRetention, formatPeriod, retentionDocsUrl } from "@/lib/retention";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -18,9 +20,7 @@ export type RetentionLoad = Retention | { error: string };
 export function RetentionFrame({ project, projectName, children }: { project: string; projectName: string; children: ReactNode }) {
   return (
     <div className="page page--measure os cps rt">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Retention</h1>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Retention" className="os-head">
         <p className="rt-lede">
           How long {projectName} keeps each kind of data. For what each request stores and which fields are masked, open{" "}
           <a className="cp-link" href={`/${project}/settings/privacy`}>
@@ -28,7 +28,7 @@ export function RetentionFrame({ project, projectName, children }: { project: st
           </a>
           .
         </p>
-      </header>
+      </PageHeader>
       {children}
       <section className="os-card" aria-labelledby="rt-who">
         <div className="os-card__head">

@@ -13,6 +13,8 @@ import { REAUTH_CANCELLED } from "@/lib/reauth";
 import { ConfirmDialog } from "../confirm-dialog";
 import { ObIcon } from "../onboarding/ob";
 import { useReauth } from "../reauth-dialog";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "./danger.css";
 
@@ -51,10 +53,7 @@ export function ProjectDangerZone({
 }) {
   return (
     <div className="page page--measure os pdz">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Danger zone</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Danger zone" className="os-head" />
       {loaded === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s settings. Reload the page to try again.

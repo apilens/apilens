@@ -10,13 +10,8 @@
 .al-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-6) 0 var(--space-4); }
 .al-bar h2 { margin: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); }
 .al-bar h2 span { margin-left: 6px; font: 400 13px/22px var(--font-mono); color: var(--ink-muted); }
-/* "Resolved in" and the range, on the Resolved bar: the range narrows resolved incidents only (#981). */
+/* "Resolved in" and the shared range picker, on the Resolved bar: the range narrows resolved incidents only (#981). */
 .al-range-group { display: inline-flex; align-items: center; gap: var(--space-2); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
-.al-range { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
-.al-range a { padding: 4px 10px; border-radius: var(--radius-sm); font: 500 12px/18px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
-.al-range a:hover { color: var(--ink); }
-.al-range a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
-.al-range a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 
 .al-notice { display: flex; gap: 10px; align-items: flex-start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
 .al-notice p { margin: 0; }

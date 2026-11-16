@@ -25,7 +25,9 @@ import type { AnonymousCallers, ConsumerDetail, ConsumerGroupsTraffic, ConsumerR
 import type { SearchParams } from "@/lib/pagination";
 import { endpointHref } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
+import { RangePicker } from "../range-picker";
 import { type Series, Sparkline, StackedBars } from "./charts";
 import { IdentifyConsumers } from "./identify-consumers";
 import "./consumers.css";
@@ -91,11 +93,13 @@ export function ConsumersView({
   const inDetail = data.view === "detail";
   return (
     <div className="page cs">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Consumers</p>
-        <h1 className="cp-lede">Consumers</h1>
-        <p className="cs-lead">The users of your API: who is new, who keeps coming back, and each user’s requests and errors. Groups are the company or plan the SDK reports for each user.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Consumers"
+        lead="The users of your API: who is new, who keeps coming back, and each user’s requests and errors. Groups are the company or plan the SDK reports for each user."
+        actions={<RangePicker options={CONSUMER_RANGES} value={q.range} href={(r) => consumersHref(project, { ...q, range: r })} />}
+      />
 
       <div className="cs-bar">
         <nav className="cs-seg" aria-label="Show">
@@ -105,13 +109,6 @@ export function ConsumersView({
           <a href={consumersHref(project, { range: q.range, by: "groups" })} aria-current={!inDetail && q.by === "groups" ? "page" : undefined}>
             Groups
           </a>
-        </nav>
-        <nav className="cs-seg" aria-label="Time range">
-          {CONSUMER_RANGES.map((r) => (
-            <a key={r} href={consumersHref(project, { ...q, range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-              {r}
-            </a>
-          ))}
         </nav>
       </div>
 

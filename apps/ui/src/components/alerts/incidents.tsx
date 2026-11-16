@@ -22,6 +22,7 @@ import { type PageOptions, type SearchParams, parsePage, slicePage } from "@/lib
 import { formatExact } from "@/lib/passkey-settings";
 import { Pagination } from "../pagination/pagination";
 import { ObIcon } from "../onboarding/ob";
+import { RangePicker } from "../range-picker";
 import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
 
 /**
@@ -67,7 +68,7 @@ export function IncidentsView({
   return (
     <div className="page al">
       {notice}
-      <AlertsHeader project={project} projectName={projectName} tab="incidents" title="Incidents" lead="Alert rules that breached their threshold: open ones first, then everything resolved in the range." />
+      <AlertsHeader project={project} projectName={projectName} tab="incidents" lead="Alert rules that breached their threshold: open ones first, then everything resolved in the range." />
 
       {channels === 0 ? (
         <div className="al-notice al-notice--warn al-nobody" role="note">
@@ -99,14 +100,8 @@ export function IncidentsView({
             <ListHeading title="Resolved" count={resolved.length} />
             {/* The range only narrows resolved incidents: open ones show whenever they started. */}
             <div className="al-range-group">
-              <span id="al-range-label">Resolved in</span>
-              <nav className="al-range" aria-labelledby="al-range-label">
-                {INCIDENTS_RANGES.map((r) => (
-                  <Link key={r.value} href={incidentsHref(project, r.value)} aria-current={r.value === range ? "page" : undefined}>
-                    {r.label}
-                  </Link>
-                ))}
-              </nav>
+              <span aria-hidden="true">Resolved in</span>
+              <RangePicker label="Resolved in" options={INCIDENTS_RANGES.map((r) => r.value)} value={range} href={(r) => incidentsHref(project, r)} />
             </div>
           </div>
           {resolved.length === 0 ? (

@@ -1,6 +1,7 @@
 import type { ExploreState } from "@/lib/explore";
 import type { FilterSuggestions } from "@/lib/explore-filters";
 import type { RequestRow, RequestTimeline, SavedView } from "@/lib/identity";
+import { PageHeader } from "../page-header";
 import { ExportMenu } from "./export";
 import { RequestLog } from "./request-log";
 import { SavedViews, ViewSwitcher } from "./saved-views";
@@ -44,11 +45,7 @@ export function ExploreView({
   return (
     <div className="page ex">
       <SavedViews project={project} me={me} query={query} initial={views}>
-        <header className="pagehead">
-          <p className="cp-h">{projectName} · Explore</p>
-          <h1 className="cp-lede">Explore</h1>
-          <p className="ex-lead">Every request your API served, newest first, as the SDK reported it.</p>
-        </header>
+        <PageHeader project={project} projectName={projectName} title="Explore" lead="Every request your API served, newest first, as the SDK reported it." />
         {/* One toolbar row: range, filters, then the saved view and Export at the right edge. */}
         <RequestLog
           project={project}

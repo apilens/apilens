@@ -17,6 +17,8 @@ import {
 import type { Environment, EnvironmentColor, EnvironmentsList, UpdateEnvironmentRequest } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -38,11 +40,9 @@ export function EnvironmentsSection({ project, projectName, list }: { project: s
   const manage = useCan("project.update").allowed;
   return (
     <div className="page page--measure os cps env">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Environments</h1>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Environments" className="os-head">
         <p className="env-lede">SDKs register an environment the first time they send data from it. Its order, colour and production label apply wherever environments are listed.</p>
-      </header>
+      </PageHeader>
       {list === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s environments. Reload the page to try again.

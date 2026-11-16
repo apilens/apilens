@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
-import { RANGE_LABEL } from "@/lib/consumers";
 import {
   EXPLORE_RANGES,
   type ExploreState,
@@ -32,6 +31,7 @@ import type { RequestRow, RequestTimeline } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
+import { RangePicker } from "../range-picker";
 import { FilterBar } from "./filter-bar";
 import { RequestDrawer } from "./request-drawer";
 import { Timeline } from "./timeline";
@@ -158,17 +158,8 @@ export function RequestLog({
       {/* The toolbar: one row of range, filters, saved view, Export and Live. The filter form opens
           on its own full-width line under it (.ex-filters is display: contents). */}
       <div className="ex-tools">
-        <nav className="ex-seg" aria-label="Time range">
-          {EXPLORE_RANGES.map((r) => {
-            // Another range starts over: the timeline's zoom and jump point (#587) belong to this one.
-            const href = exploreHref(project, { range: r, filters: q.filters });
-            return (
-              <a key={r} href={href} onClick={(e) => go(e, href)} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-                {r}
-              </a>
-            );
-          })}
-        </nav>
+        {/* Another range starts over: the timeline's zoom and jump point (#587) belong to this one. */}
+        <RangePicker options={EXPLORE_RANGES} value={q.range} href={(r) => exploreHref(project, { range: r, filters: q.filters })} onNavigate={go} />
         <FilterBar project={project} environments={environments} suggestions={suggestions} query={q} navigate={navigate} />
         <div className="ex-tools__end">
           {actions}

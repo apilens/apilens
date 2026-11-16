@@ -23,6 +23,7 @@ import { dropSummary } from "@/lib/ingest-health";
 import type { SearchParams } from "@/lib/pagination";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
 import { Sparkline } from "../traffic/charts";
 import { AppHealthLine } from "./app-health";
@@ -69,15 +70,18 @@ export function AppsView({ project, projectName, apps, total, managed, rejection
   const archived = inactiveApps(managed ?? []);
   return (
     <div className="page ap">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Apps</p>
-        <h1 className="cp-lede">Apps</h1>
-        <p className="ap-lead">
-          The services reporting to this project: traffic over the last 24 hours, health and SDK status. An app appears on its own the first time an SDK sends data with
-          its name.
-          {attention > 0 ? ` ${attention} ${attention === 1 ? "app needs" : "apps need"} attention.` : ""}
-        </p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Apps"
+        lead={
+          <>
+            The services reporting to this project: traffic over the last 24 hours, health and SDK status. An app appears on its own the first time an SDK sends data
+            with its name.
+            {attention > 0 ? ` ${attention} ${attention === 1 ? "app needs" : "apps need"} attention.` : ""}
+          </>
+        }
+      />
 
       <AppManager project={project} apps={managed ?? []}>
         {managed && managed.length > 0 ? <AppsReadOnly /> : null}

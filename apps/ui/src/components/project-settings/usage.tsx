@@ -8,6 +8,8 @@ import type { ProjectUsage, QuotaUsage, UsageDay } from "@/lib/identity";
 import { formatCount, ingestPath } from "@/lib/ingest-health";
 import { formatDay } from "@/lib/passkey-settings";
 import { USAGE_DAYS, quotaMeter, recordsLimitLine, rejectReasons, usageBars, usageSummary } from "@/lib/project-usage";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -26,11 +28,9 @@ export type UsageLoad = ProjectUsage | "off" | null;
 export function UsageSection({ project, projectName, usage }: { project: string; projectName: string; usage: UsageLoad }) {
   return (
     <div className="page page--measure os cps ih us">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Usage</h1>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Usage" className="os-head">
         <p className="ih-lede">Records {projectName} sent in the last {USAGE_DAYS} days (UTC), and how close today is to the ingest quota.</p>
-      </header>
+      </PageHeader>
 
       {usage === null ? (
         <p className="pk-load-err" role="alert">

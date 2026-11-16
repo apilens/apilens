@@ -39,7 +39,7 @@ test.beforeEach(async () => {
 
 test("an admin edits the policy and sees it apply within 60 s", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Capture", exact: true })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Capture", exact: true })).toBeVisible();
   await expect(policy(page)).toContainText("Saved changes apply within 60 s, on the SDKs’ next heartbeat.");
   await expect(policy(page)).toContainText("Never changed: the app captures everything.");
   await expect(toggle(page, "Capture requests")).toHaveAttribute("aria-checked", "true");

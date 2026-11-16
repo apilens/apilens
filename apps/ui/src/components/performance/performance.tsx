@@ -1,4 +1,4 @@
-import { RANGE_LABEL, formatCount } from "@/lib/consumers";
+import { formatCount } from "@/lib/consumers";
 import { latencyBucketLabel } from "@/lib/endpoint-detail";
 import { logTime, statusClass } from "@/lib/explore";
 import { formatPercent } from "@/lib/format";
@@ -20,6 +20,8 @@ import { TRAFFIC_RANGES, appName, appOptions, formatLatency } from "@/lib/traffi
 import { Histogram, LinesChart } from "../endpoint/charts";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
+import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
 import { LiveControl, LiveNumber } from "../traffic/live";
 import { ApdexTile } from "./apdex";
@@ -82,21 +84,16 @@ export function PerformanceView({
 
   return (
     <div className="page tr pf">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Performance</p>
-        <h1 className="cp-lede">Performance</h1>
-        <p className="tr-lead">How fast your API answers: response time percentiles, Apdex, the slowest requests and where the time goes.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Performance"
+        lead="How fast your API answers: response time percentiles, Apdex, the slowest requests and where the time goes."
+        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => href({ range: r })} />}
+      />
 
       <div className="tr-bar">
         <div className="tr-bar__scope">
-          <nav className="tr-seg" aria-label="Time range">
-            {TRAFFIC_RANGES.map((r) => (
-              <a key={r} href={href({ range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-                {r}
-              </a>
-            ))}
-          </nav>
           <ScopeSelect
             label="Environment"
             value={q.env}
