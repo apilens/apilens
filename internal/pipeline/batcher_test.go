@@ -5,10 +5,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 var discard = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -45,7 +48,7 @@ func (r *recordingInserter) total() int {
 }
 
 func opts() BatcherOptions {
-	return BatcherOptions{BatchSize: 5, FlushInterval: 20 * time.Millisecond, QueueSize: 16, Workers: 1, InsertTimeout: time.Second, MaxRetries: 2, WaitForFlush: true}
+	return BatcherOptions{BatchSize: 5, FlushInterval: 20 * time.Millisecond, QueueSize: 16, Workers: 1, InsertTimeout: time.Second, RetryWindow: 500 * time.Millisecond, WaitForFlush: true}
 }
 
 func start(t *testing.T, b *Batcher[int]) (stop func()) {
@@ -107,6 +110,104 @@ func TestExhaustedRetriesReportError(t *testing.T) {
 	}
 }
 
+// fakeClock makes the retry window pass without real sleeping.
+type fakeClock struct {
+	mu     sync.Mutex
+	t      time.Time
+	sleeps []time.Duration
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) sleep(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sleeps = append(c.sleeps, d)
+	c.t = c.t.Add(d)
+}
+
+// TestFailingInserterAnswersEveryWaiterAndCountsDrops (#922): an insert that
+// keeps failing is retried with exponential backoff for the whole retry
+// window, then every waiting submission gets the error (the edge answers
+// 503), the rows count as failed and none as stored.
+func TestFailingInserterAnswersEveryWaiterAndCountsDrops(t *testing.T) {
+	rec := &recordingInserter{}
+	rec.fail.Store(1 << 20)
+	o := opts()
+	o.RetryWindow = 30 * time.Second
+	o.BatchSize = 1000
+	o.FlushInterval = 50 * time.Millisecond
+	m := NewMetrics(nil)
+	b := NewBatcher("t", rec.insert, o, discard, m)
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	b.now, b.sleep = clock.now, clock.sleep
+	stop := start(t, b)
+	defer stop()
+
+	var wg sync.WaitGroup
+	errs := make([]error, 3)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = b.Submit(context.Background(), []int{i, i})
+		}()
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err == nil || !strings.Contains(err.Error(), "clickhouse unavailable") {
+			t.Fatalf("submission %d: err = %v, want the insert error", i, err)
+		}
+	}
+	if rec.total() != 0 {
+		t.Fatalf("stored %d rows, want 0", rec.total())
+	}
+	if got := promtest.ToFloat64(m.stored.WithLabelValues("t")); got != 0 {
+		t.Fatalf("stored metric = %v, want 0", got)
+	}
+	if got := promtest.ToFloat64(m.failed.WithLabelValues("t")); got != 6 {
+		t.Fatalf("failed metric = %v, want 6", got)
+	}
+
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	var total time.Duration
+	for i, d := range clock.sleeps {
+		total += d
+		want := min(retryBackoff<<i, maxRetryBackoff)
+		if d != want {
+			t.Fatalf("sleep %d = %v, want %v (sleeps %v)", i, d, want, clock.sleeps)
+		}
+	}
+	// The sleeps alone fill the window (inserts take no fake time) and never
+	// overrun it.
+	if total > o.RetryWindow || total < o.RetryWindow-maxRetryBackoff {
+		t.Fatalf("retried for %v, want close to %v (sleeps %v)", total, o.RetryWindow, clock.sleeps)
+	}
+}
+
+func TestZeroRetryWindowMakesOneAttempt(t *testing.T) {
+	var calls atomic.Int32
+	o := opts()
+	o.RetryWindow = 0
+	b := NewBatcher("t", func(context.Context, []int) error {
+		calls.Add(1)
+		return errors.New("down")
+	}, o, discard, NewMetrics(nil))
+	stop := start(t, b)
+	defer stop()
+	if err := b.Submit(context.Background(), []int{1}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("attempts = %d, want 1", n)
+	}
+}
+
 func TestBackpressureReturnsOverloaded(t *testing.T) {
 	rec := &recordingInserter{block: make(chan struct{})}
 	o := opts()
@@ -125,6 +226,9 @@ func TestBackpressureReturnsOverloaded(t *testing.T) {
 	}
 	if !overloaded {
 		t.Fatal("expected ErrOverloaded while the inserter is blocked")
+	}
+	if got := promtest.ToFloat64(b.metrics.rejected.WithLabelValues("t")); got < 1 {
+		t.Fatalf("rejected metric = %v, want the refused rows counted", got)
 	}
 	close(rec.block)
 	stop()

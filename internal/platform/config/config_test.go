@@ -72,6 +72,34 @@ func TestDefaultsAreValid(t *testing.T) {
 	if cfg.Valkey.Enabled() {
 		t.Fatal("valkey should be disabled by default")
 	}
+	// #922: a deeper queue and a 30 s insert retry window the ingest
+	// server's write timeout outlasts.
+	if cfg.Sink.QueueSize != 4096 || cfg.Sink.RetryWindow != 30*time.Second {
+		t.Fatalf("sink = %+v, want queue_size 4096 and retry_window 30s", cfg.Sink)
+	}
+	if cfg.Server.WriteTimeout <= cfg.Sink.RetryWindow+cfg.Sink.FlushInterval {
+		t.Fatalf("server.write_timeout %v does not outlast the sink retry window", cfg.Server.WriteTimeout)
+	}
+}
+
+func TestSinkRetryWindowValidation(t *testing.T) {
+	tests := []struct {
+		env     []string
+		wantErr string
+	}{
+		{[]string{"APILENS_SINK__RETRY_WINDOW=-1s"}, "sink.retry_window must be >= 0"},
+		{[]string{"APILENS_SINK__RETRY_WINDOW=60s"}, "must be < server.write_timeout"},
+	}
+	for _, tt := range tests {
+		_, err := Load("", append([]string{kekEnv}, tt.env...), nil)
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("%v: err = %v, want %q", tt.env, err, tt.wantErr)
+		}
+	}
+	// With ack=enqueue nobody waits for the insert, so the window may be longer.
+	if _, err := Load("", []string{kekEnv, "APILENS_SINK__ACK=enqueue", "APILENS_SINK__RETRY_WINDOW=60s"}, nil); err != nil {
+		t.Fatalf("enqueue with a long window: %v", err)
+	}
 }
 
 func TestPrecedenceFileEnvFlags(t *testing.T) {
