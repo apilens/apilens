@@ -3202,7 +3202,21 @@ let alertRules: FakeRule[] = [];
 let alertChannels: FakeChannel[] = [];
 let alertEvents: FakeEvent[] = [];
 
-const ALERT_METRICS = new Set(["traffic", "errors", "error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"]);
+const ALERT_RATE_METRICS = new Set(["error_rate", "server_error_rate", "client_error_rate"]);
+const ALERT_METRICS = new Set([
+  "traffic",
+  "errors",
+  "error_rate",
+  "server_errors",
+  "server_error_rate",
+  "client_errors",
+  "client_error_rate",
+  "p50",
+  "p75",
+  "p95",
+  "apdex",
+  "unique_consumers",
+]);
 const ALERT_CONDITIONS = new Set(["gt", "gte", "lt", "lte"]);
 
 function eventOut(e: FakeEvent) {
@@ -3227,7 +3241,7 @@ function checkRule(b: Record<string, unknown>, create: boolean): { ok: true; rul
   const every = b.every_s === undefined || b.every_s === null ? null : Number(b.every_s);
   const cron = typeof b.cron === "string" && b.cron ? b.cron : null;
   if (!name || name.length > 128 || !env || !ALERT_METRICS.has(String(b.metric)) || !ALERT_CONDITIONS.has(String(b.condition))) return { ok: false, status: 422, code: "validation_failed" };
-  if (!Number.isFinite(threshold) || threshold < 0 || ((b.metric === "error_rate" || b.metric === "apdex") && threshold > 1)) return { ok: false, status: 422, code: "validation_failed" };
+  if (!Number.isFinite(threshold) || threshold < 0 || ((ALERT_RATE_METRICS.has(String(b.metric)) || b.metric === "apdex") && threshold > 1)) return { ok: false, status: 422, code: "validation_failed" };
   if ((every === null) === (cron === null)) return { ok: false, status: 422, code: "validation_failed" };
   if (create && !shopApps.some((a) => a.id === b.app_id)) return { ok: false, status: 422, code: "validation_failed" };
   const channels = Array.isArray(b.channel_ids) ? b.channel_ids.map(String) : [];

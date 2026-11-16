@@ -121,7 +121,7 @@ type AlertRule struct {
 	Environment   string          `json:"environment"`
 	Name          string          `json:"name"`
 	Description   string          `json:"description"`
-	Metric        string          `json:"metric" enum:"traffic,errors,error_rate,p50,p75,p95,apdex,unique_consumers"`
+	Metric        string          `json:"metric" enum:"traffic,errors,error_rate,server_errors,server_error_rate,client_errors,client_error_rate,p50,p75,p95,apdex,unique_consumers"`
 	Condition     string          `json:"condition" enum:"gt,gte,lt,lte"`
 	Threshold     float64         `json:"threshold"`
 	WindowS       int32           `json:"window_s"`
@@ -146,9 +146,9 @@ type AlertRuleBody struct {
 	Environment   string       `json:"environment" minLength:"1" maxLength:"64" doc:"The environment whose requests the rule counts."`
 	Name          string       `json:"name" minLength:"1" maxLength:"128" doc:"Display name; surrounding spaces are dropped."`
 	Description   string       `json:"description,omitempty" maxLength:"1024"`
-	Metric        string       `json:"metric" enum:"traffic,errors,error_rate,p50,p75,p95,apdex,unique_consumers" doc:"What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers."`
+	Metric        string       `json:"metric" enum:"traffic,errors,error_rate,server_errors,server_error_rate,client_errors,client_error_rate,p50,p75,p95,apdex,unique_consumers" doc:"What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers."`
 	Condition     string       `json:"condition" enum:"gt,gte,lt,lte" doc:"How the value compares to threshold for the rule to breach."`
-	Threshold     float64      `json:"threshold" doc:"Not negative; at most 1 for error_rate and apdex."`
+	Threshold     float64      `json:"threshold" doc:"Not negative; at most 1 for the error rates and apdex."`
 	WindowS       int32        `json:"window_s" minimum:"60" maximum:"86400" multipleOf:"60" doc:"The trailing window the metric is aggregated over, in whole minutes."`
 	EveryS        *int32       `json:"every_s,omitempty" required:"false" minimum:"60" maximum:"86400" doc:"Evaluation frequency in seconds. Exactly one of every_s and cron."`
 	Cron          *string      `json:"cron,omitempty" required:"false" minLength:"1" maxLength:"128" doc:"Evaluation schedule: five cron fields (minute hour day-of-month month day-of-week, UTC) or a descriptor such as @hourly. Exactly one of every_s and cron."`
@@ -641,7 +641,7 @@ func checkRuleFields(b AlertRuleBody) (validRule, error) {
 	if math.IsNaN(b.Threshold) || math.IsInf(b.Threshold, 0) || b.Threshold < 0 {
 		return v, bad("threshold must be a number of at least 0")
 	}
-	if (m == alerts.MetricErrorRate || m == alerts.MetricApdex) && b.Threshold > 1 {
+	if (m.IsRate() || m == alerts.MetricApdex) && b.Threshold > 1 {
 		return v, bad("threshold of " + b.Metric + " must be between 0 and 1")
 	}
 	if b.WindowS < 60 || b.WindowS > 86400 || b.WindowS%60 != 0 {

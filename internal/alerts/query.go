@@ -103,6 +103,14 @@ func buildQuery(m Metric, s queryScope) (evalQuery, error) {
 			value = "toFloat64(sum(client_errors) + sum(server_errors))"
 		case MetricErrorRate:
 			value = "if(sum(requests) = 0, 0, (sum(client_errors) + sum(server_errors)) / sum(requests))"
+		case MetricServerErrors:
+			value = "toFloat64(sum(server_errors))"
+		case MetricServerErrorRate:
+			value = "if(sum(requests) = 0, 0, sum(server_errors) / sum(requests))"
+		case MetricClientErrors:
+			value = "toFloat64(sum(client_errors))"
+		case MetricClientErrorRate:
+			value = "if(sum(requests) = 0, 0, sum(client_errors) / sum(requests))"
 		default:
 			value = fmt.Sprintf("toFloat64(quantilesTDigestMerge(0.5, 0.75, 0.9, 0.95, 0.99)(latency)[%d])", quantileIndex[m])
 		}
@@ -138,6 +146,14 @@ func buildQuery(m Metric, s queryScope) (evalQuery, error) {
 		value = "toFloat64(countIf(status_code >= 400))"
 	case MetricErrorRate:
 		value = "if(count() = 0, 0, countIf(status_code >= 400) / count())"
+	case MetricServerErrors:
+		value = "toFloat64(countIf(status_code >= 500))"
+	case MetricServerErrorRate:
+		value = "if(count() = 0, 0, countIf(status_code >= 500) / count())"
+	case MetricClientErrors:
+		value = "toFloat64(countIf(status_code >= 400 AND status_code < 500))"
+	case MetricClientErrorRate:
+		value = "if(count() = 0, 0, countIf(status_code >= 400 AND status_code < 500) / count())"
 	case MetricP50, MetricP75, MetricP95:
 		value = fmt.Sprintf("toFloat64(quantileTDigest(%s)(response_time_ms))", quantileLevel[m])
 	case MetricApdex:
