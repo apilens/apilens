@@ -210,3 +210,58 @@ export function timelineTotals(t: Pick<RequestTimeline, "buckets">): Pick<Reques
   }
   return sum;
 }
+
+// ---------------------------------------------------------------- Supabase TimelineChart (#1061)
+// apps/studio/components/ui/DataTable/TimelineChart.tsx (supabase/supabase master): the chart's
+// tick and tooltip formats by the span of its buckets, and recharts' default tick thinning.
+
+/** TimelineChart.tsx:199-211 `calculatePeriod`, by the span from the first to the last bucket. */
+export type ChartPeriod = "10m" | "1d" | "1w" | "1mo";
+export function chartPeriod(intervalMs: number): ChartPeriod {
+  if (intervalMs <= 10 * 60_000) return "10m";
+  if (intervalMs <= 24 * 3_600_000) return "1d";
+  if (intervalMs <= 7 * 24 * 3_600_000) return "1w";
+  return "1mo";
+}
+
+const HMS: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" };
+const HM: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const MON_DD: Intl.DateTimeFormatOptions = { month: "short", day: "2-digit" };
+const MON_DD_Y: Intl.DateTimeFormatOptions = { month: "short", day: "2-digit", year: "numeric" };
+
+/**
+ * An x-axis tick (TimelineChart.tsx:137-148): `HH:mm:ss` up to 10 minutes, `HH:mm` up to a day,
+ * `LLL dd HH:mm` up to a week, else `LLL dd, y`, in `tz`.
+ */
+export function chartTick(at: number, period: ChartPeriod, tz: string): string {
+  if (period === "10m") return zoned("en-US", HMS, tz).format(at);
+  if (period === "1d") return zoned("en-US", HM, tz).format(at);
+  if (period === "1w") return `${zoned("en-US", MON_DD, tz).format(at)} ${zoned("en-US", HM, tz).format(at)}`;
+  return zoned("en-US", MON_DD_Y, tz).format(at);
+}
+
+/** The tooltip's label (TimelineChart.tsx:156-163): `LLL dd, HH:mm:ss` up to 10 minutes, else `LLL dd, y HH:mm`. */
+export function chartTooltipLabel(at: number, period: ChartPeriod, tz: string): string {
+  if (period === "10m") return `${zoned("en-US", MON_DD, tz).format(at)}, ${zoned("en-US", HMS, tz).format(at)}`;
+  return `${zoned("en-US", MON_DD_Y, tz).format(at)} ${zoned("en-US", HM, tz).format(at)}`;
+}
+
+/**
+ * Which bucket indices get a tick, as recharts' default `interval="preserveEnd"` with
+ * `minTickGap={32}` (TimelineChart.tsx:135) picks them: from the last bucket backwards, a tick
+ * wherever its label (`labelPx` wide, centred on its bucket of `slotPx`) clears the one after it
+ * by `gap` px. Ascending.
+ */
+export function chartTickIndices(count: number, slotPx: number, labelPx: number, gap = 32): number[] {
+  if (count <= 0 || slotPx <= 0) return [];
+  const out: number[] = [];
+  let edge = Number.POSITIVE_INFINITY;
+  for (let i = count - 1; i >= 0; i--) {
+    const center = (i + 0.5) * slotPx;
+    if (out.length === 0 || center + labelPx / 2 + gap <= edge) {
+      out.push(i);
+      edge = center - labelPx / 2;
+    }
+  }
+  return out.reverse();
+}

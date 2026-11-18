@@ -1,61 +1,76 @@
-/* Explore (#585; revamped in #1052 after Supabase Unified Logs). Tokens from tokens.css only.
-   Colour carries meaning: 4xx is --warn, 5xx --error, everything under 400 neutral (also said in
-   text: the status code, its reason phrase in the title). The page fills the content pane: a
-   facet sidebar (256-512px, its own scroll), then a 48px title row, one toolbar row, the 60px chart
-   and the table, which scrolls itself under a sticky header. Rows are 30px (ROW_H in
-   log-table.tsx), two lines (52px) under 640px; only the rows in view are in the DOM. */
+/* Explore (#585; revamped in #1052 and #1061 after Supabase Unified Logs). Tokens from tokens.css
+   only. Colour carries meaning: 4xx is --warn, 5xx --error, everything under 400 neutral (also
+   said in text: the status code, its reason phrase in the title). The facets sit in the shell's
+   secondary sidebar; the page fills the content pane with one toolbar row, the 60px chart and the
+   table, which scrolls itself under a sticky header, and a request opens in a drawer over it. Rows
+   are 30px (ROW_H in log-table.tsx), two lines (52px) under 640px; only the rows in view are in
+   the DOM. Sizes cite supabase/supabase master (file:line). */
 .exr { display: flex; height: 100%; min-height: 0; background: var(--bg); }
 .exr-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-x: hidden; }
-.exr-title { flex: none; display: flex; align-items: center; height: 48px; padding: 0 var(--space-4); border-bottom: 1px solid var(--border); box-sizing: border-box; }
-.exr-title h1 { margin: 0; font: 500 15px/20px var(--font-sans); color: var(--ink); }
 
-/* One toolbar row: sidebar · range · filter bar (flexible) · refresh · views · columns · export · live. */
-.exr-tools { flex: none; display: flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-4); }
-.exr-tools__end { display: flex; align-items: center; gap: 6px; }
-.exr-tools .ex-views { margin: 0; }
-.exr-tools .ex-views__trigger { min-height: 32px; height: 32px; border-color: var(--border); border-radius: 6px; font-size: 12px; }
-.exr-tools .ex-views__said:empty { display: none; }
-.ex-tbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 500 12px/1 var(--font-sans); white-space: nowrap; cursor: pointer; }
-.ex-tbtn:hover { background: var(--surface-2); }
-.ex-tbtn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
-.ex-tbtn--icon { width: 32px; padding: 0; }
-.ex-tbtn[aria-pressed="true"]:not(.exr-live) { background: var(--surface-2); }
-.ex-tbtn .cp-ic { width: 14px; height: 14px; color: var(--ink-muted); }
-.ex-tbtn__icon { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; color: var(--ink-muted); }
-.ex-tbtn__icon.is-spinning { animation: ex-spin .8s linear infinite; }
-@keyframes ex-spin { to { transform: rotate(360deg); } }
-.exr-range__text { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.exr-live__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
-.exr-live.is-on { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); color: var(--ok); }
-.exr-live.is-on .exr-live__dot { background: var(--ok); animation: ex-pulse 2s ease-in-out infinite; }
-@keyframes ex-pulse { 50% { opacity: .35; } }
 
-.exr-paused, .exr-banner { flex: none; margin: 0 var(--space-4) var(--space-1); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .exr-banner { padding: 3px var(--space-2); border-radius: 6px; background: var(--warn-soft); color: var(--ink); }
 
-/* The filter bar: pills and the input in one bordered field. */
-.exp { position: relative; flex: 1 1 280px; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 32px; padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-sizing: border-box; }
-.exp:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.exp-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.3; stroke-linejoin: round; }
+
+
+
+/* The toolbar row (UnifiedLogs.tsx:688-750): `flex flex-wrap items-center gap-2 px-2 border-b`,
+   the filter box in `sm:flex-1 py-2`, the buttons in `ml-auto flex items-center gap-x-2`. */
+.exr-tools { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 8px; border-bottom: 1px solid var(--border); }
+.exr-filter { flex: 1 1 0; min-width: 0; padding: 8px 0; }
+.exr-tools__end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+/* Toolbar buttons at Supabase's `size="tiny"` (packages/ui Button.tsx:103, lib/constants.ts:47-61):
+   26px tall, `px-2.5` (10px), `text-xs` (12/16) medium, `rounded-md` (raised-control-surface.ts:2),
+   a 14px icon (Button.tsx:137) 8px from the label (`space-x-2`, Button.tsx:18). Icon-only ones are
+   26px square (RefreshButton.tsx:38 `w-[26px]`). `default` is the raised surface, `primary` the
+   accent. TODO(#1061 B4): fold into the shared tiny button once the shell lane adds it. */
+.ex-tbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 500 12px/16px var(--font-sans); white-space: nowrap; cursor: pointer; box-sizing: border-box; transition: background-color .2s cubic-bezier(.22, 1, .36, 1), border-color .2s cubic-bezier(.22, 1, .36, 1); }
+.ex-tbtn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.ex-tbtn:active:not(:disabled) { transform: scale(.97); }
+.ex-tbtn:disabled { opacity: .5; cursor: not-allowed; }
+.ex-tbtn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.ex-tbtn--icon { width: 26px; padding: 0; }
+.ex-tbtn--primary { border-color: transparent; background: var(--accent); color: var(--on-accent); }
+.ex-tbtn--primary:hover { background: var(--accent); border-color: transparent; filter: brightness(1.08); }
+.ex-tbtn .cp-ic { width: 14px; height: 14px; color: var(--ink-muted); }
+.ex-tbtn__icon, .exr-live__icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ex-tbtn__icon.is-spinning { animation: ex-spin 1s linear infinite; }
+@keyframes ex-spin { to { transform: rotate(360deg); } }
+.exr-live .exr-live__icon path { fill: none; }
+.exr-live:not(.is-on) .exr-live__icon path { fill: none; }
+
+.exr-paused, .exr-banner { flex: none; margin: 0; padding: 4px 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exr-banner { margin: 0 8px 4px; border-radius: 6px; background: var(--warn-soft); color: var(--ink); }
+
+/* The filter box (ui-patterns FilterBar.tsx:61-98, pill variant): one bordered `rounded-md` box,
+   `bg-foreground/[.026]`, a 16px search icon in an 8px-padded lead, then the conditions as 26px
+   pills (FilterCondition.tsx:281: `h-[26px] rounded-sm border bg-muted`), 12px text
+   (LogsFilterBar.tsx:213). */
+.exp { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 32px; padding: 2px 4px 2px 0; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--ink) 2.6%, var(--bg)); box-sizing: border-box; cursor: text; }
+.exp:focus-within { border-color: var(--border-strong); }
+.exp-lead { flex: none; display: flex; align-items: center; padding: 0 8px; }
+.exp-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
 .exp-pills { display: flex; flex-wrap: nowrap; flex: 0 1 auto; gap: 4px; margin: 0; padding: 0; list-style: none; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.exp-pill { flex: none; display: inline-flex; align-items: center; max-width: 320px; height: 24px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }
-.exp-pill__body { display: inline-flex; align-items: center; gap: 4px; min-width: 0; height: 100%; padding: 0 2px 0 6px; border: 0; background: none; color: var(--ink); font: 400 12px/1 var(--font-sans); cursor: pointer; }
+.exp-pill { flex: none; display: inline-flex; align-items: stretch; max-width: 320px; height: 26px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); box-sizing: border-box; }
+.exp-pill__body { display: inline-flex; align-items: center; min-width: 0; height: 100%; padding: 0 4px 0 0; border: 0; background: none; color: var(--ink); font: 400 12px/16px var(--font-sans); cursor: pointer; }
 .exp-pill__body:focus-visible, .exp-pill__x:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; border-radius: 3px; }
-.exp-pill__field { color: var(--ink-muted); }
-.exp-pill__op { font-family: var(--font-mono); color: var(--accent-ink); }
+.exp-pill__field { padding: 0 4px 0 8px; color: var(--ink-muted); }
+.exp-pill__op { padding: 0 4px; font-family: var(--font-mono); color: var(--ink-muted); }
 .exp-pill.is-not .exp-pill__op { color: var(--error); }
-.exp-pill__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exp-pill__value { min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exp-pill__value.is-mono { font-family: var(--font-mono); }
-.exp-pill__x { display: grid; place-items: center; width: 20px; height: 100%; padding: 0; border: 0; background: none; color: var(--ink-muted); cursor: pointer; }
-.exp-pill__x:hover { color: var(--ink); }
+/* The remove button (FilterCondition.tsx:482): 18px square, 3px margin, 12px icon. */
+.exp-pill__x { display: grid; place-items: center; align-self: center; width: 18px; height: 18px; margin: 3px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); cursor: pointer; }
+.exp-pill__x:hover { background: var(--border); color: var(--ink); }
 .exp-pill__x svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .exp-field { position: relative; flex: 1 1 140px; min-width: 120px; }
-.exp-input { width: 100%; height: 26px; padding: 0 2px; border: 0; background: transparent; color: var(--ink); font: 400 13px/1 var(--font-sans); outline: none; }
+.exp-input { width: 100%; height: 26px; padding: 0 4px; border: 0; background: transparent; color: var(--ink); font: 400 12px/16px var(--font-sans); outline: none; }
 .exp-input::placeholder { color: var(--ink-muted); }
-.exp-clear { flex: none; height: 24px; padding: 0 6px; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); font: 500 12px/1 var(--font-sans); cursor: pointer; }
+.exp-clear { flex: none; height: 22px; padding: 0 6px; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); font: 500 12px/16px var(--font-sans); cursor: pointer; }
 .exp-clear:hover { background: var(--surface-2); color: var(--ink); }
-.exp-menu { position: absolute; top: calc(100% + 8px); left: -8px; z-index: 40; min-width: 260px; max-height: 320px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
-.exp-menu li { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 30px; padding: 0 8px; border-radius: 6px; font: 400 13px/1 var(--font-sans); color: var(--ink); cursor: pointer; }
+.exp-menu { position: absolute; top: calc(100% + 8px); left: -8px; z-index: 40; min-width: 220px; max-height: 320px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
+.exp-menu li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px; border-radius: 4px; font: 400 12px/16px var(--font-sans); color: var(--ink); cursor: pointer; }
 .exp-menu li.is-active { background: var(--surface-2); }
 .exp-menu__detail { font: 400 11px/1 var(--font-mono); color: var(--ink-muted); }
 .exp-edit { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
@@ -65,36 +80,141 @@
 .exp-edit__op[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .exp-edit__op:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 
-/* Chart and table fade while another query's rows load (not while paging). */
-.exr-data { flex: 1; min-height: 0; display: flex; flex-direction: column; transition: opacity .15s ease; }
-.exr-data.is-stale { opacity: .6; }
+/* The date picker of the time pill (Logs.DatePickers.tsx:295-428): helpers on the left
+   (`border-r p-2 flex flex-col gap-px`; the box `mb-2 text-xs h-7 rounded-xs`; each helper
+   `px-4 py-1.5 text-xs rounded-xs`, checked `bg-background-overlay-hover text-foreground`), the
+   start and end on the right (`flex p-2 gap-2 font-mono`), Apply in a `p-2 border-t` footer. */
+.org-pop:has(.ext) { width: auto; max-width: calc(100vw - 16px); padding: 0; }
+.ext { display: flex; font: 400 12px/16px var(--font-sans); color: var(--ink); }
+.ext-helpers { display: flex; flex-direction: column; gap: 1px; padding: 8px; border-right: 1px solid var(--border); }
+.ext-custom { box-sizing: border-box; width: 160px; height: 28px; margin-bottom: 8px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 2px; background: var(--surface-1); color: var(--ink); font: 400 12px/16px var(--font-sans); }
+.ext-custom:focus-visible { outline: none; border-color: var(--accent); }
+.ext-list { display: flex; flex-direction: column; gap: 1px; }
+.ext-helper { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 16px; border: 0; border-radius: 2px; background: none; color: var(--ink-muted); font: 400 12px/16px var(--font-sans); text-align: left; cursor: pointer; }
+.ext-helper:hover, .ext-helper[aria-checked="true"] { background: var(--surface-2); color: var(--ink); }
+.ext-helper:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ext-invalid { margin: 0; padding: 6px 8px; color: var(--ink-muted); }
+.ext-abs { display: flex; flex-direction: column; min-width: 0; }
+.ext-times { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; padding: 8px; font-family: var(--font-mono); }
+.ext-times label { color: var(--ink-muted); font-family: var(--font-sans); }
+.ext-zone { margin-left: 4px; font-family: var(--font-mono); font-size: 11px; }
+.ext-time { box-sizing: border-box; height: 26px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 400 12px/16px var(--font-mono); }
+.ext-time:focus-visible { outline: none; border-color: var(--accent); }
+.ext-err { margin: 0; padding: 0 8px 8px; color: var(--error); }
+.ext-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding: 8px; border-top: 1px solid var(--border); }
 
-/* The 60px status chart: no gridlines, ticks only. */
-.exc { flex: none; position: relative; padding: var(--space-1) var(--space-4) 0; }
-.exc--error { padding: var(--space-3) var(--space-4); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.exr-data { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; transition: opacity .15s ease; }
+/* Supabase fades the chart and table to 60% while refetching (UnifiedLogs.tsx:763, 805). */
+.exr-data.is-stale { opacity: .6; }
+.exr-data > .ex-notice { margin: var(--space-3) var(--space-4); }
+
+/* The chart (TimelineChart.tsx:97-105; UnifiedLogs.tsx:762 `-mb-1.5 mt-1.5`): 60px, `px-2`, no
+   card. 12px ticks (chart.tsx:53 `text-xs`, `fill-foreground-muted`), a `fill-muted/50` hover
+   cursor (TimelineChart.tsx:102), the highlight 20% fill with a 50% stroke (TimelineChart.tsx:181-189). */
+.exc { flex: none; position: relative; margin: 6px 0 -6px; padding: 0 8px; }
+.exc--error { margin: 0; padding: 12px 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .exc-plot { position: relative; height: 60px; cursor: crosshair; touch-action: none; user-select: none; }
 .exc-plot:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 4px; }
-.exc-plot svg { display: block; width: 100%; height: 60px; }
-.exc-ok { fill: color-mix(in srgb, var(--ink-muted) 45%, transparent); }
+.exc-plot svg { display: block; width: 100%; height: 60px; overflow: visible; }
+.exc-ok { fill: color-mix(in srgb, var(--ink-muted) 40%, transparent); }
 .exc-4xx { fill: var(--warn); }
 .exc-5xx { fill: var(--error); }
-.exc-hover { fill: var(--surface-2); }
-.exc-sel { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.exc-focus { fill: none; stroke: var(--accent-ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.exc-axis { position: relative; height: 18px; font: 400 11px/18px var(--font-mono); color: var(--ink-muted); }
-.exc-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
-.exc-tip { position: absolute; top: 0; z-index: 6; min-width: 160px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/16px var(--font-sans); color: var(--ink); pointer-events: none; }
+.exc-cursor { fill: color-mix(in srgb, var(--surface-2) 50%, transparent); }
+.exc-sel { fill: color-mix(in srgb, var(--ink) 20%, transparent); stroke: color-mix(in srgb, var(--ink) 50%, transparent); stroke-width: 1; }
+.exc-focus { fill: none; stroke: var(--accent-ink); stroke-width: 1.5; }
+.exc-tick { fill: var(--ink-muted); font: 400 12px/16px var(--font-sans); }
+/* ChartTooltipContent (chart.tsx:166): `min-w-32 rounded-lg px-2.5 py-1.5 text-xs gap-1.5`; rows
+   `gap-2` with a 10px `rounded-[2px]` square; the level label `w-20 font-mono` (TooltipLabel.tsx:11). */
+.exc-tip { position: absolute; z-index: 6; display: grid; gap: 6px; min-width: 128px; padding: 6px 10px; border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/16px var(--font-sans); color: var(--ink); pointer-events: none; white-space: nowrap; }
 .exc-tip p { margin: 0; }
-.exc-tip__when { margin-bottom: 4px !important; color: var(--ink-muted); }
-.exc-tip__row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 6px; }
-.exc-tip__n { font-family: var(--font-mono); text-align: right; }
-.exc-tip__total { margin-top: 2px !important; padding-top: 2px; border-top: 1px solid var(--border); }
-.exc-swatch { width: 8px; height: 8px; border-radius: 2px; }
-.exc-swatch--2xx { background: color-mix(in srgb, var(--ink-muted) 45%, transparent); }
+.exc-tip__when { font-weight: 500; }
+.exc-tip__row { display: flex; align-items: center; gap: 8px; line-height: 1; }
+.exc-tip__lv { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 80px; margin-right: 8px; font-family: var(--font-mono); color: color-mix(in srgb, var(--ink) 70%, transparent); }
+.exc-tip__code { color: color-mix(in srgb, var(--ink-muted) 70%, transparent); }
+.exc-tip__n { flex: 1; text-align: right; font: 500 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+.exc-swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.exc-swatch--2xx { background: color-mix(in srgb, var(--ink-muted) 40%, transparent); }
 .exc-swatch--4xx { background: var(--warn); }
 .exc-swatch--5xx { background: var(--error); }
-.exc-pop { position: absolute; top: 6px; z-index: 7; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 180px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); cursor: default; }
-.exc-pop__when { font: 400 11px/14px var(--font-sans); color: var(--ink-muted); }
+/* ChartHighlightActions (ChartHighlightActions.tsx:102-145; dropdown-menu.tsx:70, 105, 167, 179):
+   `min-w-32 rounded-md p-1 flex flex-col gap-1`, a centred `font-mono text-xs` range label with a
+   10px arrow, a hairline, and the 12px search icon item `px-2 py-1.5 text-xs gap-1.5`. */
+.exc-menu { position: absolute; z-index: 7; display: flex; flex-direction: column; gap: 4px; min-width: 128px; padding: 4px; border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); cursor: default; }
+.exc-menu__label { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 6px 8px; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
+.exc-menu__label svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.exc-menu hr { width: auto; margin: 0 -4px; border: 0; border-top: 1px solid var(--border); }
+.exc-menu__item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; border: 0; border-radius: 4px; background: none; color: var(--ink); font: 400 12px/16px var(--font-sans); text-align: left; white-space: nowrap; cursor: pointer; }
+.exc-menu__item:hover, .exc-menu__item:focus-visible { outline: none; background: var(--surface-2); }
+.exc-menu__item svg { width: 12px; height: 12px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
+
+/* The facets in the shell's sidebar (#1061): the SidePanel body scrolls them, its header holds Reset. */
+.exf-slot .exf { height: auto; }
+.exf-slot .exf-scroll { overflow: visible; padding: var(--space-2) 0; }
+.exf-actions { display: flex; }
+.exf-reset { height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 500 12px/16px var(--font-sans); cursor: pointer; }
+.exf-reset:hover { background: var(--surface-2); color: var(--ink); }
+.exf-reset:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+
+/* The request drawer (#1061): Supabase's Sheet from the right, no overlay (sheet.tsx:200-214,
+   164): full height, `border-l bg-popover shadow-lg`, `lg:w-1/3` with the log panel's 400px floor
+   (ServiceFlowPanel.tsx minSize 400), sliding in over 300ms. The table behind keeps its width. */
+.exd-sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; display: flex; width: max(400px, 33.333vw); max-width: 100vw; border-left: 1px solid var(--border); background: var(--surface-1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); animation: exd-in .3s cubic-bezier(.22, 1, .36, 1); }
+@keyframes exd-in { from { transform: translateX(100%); } }
+.exd { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+/* ServiceFlowPanel.tsx:91-104: a 36px header (`h-9 px-4 gap-3`), the title `text-sm font-medium
+   leading-6`, the actions `-mr-1 h-6 gap-1`. */
+.exd-head { flex: none; display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 16px; box-sizing: border-box; }
+.exd-title { flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 500 14px/24px var(--font-sans); }
+.exd-badge { flex: none; padding: 0 6px; border-radius: 4px; font: 500 12px/18px var(--font-mono); background: var(--surface-2); color: var(--ink); }
+.exd-badge--4xx { background: var(--warn-soft); color: var(--warn); }
+.exd-badge--5xx { background: var(--error-soft); color: var(--error); }
+.exd-method { flex: none; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.exd-path { font: 400 12px/18px var(--font-mono); }
+.exd-actions { flex: none; display: flex; align-items: center; gap: 4px; height: 24px; margin-right: -4px; }
+.exd-act { height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 500 12px/16px var(--font-sans); white-space: nowrap; cursor: pointer; }
+.exd-act:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.exd-act:disabled { opacity: .5; cursor: default; }
+.exd-act:focus-visible, .exd-close:focus-visible, .exd-nav:focus-visible, .exd-tabs button:focus-visible, .exd-body:focus-visible, .exd-sec__h button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exd-close { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
+.exd-close:hover { background: var(--surface-2); color: var(--ink); }
+.exd-close svg, .exd-nav svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.exd-sub { display: flex; gap: var(--space-3); margin: 0; padding: 0 16px 6px; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); }
+.exd-said { margin: 0; padding: 0 16px 4px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exd-said:empty { display: none; }
+.exd-outside { margin: 0 16px 8px; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/16px var(--font-sans); }
+/* Tabs (ServiceFlowPanel.tsx:32, 120; packages/ui tabs.tsx:36, 49, 69-71): the list `border-b
+   gap-x-5 px-4`, each trigger `py-2.5 text-sm`, `text-foreground-lighter`, active `text-foreground`
+   with a 2px `bg-foreground` underline. */
+.exd-tabs { flex: none; display: flex; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.exd-tabs button { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-bottom: -1px; padding: 10px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); font: 400 14px/20px var(--font-sans); white-space: nowrap; cursor: pointer; transition: color .15s; }
+.exd-tabs button:hover { color: var(--ink); }
+.exd-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.exd-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) 16px var(--space-6); }
+/* The footer (ServiceFlowPanel.tsx:167): `border-t py-1.5 pl-4 pr-3 text-xs text-foreground-lighter`. */
+.exd-foot { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 6px 16px; border-top: 1px solid var(--border); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exd-keys { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exd-nav { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
+.exd-nav:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.exd-nav:disabled { opacity: .35; cursor: default; }
+.exd-dl--top { margin-bottom: var(--space-3); }
+
+@media (max-width: 759px) {
+  /* Phones (UnifiedLogs.tsx:710 `order-first w-full`): the filter box takes its own first row. */
+  .exr-filter { order: -1; flex-basis: 100%; padding-bottom: 0; }
+  .exr-tools { padding-bottom: 8px; }
+  .ex-tbtn__label { display: none; }
+  .exd-sheet { width: 100vw; border-left: 0; }
+  .exd-actions .exd-act { display: none; }
+  .exd-tabs { -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
+  .exd-keys { visibility: hidden; }
+  .ext { flex-direction: column; }
+  .ext-helpers { border-right: 0; border-bottom: 1px solid var(--border); }
+  .ext-custom { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .exl-bone, .ex-tbtn__icon.is-spinning, .exd-sheet { animation: none; }
+  .exr-data, .exf-facet__title .cp-ic, .exf-expand .cp-ic, .ex-tbtn { transition: none; }
+}
 
 /* The table. */
 .exl { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
@@ -147,13 +267,8 @@
 .exr-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); border-top: 1px solid var(--border); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .exr-empty p { margin: 0; }
 .exr-empty__title { font-weight: 500; font-size: 14px; color: var(--ink); }
-.exr-data > .ex-notice { margin: var(--space-3) var(--space-4); }
 
-/* The facet sidebar (Supabase's secondary sidebar: 256px, header 48px, its own scroll). */
-.exf-side { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
 .exf { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.exf-head { flex: none; display: flex; align-items: center; gap: var(--space-2); height: 48px; padding: 0 var(--space-4) 0 var(--space-6); border-bottom: 1px solid var(--border); box-sizing: border-box; }
-.exf-title { flex: 1; margin: 0; font: 500 14px/20px var(--font-sans); color: var(--ink); }
 .exf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) 0; scrollbar-width: thin; }
 .exf-facet { padding: 2px var(--space-3); }
 .exf-facet + .exf-facet { border-top: 1px solid var(--border); }
@@ -189,15 +304,7 @@
 .exf-item--skeleton .exl-bone { width: 60%; }
 .exf-item--skeleton .exf-bone-count { width: 24px; }
 .exf-note { margin: 4px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
-.exf-handle { position: absolute; top: 0; right: -3px; z-index: 3; width: 6px; height: 100%; cursor: col-resize; }
-.exf-handle:hover, .exf-handle:focus-visible { outline: none; box-shadow: inset -3px 0 0 var(--accent); }
 
-/* Phones: the facets in a bottom sheet. */
-.exs { position: fixed; inset: 0; z-index: 60; }
-.exs-scrim { position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); }
-.exs-sheet { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; max-height: 82dvh; border: 1px solid var(--border); border-radius: 12px 12px 0 0; background: var(--bg); box-shadow: var(--shadow-frame); overflow: hidden; }
-.exs-sheet .exf { height: auto; min-height: 0; flex: 1; }
-.exs-close { position: absolute; top: 10px; right: var(--space-4); z-index: 1; }
 
 /* The Columns menu. */
 .exm-cols { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); }
@@ -217,18 +324,6 @@
 
 .ex-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-@media (max-width: 759px) {
-  .exr-title { padding: 0 var(--space-4); }
-  .exr-tools { flex-wrap: wrap; }
-  .exr-tools .exp { order: 9; flex-basis: 100%; }
-  .exr-tools__end { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
-  .ex-tbtn__label, .exr-tools .ex-views__name, .exr-tools .ex-views__badge { display: none; }
-  .exr-range__text { max-width: 140px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .exr-live.is-on .exr-live__dot, .exl-bone, .ex-tbtn__icon.is-spinning { animation: none; }
-  .exr-data, .exf-facet__title .cp-ic, .exf-expand .cp-ic { transition: none; }
-}
 
 .ex-muted, .ex-faint { color: var(--ink-muted); }
 
@@ -381,27 +476,6 @@ span.rd-j-tog { cursor: default; }
 
 /* Motion only for readers who allow it (#587 acceptance: respects reduced motion). */
 
-/* Saved views (#589): the view switcher in the page header, Save view in the filter bar, and the
-   menu and small forms they open (portalled to <body>, so those rules do not sit under .ex). */
-.ex-views { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
-.ex-views__trigger { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; min-height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 500 13px/20px var(--font-sans); cursor: pointer; }
-.ex-views__trigger:hover, .ex-views__trigger.is-open { background: var(--surface-2); }
-.ex-views__trigger:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
-.ex-views__trigger .cp-ic { flex: none; width: 16px; height: 16px; color: var(--ink-muted); }
-.ex-views__name { min-width: 0; max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.ex-views__badge { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/16px var(--font-sans); color: var(--ink-muted); }
-.org-pop .ex-views__badge { margin-left: auto; }
-.org-pop .ex-views__badge + .sl { margin-left: var(--space-2); }
-.ex-views__said { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
-.ex-views__said.is-err { color: var(--error); }
-.ex-views__said:empty { display: none; }
-.ex-views__note { margin: 4px 0; padding: 0 8px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
-.ex-views__form { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
-.ex-views__form > label { font: 500 13px/20px var(--font-sans); color: var(--ink); }
-.ex-views__form > .ex-views__check { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); font-weight: 400; }
-.ex-views__check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
-.ex-views__confirm { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
-.ex-views__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 .ex-btn-danger { background: transparent; border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--error); }
 
 /* CSV export (#590): Export beside the view switcher, the recent exports in its popover, and the
@@ -425,51 +499,14 @@ span.rd-j-tog { cursor: default; }
 @media (max-width: 640px) { .ex-toasts { right: 16px; bottom: 16px; } }
 @media (prefers-reduced-motion: reduce) { .ex-toast__bar > span { transition: none; } }
 
-/* The request panel (#1053): inside Explore, docked right (default) or under the table. */
-.exr-work { flex: 1; min-height: 0; display: flex; }
-.exr-work--right { flex-direction: row; }
-.exr-work--bottom { flex-direction: column; }
-.exr-work > .exr-data { flex: 1; min-width: 0; min-height: 0; }
-.exd-frame { position: relative; flex: none; display: flex; min-width: 0; min-height: 0; background: var(--bg); }
-.exd-frame--right { border-left: 1px solid var(--border); max-width: 60%; }
-.exd-frame--bottom { border-top: 1px solid var(--border); min-height: 300px; }
-.exd-handle { position: absolute; z-index: 4; }
-.exd-frame--right .exd-handle { top: 0; left: -3px; width: 6px; height: 100%; cursor: col-resize; }
-.exd-frame--bottom .exd-handle { left: 0; top: -3px; height: 6px; width: 100%; cursor: row-resize; }
-.exd-handle:hover, .exd-handle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
-.exd { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; font: 400 13px/20px var(--font-sans); color: var(--ink); }
-.exd-head { flex: none; display: flex; align-items: center; gap: var(--space-2); height: 48px; padding: 0 var(--space-2) 0 var(--space-4); border-bottom: 1px solid var(--border); box-sizing: border-box; }
-.exd-back { display: none; }
-.exd-title { flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 500 13px/20px var(--font-sans); }
 .exd-badge { flex: none; padding: 1px 8px; border-radius: var(--radius-pill); font: 500 12px/18px var(--font-mono); background: var(--surface-2); color: var(--ink); }
 .exd-badge--4xx { background: var(--warn-soft); color: var(--warn); }
 .exd-badge--5xx { background: var(--error-soft); color: var(--error); }
 .exd-method { flex: none; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
 .exd-path { font: 400 12px/18px var(--font-mono); }
-.exd-actions { flex: none; display: flex; align-items: center; gap: 2px; }
-.exd-act { height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 500 12px/1 var(--font-sans); white-space: nowrap; cursor: pointer; }
-.exd-act:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
-.exd-act:disabled { opacity: .45; cursor: default; }
-.exd-act:focus-visible, .exd-close:focus-visible, .exd-nav:focus-visible, .exd-tabs button:focus-visible, .exd-body:focus-visible, .exd-sec__h button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.exd-close { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
-.exd-close:hover { background: var(--surface-2); color: var(--ink); }
-.exd-close svg, .exd-nav svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.exd-sub { display: flex; gap: var(--space-3); margin: 0; padding: 6px var(--space-4) 0; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
 .exd-said { margin: 0; padding: 0 var(--space-4); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); min-height: 0; }
 .exd-said:empty { display: none; }
 .exd-outside { margin: var(--space-2) var(--space-4) 0; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/18px var(--font-sans); }
-.exd-tabs { flex: none; display: flex; gap: 2px; padding: 0 var(--space-3); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
-.exd-tabs button { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-bottom: -1px; padding: 9px 8px 8px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); font: 500 13px/18px var(--font-sans); cursor: pointer; }
-.exd-tabs button:hover { color: var(--ink); }
-.exd-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent-ink); }
-.exd-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-4) var(--space-6); }
-.exd-foot { flex: none; display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 var(--space-2) 0 var(--space-4); border-top: 1px solid var(--border); font: 400 11px/16px var(--font-sans); color: var(--ink-muted); }
-.exd-keys { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/16px var(--font-sans); color: var(--ink-muted); }
-.exd-nav { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
-.exd-nav:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
-.exd-nav:disabled { opacity: .35; cursor: default; }
-.exd-dock { position: relative; }
-.exd-dock__menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 10; display: flex; flex-direction: column; min-width: 160px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
 /* Overview sections. */
 .exd-sec { border-bottom: 1px solid var(--border); }
 .exd-sec__h { margin: 0; font: inherit; }
@@ -537,14 +574,7 @@ span.rd-j-tog { cursor: default; }
 .exd-mini td code { font: 400 12px/18px var(--font-mono); }
 .exd-sel__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-4); }
 .exd-sel__hint { padding: 0 var(--space-4); white-space: normal; }
-/* Saved views: the filter summary under each name, the prompt and the shortcut list. */
-.ex-views__item .lb { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ex-views__sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/14px var(--font-sans); color: var(--ink-muted); }
-.ex-views__item { height: auto; min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
-.ex-views__pills { flex-wrap: wrap; overflow: visible; }
-.ex-prompt { position: absolute; left: 50%; bottom: 44px; z-index: 8; display: flex; align-items: center; gap: var(--space-2); max-width: calc(100% - 32px); padding: 6px 6px 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); transform: translateX(-50%); font: 400 13px/18px var(--font-sans); color: var(--ink); }
-.ex-prompt__form { position: absolute; left: 0; bottom: calc(100% + 6px); width: 300px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
-.exr-data { position: relative; }
+/* The shortcut list. */
 .exk { border-collapse: collapse; margin: 6px; font: 400 12px/18px var(--font-sans); color: var(--ink); }
 .exk th { padding: 3px 12px 3px 4px; text-align: left; white-space: nowrap; font-weight: 400; }
 .exk td { padding: 3px 4px; color: var(--ink-muted); }
@@ -552,16 +582,4 @@ span.rd-j-tog { cursor: default; }
 .exe-set { display: flex; gap: var(--space-3); margin: 0; padding: 0; border: 0; }
 .exe-set legend { padding: 0; margin-bottom: 4px; font: 500 12px/16px var(--font-sans); }
 
-@media (max-width: 759px) {
-  /* Phones: the panel takes the screen, with Back, and its tabs scroll with an edge fade. */
-  .exd-frame { position: fixed; inset: 0; z-index: 70; width: auto !important; height: auto !important; max-width: none; border: 0; }
-  .exd-handle { display: none; }
-  .exd-back { display: inline-flex; flex: none; }
-  .exd-head { padding-left: var(--space-2); }
-  .exd-actions .exd-act { display: none; }
-  .exd-tabs { -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
-  .exd-keys { visibility: hidden; }
-  .exd-dock { display: none; }
-  .ex-prompt { bottom: 40px; flex-wrap: wrap; }
-}
 @media (prefers-reduced-motion: reduce) { .exd-sec__chev { transition: none; } }

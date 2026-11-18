@@ -4,6 +4,10 @@ import { NO_FILTERS } from "./explore-filters";
 import {
   bucketAt,
   bucketText,
+  chartPeriod,
+  chartTick,
+  chartTickIndices,
+  chartTooltipLabel,
   chartWindow,
   formatInstant,
   instantText,
@@ -160,5 +164,31 @@ describe("timelineTotals", () => {
   });
   it("reads no buckets as zero", () => {
     expect(timelineTotals({ buckets: null })).toEqual({ requests: 0, successful: 0, client_errors: 0, server_errors: 0 });
+  });
+});
+
+describe("Supabase TimelineChart formats (#1061)", () => {
+  const t = Date.parse("2026-11-05T14:05:09Z");
+  it("picks the period from the span of the buckets", () => {
+    expect(chartPeriod(10 * 60_000)).toBe("10m");
+    expect(chartPeriod(10 * 60_000 + 1)).toBe("1d");
+    expect(chartPeriod(24 * 3_600_000)).toBe("1d");
+    expect(chartPeriod(7 * 24 * 3_600_000)).toBe("1w");
+    expect(chartPeriod(7 * 24 * 3_600_000 + 1)).toBe("1mo");
+  });
+  it("formats ticks and tooltip labels as TimelineChart's date-fns formats", () => {
+    expect(chartTick(t, "10m", "UTC")).toBe("14:05:09");
+    expect(chartTick(t, "1d", "UTC")).toBe("14:05");
+    expect(chartTick(t, "1w", "UTC")).toBe("Nov 05 14:05");
+    expect(chartTick(t, "1mo", "UTC")).toBe("Nov 05, 2026");
+    expect(chartTooltipLabel(t, "10m", "UTC")).toBe("Nov 05, 14:05:09");
+    expect(chartTooltipLabel(t, "1d", "UTC")).toBe("Nov 05, 2026 14:05");
+  });
+  it("thins ticks from the end, as recharts' preserveEnd with minTickGap 32", () => {
+    expect(chartTickIndices(0, 10, 30)).toEqual([]);
+    expect(chartTickIndices(10, 100, 30)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const picked = chartTickIndices(60, 10, 30);
+    expect(picked.at(-1)).toBe(59);
+    for (let i = 1; i < picked.length; i++) expect((picked[i] - picked[i - 1]) * 10).toBeGreaterThanOrEqual(62);
   });
 });

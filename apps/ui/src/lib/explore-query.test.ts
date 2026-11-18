@@ -22,8 +22,32 @@ import {
   ticked,
   toggleValue,
   typedCond,
+  typedTime,
+  parseDuration,
+  presetOf,
   zonedInputToIso,
 } from "./explore-query";
+
+describe("time in the filter box (#1061)", () => {
+  const now = Date.parse("2026-11-05T10:00:00Z");
+  it("reads durations as Supabase's date picker does", () => {
+    expect(parseDuration("2h")).toEqual({ ms: 7_200_000, words: "Last 2 hours" });
+    expect(parseDuration("last 30m")).toEqual({ ms: 1_800_000, words: "Last 30 minutes" });
+    expect(parseDuration("1 day")).toEqual({ ms: 86_400_000, words: "Last 1 day" });
+    expect(parseDuration("8d")).toBeNull();
+    expect(parseDuration("0h")).toBeNull();
+    expect(parseDuration("soon")).toBeNull();
+    expect(presetOf(3_600_000)).toBe("1h");
+    expect(presetOf(7_200_000)).toBeNull();
+  });
+  it("turns time: and date: into a range", () => {
+    expect(typedTime("time:24h", now)).toEqual({ range: "24h" });
+    expect(typedTime("date = last 15m", now)).toEqual({ range: "15m" });
+    expect(typedTime("time:2h", now)).toEqual({ range: "1h", from: "2026-11-05T08:00:00Z" });
+    expect(typedTime("path:/time", now)).toBeNull();
+    expect(typedTime("time:forever", now)).toBeNull();
+  });
+});
 
 const APP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const c = (s: string) => {

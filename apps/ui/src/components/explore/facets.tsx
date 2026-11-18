@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, type PointerEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import {
   type Cond,
   type ExploreQuery,
@@ -19,9 +19,6 @@ import { Icon } from "../icons";
 import { useAppNames } from "./app-names";
 import { isOpenMap, useStored } from "./use-stored";
 
-/** The facet sidebar's width in px: Supabase's 256 default and minimum, 512 at most. */
-export const FACETS_MIN = 256;
-export const FACETS_MAX = 512;
 /** A list taller than this (px) scrolls, as Supabase's. */
 const LIST_MAX = 215;
 /** Lists with more values than this get a search box. */
@@ -89,34 +86,22 @@ function useFacetValues(project: string, q: ExploreQuery, field: FacetField, sea
  * and the server's count (compact mono, 1.2k). Hovering a value swaps its count for "Only", which
  * keeps just that value. Ticking adds an `=` condition, so the facets and the filter bar's pills
  * are one filter set. Path and Consumer search the API as you type. Each facet has its own Reset;
- * the header's Reset clears every filter.
+ * the sidebar header's Reset (Explore's own, #1061) clears every filter.
  */
 export function FacetPanel({
   project,
   query: q,
   onChange,
   refresh,
-  header,
 }: {
   project: string;
   query: ExploreQuery;
   onChange: (conds: Cond[]) => void;
   refresh: number;
-  /** The header's own controls (the sheet's Close on phones). */
-  header?: ReactNode;
 }) {
   const [open, setOpen] = useStored<Record<string, boolean>>("apilens.explore.facets.open", { status: true, app: true, env: true }, isOpenMap);
   return (
-    <div className="exf">
-      <div className="exf-head">
-        <h2 className="exf-title">Filters</h2>
-        {q.conds.length ? (
-          <button type="button" className="exf-link" onClick={() => onChange([])}>
-            Reset
-          </button>
-        ) : null}
-        {header}
-      </div>
+    <div className="exf" role="region" aria-label="Filters">
       <div className="exf-scroll">
         {FACET_FIELDS.map((f) => (
           <Facet
@@ -363,48 +348,5 @@ function ValueRow({
         Only
       </button>
     </Tag>
-  );
-}
-
-/**
- * The sidebar's frame on wide screens: the panel at the remembered width with a handle on its edge
- * that drags it between 256 and 512px (arrow keys move it 16px).
- */
-export function FacetSidebar({ width, onWidth, children }: { width: number; onWidth: (w: number) => void; children: ReactNode }) {
-  const drag = useRef<{ x: number; w: number } | null>(null);
-  const clamp = (w: number) => Math.round(Math.max(FACETS_MIN, Math.min(FACETS_MAX, w)));
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    drag.current = { x: e.clientX, w: width };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (drag.current) onWidth(clamp(drag.current.w + e.clientX - drag.current.x));
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const step = e.key === "ArrowRight" ? 16 : e.key === "ArrowLeft" ? -16 : 0;
-    if (!step) return;
-    e.preventDefault();
-    onWidth(clamp(width + step));
-  };
-  return (
-    <aside className="exf-side" style={{ width }} aria-label="Filters">
-      {children}
-      <div
-        className="exf-handle"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize filters"
-        aria-valuemin={FACETS_MIN}
-        aria-valuemax={FACETS_MAX}
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onKeyDown={onKeyDown}
-      />
-    </aside>
   );
 }

@@ -573,3 +573,42 @@ export function isoToZonedInput(iso: string, tz: string): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${p.year}-${pad(p.month + 1)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
 }
+
+// The time range in the filter box (#1061, after Supabase's LogsDatePicker) ---------------------
+
+const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
+const UNIT_WORD: Record<string, string> = { m: "minute", h: "hour", d: "day" };
+
+/**
+ * A relative duration as Supabase's date picker takes it (`e.g. 2h, 30m, 7d`), with an optional
+ * `last`: its length and its words (`Last 2 hours`), or null. At most Explore's 7 days.
+ */
+export function parseDuration(text: string): { ms: number; words: string } | null {
+  const m = text
+    .trim()
+    .toLowerCase()
+    .replace(/^last\s+/, "")
+    .match(/^(\d{1,4})\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?)$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2][0];
+  const ms = n * UNIT_MS[unit];
+  if (n <= 0 || ms > RANGE_MS["7d"]) return null;
+  return { ms, words: `Last ${n} ${UNIT_WORD[unit]}${n === 1 ? "" : "s"}` };
+}
+
+/** The preset range of a duration (`1h` for an hour), or null when it is not one of them. */
+export const presetOf = (ms: number): ExploreRange | null => EXPLORE_RANGES.find((r) => RANGE_MS[r] === ms) ?? null;
+
+/**
+ * Time typed in the filter box: `time:2h`, `date: last 24h`, `time=15m`. The range it asks for:
+ * a preset, or a window starting that long ago and staying live (`from` only). Null otherwise.
+ */
+export function typedTime(text: string, now: number): { range: ExploreRange; from?: string } | null {
+  const m = text.trim().match(/^(?:time|date)\s*[:=]\s*(.+)$/i);
+  if (!m) return null;
+  const d = parseDuration(m[1]);
+  if (!d) return null;
+  const preset = presetOf(d.ms);
+  return preset ? { range: preset } : { range: DEFAULT_RANGE, from: isoSecond(now - d.ms) };
+}

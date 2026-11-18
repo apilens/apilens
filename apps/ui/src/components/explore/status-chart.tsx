@@ -1,23 +1,33 @@
 "use client";
 
-import { type KeyboardEvent, type PointerEvent, useId, useLayoutEffect, useRef, useState } from "react";
-import { timeFraction, timeTicks } from "@/lib/chart-ticks";
-import { formatCount, stackBars } from "@/lib/consumers";
-import { DRAG_THRESHOLD_PX, bucketAt, bucketSpan, isoSecond, moveBucket, selectionWindow, windowText } from "@/lib/explore-timeline";
+import { type KeyboardEvent, type PointerEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { formatCount, niceMax } from "@/lib/consumers";
+import { type ChartPeriod, bucketAt, bucketSpan, chartPeriod, chartTick, chartTickIndices, chartTooltipLabel, formatInstant, isoSecond, moveBucket, selectionWindow, windowText } from "@/lib/explore-timeline";
 import type { RequestTimeline } from "@/lib/identity";
 import { useTimeZone } from "@/lib/time-zone-context";
-import { plotWidth } from "@/lib/traffic";
 
-/** The viewBox width drawn before the plot is measured (server render), stretched by CSS. */
-const FALLBACK_W = 960;
-/** Plot height in px (Supabase's 60px); the CSS uses the same number. */
+// Geometry copied from Supabase's TimelineChart (apps/studio/components/ui/DataTable/TimelineChart.tsx)
+// and the recharts defaults it relies on:
+// - ChartContainer `h-[60px] w-full px-2` (TimelineChart.tsx:101), margin 0 (:109);
+// - XAxis without a height, so recharts' default 30px axis band under a 30px plot;
+// - tickLine false, axisLine false (:134-136), labels 12px (`text-xs`, chart.tsx:53) at
+//   tickSize 6 + tickMargin 2 below the plot, dy 0.71em;
+// - Bar without barCategoryGap/radius: recharts' 10% gap each side of a band, square corners.
 const H = 60;
+const AXIS_H = 30;
+const PLOT_H = H - AXIS_H;
+const TICK_Y = PLOT_H + 6 + 2;
+const GAP = 0.1;
+/** Before the plot is measured (server render). */
+const FALLBACK_W = 960;
+/** Rough width of one 12px mono-ish character, to thin ticks as recharts measures them. */
+const CHAR_PX = 7;
 
-/** The layers, bottom up: under 400 grey, 4xx amber, 5xx red. */
+/** Bottom up, as the Bars are declared (TimelineChart.tsx:168-180): error, warning, success. */
 const LAYERS = [
-  { key: "successful", cls: "2xx", label: "2xx–3xx", className: "exc-ok" },
-  { key: "client_errors", cls: "4xx", label: "4xx", className: "exc-4xx" },
-  { key: "server_errors", cls: "5xx", label: "5xx", className: "exc-5xx" },
+  { key: "server_errors", cls: "5xx", level: "Error", code: "5xx", className: "exc-5xx" },
+  { key: "client_errors", cls: "4xx", level: "Warning", code: "4xx", className: "exc-4xx" },
+  { key: "successful", cls: "2xx", level: "Success", code: "2–3xx", className: "exc-ok" },
 ] as const;
 
 type Layer = (typeof LAYERS)[number]["cls"];
@@ -28,7 +38,7 @@ function useMeasuredWidth<T extends HTMLElement>() {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const read = () => setWidth(plotWidth(el.getBoundingClientRect().width));
+    const read = () => setWidth(Math.max(1, Math.round(el.getBoundingClientRect().width)));
     read();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(read);
@@ -39,12 +49,12 @@ function useMeasuredWidth<T extends HTMLElement>() {
 }
 
 /**
- * Explore's status chart (#1052, after Supabase's TimelineChart): requests per bucket, 60px tall,
- * stacked grey (under 400), amber (4xx) and red (5xx), with no gridlines and 3–5 time ticks in the
- * viewer's zone. A layer the status filter leaves out is not drawn. Drag across bars, or click one,
- * to select a window; "Filter to selected range" then narrows the page to it (`onRange`). Keyboard:
- * arrows pick a bar, Shift with the arrows selects several, Enter selects the bar, Esc cancels.
- * `timeline` is null when the API could not answer.
+ * Explore's chart, a copy of Supabase's TimelineChart (#1061): 60px in all, a 30px plot of
+ * stacked bars (5xx red at the bottom, then 4xx amber, then the rest muted) over a 30px band of
+ * time ticks, full width with 8px sides and no card. Hover shows the bucket under a muted cursor
+ * with Supabase's tooltip; drag across bars, or click one, highlights a range and opens the
+ * "Filter requests to selected range" menu where the drag started (`onRange`). Keyboard: arrows
+ * pick a bar, Shift with them selects several, Enter opens the menu, Esc cancels.
  */
 export function StatusChart({
   timeline,
@@ -59,11 +69,33 @@ export function StatusChart({
   const id = useId();
   const [ref, measured] = useMeasuredWidth<HTMLDivElement>();
   const w = measured ?? FALLBACK_W;
-  const [hover, setHover] = useState<number | null>(null);
-  // A drag in progress, or a finished selection waiting for "Filter to selected range".
-  const [sel, setSel] = useState<{ a: number; b: number; done: boolean } | null>(null);
+  const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
+  const [sel, setSel] = useState<{ a: number; b: number; done: boolean; at: { x: number; y: number } } | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
-  const drag = useRef<{ x: number; a: number; moved: boolean } | null>(null);
+  const drag = useRef<{ a: number; at: { x: number; y: number } } | null>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  // The menu closes on Esc and on a click outside it (ChartHighlightActions.tsx:104-111).
+  useEffect(() => {
+    if (!sel?.done) return;
+    const onDown = (e: globalThis.PointerEvent) => {
+      const t = e.target as Element | null;
+      if (menu.current?.contains(t) || t?.closest?.(".exc-plot")) return;
+      setSel(null);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setSel(null);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+    menu.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [sel?.done]);
 
   if (timeline === null) {
     return (
@@ -76,48 +108,49 @@ export function StatusChart({
   const buckets = timeline.buckets ?? [];
   const count = buckets.length;
   const layers = LAYERS.filter((l) => shown.has(l.cls));
-  const { bars } = stackBars(
-    buckets.map((b) => ({ successful: b.successful, client_errors: b.client_errors, server_errors: b.server_errors })),
-    layers.map((l) => l.key),
-    w,
-    H,
-  );
   const slot = count ? w / count : w;
+  const barW = slot * (1 - 2 * GAP);
+  const top = niceMax(Math.max(0, ...buckets.map((b) => layers.reduce((n, l) => n + Math.max(0, b[l.key]), 0))));
   const first = count ? Date.parse(buckets[0].ts) : 0;
-  const step = timeline.bucket_seconds * 1000;
-  const ticks = count ? timeTicks(first, first + step * count, tz, 5) : null;
+  const last = count ? Date.parse(buckets[count - 1].ts) : 0;
+  const period: ChartPeriod = chartPeriod(Math.abs(last - first));
+  const sample = count ? chartTick(first, period, tz) : "";
+  const ticks = chartTickIndices(count, slot, sample.length * CHAR_PX);
 
-  const finish = (a: number, b: number) => setSel({ a: Math.min(a, b), b: Math.max(a, b), done: true });
+  const lo = sel ? Math.min(sel.a, sel.b) : 0;
+  const hi = sel ? Math.max(sel.a, sel.b) : 0;
+  const selWindow = sel?.done ? selectionWindow(timeline, lo, hi) : null;
   const apply = () => {
-    if (!sel) return;
-    const z = selectionWindow(timeline, sel.a, sel.b);
     setSel(null);
-    if (z) onRange(z.from, z.to);
+    if (selWindow) onRange(selWindow.from, selWindow.to);
   };
 
-  const xOf = (e: PointerEvent<HTMLDivElement>) => e.clientX - e.currentTarget.getBoundingClientRect().left;
+  const pos = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || count === 0 || (e.target as HTMLElement).closest(".exc-pop")) return;
-    const x = xOf(e);
-    drag.current = { x, a: bucketAt(x, w, count), moved: false };
+    if (e.button !== 0 || count === 0) return;
+    const p = pos(e);
+    const i = bucketAt(p.x, w, count);
+    drag.current = { a: i, at: p };
     setFocus(null);
+    setSel({ a: i, b: i, done: false, at: p });
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    const x = xOf(e);
-    const i = bucketAt(x, w, count);
-    setHover(count ? i : null);
+    const p = pos(e);
+    const i = bucketAt(p.x, w, count);
+    setHover(count ? { i, ...p } : null);
     const d = drag.current;
-    if (!d) return;
-    if (!d.moved && Math.abs(x - d.x) >= DRAG_THRESHOLD_PX) d.moved = true;
-    if (d.moved) setSel({ a: d.a, b: i, done: false });
+    if (d) setSel({ a: d.a, b: i, done: false, at: d.at });
   };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
-    // A click selects its one bar; a drag the bars it crossed.
-    finish(d.a, d.moved ? bucketAt(xOf(e), w, count) : d.a);
+    // The menu opens where the selection started (useChartHighlight.tsx:103-106).
+    setSel({ a: d.a, b: bucketAt(pos(e).x, w, count), done: true, at: d.at });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -129,27 +162,23 @@ export function StatusChart({
       return;
     }
     const current = focus ?? count - 1;
+    const at = { x: (current + 0.5) * slot, y: PLOT_H / 2 };
     if (e.key === "Enter") {
       e.preventDefault();
-      if (sel?.done) apply();
-      else if (sel) finish(sel.a, sel.b);
-      else finish(current, current);
+      setSel(sel ? { ...sel, done: true } : { a: current, b: current, done: true, at });
       return;
     }
     const next = moveBucket(e.key, current, count);
     if (next === null) return;
     e.preventDefault();
-    if (e.shiftKey) setSel((s) => ({ a: s?.a ?? current, b: next, done: false }));
+    if (e.shiftKey) setSel((s) => ({ a: s?.a ?? current, b: next, done: false, at: s?.at ?? at }));
     else setSel(null);
     setFocus(next);
   };
 
-  const shownBar = focus ?? hover;
-  const lo = sel ? Math.min(sel.a, sel.b) : 0;
-  const hi = sel ? Math.max(sel.a, sel.b) : 0;
   const total = buckets.reduce((n, b) => n + b.requests, 0);
-  const tipBucket = shownBar !== null && !sel?.done ? buckets[shownBar] : undefined;
-  const selWindow = sel?.done ? selectionWindow(timeline, lo, hi) : null;
+  const tipIndex = sel ? null : (focus ?? hover?.i ?? null);
+  const tipAt = focus !== null ? { x: (focus + 0.5) * slot, y: PLOT_H / 2 } : hover;
 
   return (
     <section className="exc" aria-label="Requests over time">
@@ -171,54 +200,69 @@ export function StatusChart({
         onPointerLeave={() => setHover(null)}
         onKeyDown={onKeyDown}
         onBlur={(e) => {
-          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          if (e.currentTarget.contains(e.relatedTarget as Node) || menu.current?.contains(e.relatedTarget as Node)) return;
           setFocus(null);
           if (!sel?.done) setSel(null);
         }}
       >
-        <svg viewBox={`0 0 ${w} ${H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
-          {shownBar !== null && shownBar < count ? <rect className="exc-hover" x={shownBar * slot} y={0} width={slot} height={H} /> : null}
-          {bars.map((b) => (
-            <g key={b.index} data-bucket={b.index}>
-              {b.segments.map((s) => (
-                <rect key={s.key} className={LAYERS.find((l) => l.key === s.key)?.className} x={b.x} y={s.y} width={b.w} height={s.h} rx={b.w >= 6 ? 1.5 : 0} />
-              ))}
-            </g>
+        <svg width={w} height={H} viewBox={`0 0 ${w} ${H}`} aria-hidden="true" focusable="false">
+          {tipIndex !== null && tipIndex < count ? <rect className="exc-cursor" x={tipIndex * slot} y={0} width={slot} height={PLOT_H} /> : null}
+          {buckets.map((b, i) => {
+            let y = PLOT_H;
+            return (
+              <g key={b.ts} data-bucket={i}>
+                {layers.map((l) => {
+                  const v = Math.max(0, b[l.key]);
+                  if (!v) return null;
+                  const h = (v / top) * PLOT_H;
+                  y -= h;
+                  return <rect key={l.key} className={l.className} x={i * slot + slot * GAP} y={y} width={barW} height={h} />;
+                })}
+              </g>
+            );
+          })}
+          {sel ? <rect className="exc-sel" x={lo * slot} y={0} width={(hi - lo + 1) * slot} height={PLOT_H} /> : null}
+          {focus !== null && focus < count ? <rect className="exc-focus" x={focus * slot + 1} y={1} width={Math.max(1, slot - 2)} height={PLOT_H - 2} /> : null}
+          {ticks.map((i) => (
+            <text key={i} className="exc-tick" x={(i + 0.5) * slot} y={TICK_Y} dy="0.71em" textAnchor="middle">
+              {chartTick(Date.parse(buckets[i].ts), period, tz)}
+            </text>
           ))}
-          {sel ? <rect className="exc-sel" x={lo * slot} y={0} width={(hi - lo + 1) * slot} height={H} /> : null}
-          {focus !== null && focus < count ? <rect className="exc-focus" x={focus * slot + 1} y={1} width={Math.max(1, slot - 2)} height={H - 2} /> : null}
         </svg>
-        {tipBucket ? <Tip timeline={timeline} index={shownBar ?? 0} slot={slot} width={w} layers={layers.map((l) => l.cls)} /> : null}
-        {selWindow ? (
-          <div className="exc-pop" style={{ left: Math.max(0, Math.min(((lo + hi + 1) / 2) * slot - 90, w - 180)) }}>
-            <button type="button" className="ah-btn ah-btn--primary ah-btn--sm" onClick={apply} onPointerDown={(e) => e.stopPropagation()}>
-              Filter to selected range
+        {tipIndex !== null && tipAt && buckets[tipIndex] ? <Tip timeline={timeline} index={tipIndex} at={tipAt} width={w} period={period} layers={layers.map((l) => l.cls)} /> : null}
+        {selWindow && sel ? (
+          <div
+            ref={menu}
+            className="exc-menu"
+            role="menu"
+            aria-label="Selected range"
+            style={{ left: Math.max(0, Math.min(sel.at.x, w - 240)), top: sel.at.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <p className="exc-menu__label">
+              <span>{formatInstant(selWindow.from, { tz, withDay: true })}</span>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 8h10M9 4l4 4-4 4" />
+              </svg>
+              <span>{formatInstant(selWindow.to, { tz, withDay: true })}</span>
+            </p>
+            <hr />
+            <button type="button" role="menuitem" className="exc-menu__item" onClick={apply}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="M10.5 10.5L14 14" />
+              </svg>
+              Filter requests to selected range
             </button>
-            <span className="exc-pop__when">{windowText(selWindow.from, selWindow.to, tz)}</span>
           </div>
         ) : null}
       </div>
-      {ticks ? (
-        <div className="exc-axis" aria-hidden="true">
-          {ticks.ticks.map((t, i) => {
-            const f = timeFraction(t.at, first, step, count);
-            // Ticks near an edge lean inward, so their label never leaves the plot.
-            const shift = f > 0.88 ? "-100%" : f < 0.06 ? "0" : "-50%";
-            return (
-            <span key={t.at} style={{ left: `${f * 100}%`, transform: `translateX(${shift})` }}>
-              {t.label}
-              {i === ticks.ticks.length - 1 ? ` ${ticks.zone}` : ""}
-            </span>
-            );
-          })}
-        </div>
-      ) : null}
       <p id={`${id}-hint`} className="ex-sr">
-        Drag across bars, or click one, to select a time range, then Filter to selected range. With the keyboard, arrow keys pick a bar, Shift with the arrows selects
-        several, Enter selects and then filters, and Escape cancels.
+        Drag across bars, or click one, to select a time range, then Filter requests to selected range. With the keyboard, arrow keys pick a bar, Shift with the
+        arrows selects several, Enter opens the menu, and Escape cancels.
       </p>
       <p className="ex-sr" aria-live="polite">
-        {selWindow ? `Selected ${windowText(selWindow.from, selWindow.to, tz)}. Press Enter to filter to it.` : focus !== null && buckets[focus] ? bucketWords(timeline, focus, tz) : ""}
+        {selWindow ? `Selected ${windowText(selWindow.from, selWindow.to, tz)}.` : focus !== null && buckets[focus] ? bucketWords(timeline, focus, tz) : ""}
       </p>
     </section>
   );
@@ -227,44 +271,37 @@ export function StatusChart({
 function bucketWords(t: RequestTimeline, i: number, tz: string): string {
   const b = (t.buckets ?? [])[i];
   const { start, end } = bucketSpan(t, b);
-  return `${windowText(isoSecond(start), isoSecond(Math.ceil(end / 1000) * 1000), tz)}: ${formatCount(b.requests)} requests, ${formatCount(b.successful)} under 400, ${formatCount(b.client_errors)} 4xx, ${formatCount(b.server_errors)} 5xx`;
+  return `${windowText(isoSecond(start), isoSecond(Math.ceil(end / 1000) * 1000), tz)}: ${formatCount(b.requests)} requests, ${formatCount(b.server_errors)} 5xx, ${formatCount(b.client_errors)} 4xx, ${formatCount(b.successful)} under 400`;
 }
 
-/** A bar's tooltip: its time range, each class's count and the total, kept inside the plot. */
-function Tip({ timeline, index, slot, width, layers }: { timeline: RequestTimeline; index: number; slot: number; width: number; layers: Layer[] }) {
+/**
+ * Supabase's ChartTooltipContent (packages/ui chart.tsx:162-238): the bucket's time, then one row
+ * per series in Bar order, each a 10px square, the level and its code, and the count. It follows
+ * the pointer 10px right and below, as recharts' Tooltip, flipping to stay inside the plot.
+ */
+function Tip({ timeline, index, at, width, period, layers }: { timeline: RequestTimeline; index: number; at: { x: number; y: number }; width: number; period: ChartPeriod; layers: Layer[] }) {
   const tz = useTimeZone();
   const ref = useRef<HTMLDivElement>(null);
   const [left, setLeft] = useState<number | null>(null);
-  const center = (index + 0.5) * slot;
   useLayoutEffect(() => {
     const tw = ref.current?.offsetWidth ?? 0;
-    setLeft(Math.max(0, Math.min(center + 12, width - tw)));
-  }, [center, width]);
+    setLeft(at.x + 10 + tw > width ? Math.max(0, at.x - 10 - tw) : at.x + 10);
+  }, [at.x, width]);
   const b = (timeline.buckets ?? [])[index];
   if (!b) return null;
-  const { start, end } = bucketSpan(timeline, b);
-  const rows: [Layer, string, number][] = [
-    ["2xx", "2xx–3xx", b.successful],
-    ["4xx", "4xx", b.client_errors],
-    ["5xx", "5xx", b.server_errors],
-  ];
   return (
-    <div ref={ref} className="exc-tip" aria-hidden="true" style={{ left: left ?? 0, visibility: left === null ? "hidden" : undefined }}>
-      <p className="exc-tip__when">{windowText(isoSecond(start), isoSecond(Math.ceil(end / 1000) * 1000), tz)}</p>
-      {rows
-        .filter(([cls]) => layers.includes(cls))
-        .map(([cls, label, n]) => (
-          <p key={cls} className="exc-tip__row">
-            <span className={`exc-swatch exc-swatch--${cls}`} />
-            <span>{label}</span>
-            <span className="exc-tip__n">{formatCount(n)}</span>
-          </p>
-        ))}
-      <p className="exc-tip__row exc-tip__total">
-        <span />
-        <span>Total</span>
-        <span className="exc-tip__n">{formatCount(b.requests)}</span>
-      </p>
+    <div ref={ref} className="exc-tip" aria-hidden="true" style={{ left: left ?? 0, top: at.y + 10, visibility: left === null ? "hidden" : undefined }}>
+      <p className="exc-tip__when">{chartTooltipLabel(Date.parse(b.ts), period, tz)}</p>
+      {LAYERS.filter((l) => layers.includes(l.cls)).map((l) => (
+        <p key={l.key} className="exc-tip__row">
+          <span className={`exc-swatch exc-swatch--${l.cls}`} />
+          <span className="exc-tip__lv">
+            <span>{l.level}</span>
+            <span className="exc-tip__code">{l.code}</span>
+          </span>
+          <span className="exc-tip__n">{b[l.key] ? b[l.key].toLocaleString("en-US") : ""}</span>
+        </p>
+      ))}
     </div>
   );
 }
