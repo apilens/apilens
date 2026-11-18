@@ -80,20 +80,25 @@ describe("withScopeDefaults", () => {
   it("fills a missing range from the first data and a missing env with production", async () => {
     const firstAt = vi.fn(async () => ago(20 * MIN));
     const got = await withScopeDefaults({ tab: "issues" }, { ...opts, firstAt });
-    expect(got).toEqual({ params: { tab: "issues", range: "1h", env: "production" }, envExplicit: false });
+    expect(got).toEqual({ params: { tab: "issues", range: "1h", env: "production" }, urlParams: { tab: "issues", range: "1h", env: "production" }, envExplicit: false });
     expect(firstAt).toHaveBeenCalledOnce();
   });
 
   it("keeps the URL's own range and env, without reading the ingest status", async () => {
     const firstAt = vi.fn(async () => ago(20 * MIN));
     const got = await withScopeDefaults({ range: "7d", env: "staging" }, { ...opts, firstAt });
-    expect(got).toEqual({ params: { range: "7d", env: "staging" }, envExplicit: true });
+    expect(got).toEqual({ params: { range: "7d", env: "staging" }, urlParams: { range: "7d", env: "staging" }, envExplicit: true });
     expect(firstAt).not.toHaveBeenCalled();
   });
 
   it("reads env=all as all environments, an explicit choice", async () => {
     const got = await withScopeDefaults({ range: "1h", env: "all" }, opts);
-    expect(got).toEqual({ params: { range: "1h", env: "" }, envExplicit: true });
+    expect(got).toEqual({ params: { range: "1h", env: "" }, urlParams: { range: "1h", env: "all" }, envExplicit: true });
+  });
+
+  it("keeps env=all in the URL params, so links built from them stay on all environments (#1040)", async () => {
+    const got = await withScopeDefaults({ range: "6h", env: "all", q: "orders" }, opts);
+    expect(got.urlParams).toEqual({ range: "6h", env: "all", q: "orders" });
   });
 
   it("uses the page default when the ingest status cannot be read or has no data", async () => {
@@ -104,6 +109,7 @@ describe("withScopeDefaults", () => {
   it("leaves env alone on a page without an environment filter", async () => {
     const got = await withScopeDefaults({}, { ranges: ALL, fallbackRange: "24h", now: NOW, firstAt: async () => ago(3 * DAY) });
     expect(got.params).toEqual({ range: "7d" });
+    expect(got.urlParams).toEqual({ range: "7d" });
   });
 });
 

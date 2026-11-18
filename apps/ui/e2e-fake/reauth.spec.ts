@@ -5,7 +5,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const KEYS = "/project/shop/settings/keys";
+const KEYS = "/project/shop/access/keys";
 const MANAGE = ["project.read", "api_keys.create", "api_keys.revoke"];
 
 async function signIn(page: Page) {

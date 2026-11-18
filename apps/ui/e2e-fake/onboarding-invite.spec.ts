@@ -116,7 +116,8 @@ test("invite: chips per address with a role each, invalid ones blocked, per-addr
   await expect(page.getByRole("listitem")).toContainText("New invitation sent");
 
   await page.getByRole("button", { name: "Open project" }).click();
-  await page.waitForURL((url) => url.pathname === "/project/hooli-search/incidents");
+  // The about step keeps the default home screen, "Slow or failing endpoints", which opens Traffic (#994).
+  await page.waitForURL((url) => url.pathname === "/project/hooli-search/traffic");
   // Onboarding is finished: its pages now send the user to a project.
   await page.goto("/onboarding/invite");
   await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));
@@ -126,7 +127,8 @@ test("invite: skip for now finishes onboarding on the project", async ({ page })
   test.setTimeout(60_000);
   await toInvite(page, "Raviga", "Raviga Capital");
   await page.getByRole("button", { name: "Skip for now" }).click();
-  await page.waitForURL((url) => url.pathname === "/project/raviga-capital/incidents");
+  // The about step keeps the default home screen, "Slow or failing endpoints", which opens Traffic (#994).
+  await page.waitForURL((url) => url.pathname === "/project/raviga-capital/traffic");
 });
 
 test("invite: a failed send keeps the addresses and says why", async ({ page }) => {
