@@ -13,7 +13,7 @@
 .ap .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 
 .ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
-.ap-card { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.ap-card { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); }
 .ap-card:hover { border-color: var(--border-strong); }
 .ap-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .ap-card h2 { margin: 0; min-width: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }

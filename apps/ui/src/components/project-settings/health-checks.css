@@ -20,7 +20,7 @@
 .hc-failures { margin: var(--space-4) 0 0; }
 .hc-failures h4 { margin: 0; font: 500 12px/18px var(--font-sans); color: var(--ink-muted); }
 .hc-failures ol { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
-.hc-failure { padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.hc-failure { padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); }
 .hc-failure + .hc-failure { margin-top: var(--space-2); }
 .hc-failure__when { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
 .hc-open { font-weight: 500; color: var(--error); }

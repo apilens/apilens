@@ -36,7 +36,7 @@ describe("sidebarHref", () => {
     expect(sidebarHref("shop", "errors", current)).toBe("/project/shop/errors?range=6h&env=all");
     expect(sidebarHref("shop", "performance", current)).toBe("/project/shop/performance?range=6h&env=all");
     expect(sidebarHref("shop", "explore", current)).toBe("/project/shop/explore?range=6h");
-    expect(withScope("/project/shop/changes", current)).toBe("/project/shop/changes?range=6h");
+    expect(withScope("/project/shop/deploys", current)).toBe("/project/shop/deploys?range=6h");
   });
 
   it("encodes the values it carries", () => {

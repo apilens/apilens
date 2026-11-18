@@ -6,10 +6,9 @@
 .tr-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .tr-muted { color: var(--ink-muted); }
 
-.tr-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
 .tr-bar__scope { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.tr-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
-.tr-seg a { padding: 4px 12px; border-radius: 7px; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
+.tr-seg { display: inline-flex; height: var(--control-h); padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-1); }
+.tr-seg a { display: inline-flex; align-items: center; padding: 0 12px; border-radius: calc(var(--radius-control) - 2px); font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
 .tr-seg a:hover { color: var(--ink); }
 .tr-seg a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
 .tr-seg a:focus-visible, .tr-ep__link:focus-visible, .tr .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
@@ -27,11 +26,12 @@
 .tr-notice { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
 .tr-notice p { margin: 0; }
 .tr-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
+.tr .st-note { margin-bottom: var(--card-gap); }
 .tr-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
 .tr-notice--error svg { color: var(--error); }
 
 /* Tiles: one panel divided by hairlines. */
-.tr-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
+.tr-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); overflow: hidden; }
 .tr-tiles > div { padding: var(--space-4); }
 .tr-tiles > div + div { border-left: 1px solid var(--border); }
 .tr-tiles dt { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
@@ -45,7 +45,7 @@
 .tr-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
 /* Cards and charts */
-.tr-card { margin-bottom: var(--space-6); padding: var(--space-4) var(--space-4) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.tr-card { margin-bottom: var(--card-gap); padding: var(--card-pad) var(--card-pad) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); }
 .tr-card h2 { margin: 0 0 var(--space-3); font: 600 15px/22px var(--font-sans); color: var(--ink); }
 .tr-card--table { padding: 0; overflow: hidden; }
 .tr-card--table h2 { padding: var(--space-4) var(--space-4) 0; }

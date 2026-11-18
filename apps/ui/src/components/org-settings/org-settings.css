@@ -1,39 +1,17 @@
 /* Organization settings (#347). Tokens from tokens.css only; inputs reuse .ob-in / .ob-sw. */
-/* Page width and gutters come from .page / .page--measure (styles/page.css). */
-.os-head { margin-bottom: var(--space-8); }
-.os-head .cp-lede { margin-top: 2px; }
-
-/* Section tabs under a title (a project's Access › Members, API keys, Activity). */
-.os-tabs { display: flex; gap: var(--space-1); margin-top: var(--space-4); border-bottom: 1px solid var(--border); overflow-x: auto; }
-.os-tab { position: relative; padding: 8px 10px 10px; font: 500 13px/18px var(--font-sans); color: var(--ink-muted); text-decoration: none; white-space: nowrap; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-.os-tab:hover { color: var(--ink); }
-.os-tab.on { color: var(--ink); }
-.os-tab.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
-.os-tab:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-
-/* Settings menu beside the section (General, SSO, Audit log), the account settings' layout. */
-.osf-label { margin: 0 0 var(--space-2); padding: 0 8px; font: 500 12px/18px var(--font-sans); color: var(--ink-muted); }
-.osf-title { margin: 0 0 var(--space-6); }
-.osf-measure > * { max-width: var(--page-measure); }
-@media (max-width: 860px) {
-  .osf-label { display: none; }
-}
-
-/* A page's own header (Projects, Team, Organizations): eyebrow, title, then the actions. */
-.os-pagehead { display: flex; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-6); }
-.os-pagehead > div { flex: 1; min-width: 0; }
-.os-pagehead .cp-lede { margin-top: 2px; }
-.os-note { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--space-6); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+/* Page width and gutters come from .page / .page--narrow (styles/page.css); sub-pages are in the
+   section menu (#1051), so there are no section tabs here any more. */
+.os-note { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--stack-gap); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .os-note > .ob-ic { margin-top: 2px; color: var(--info); }
 
-.os-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
-.os-card + .os-card { margin-top: var(--space-6); }
-.os-card__head { padding: var(--space-4) var(--space-6) 0; }
+.os-card { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); }
+.os-card + .os-card { margin-top: var(--card-gap); }
+.os-card__head { padding: var(--card-pad) var(--card-pad) 0; }
 .os-card__head h2 { margin: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); }
 .os-card__head p { margin: 2px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
-.os-card__body { padding: var(--space-2) var(--space-6) var(--space-6); }
+.os-card__body { padding: var(--space-2) var(--card-pad) var(--card-pad); }
 .os-card__body .ob-f:first-child { margin-top: var(--space-4); }
-.os-card__foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); min-height: 56px; padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.os-card__foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); min-height: 56px; padding: var(--space-3) var(--card-pad); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-card) var(--radius-card); }
 .os-card__foot .os-status { margin-right: auto; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
 .os-card__foot .os-status.ok { color: var(--ok); }
 .os-card__foot .os-status.err { color: var(--error); }

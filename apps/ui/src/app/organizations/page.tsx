@@ -8,8 +8,8 @@ import { ORGANIZATIONS_PATH } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Organizations" };
 
-// `/organizations` (Supabase's): every organization the user belongs to. The shell keeps the last
-// project's organization in the crumb and its links in the rail.
+// `/organizations` (Supabase's): every organization the user belongs to, with no rail and no
+// organization crumb (account scope, #1051).
 export default async function OrganizationsPage() {
   const context = await getContext(ORGANIZATIONS_PATH);
   if (context.orgs.length === 0) redirect(onboardingPath(context.onboarding?.step));

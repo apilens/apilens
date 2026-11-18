@@ -49,6 +49,7 @@ import {
   withCreated,
   withRotated,
 } from "@/lib/api-keys";
+import { ACCESS } from "@/lib/access";
 import { activeApps } from "@/lib/app-manage";
 import { REAUTH_CANCELLED } from "@/lib/reauth";
 import type { ApiKey, ApiKeyScope, CreatedApiKey, ManagedApp, RotateOverlap, RotatedApiKey } from "@/lib/identity";
@@ -92,7 +93,7 @@ interface AppsInfo {
  * with a line saying why. The API checks again. `initial` is null when the list could not be
  * loaded, `apps` when the project's apps could not, `environments` when the project's environments
  * could not (the create dialog then leaves the environment field out); `now` is the server's clock so the first render
- * matches; `nav` is the Access page's tabs, shown under the title.
+ * matches. The Access section menu is the layout's (#1051).
  */
 export function ApiKeysSettings({
   project,
@@ -102,7 +103,6 @@ export function ApiKeysSettings({
   environments = null,
   params,
   now,
-  nav,
 }: {
   project: string;
   projectName: string;
@@ -111,7 +111,6 @@ export function ApiKeysSettings({
   environments?: string[] | null;
   params: SearchParams;
   now: number;
-  nav?: ReactNode;
 }) {
   const router = useRouter();
   const tz = useTimeZone();
@@ -200,10 +199,8 @@ export function ApiKeysSettings({
   const stateChoices = STATE_FILTERS.filter((s) => s === "all" || filter.inactive || !isInactive(s));
 
   return (
-    <div className="page os ak">
-      <PageHeader project={project} projectName={projectName} title="Access" className="os-head">
-        {nav}
-      </PageHeader>
+    <div className="page page--narrow os ak">
+      <PageHeader title={ACCESS.label} lead={ACCESS.lead} className="os-head" />
 
       <section className="os-card pk ak-card" aria-labelledby="ak-title">
         <div className="os-card__head pk-head">

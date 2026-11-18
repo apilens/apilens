@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { projectHref } from "@/lib/routes";
 import { type ContextOrg, plural, projectRoleLabel } from "@/lib/scope";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "./org.css";
 
@@ -13,12 +14,7 @@ export function OrgProjects({ org, view }: { org: ContextOrg; view: string }) {
   const projects = org.projects;
   return (
     <div className="page os org-page">
-      <header className="os-pagehead">
-        <div>
-          <p className="cp-h">{org.name}</p>
-          <h1 className="cp-lede">Projects</h1>
-        </div>
-      </header>
+      <PageHeader title="Projects" lead={`The projects in ${org.name} that you can open.`} />
 
       {projects.length === 0 ? (
         <div className="org-empty">

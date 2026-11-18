@@ -1,6 +1,6 @@
 /* The shared range picker (#992): a segmented control of links. */
-.rp { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
-.rp a { padding: 4px 12px; border-radius: 7px; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
+.rp { display: inline-flex; height: var(--control-h); padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-1); }
+.rp a { display: inline-flex; align-items: center; padding: 0 12px; border-radius: calc(var(--radius-control) - 2px); font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
 .rp a:hover { color: var(--ink); }
 .rp a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
 .rp a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }

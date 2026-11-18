@@ -12,9 +12,14 @@ let css = `/* APILens: generated from design/tokens.json by scripts/build-tokens
 css += `:root, [data-theme="${first}"] {\n  color-scheme: ${first};\n${block(first)}\n}\n`;
 for (const id of rest) css += `[data-theme="${id}"] {\n  color-scheme: ${id};\n${block(id)}\n}\n`;
 css += `:root {\n`;
-for (const k of [...t.spacing.tokens, ...t.radius.tokens]) css += `  --${k.name}: ${k.value};\n`;
+// Layout tokens (#1051): page gutters, stack and section gaps, card padding, control size.
+const layout = t.layout?.tokens ?? [];
+for (const k of [...t.spacing.tokens, ...t.radius.tokens, ...layout]) css += `  --${k.name}: ${k.value};\n`;
 // next/font injects --f-sans and --f-mono on <html>.
 css += `  --font-sans: var(--f-sans), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;\n`;
 css += `  --font-mono: var(--f-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n`;
+// A layout token with a `phone` value takes it under 860px, the shell's phone breakpoint.
+const phone = layout.filter((k) => k.phone);
+if (phone.length) css += `@media (max-width: 860px) {\n  :root {\n${phone.map((k) => `    --${k.name}: ${k.phone};`).join("\n")}\n  }\n}\n`;
 writeFileSync(new URL("../src/styles/tokens.css", import.meta.url), css);
 console.log("wrote src/styles/tokens.css");

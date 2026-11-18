@@ -30,7 +30,7 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
 export default async function ChangesPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
   const sp = await searchParams;
-  const pathname = projectHref(project, "changes");
+  const pathname = projectHref(project, "deploys");
   const next = pageHref(pathname, sp, {});
   const context = await getContext(next);
   const found = findProject(context, project);
@@ -58,7 +58,7 @@ export default async function ChangesPage({ params, searchParams }: { params: Pr
     load && load.total === 0 && filter.app === "" && filter.env === "" ? await releaseSdks(next, apps?.apps ?? []) : [];
 
   return (
-    <AppShell context={context} project={project} view="changes">
+    <AppShell context={context} project={project} view="deploys">
       <ChangesView
         project={project}
         projectName={found.project.name}

@@ -2,7 +2,7 @@
    settings), tables .pk-table (Security → Passkeys), the app picker .cps-app (Capture). */
 .ih-lede { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 
-.ih-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-4) 0 var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
+.ih-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-4) 0 var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); overflow: hidden; }
 .ih-tiles--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .ih-tiles > div { padding: var(--space-4); }
 .ih-tiles > div + div { border-left: 1px solid var(--border); }

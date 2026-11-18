@@ -28,8 +28,10 @@ import { latencyMarks } from "@/lib/chart-ticks";
 import { Histogram, LinesChart, StackedChart } from "./charts";
 import { ScopeFilters, ScopeSelect } from "./filters";
 import { SettingsMenu } from "./settings";
+import { PageToolbar } from "../page-toolbar";
 import "../traffic/traffic.css";
 import "./endpoint.css";
+import { ErrorState } from "../states";
 
 /** The open tab and what its read answered: null when the API could not answer. */
 export type TabLoad =
@@ -95,7 +97,6 @@ export function EndpointView({
     <div className="page tr ep">
       <header className="pagehead ep-head">
         <p className="cp-h">
-          {projectName} ·{" "}
           <a className="cp-link" href={trafficHref(project, { range: q.range, env: q.env, app: q.app })}>
             Traffic
           </a>
@@ -129,8 +130,17 @@ export function EndpointView({
         ) : null}
       </header>
 
-      <div className="tr-bar ep-bar">
-        <div className="tr-bar__scope">
+      {/* View tabs (alternate views of the endpoint), then the toolbar: the page anatomy's order. */}
+      <nav className="cp-tabs ep-tabs" aria-label="Endpoint views">
+        {ENDPOINT_TABS.map((t) => (
+          <a key={t.slug} href={href({ tab: t.slug })} className={q.tab === t.slug ? "on" : undefined} aria-current={q.tab === t.slug ? "page" : undefined}>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+
+      <PageToolbar
+        range={
           <nav className="tr-seg" aria-label="Time range">
             {TRAFFIC_RANGES.map((r) => (
               <a key={r} href={href({ range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
@@ -138,6 +148,8 @@ export function EndpointView({
               </a>
             ))}
           </nav>
+        }
+        filters={
           <ScopeFilters active={(q.env ? 1 : 0) + (tabTakesStatus(q.tab) && q.status !== "all" ? 1 : 0) + (q.app ? 1 : 0) + (q.consumer ? 1 : 0)}>
           <ScopeSelect
             label="Environment"
@@ -163,16 +175,8 @@ export function EndpointView({
             </span>
           ) : null}
           </ScopeFilters>
-        </div>
-      </div>
-
-      <nav className="cp-tabs ep-tabs" aria-label="Endpoint views">
-        {ENDPOINT_TABS.map((t) => (
-          <a key={t.slug} href={href({ tab: t.slug })} className={q.tab === t.slug ? "on" : undefined} aria-current={q.tab === t.slug ? "page" : undefined}>
-            {t.label}
-          </a>
-        ))}
-      </nav>
+        }
+      />
 
       <section className="ep-panel" aria-label={ENDPOINT_TABS.find((t) => t.slug === q.tab)?.label} data-tab={q.tab}>
         <Panel tab={tab} project={project} endpoint={ep} q={scope} settings={saved} perApp={!scoped} pager={{ pathname: endpointPageHref(project, ep, {}), params }} tz={tz} />
@@ -202,7 +206,7 @@ function Panel({
   tz: string;
 }) {
   const retry = endpointPageHref(project, endpoint, q);
-  if (tab.data === null) return <LoadFailed text={tabLoadFailed(tab.tab)} href={retry} />;
+  if (tab.data === null) return <ErrorState text={tabLoadFailed(tab.tab)} href={retry} />;
   const requests = tab.data.summary.requests;
   if (requests === 0) {
     return (
@@ -226,19 +230,6 @@ function Panel({
   }
 }
 
-function LoadFailed({ text, href }: { text: string; href: string }) {
-  return (
-    <div className="tr-notice tr-notice--error" role="alert">
-      <ObIcon name="info" />
-      <p>
-        {text}{" "}
-        <a className="cp-link" href={href}>
-          Try again
-        </a>
-      </p>
-    </div>
-  );
-}
 
 function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string }[] }) {
   return (

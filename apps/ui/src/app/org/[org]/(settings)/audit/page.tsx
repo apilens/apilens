@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ActivityLoadFailed, ActivityNotAllowed, ActivitySkeleton, ActivityView } from "@/components/access/activity";
 import type { PersonOption, ProjectOption } from "@/components/access/activity-filters";
-import { AppShell } from "@/components/app-shell";
 import { OrgSettingsFrame } from "@/components/org-settings/nav";
 import { getContext } from "@/lib/auth/server";
 import { exportFilters, offeredGroups, orgAuditScope, parseActivityFilters } from "@/lib/audit";
@@ -77,16 +76,14 @@ export default async function OrgAuditPage({ params, searchParams }: { params: P
   const search = await searchParams;
   const projects: ProjectOption[] = org.projects.map((p) => ({ slug: p.slug, name: p.name }));
   return (
-    <AppShell context={context} org={slug} view="audit">
-      <OrgSettingsFrame org={org.slug} role={org.role} current="audit" title="Audit log" className="acl">
-        {canReadOrgAudit(org.role) ? (
-          <Suspense key={JSON.stringify(search)} fallback={<ActivitySkeleton />}>
-            <OrgAuditLog org={org.slug} projects={projects} search={search} next={next} />
-          </Suspense>
-        ) : (
-          <ActivityNotAllowed scope="org" />
-        )}
-      </OrgSettingsFrame>
-    </AppShell>
+    <OrgSettingsFrame org={org.slug} role={org.role} current="audit" title="Audit log" className="acl">
+      {canReadOrgAudit(org.role) ? (
+        <Suspense key={JSON.stringify(search)} fallback={<ActivitySkeleton />}>
+          <OrgAuditLog org={org.slug} projects={projects} search={search} next={next} />
+        </Suspense>
+      ) : (
+        <ActivityNotAllowed scope="org" />
+      )}
+    </OrgSettingsFrame>
   );
 }

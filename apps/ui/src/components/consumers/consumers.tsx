@@ -26,12 +26,14 @@ import type { SearchParams } from "@/lib/pagination";
 import { endpointHref } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
+import { PageToolbar } from "../page-toolbar";
 import { Pagination } from "../pagination/pagination";
 import { RangePicker } from "../range-picker";
 import { type Series, Sparkline, StackedBars } from "./charts";
 import { IdentifyConsumers } from "./identify-consumers";
 import "./consumers.css";
 import { projectHref } from "@/lib/routes";
+import { ErrorState } from "../states";
 
 /**
  * What the page read when no user is identified in the range (#989): the requests without a consumer
@@ -95,34 +97,34 @@ export function ConsumersView({
   return (
     <div className="page cs">
       <PageHeader
-        project={project}
-        projectName={projectName}
         title="Consumers"
         lead="The users of your API: who is new, who keeps coming back, and each user’s requests and errors. Groups are the company or plan the SDK reports for each user."
-        actions={<RangePicker options={CONSUMER_RANGES} value={q.range} href={(r) => consumersHref(project, { ...q, range: r })} />}
       />
 
-      <div className="cs-bar">
-        <nav className="cs-seg" aria-label="Show">
-          <a href={consumersHref(project, { range: q.range })} aria-current={!inDetail && q.by === "consumers" && !q.group ? "page" : undefined}>
-            Consumers
-          </a>
-          <a href={consumersHref(project, { range: q.range, by: "groups" })} aria-current={!inDetail && q.by === "groups" ? "page" : undefined}>
-            Groups
-          </a>
-        </nav>
-      </div>
+      <PageToolbar
+        range={<RangePicker options={CONSUMER_RANGES} value={q.range} href={(r) => consumersHref(project, { ...q, range: r })} />}
+        scope={
+          <nav className="cs-seg" aria-label="Show">
+            <a href={consumersHref(project, { range: q.range })} aria-current={!inDetail && q.by === "consumers" && !q.group ? "page" : undefined}>
+              Consumers
+            </a>
+            <a href={consumersHref(project, { range: q.range, by: "groups" })} aria-current={!inDetail && q.by === "groups" ? "page" : undefined}>
+              Groups
+            </a>
+          </nav>
+        }
+      />
 
       {data.view === "detail" ? (
         <ConsumerPanel project={project} q={q} params={params} detail={data.detail} now={now} />
       ) : data.view === "groups" ? (
         data.groups === null ? (
-          <LoadFailed text={GROUPS_LOAD_FAILED} href={consumersHref(project, q)} />
+          <ErrorState text={GROUPS_LOAD_FAILED} href={consumersHref(project, q)} />
         ) : (
           <GroupsList project={project} q={q} params={params} groups={data.groups} now={now} />
         )
       ) : data.list === null ? (
-        <LoadFailed text={CONSUMERS_LOAD_FAILED} href={consumersHref(project, q)} />
+        <ErrorState text={CONSUMERS_LOAD_FAILED} href={consumersHref(project, q)} />
       ) : (
         <ConsumersList project={project} q={q} params={params} list={data.list} anonymous={data.anonymous} now={now} />
       )}
@@ -130,19 +132,6 @@ export function ConsumersView({
   );
 }
 
-function LoadFailed({ text, href }: { text: string; href: string }) {
-  return (
-    <div className="cs-notice cs-notice--error" role="alert">
-      <ObIcon name="info" />
-      <p>
-        {text}{" "}
-        <a className="cp-link" href={href}>
-          Try again
-        </a>
-      </p>
-    </div>
-  );
-}
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
@@ -362,7 +351,7 @@ function AnonymousTraffic({ project, q, anonymous, now }: { project: string; q: 
       </section>
 
       {a === null ? (
-        <LoadFailed text={ANONYMOUS_LOAD_FAILED} href={consumersHref(project, q)} />
+        <ErrorState text={ANONYMOUS_LOAD_FAILED} href={consumersHref(project, q)} />
       ) : count > 0 ? (
         <section className="cs-card cs-card--table" aria-labelledby="cs-callers">
           <div className="cs-tablehead">
@@ -612,7 +601,7 @@ function ConsumerPanel({ project, q, params, detail, now }: { project: string; q
         <a className="cp-link cs-back" href={back}>
           ← All users
         </a>
-        {detail.kind === "missing" ? <Notice>There’s no user with this id in this project.</Notice> : <LoadFailed text={CONSUMER_LOAD_FAILED} href={consumersHref(project, q)} />}
+        {detail.kind === "missing" ? <Notice>There’s no user with this id in this project.</Notice> : <ErrorState text={CONSUMER_LOAD_FAILED} href={consumersHref(project, q)} />}
       </section>
     );
   }

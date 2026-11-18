@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { RuleEditor } from "@/components/alerts/rule-editor";
-import { AppShell } from "@/components/app-shell";
 import { getContext } from "@/lib/auth/server";
 import { newRuleHref } from "@/lib/alerts";
 import { findProject } from "@/lib/scope";
@@ -18,8 +17,6 @@ export default async function NewRulePage({ params }: { params: Promise<{ projec
   if (!found) notFound();
   const data = await loadEditorData(project, found.project.environments ?? [], next);
   return (
-    <AppShell context={context} project={project} view="incidents">
-      <RuleEditor project={project} projectName={found.project.name} rule={null} {...data} />
-    </AppShell>
+    <RuleEditor project={project} projectName={found.project.name} rule={null} {...data} />
   );
 }

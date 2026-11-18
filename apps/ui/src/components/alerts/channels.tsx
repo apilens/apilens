@@ -44,7 +44,7 @@ export function ChannelsSettings({ project, projectName, channels }: { project: 
   const { rows: shown, window } = slicePage(channels ?? [], parsePage(params));
   return (
     <div className="page page--measure os al-form">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Alert channels" className="os-head">
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Alert channels" className="os-head">
         <p className="al-lead">
           Where the{" "}
           <a className="cp-link" href={rulesHref(project)}>

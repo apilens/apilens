@@ -32,6 +32,7 @@ import { TRAFFIC_RANGES } from "@/lib/traffic";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
+import { PageToolbar } from "../page-toolbar";
 import { Pagination } from "../pagination/pagination";
 import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
@@ -41,6 +42,7 @@ import { ErrorModal, MarkExpected } from "./modal";
 import "../traffic/traffic.css";
 import "./errors.css";
 import { projectHref } from "@/lib/routes";
+import { ErrorState } from "../states";
 
 /** The open tab and what its read answered: null when the API could not answer. */
 export type TabLoad = { tab: "status"; data: ErrorStatuses | null } | { tab: "issues"; data: ErrorGroup[] | null };
@@ -88,23 +90,11 @@ export function ErrorsView({
   return (
     <div className="page tr er">
       <PageHeader
-        project={project}
-        projectName={projectName}
         title="Errors"
         lead="Client and server error responses of your API by status code. Status codes you mark as expected for an endpoint stop counting as errors."
-        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => scopeHref({ range: r })} />}
       />
 
-      <div className="tr-bar">
-        <div className="tr-bar__scope">
-          <ScopeSelect
-            label="Environment"
-            value={q.env}
-            options={[{ value: "", label: "All environments", href: scopeHref({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: scopeHref({ env: e }) }))]}
-          />
-        </div>
-      </div>
-
+      {/* View tabs (alternate views of the same errors), then the toolbar: the page anatomy's order. */}
       <nav className="cp-tabs er-tabs" aria-label="Error views">
         {ERRORS_TABS.map((t) => (
           <a key={t.slug} href={scopeHref({ tab: t.slug })} className={q.tab === t.slug ? "on" : undefined} aria-current={q.tab === t.slug ? "page" : undefined}>
@@ -112,6 +102,17 @@ export function ErrorsView({
           </a>
         ))}
       </nav>
+
+      <PageToolbar
+        range={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => scopeHref({ range: r })} />}
+        scope={
+          <ScopeSelect
+            label="Environment"
+            value={q.env}
+            options={[{ value: "", label: "All environments", href: scopeHref({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: scopeHref({ env: e }) }))]}
+          />
+        }
+      />
 
       {tab.tab === "status" ? <StatusTab project={project} q={q} data={tab.data} tz={tz} now={now} /> : <IssuesTab project={project} q={q} data={tab.data} tz={tz} now={now} />}
 
@@ -128,19 +129,6 @@ export function ErrorsView({
   );
 }
 
-function LoadFailed({ text, href }: { text: string; href: string }) {
-  return (
-    <div className="tr-notice tr-notice--error" role="alert">
-      <ObIcon name="info" />
-      <p>
-        {text}{" "}
-        <a className="cp-link" href={href}>
-          Try again
-        </a>
-      </p>
-    </div>
-  );
-}
 
 function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string; compare?: Comparison | null; mono?: boolean }[] }) {
   return (
@@ -220,7 +208,7 @@ const EndpointName = ({ method, path }: { method: string; path: string }) => (
 // Status codes ------------------------------------------------------------------------------
 
 function StatusTab({ project, q, data, tz, now }: { project: string; q: ErrorsState; data: ErrorStatuses | null; tz: string; now: number }) {
-  if (data === null) return <LoadFailed text={STATUSES_LOAD_FAILED} href={errorsHref(project, q)} />;
+  if (data === null) return <ErrorState text={STATUSES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const s = data.summary;
   const p = data.previous;
   if (s.requests === 0) {
@@ -397,7 +385,7 @@ function Trend({ code, counts, points, range }: { code: number; counts: number[]
 
 function Detail({ project, q, load, tz, now }: { project: string; q: ErrorsState; load: DetailLoad; tz: string; now: number }) {
   const here = errorsHref(project, { ...q, code: load.code });
-  if (load.data === null) return <LoadFailed text={DETAIL_LOAD_FAILED} href={here} />;
+  if (load.data === null) return <ErrorState text={DETAIL_LOAD_FAILED} href={here} />;
   const d = load.data;
   return (
     <>
@@ -564,7 +552,7 @@ function DetailsView({ project, q, d, tz, now }: { project: string; q: ErrorsSta
 // Issues ------------------------------------------------------------------------------------
 
 function IssuesTab({ project, q, data, tz, now }: { project: string; q: ErrorsState; data: ErrorGroup[] | null; tz: string; now: number }) {
-  if (data === null) return <LoadFailed text={ISSUES_LOAD_FAILED} href={errorsHref(project, q)} />;
+  if (data === null) return <ErrorState text={ISSUES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const { rows, window } = slicePage(data, q);
   return (
     <Card id="er-issues" title="Failed requests by endpoint and status" table>

@@ -7,7 +7,7 @@ import "../org-settings/org-settings.css";
 export function NotBuiltSection({ project, projectName, section }: { project: string; projectName: string; section: ProjectSection }) {
   return (
     <div className="page page--measure os">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section={section.label} className="os-head" />
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section={section.label} className="os-head" />
       <p className="cp-sub">Nothing here yet.</p>
     </div>
   );

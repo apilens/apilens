@@ -45,7 +45,7 @@ export function PrivacySettings({ projectName, project, policy }: { project: str
   const manage = useCan("project.update").allowed;
   return (
     <div className="page page--measure os prv">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Privacy" className="os-head" />
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Privacy" className="os-head" />
       {policy === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s privacy policy. Reload the page to try again.

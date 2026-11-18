@@ -25,6 +25,7 @@ import type { AccessMember, DefaultAccess, Invitation } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { PROJECT_ROLES, ROLE_LABELS } from "@/lib/project-access";
+import { ACCESS } from "@/lib/access";
 import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../org-settings/members.css";
@@ -34,13 +35,11 @@ import { useTimeZone } from "@/lib/time-zone-context";
 import "./members.css";
 import { projectHref } from "@/lib/routes";
 
-/** The Members tab's header (Access, then the tabs), around the list (or its skeleton while it loads). */
-export function MembersFrame({ project, projectName, nav, badge, children }: { project: string; projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
+/** Access › Members' title row around the list (or its skeleton while it loads); the section menu is the layout's (#1051). */
+export function MembersFrame({ badge, children }: { project: string; projectName: string; badge?: ReactNode; children: ReactNode }) {
   return (
-    <div className="page os om am">
-      <PageHeader project={project} projectName={projectName} title="Access" badge={badge} className="os-head">
-        {nav}
-      </PageHeader>
+    <div className="page page--narrow os om am">
+      <PageHeader title={ACCESS.label} lead={ACCESS.lead} badge={badge} className="os-head" />
       {children}
     </div>
   );

@@ -10,7 +10,7 @@ export interface AccountSection {
 }
 
 /** Account-level page, opened from the account menu: lives at /settings. */
-export const ACCOUNT_SETTINGS = { label: "Account settings", crumb: "Account" } as const;
+export const ACCOUNT_SETTINGS = { label: "Account settings", crumb: "Account", lead: "Your profile, how you sign in, and the devices signed in to your account." } as const;
 
 export const ACCOUNT_SECTIONS: readonly AccountSection[] = [
   { slug: "", label: "Profile", summary: "Your name, email address and time zone." },

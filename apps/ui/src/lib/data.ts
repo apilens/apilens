@@ -46,7 +46,7 @@ export const VIEWS = [
   { slug: "performance", label: "Performance", section: "Monitor" },
   { slug: "consumers", label: "Consumers", section: "Monitor" },
   { slug: "apps", label: "Apps", section: "Catalog" },
-  { slug: "changes", label: "Deploys", section: "Catalog" },
+  { slug: "deploys", label: "Deploys", section: "Catalog" },
   { slug: "access", label: "Access", section: "Configure" },
 ] as const;
 /** Where a project opens. */
@@ -56,8 +56,8 @@ export type Section = (typeof SECTIONS)[number];
 /** Primary rail areas (Sentry-style): icon + short label; each opens its first page. */
 export const appsOf = (projectSlug: string) => SERVICES.filter((s) => s.project === projectSlug);
 /** Project-level page, linked from the sidebar: /project/<project>/settings. */
-export const PROJECT_SETTINGS = { slug: "settings", label: "Project settings", crumb: "Settings" } as const;
+export const PROJECT_SETTINGS = { slug: "settings", label: "Project settings", crumb: "Settings", lead: "Configure this project, its data and its alerts." } as const;
 
 /** Organization-level page (not a project view): linked from the sidebar, lives at /org/<org>/general. */
-export const ORG_SETTINGS = { label: "Organization settings", crumb: "Settings" } as const;
+export const ORG_SETTINGS = { label: "Organization settings", crumb: "Settings", lead: "Your organization’s name, sign-in rules and audit log." } as const;
 export type ViewSlug = (typeof VIEWS)[number]["slug"];

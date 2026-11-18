@@ -1,18 +1,18 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
+import { ORG_SETTINGS } from "@/lib/data";
 import type { OrgRole } from "@/lib/identity";
-import { type OrgSettingsSection, orgSettingsHref, orgSettingsSections } from "@/lib/org-settings";
+import type { OrgSettingsSection } from "@/lib/org-settings";
+import { PageHeader } from "../page-header";
+import "./org-settings.css";
 
 /**
- * Organization settings' frame, Supabase style: the settings menu on the left (General, SSO and,
- * for owners and admins, Audit log; a row of tabs below 860px) and the section under its title.
- * `role` hides the sections it may not open; `measure` caps the content at the reading width
- * (form pages).
+ * An organization settings page (#347, #1051): the page anatomy's title row (Organization
+ * settings, the section menu's header) with the section's name under it, then `children`. The
+ * section menu (General, SSO, Audit log) comes from `app/org/[org]/(settings)/layout.tsx`.
+ * `measure` makes it a narrow page (forms); without it the page fills the content pane (the
+ * audit log's table). `org`, `role` and `current` are kept for callers; the menu reads them now.
  */
 export function OrgSettingsFrame({
-  org,
-  role,
-  current,
   title,
   measure = false,
   className,
@@ -27,30 +27,9 @@ export function OrgSettingsFrame({
   children?: ReactNode;
 }) {
   return (
-    <div className={["page os", className].filter(Boolean).join(" ")}>
-      <div className="acct-body">
-        <nav className="acct-nav osf-nav" aria-label="Organization settings">
-          <p className="osf-label">Organization settings</p>
-          <ul>
-            {orgSettingsSections(role).map((s) => {
-              const on = s.slug === current;
-              return (
-                <li key={s.slug}>
-                  <Link href={orgSettingsHref(org, s)} className={`cp-sitem${on ? " on" : ""}`} aria-current={on ? "page" : undefined}>
-                    <span className="lb">{s.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-        <section className={`acct-main${measure ? " osf-measure" : ""}`} aria-labelledby="osf-title">
-          <h1 id="osf-title" className="cp-lede osf-title">
-            {title}
-          </h1>
-          {children}
-        </section>
-      </div>
+    <div className={["page os", measure ? "page--narrow" : "", className].filter(Boolean).join(" ")}>
+      <PageHeader title={ORG_SETTINGS.label} lead={ORG_SETTINGS.lead} section={title} />
+      {children}
     </div>
   );
 }

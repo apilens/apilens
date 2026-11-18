@@ -5,6 +5,9 @@
 import { type Action, type Capabilities, can } from "./capabilities";
 import { projectHref } from "./routes";
 
+/** The page's title (its nav label) and one-line description (#1051). */
+export const ACCESS = { label: "Access", lead: "Who can see and change this project, and its API keys." } as const;
+
 export interface AccessTab {
   /** URL segment under `/project/<project>/access`; empty for Members, which `/access` itself opens. */
   slug: string;

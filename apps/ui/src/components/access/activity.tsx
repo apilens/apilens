@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { type ActivityFilters as Filters, type AUDIT_GROUPS, filtersQuery, groupLabel, hasFilters, retentionText } from "@/lib/audit";
 import type { AuditEvent } from "@/lib/identity";
+import { ACCESS } from "@/lib/access";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { Pagination } from "../pagination/pagination";
 import { ActivityFilters, type PersonOption, type ProjectOption } from "./activity-filters";
@@ -11,13 +12,11 @@ import "../security/security.css";
 import "../org-settings/org-settings.css";
 import "./activity.css";
 
-/** Access › Activity's frame (#812): the title, the tabs and the tab's content. */
-export function ActivityFrame({ project, projectName, nav, children }: { project: string; projectName: string; nav: ReactNode; children: ReactNode }) {
+/** Access › Activity's page (#812): the title row and the log; the section menu is the layout's (#1051). */
+export function ActivityFrame({ children }: { project: string; projectName: string; children: ReactNode }) {
   return (
-    <div className="page os acl">
-      <PageHeader project={project} projectName={projectName} title="Access" className="os-head">
-        {nav}
-      </PageHeader>
+    <div className="page page--narrow os acl">
+      <PageHeader title={ACCESS.label} lead={ACCESS.lead} className="os-head" />
       {children}
     </div>
   );

@@ -1,6 +1,5 @@
 // Access › API keys (`/project/<project>/access/keys`, #801, #810): moved here from project settings,
 // whose `/settings/keys` now redirects to this tab. `?state=` and `?inactive=1` filter the list.
-import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { ApiKeysSettings } from "@/components/project-settings/api-keys";
 import { getSession } from "@/lib/auth/server";
@@ -40,6 +39,6 @@ export async function load({ project, search, next }: SectionContext): Promise<K
   return { keys, apps, environments };
 }
 
-export function render({ keys, apps, environments }: KeysLoad, { project, projectName, search }: SectionContext, nav: ReactNode) {
-  return <ApiKeysSettings project={project} projectName={projectName} initial={keys} apps={apps} environments={environments} params={search} now={Date.now()} nav={nav} />;
+export function render({ keys, apps, environments }: KeysLoad, { project, projectName, search }: SectionContext) {
+  return <ApiKeysSettings project={project} projectName={projectName} initial={keys} apps={apps} environments={environments} params={search} now={Date.now()} />;
 }

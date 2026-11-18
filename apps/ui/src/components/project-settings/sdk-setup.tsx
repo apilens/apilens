@@ -39,7 +39,7 @@ export interface SdkSetupLoad {
 export function SdkSetup({ project, projectName, load }: { project: string; projectName: string; load: SdkSetupLoad }) {
   return (
     <div className="page page--measure os sdk">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="SDK setup" className="os-head" />
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="SDK setup" className="os-head" />
       <InstallCard project={project} ingestUrl={load.ingestUrl} />
       <ReleaseCard project={project} apps={load.apps} />
       <StatusCard apps={load.apps} ingest={load.ingest} />

@@ -85,8 +85,12 @@ const OLD_ORG_SECTIONS: Readonly<Record<string, OrgSection>> = {
   audit: "audit",
 };
 
+/** Project views whose URL segment changed: [old, new]. */
+const RENAMED_VIEWS: readonly (readonly [string, string])[] = [["changes", "deploys"]];
+
 /**
- * Where an old URL moved (permanently), the query string kept: `/<project>/...` →
+ * Where an old URL moved (permanently), the query string kept: `/project/<project>/changes/...` →
+ * `/project/<project>/deploys/...` (#1051), `/<project>/...` →
  * `/project/<project>/...`, `/orgs/<org>/settings[/<section>]` → the org page that section is now
  * part of, `/orgs/<org>` → `/org/<org>`. Null for anything else (it is a current URL, or not ours).
  * `search` is the raw query string with its `?`, or "".
@@ -107,7 +111,17 @@ export function legacyRedirect(pathname: string, search: string): string | null 
     return orgHref(org, section) + search;
   }
 
+  if (first === "project") {
+    const [, , project, view] = parts;
+    const renamed = RENAMED_VIEWS.find(([old]) => old === view);
+    if (!renamed || !project || !SLUG.test(project)) return null;
+    const rest = parts.slice(4).join("/");
+    return `${projectHref(project, renamed[1])}${rest ? `/${rest}` : ""}${search}`;
+  }
+
   if (TOP_LEVEL_ROUTES.has(first) || !SLUG.test(first)) return null;
   const rest = parts.slice(2).join("/");
-  return `${projectHref(first)}${rest ? `/${rest}` : ""}${search}`;
+  const moved = `${projectHref(first)}${rest ? `/${rest}` : ""}`;
+  // One hop, even when the view was renamed as well.
+  return legacyRedirect(moved, search) ?? moved + search;
 }

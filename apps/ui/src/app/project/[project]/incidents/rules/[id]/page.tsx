@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { LoadFailed } from "@/components/alerts/common";
+import { ErrorState } from "@/components/states";
 import { RuleEditor } from "@/components/alerts/rule-editor";
-import { AppShell } from "@/components/app-shell";
 import { getContext } from "@/lib/auth/server";
 import { ruleHref } from "@/lib/alerts";
 import { findProject } from "@/lib/scope";
@@ -20,15 +19,11 @@ export default async function RulePage({ params }: { params: Promise<{ project: 
   if (!found) notFound();
   const [rule, data] = await Promise.all([loadRule(project, id, next), loadEditorData(project, found.project.environments ?? [], next)]);
   if (rule === "gone") notFound();
-  return (
-    <AppShell context={context} project={project} view="incidents">
-      {rule === null ? (
-        <div className="page al">
-          <LoadFailed text="We couldn’t load this alert rule just now." href={next} />
-        </div>
-      ) : (
-        <RuleEditor key={rule.updated_at} project={project} projectName={found.project.name} rule={rule} {...data} />
-      )}
-    </AppShell>
+  return rule === null ? (
+    <div className="page al">
+      <ErrorState text="We couldn’t load this alert rule just now." href={next} />
+    </div>
+  ) : (
+    <RuleEditor key={rule.updated_at} project={project} projectName={found.project.name} rule={rule} {...data} />
   );
 }

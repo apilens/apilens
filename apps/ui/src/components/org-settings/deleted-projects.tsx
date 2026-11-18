@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { restoreDeletedProject } from "@/app/org/[org]/general/restore-actions";
+import { restoreDeletedProject } from "@/app/org/[org]/(settings)/general/restore-actions";
 import { HOME_VIEW } from "@/lib/data";
 import { agoText, inText } from "@/lib/deleted-projects";
 import type { DeletedProject } from "@/lib/identity";

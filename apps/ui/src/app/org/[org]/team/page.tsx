@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { OrgInvitationsSettings } from "@/components/org-settings/invitations";
 import { OrgMembersSettings } from "@/components/org-settings/members";
+import { PageHeader } from "@/components/page-header";
 import { getContext, getSession } from "@/lib/auth/server";
 import { type Invitation, type Member, identity, isApiError } from "@/lib/identity";
 import { type Viewer, orgCan } from "@/lib/org-members";
@@ -64,12 +65,7 @@ export default async function OrgTeamPage({ params, searchParams }: { params: Pr
   return (
     <AppShell context={context} org={slug} view="team">
       <div className="page os om">
-        <header className="os-pagehead">
-          <div>
-            <p className="cp-h">{org.name}</p>
-            <h1 className="cp-lede">Team</h1>
-          </div>
-        </header>
+        <PageHeader title="Team" lead={`The people in ${org.name}, their roles, and the invitations still open.`} />
         <OrgMembersSettings org={ref} members={members} viewer={viewer} search={search} />
         <OrgInvitationsSettings org={ref} invitations={invitations ?? []} manage={invitations !== null} now={Date.now()} search={search} />
       </div>

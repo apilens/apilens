@@ -8,7 +8,8 @@ import { parsePage, slicePage } from "@/lib/pagination";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
-import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
+import { EmptyState, ErrorState } from "../states";
+import { AlertsHeader, StatusBadge } from "./common";
 
 /**
  * `/project/<project>/incidents/rules` (#610): the project's alert rules by name, each with its scope
@@ -54,9 +55,9 @@ export function RulesView({
         </p>
       )}
       {rules === null ? (
-        <LoadFailed text={RULES_LOAD_FAILED} href={rulesHref(project)} />
+        <ErrorState text={RULES_LOAD_FAILED} href={rulesHref(project)} />
       ) : rules.length === 0 ? (
-        <Empty>
+        <EmptyState>
           No alert rules yet.{" "}
           {manage ? (
             <>
@@ -69,7 +70,7 @@ export function RulesView({
           ) : (
             "A project admin can create one."
           )}
-        </Empty>
+        </EmptyState>
       ) : (
         <div className="al-card">
           <table className="al-table" aria-label="Alert rules">

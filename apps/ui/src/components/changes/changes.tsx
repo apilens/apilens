@@ -35,7 +35,7 @@ export interface ChangesLoad {
 }
 
 /**
- * `/project/<project>/changes` (#597): the project's deploys of the last seven days, newest first, each
+ * `/project/<project>/deploys` (#597): the project's deploys of the last seven days, newest first, each
  * with its error rate and p95 in the hour before and the hour after, the change colored when it
  * is worse (error) or better (ok). The whole row opens the deploy's page (the release is the
  * link); Explore stays as a second action. Filtered by app and environment and paged, all in the
@@ -67,7 +67,7 @@ export function ChangesView({
   /** The SDKs the project's apps run, which pick the empty state's snippet tabs (#997); empty shows every SDK. */
   sdks?: readonly ReleaseSdk[];
 }) {
-  const pathname = projectHref(project, "changes");
+  const pathname = projectHref(project, "deploys");
   const appName = (id: string) => (id === "" ? "All apps" : (apps?.find((a) => a.id === id)?.name ?? "Unknown app"));
   const filtered = filter.app !== "" || filter.env !== "";
   return (

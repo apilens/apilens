@@ -29,7 +29,7 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
   }
 }
 
-// One deploy (`/project/<project>/changes/<id>`): before/after verdict, the minutes around it, what changed
+// One deploy (`/project/<project>/deploys/<id>`): before/after verdict, the minutes around it, what changed
 // per endpoint, new errors and affected consumers, and the previous/next deploy of the same app.
 // `?page=&per=` pages the endpoint table.
 export default async function DeployPage({ params, searchParams }: { params: Promise<{ project: string; deployId: string }>; searchParams: Promise<SearchParams> }) {
@@ -59,7 +59,7 @@ export default async function DeployPage({ params, searchParams }: { params: Pro
   }
 
   return (
-    <AppShell context={context} project={project} view="changes">
+    <AppShell context={context} project={project} view="deploys">
       <DeployView project={project} projectName={found.project.name} id={id} load={load} comparison={comparison} apps={apps} params={sp} now={Date.now()} repository={repo} tz={resolveTimeZone(context.user.preferences)} />
     </AppShell>
   );

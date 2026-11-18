@@ -28,7 +28,7 @@ export type UsageLoad = ProjectUsage | "off" | null;
 export function UsageSection({ project, projectName, usage }: { project: string; projectName: string; usage: UsageLoad }) {
   return (
     <div className="page page--measure os cps ih us">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Usage" className="os-head">
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Usage" className="os-head">
         <p className="ih-lede">Records {projectName} sent in the last {USAGE_DAYS} days (UTC), and how close today is to the ingest quota.</p>
       </PageHeader>
 

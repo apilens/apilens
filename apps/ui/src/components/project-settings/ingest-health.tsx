@@ -50,7 +50,7 @@ export function IngestHealth({ project, projectName, load }: { project: string; 
   const { apps, app } = load;
   return (
     <div className="page page--measure os cps ih">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Ingest health" className="os-head">
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Ingest health" className="os-head">
         <p className="ih-lede">
           What reached APILens from each app and what was lost on the way.{" "}
           <a className="cp-link" href={INGEST_RUNBOOK} target="_blank" rel="noreferrer">

@@ -7,7 +7,8 @@ import { hasSeries, noSeriesText } from "@/lib/incident-metric";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
 import { Pagination } from "../pagination/pagination";
-import { Empty, LoadFailed, StatusBadge } from "./common";
+import { EmptyState, ErrorState } from "../states";
+import { StatusBadge } from "./common";
 import { IncidentChart } from "./incident-chart";
 import { MetricChart } from "./metric-chart";
 import { RuleToggle } from "./rule-toggle";
@@ -58,7 +59,7 @@ export function IncidentTimeline({
         <div>
           <p className="cp-h">
             <Link className="cp-link" href={incidentsHref(project)}>
-              {projectName} · Incidents
+              Incidents
             </Link>
           </p>
           <h1 className="cp-lede">{rule.name}</h1>
@@ -129,17 +130,17 @@ export function IncidentTimeline({
         <h2>Timeline</h2>
       </div>
       {events === null ? (
-        <LoadFailed text="We couldn’t load this rule’s incidents just now." href={incidentHref(project, rule.id)} />
+        <ErrorState text="We couldn’t load this rule’s incidents just now." href={incidentHref(project, rule.id)} />
       ) : events.length === 0 ? (
         pages.page > 1 ? (
-          <Empty>
+          <EmptyState>
             No older incidents.{" "}
             <Link className="cp-link" href={pages.newestHref}>
               Back to the newest
             </Link>
-          </Empty>
+          </EmptyState>
         ) : (
-          <Empty>This rule has no incidents yet.</Empty>
+          <EmptyState>This rule has no incidents yet.</EmptyState>
         )
       ) : (
         <div className="al-card">
@@ -235,9 +236,9 @@ function MetricSection({
   now: number;
   href: string;
 }) {
-  if (!hasSeries(rule.metric)) return <Empty>{noSeriesText(rule.metric)}</Empty>;
-  if (series === null) return <LoadFailed text="We couldn’t load this rule’s metric just now." href={href} />;
-  if (!(series.points ?? []).length) return <Empty>No traffic from {app ?? "this app"} in this range yet.</Empty>;
+  if (!hasSeries(rule.metric)) return <EmptyState>{noSeriesText(rule.metric)}</EmptyState>;
+  if (series === null) return <ErrorState text="We couldn’t load this rule’s metric just now." href={href} />;
+  if (!(series.points ?? []).length) return <EmptyState>No traffic from {app ?? "this app"} in this range yet.</EmptyState>;
   const filters = filterParts(rule);
   return (
     <div className="al-card">

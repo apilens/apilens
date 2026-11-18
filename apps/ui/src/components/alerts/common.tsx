@@ -1,20 +1,20 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
-import { STATUS_LABEL, incidentsHref, rulesHref, statusTone } from "@/lib/alerts";
+import { STATUS_LABEL, statusTone } from "@/lib/alerts";
 import type { AlertStatus } from "@/lib/identity";
-import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "./alerts.css";
 
+/** The Incidents section's one-line description (#1051). */
+export const INCIDENTS_LEAD = "Alert rules that breached their threshold, and the rules that watch for them.";
+
 /**
- * The alerts pages' header (PageHeader, #992) and their two tabs: Incidents and Alert rules. The
- * title is the sidebar's label, Incidents; `section` names a rule or the new rule under it.
- * `children` sit in the actions slot (a button, the range picker).
+ * The alerts pages' title row (PageHeader, #992). The title is the rail's and the section menu's
+ * label, Incidents; Incidents and Alert rules are in the section menu (#1051), not tabs. `tab`
+ * says which: Alert rules shows as the sub-page under the title, as does `section` (a rule, or
+ * the new rule). `lead` replaces the section's description. `children` sit in the actions slot.
  */
 export function AlertsHeader({
-  project,
-  projectName,
   tab,
   section,
   lead,
@@ -27,18 +27,7 @@ export function AlertsHeader({
   lead?: string;
   children?: ReactNode;
 }) {
-  return (
-    <PageHeader project={project} projectName={projectName} title="Incidents" section={section} lead={lead} actions={children}>
-      <nav className="os-tabs" aria-label="Alerts">
-        <Link className={`os-tab${tab === "incidents" ? " on" : ""}`} href={incidentsHref(project)} aria-current={tab === "incidents" ? "page" : undefined}>
-          Incidents
-        </Link>
-        <Link className={`os-tab${tab === "rules" ? " on" : ""}`} href={rulesHref(project)} aria-current={tab === "rules" ? "page" : undefined}>
-          Alert rules
-        </Link>
-      </nav>
-    </PageHeader>
-  );
+  return <PageHeader title="Incidents" section={section ?? (tab === "rules" ? "Alert rules" : undefined)} lead={lead ?? INCIDENTS_LEAD} actions={children} />;
 }
 
 /** A rule's state as a chip: Triggered (error), Pending (warn), Resolving (ok), OK (muted). */
@@ -48,30 +37,5 @@ export function StatusBadge({ status, label }: { status: AlertStatus; label?: st
     <span className={`ah-badge ${tone === "none" ? "al-badge--none" : `ah-badge--${tone}`}`} data-status={status}>
       {label ?? STATUS_LABEL[status]}
     </span>
-  );
-}
-
-/** The error state of a read: one sentence and a link that loads the page again. */
-export function LoadFailed({ text, href }: { text: string; href: string }) {
-  return (
-    <div className="al-notice al-notice--error" role="alert">
-      <ObIcon name="info" />
-      <p>
-        {text}{" "}
-        <a className="cp-link" href={href}>
-          Try again
-        </a>
-      </p>
-    </div>
-  );
-}
-
-/** The empty state of a list: one sentence, optionally with a next step. */
-export function Empty({ children }: { children: ReactNode }) {
-  return (
-    <div className="al-notice" role="status">
-      <ObIcon name="info" />
-      <p>{children}</p>
-    </div>
   );
 }

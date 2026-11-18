@@ -21,7 +21,7 @@ export type RetentionLoad = Retention | { error: string };
 export function RetentionFrame({ project, projectName, children }: { project: string; projectName: string; children: ReactNode }) {
   return (
     <div className="page page--measure os cps rt">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Retention" className="os-head">
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Retention" className="os-head">
         <p className="rt-lede">
           How long {projectName} keeps each kind of data. For what each request stores and which fields are masked, open{" "}
           <a className="cp-link" href={projectHref(project, "settings", "privacy")}>

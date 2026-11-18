@@ -6,7 +6,6 @@ import { DeleteAccount } from "@/components/account/delete-account";
 import { PreferencesSettings } from "@/components/account/home-screen";
 import { ProfileSettings } from "@/components/account/profile";
 import { TwoFactorSettings } from "@/components/account/two-factor-settings";
-import { AppShell } from "@/components/app-shell";
 import { ConnectedAccounts } from "@/components/connected-accounts";
 import { PasskeysCard } from "@/components/security/passkeys";
 import { getContext, getSession } from "@/lib/auth/server";
@@ -115,9 +114,6 @@ export default async function AccountSettingsPage({
   if (!section) notFound();
   const context = await getContext(accountSectionHref(section));
   const content = await sectionContent(section, context, await searchParams);
-  return (
-    <AppShell context={context} view="settings" account>
-      <AccountSettings section={section}>{content}</AccountSettings>
-    </AppShell>
-  );
+  // The shell and the section menu come from `../layout.tsx` (#1051); this is the content pane.
+  return <AccountSettings section={section}>{content}</AccountSettings>;
 }

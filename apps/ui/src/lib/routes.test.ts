@@ -62,6 +62,16 @@ describe("legacyRedirect", () => {
     expect(legacyRedirect("/shop/endpoints/GET/%2Forders", "")).toBe("/project/shop/endpoints/GET/%2Forders");
   });
 
+  it("moves Changes to Deploys, keeping the deploy and the query (#1051)", () => {
+    expect(legacyRedirect("/project/shop/changes", "")).toBe("/project/shop/deploys");
+    expect(legacyRedirect("/project/shop/changes", "?range=7d&app=web")).toBe("/project/shop/deploys?range=7d&app=web");
+    expect(legacyRedirect("/project/shop/changes/9f3a1b2c", "")).toBe("/project/shop/deploys/9f3a1b2c");
+    expect(legacyRedirect("/shop/changes", "?range=7d")).toBe("/project/shop/deploys?range=7d");
+    expect(legacyRedirect("/project/shop/deploys", "")).toBeNull();
+    expect(legacyRedirect("/project/shop/traffic", "")).toBeNull();
+    expect(legacyRedirect("/project/Not_A_Slug/changes", "")).toBeNull();
+  });
+
   it("maps the old organization settings to the new organization pages", () => {
     expect(legacyRedirect("/orgs/acme/settings", "")).toBe("/org/acme/general");
     expect(legacyRedirect("/orgs/acme/settings", "?deleted=shop")).toBe("/org/acme/general?deleted=shop");

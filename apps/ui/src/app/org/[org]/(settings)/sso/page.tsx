@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { AppShell } from "@/components/app-shell";
 import { OrgSSOSettings } from "@/components/org-settings/sso";
 import { getContext, getSession } from "@/lib/auth/server";
 import { ORG_SETTINGS } from "@/lib/data";
@@ -10,7 +9,7 @@ import { orgHref } from "@/lib/routes";
 import { findOrg } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
-export const metadata: Metadata = { title: `Single sign-on · ${ORG_SETTINGS.label}` };
+export const metadata: Metadata = { title: `SSO · ${ORG_SETTINGS.label}` };
 
 /** `GET /orgs/{slug}/sso`: the connection, or null when there is none yet (409 `sso_not_configured`). */
 async function loadConnection(slug: string, next: string): Promise<SSOConnection | null> {
@@ -36,8 +35,6 @@ export default async function OrgSSOPage({ params }: { params: Promise<{ org: st
   const owner = canManageSSO(org.role);
   const connection = owner ? await loadConnection(slug, next) : null;
   return (
-    <AppShell context={context} org={slug} view="sso">
-      <OrgSSOSettings org={{ slug: org.slug, name: org.name, role: org.role }} connection={connection} />
-    </AppShell>
+    <OrgSSOSettings org={{ slug: org.slug, name: org.name, role: org.role }} connection={connection} />
   );
 }

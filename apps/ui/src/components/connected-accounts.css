@@ -6,7 +6,7 @@
 .ca-notice--error { border-color: var(--error); background: var(--error-soft); }
 .ca-notice--error > .ob-ic { color: var(--error); }
 
-.ca-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.ca-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); }
 .ca-item { padding: var(--space-4) var(--space-6); }
 .ca-item + .ca-item { border-top: 1px solid var(--border); }
 .ca-row { display: flex; align-items: center; gap: var(--space-4); }
