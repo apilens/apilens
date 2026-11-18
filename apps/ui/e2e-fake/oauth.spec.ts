@@ -28,17 +28,17 @@ async function handoffCode(next: string): Promise<string> {
 
 for (const provider of ["GitHub", "Google"] as const) {
   test(`${provider} on /sign-in signs in and lands on next`, async ({ page }) => {
-    await page.goto("/sign-in?next=%2Facme%2Frequests");
+    await page.goto("/sign-in?next=%2Fproject%2Facme%2Frequests");
     const button = providerButton(page, provider);
     const href = new URL((await button.getAttribute("href")) ?? "");
     expect(href.origin + href.pathname).toBe(`${IDENTITY}/api/v1/auth/oauth/${provider.toLowerCase()}/start`);
-    expect(Object.fromEntries(href.searchParams)).toEqual({ next: "/acme/requests", intent: "login", remember: "true" });
+    expect(Object.fromEntries(href.searchParams)).toEqual({ next: "/project/acme/requests", intent: "login", remember: "true" });
 
     await button.click();
     await expect(page.getByRole("heading", { name: `Fake ${provider.toLowerCase()} consent` })).toBeVisible();
     await page.getByRole("link", { name: "Authorize" }).click();
 
-    await page.waitForURL((url) => url.pathname === "/acme/requests");
+    await page.waitForURL((url) => url.pathname === "/project/acme/requests");
     const cookie = await sessionCookie(page);
     expect(cookie?.httpOnly).toBe(true);
     expect(page.url()).not.toContain("code=");
@@ -68,9 +68,9 @@ test("?error= on /auth/callback goes back to /sign-in", async ({ page }) => {
 });
 
 test("a used handoff code cannot sign in twice", async ({ page }) => {
-  const code = await handoffCode("/acme/endpoints");
+  const code = await handoffCode("/project/acme/endpoints");
   await page.goto(`/auth/callback?code=${code}`);
-  await page.waitForURL((url) => url.pathname === "/acme/endpoints");
+  await page.waitForURL((url) => url.pathname === "/project/acme/endpoints");
   await page.context().clearCookies();
   await page.goto(`/auth/callback?code=${code}`);
   await page.waitForURL((url) => url.pathname === "/sign-in" && url.searchParams.get("error") === "invalid_token");

@@ -30,18 +30,18 @@ describe("performance URL state", () => {
   });
 
   it("builds the page URL leaving defaults out", () => {
-    expect(performanceHref("shop", { range: "24h", env: "", app: "" })).toBe("/shop/performance?range=24h&env=all");
-    expect(performanceHref("shop", { range: "7d", env: "prod eu", app: BILLING })).toBe(`/shop/performance?range=7d&env=prod+eu&app=${BILLING}`);
+    expect(performanceHref("shop", { range: "24h", env: "", app: "" })).toBe("/project/shop/performance?range=24h&env=all");
+    expect(performanceHref("shop", { range: "7d", env: "prod eu", app: BILLING })).toBe(`/project/shop/performance?range=7d&env=prod+eu&app=${BILLING}`);
   });
 
   it("opens an endpoint's Response times tab keeping the scope", () => {
     const q = { range: "24h" as const, env: "", app: "" };
-    expect(endpointLatencyHref("shop", { method: "post", path: "/charge" }, q)).toBe("/shop/endpoints/POST/%2Fcharge?range=24h&env=all&tab=latency");
+    expect(endpointLatencyHref("shop", { method: "post", path: "/charge" }, q)).toBe("/project/shop/endpoints/POST/%2Fcharge?range=24h&env=all&tab=latency");
     expect(endpointLatencyHref("shop", { method: "GET", path: "/orders/{id}" }, { ...q, range: "1h", env: "production" })).toBe(
-      "/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=1h&env=production&tab=latency",
+      "/project/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=1h&env=production&tab=latency",
     );
     // A row is one app's endpoint (#976): its link opens scoped to that app.
-    expect(endpointLatencyHref("shop", { app_id: BILLING, method: "GET", path: "/charge" }, q)).toBe(`/shop/endpoints/GET/%2Fcharge?range=24h&env=all&app=${BILLING}&tab=latency`);
+    expect(endpointLatencyHref("shop", { app_id: BILLING, method: "GET", path: "/charge" }, q)).toBe(`/project/shop/endpoints/GET/%2Fcharge?range=24h&env=all&app=${BILLING}&tab=latency`);
   });
 
   it("puts the scope in words", () => {
@@ -96,9 +96,9 @@ describe("slowRequestHref (#1001)", () => {
   const r = { id: "abc_1", environment: "production", method: "post", path: "/charge", response_time_ms: 2310.7 };
   it("opens Explore on the request: its environment, endpoint and response time or slower", () => {
     expect(slowRequestHref("shop", r, { range: "24h" })).toBe(
-      "/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=abc_1",
+      "/project/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=abc_1",
     );
-    expect(slowRequestHref("shop", { ...r, id: undefined, environment: "" }, { range: "1h" })).toBe("/shop/explore?method=POST&path=%2Fcharge&latency_min=2310");
+    expect(slowRequestHref("shop", { ...r, id: undefined, environment: "" }, { range: "1h" })).toBe("/project/shop/explore?method=POST&path=%2Fcharge&latency_min=2310");
   });
 });
 

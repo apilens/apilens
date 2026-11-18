@@ -6,7 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/apps";
+const PAGE = "/project/shop/apps";
 const CHECKOUT = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const WORKER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const LEGACY = "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d";
@@ -90,7 +90,9 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(3);
   await expect(page.getByRole("list", { name: "Apps" }).getByRole("heading", { level: 2 })).toHaveText(["refunds-worker", "legacy", "Checkout API"]);
   // The project switcher counts the project's apps from the context (app_count).
-  await expect(page.locator(".oh--project small")).toHaveText("Project · 3 apps");
+  await page.getByRole("button", { name: /Switch project$/ }).click();
+  await expect(page.getByRole("menuitemradio", { checked: true })).toContainText("3 apps");
+  await page.keyboard.press("Escape");
 
   const checkout = card(page, "Checkout API");
   await expect(checkout.locator(".ap-slug")).toHaveText("checkout-api");
@@ -232,8 +234,8 @@ test("says when an app’s status or traffic cannot be read", async ({ page }) =
 test("an unknown app is not found, nor an app tab that is not built", async ({ page }) => {
   await seedApps();
   await signIn(page);
-  expect((await page.goto("/shop/apps/nope"))?.status()).toBe(404);
-  expect((await page.goto("/shop/apps/checkout-api/deploys"))?.status()).toBe(404);
+  expect((await page.goto("/project/shop/apps/nope"))?.status()).toBe(404);
+  expect((await page.goto("/project/shop/apps/checkout-api/deploys"))?.status()).toBe(404);
 });
 
 // One app's page (#995): the Checkout API seeded with endpoints, instances, environments and deploys.
@@ -309,7 +311,7 @@ test("a card opens the app’s overview: health, tiles, top endpoints, instances
   const endpoints = page.getByRole("table", { name: "Top endpoints" });
   await expect(endpoints.getByRole("row")).toHaveCount(3);
   await expect(endpoints.getByRole("row").nth(1)).toContainText("POST /orders");
-  await expect(endpoints.getByRole("link", { name: "GET /orders/{id}" })).toHaveAttribute("href", `/shop/endpoints/GET/%2Forders%2F%7Bid%7D?app=${CHECKOUT}`);
+  await expect(endpoints.getByRole("link", { name: "GET /orders/{id}" })).toHaveAttribute("href", `/project/shop/endpoints/GET/%2Forders%2F%7Bid%7D?app=${CHECKOUT}`);
 
   const instances = page.getByRole("table", { name: "SDK instances" });
   await expect(instances.getByRole("row").nth(1)).toContainText("web-7f9c-1");
@@ -322,16 +324,16 @@ test("a card opens the app’s overview: health, tiles, top endpoints, instances
   expect(a11y.violations).toEqual([]);
 
   await endpoints.getByRole("link", { name: "POST /orders" }).click();
-  await page.waitForURL((url) => url.pathname === "/shop/endpoints/POST/%2Forders" && url.searchParams.get("app") === CHECKOUT);
+  await page.waitForURL((url) => url.pathname === "/project/shop/endpoints/POST/%2Forders" && url.searchParams.get("app") === CHECKOUT);
 });
 
 test("an app with no data yet shows how to set up the SDK", async ({ page }) => {
   await seedApps([{ id: CHECKOUT, slug: "checkout-api", name: "Checkout API" }]);
-  await signIn(page, "/shop/apps/checkout-api");
+  await signIn(page, "/project/shop/apps/checkout-api");
   await expect(page.getByRole("heading", { level: 1, name: "Checkout API" })).toBeVisible();
   const setup = page.getByRole("status").filter({ hasText: "No data from Checkout API yet." });
   await expect(setup).toContainText("APILENS_APP_ID=checkout-api");
-  await expect(setup.getByRole("link", { name: "Set up the SDK" })).toHaveAttribute("href", "/shop/settings/sdk");
+  await expect(setup.getByRole("link", { name: "Set up the SDK" })).toHaveAttribute("href", "/project/shop/settings/sdk");
   await expect(page.locator(".ap-tiles")).toHaveCount(0);
   await expect(page.getByRole("table")).toHaveCount(0);
 });
@@ -343,7 +345,7 @@ test("lays out at phone width without scrolling sideways", async ({ page }) => {
   await expect(card(page, "Checkout API")).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await page.goto("/shop/apps/checkout-api");
+  await page.goto("/project/shop/apps/checkout-api");
   await expect(page.getByRole("table", { name: "Top endpoints" })).toBeVisible();
   const detailOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(detailOverflow).toBeLessThanOrEqual(0);
@@ -361,7 +363,7 @@ test("screenshots", async ({ page }) => {
       await page.goto(PAGE);
       await expect(card(page, "Checkout API")).toBeVisible();
       await page.screenshot({ path: `${dir}/apps-${theme}-${width}.png`, fullPage: true });
-      await page.goto("/shop/apps/checkout-api");
+      await page.goto("/project/shop/apps/checkout-api");
       await expect(page.getByRole("heading", { level: 1, name: "Checkout API" })).toBeVisible();
       await page.screenshot({ path: `${dir}/app-detail-${theme}-${width}.png`, fullPage: true });
     }

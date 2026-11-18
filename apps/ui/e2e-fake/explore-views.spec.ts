@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/explore";
+const PAGE = "/project/shop/explore";
 const SOMEONE = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
 const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();

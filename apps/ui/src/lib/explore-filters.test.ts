@@ -118,14 +118,14 @@ describe("the URL round trip", () => {
   it("a deep link reproduces the exact filtered view", () => {
     const q = { range: "6h" as const, filters: ALL };
     const href = exploreHref("my shop", q);
-    expect(href.startsWith(`/my%20shop/explore?range=6h&env=production&app=${APP}&method=POST&status=4xx%2C500-503&`)).toBe(true);
+    expect(href.startsWith(`/project/my%20shop/explore?range=6h&env=production&app=${APP}&method=POST&status=4xx%2C500-503&`)).toBe(true);
     expect(parseExploreQuery(paramsOf(href))).toEqual(q);
     // The same link, built again, is byte-for-byte the same.
     expect(exploreHref("my shop", parseExploreQuery(paramsOf(href)))).toBe(href);
   });
   it("lists the filters in a fixed order whatever the input order", () => {
     const href = exploreHref("shop", parseExploreQuery({ sampled: "true", env: "prod", latency_max: "50" }));
-    expect(href).toBe("/shop/explore?env=prod&latency_max=50&sampled=true");
+    expect(href).toBe("/project/shop/explore?env=prod&latency_max=50&sampled=true");
   });
   it("round-trips each filter alone", () => {
     for (const k of FILTER_KEYS) {

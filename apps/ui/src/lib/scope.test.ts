@@ -34,8 +34,8 @@ describe("findProject / findOrg", () => {
 
 describe("orgHome", () => {
   it("opens the first project, or org settings when there is none", () => {
-    expect(orgHome(CTX.orgs[0], "incidents")).toBe("/shop/incidents");
-    expect(orgHome(CTX.orgs[1], "incidents")).toBe("/orgs/labs/settings");
+    expect(orgHome(CTX.orgs[0], "incidents")).toBe("/project/shop/incidents");
+    expect(orgHome(CTX.orgs[1], "incidents")).toBe("/org/labs");
   });
 });
 

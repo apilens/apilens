@@ -1,16 +1,17 @@
-// The project settings sections (`/<project>/settings/*`, #800): what the section nav lists, in
+// The project settings sections (`/project/<project>/settings/*`, #800): what the section nav lists, in
 // order and grouped. Each section's content lives in `app/[project]/settings/sections/<slug>.tsx`
 // and is looked up by slug; a section without a file shows "Nothing here yet". Pure; safe in
 // Client Components.
 
 import { type Action, type Capabilities, can } from "./capabilities";
 import { PROJECT_SETTINGS } from "./data";
+import { projectHref } from "./routes";
 
 export const PROJECT_SETTINGS_GROUPS = ["Project", "Data", "Alerting", "More"] as const;
 export type ProjectSettingsGroup = (typeof PROJECT_SETTINGS_GROUPS)[number];
 
 export interface ProjectSection {
-  /** URL segment under `/<project>/settings`; empty for General, which `/settings` itself opens. */
+  /** URL segment under `/project/<project>/settings`; empty for General, which `/settings` itself opens. */
   slug: string;
   label: string;
   group: ProjectSettingsGroup;
@@ -37,16 +38,16 @@ export const PROJECT_SECTIONS: readonly ProjectSection[] = [
   { slug: "danger", label: "Danger zone", group: "More", summary: "Pause, rename or delete the project.", capability: "project.delete", danger: true },
 ];
 
-/** The section a `/<project>/settings/[[...section]]` route points at; undefined means 404. */
+/** The section a `/project/<project>/settings/[[...section]]` route points at; undefined means 404. */
 export function projectSection(section: string[] | undefined): ProjectSection | undefined {
   if (!section || section.length === 0) return PROJECT_SECTIONS[0];
   if (section.length > 1 || section[0] === "") return undefined;
   return PROJECT_SECTIONS.find((s) => s.slug === section[0]);
 }
 
-/** `/<project>/settings` or `/<project>/settings/<slug>`. */
+/** `/project/<project>/settings` or `/project/<project>/settings/<slug>`. */
 export function projectSectionHref(project: string, s: Pick<ProjectSection, "slug">): string {
-  return s.slug ? `/${project}/settings/${s.slug}` : `/${project}/settings`;
+  return s.slug ? projectHref(project, "settings", s.slug) : projectHref(project, "settings");
 }
 
 /**

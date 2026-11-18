@@ -6,7 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const INTEGRATIONS = "/shop/settings/integrations";
+const INTEGRATIONS = "/project/shop/settings/integrations";
 const EDITOR = ["project.read", "project.update"];
 const VIEWER = ["project.read"];
 const COMMIT = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -90,9 +90,9 @@ test("a saved repository URL turns a commit on Changes into a link", async ({ pa
 
   // Notifications point at Alert channels.
   await page.getByRole("link", { name: "Go to Alert channels" }).click();
-  await page.waitForURL((url) => url.pathname === "/shop/settings/alerts");
+  await page.waitForURL((url) => url.pathname === "/project/shop/settings/alerts");
 
-  await page.goto("/shop/changes");
+  await page.goto("/project/shop/changes");
   const commit = page.getByRole("link", { name: "Commit 4bf92f3 in the repository" });
   await expect(commit).toHaveAttribute("href", `https://github.com/acme/shop/commit/${COMMIT}`);
   await expect(commit).toHaveAttribute("target", "_blank");
@@ -102,7 +102,7 @@ test("a saved repository URL turns a commit on Changes into a link", async ({ pa
   await page.goto(INTEGRATIONS);
   await card(page).getByRole("button", { name: "Remove" }).click();
   await expect(card(page).getByRole("status")).toHaveText("Repository link removed.");
-  await page.goto("/shop/changes");
+  await page.goto("/project/shop/changes");
   await expect(page.getByRole("row").filter({ hasText: "v2.5.0" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Commit 4bf92f3 in the repository" })).toHaveCount(0);
 });

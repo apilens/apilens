@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useId, useRef, useState, useTransition } from "react";
-import { createExploreView, deleteExploreView, updateExploreView } from "@/app/[project]/explore/actions";
+import { createExploreView, deleteExploreView, updateExploreView } from "@/app/project/[project]/explore/actions";
 import { type ExploreState, exploreHref } from "@/lib/explore";
 import { NO_FILTERS, activeCount } from "@/lib/explore-filters";
 import {

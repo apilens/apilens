@@ -4,8 +4,8 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
-const MEMBERS = "/orgs/acme/settings/members";
-const INVITATIONS = "/orgs/acme/settings/invitations";
+const MEMBERS = "/org/acme/team";
+const INVITATIONS = "/org/acme/team";
 const SESSIONS = "/settings/sessions";
 
 async function signIn(page: Page, next: string, extra: { members?: number; invitations?: number; sessions?: number }, role = "admin") {
@@ -19,7 +19,10 @@ async function signIn(page: Page, next: string, extra: { members?: number; invit
   await page.waitForURL((url) => url.pathname === next);
 }
 
-const rows = (page: Page) => page.locator("table tbody tr");
+// Team lists Members, then Invitations (paged and searched under their own keys, `ipage` and `iq`).
+const rows = (page: Page, section = "Members") => page.getByRole("region", { name: section }).locator("table tbody tr");
+const invites = (page: Page) => rows(page, "Invitations");
+const sessionRows = (page: Page) => page.locator("table tbody tr");
 const pager = (page: Page, name: string) => page.getByRole("navigation", { name });
 
 test("members: pages of 25, search by name or email, a page past the end lands on the last", async ({ page }) => {
@@ -70,12 +73,16 @@ test("invitations: paged and searchable", async ({ page }) => {
   // 3 seeded + 30 = 33 pending invitations.
   await signIn(page, INVITATIONS, { invitations: 30 });
   await expect(page.getByText("33 pending invitations")).toBeVisible();
-  await expect(rows(page)).toHaveCount(25);
+  await expect(invites(page)).toHaveCount(25);
   await pager(page, "Invitations pages").getByRole("link", { name: "Next" }).click();
-  await expect(rows(page)).toHaveCount(8);
+  await expect(page).toHaveURL(`${INVITATIONS}?ipage=2`);
+  await expect(invites(page)).toHaveCount(8);
+  // The members list above keeps its own first page.
+  await expect(rows(page)).toHaveCount(5);
   await page.getByRole("searchbox", { name: "Search invitations" }).fill("grace");
-  await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).locator("th")).toHaveText("grace@example.com");
+  await expect(page).toHaveURL(`${INVITATIONS}?iq=grace`);
+  await expect(invites(page)).toHaveCount(1);
+  await expect(invites(page).locator("th")).toHaveText("grace@example.com");
 });
 
 // Visual check at 1440 and 390: `PAGING_SHOTS=<dir> pnpm test:e2e:fake settings-paging`.
@@ -87,7 +94,7 @@ test("screenshots", async ({ page }) => {
     ["members", `${MEMBERS}?page=2`],
     ["members-search", `${MEMBERS}?q=teammate05`],
     ["members-none", `${MEMBERS}?q=nobody`],
-    ["invitations", `${INVITATIONS}?page=2`],
+    ["invitations", `${INVITATIONS}?ipage=2`],
     ["sessions", SESSIONS],
   ];
   for (const width of [1440, 390]) {
@@ -107,9 +114,9 @@ test("sessions: paged, the current device first", async ({ page }) => {
   // 3 seeded + 30 = 33 sessions.
   await signIn(page, SESSIONS, { sessions: 30 }, "owner");
   await expect(page.getByText("33 active sessions")).toBeVisible();
-  await expect(rows(page)).toHaveCount(25);
-  await expect(rows(page).first()).toHaveAttribute("aria-current", "true");
+  await expect(sessionRows(page)).toHaveCount(25);
+  await expect(sessionRows(page).first()).toHaveAttribute("aria-current", "true");
   await pager(page, "Sessions pages").getByRole("link", { name: "Page 2" }).click();
   await expect(page).toHaveURL(`${SESSIONS}?page=2`);
-  await expect(rows(page)).toHaveCount(8);
+  await expect(sessionRows(page)).toHaveCount(8);
 });

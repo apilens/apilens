@@ -5,13 +5,14 @@
 // spare a round trip. Pure; safe in Client Components and Server Actions alike.
 import type { CapturePolicy, PutCapturePolicyRequest } from "./identity";
 import { formatPercent } from "./format";
+import { projectHref } from "./routes";
 
 /** The section of project settings that edits capture policies. */
 export const CAPTURE_SECTION = "capture";
 
-/** `/<project>/settings/capture`, on `app` when given. */
+/** `/project/<project>/settings/capture`, on `app` when given. */
 export function capturePath(project: string, app?: string): string {
-  const base = `/${project}/settings/${CAPTURE_SECTION}`;
+  const base = projectHref(project, "settings", CAPTURE_SECTION);
   return app ? `${base}?app=${encodeURIComponent(app)}` : base;
 }
 

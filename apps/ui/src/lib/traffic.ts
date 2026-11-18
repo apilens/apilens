@@ -5,6 +5,7 @@ import { isAppId } from "./capture-policy";
 import { RANGE_LABEL, niceMax } from "./consumers";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint } from "./identity";
 import { envParam } from "./scope-defaults";
+import { projectHref } from "./routes";
 
 export const TRAFFIC_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -72,15 +73,15 @@ function scopeParams(q: Partial<TrafficState>): string {
 
 /** The page URL for `q`, leaving defaults out; a range and env always go in, a URL without them reads the smart defaults (#993). */
 export function trafficHref(project: string, q: Partial<TrafficState>): string {
-  return `/${encodeURIComponent(project)}/traffic${scopeParams(q)}`;
+  return `${projectHref(project, "traffic")}${scopeParams(q)}`;
 }
 
 /**
- * An endpoint's detail page (`/<project>/endpoints/<method>/<path>`, #593), keeping the scope; with
+ * An endpoint's detail page (`/project/<project>/endpoints/<method>/<path>`, #593), keeping the scope; with
  * `app` it opens scoped to that app (a Traffic row is one app's endpoint, #976).
  */
 export function endpointHref(project: string, ep: Pick<EndpointTraffic, "method" | "path">, q: Partial<TrafficState>): string {
-  return `/${encodeURIComponent(project)}/endpoints/${encodeURIComponent(ep.method.toUpperCase())}/${encodeURIComponent(ep.path)}${scopeParams(q)}`;
+  return `${projectHref(project, "endpoints", encodeURIComponent(ep.method.toUpperCase()))}/${encodeURIComponent(ep.path)}${scopeParams(q)}`;
 }
 
 /**

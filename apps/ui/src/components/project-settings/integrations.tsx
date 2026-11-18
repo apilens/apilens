@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { type FormEvent, useState, useTransition } from "react";
-import { saveRepositoryUrl } from "@/app/[project]/settings/integrations-actions";
+import { saveRepositoryUrl } from "@/app/project/[project]/settings/integrations-actions";
 import type { Project } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { MAX_REPOSITORY_URL, PREVIEW_COMMIT, checkRepositoryUrl, commitHref, commitTemplateOf } from "@/lib/repository";
@@ -12,11 +12,12 @@ import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./integrations.css";
+import { projectHref } from "@/lib/routes";
 
 type Status = { tone: "ok" | "err"; text: string } | null;
 
 /**
- * `/<project>/settings/integrations` (#820): the project's source repository link, which turns
+ * `/project/<project>/settings/integrations` (#820): the project's source repository link, which turns
  * commit and release ids on Changes into links, and a pointer to Alert channels for
  * notifications. Holders of `project.update` edit; viewers see the link read-only.
  */
@@ -47,7 +48,7 @@ export function IntegrationsSettings({ project, projectName, loaded }: { project
         </div>
         <div className="os-card__body">
           <p className="int-line">
-            <Link className="cp-link" href={`/${encodeURIComponent(project)}/settings/alerts`}>
+            <Link className="cp-link" href={projectHref(project, "settings", "alerts")}>
               Go to Alert channels
             </Link>
           </p>

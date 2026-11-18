@@ -9,7 +9,7 @@
 // sign-in (D12); everyone else sees the line with the reason and no Change. Styled by default-access.css.
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { previewDefaultAccess, setDefaultAccess } from "@/app/[project]/access/default-access-actions";
+import { previewDefaultAccess, setDefaultAccess } from "@/app/project/[project]/access/default-access-actions";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useReauth } from "@/components/reauth-dialog";
 import { defaultAccessText } from "@/lib/access-members";

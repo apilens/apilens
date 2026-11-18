@@ -29,7 +29,7 @@ function points() {
 }
 
 async function createRule(page: Page, name: string, metric: string, threshold: string, condition?: string) {
-  await page.goto("/shop/incidents/rules/new");
+  await page.goto("/project/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   await form.getByLabel("Name").fill(name);
   await form.getByLabel("Metric").selectOption({ label: metric });
@@ -58,10 +58,10 @@ const CASES = [
 
 for (const c of CASES) {
   test(`charts ${c.metric} against its threshold with the incident shaded`, async ({ page }) => {
-    await signIn(page, "/shop/incidents/rules/new");
+    await signIn(page, "/project/shop/incidents/rules/new");
     await createRule(page, `${c.metric} rule`, c.metric, c.threshold, "condition" in c ? c.condition : undefined);
     await post("/__fake/alerts", { trigger: { rule: `${c.metric} rule`, value: 1, minutes_ago: 50 } });
-    await page.goto("/shop/incidents");
+    await page.goto("/project/shop/incidents");
     await page.getByRole("link", { name: `${c.metric} rule` }).click();
 
     await expect(page.getByRole("heading", { level: 2, name: c.heading })).toBeVisible();
@@ -82,10 +82,10 @@ for (const c of CASES) {
 }
 
 test("a metric without a series says so instead of charting", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   await createRule(page, "Apdex rule", "Apdex", "0.8");
   await post("/__fake/alerts", { trigger: { rule: "Apdex rule", value: 0.5, minutes_ago: 5 } });
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await page.getByRole("link", { name: "Apdex rule" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Apdex has no series over time yet" })).toBeVisible();
   await expect(page.locator(".al-metric")).toHaveCount(0);

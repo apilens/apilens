@@ -51,11 +51,11 @@ describe("projectSection", () => {
 });
 
 describe("projectSectionHref", () => {
-  it("links under /<project>/settings and round-trips", () => {
-    expect(projectSectionHref("shop", PROJECT_SECTIONS[0])).toBe("/shop/settings");
-    expect(projectSectionHref("shop", { slug: "privacy" })).toBe("/shop/settings/privacy");
+  it("links under /project/<project>/settings and round-trips", () => {
+    expect(projectSectionHref("shop", PROJECT_SECTIONS[0])).toBe("/project/shop/settings");
+    expect(projectSectionHref("shop", { slug: "privacy" })).toBe("/project/shop/settings/privacy");
     for (const s of PROJECT_SECTIONS) {
-      const rest = projectSectionHref("shop", s).split("/").slice(3);
+      const rest = projectSectionHref("shop", s).split("/").slice(4);
       expect(projectSection(rest)).toBe(s);
     }
   });

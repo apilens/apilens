@@ -78,7 +78,7 @@ export function ActivityLoadFailed() {
 export interface ActivityViewProps {
   /** The CSV export route; the filters are appended as its query. */
   exportPath: string;
-  /** `/<project>/access/activity` or `/orgs/<org>/settings/audit`. */
+  /** `/project/<project>/access/activity` or `/org/<org>/audit`. */
   pathname: string;
   params: SearchParams;
   filters: Filters;

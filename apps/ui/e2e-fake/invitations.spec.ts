@@ -1,11 +1,11 @@
-// Organization settings → Invitations (#346) against the fake identity (e2e-fake/fake-identity.ts).
+// Team → Invitations (#346, `/org/acme/team`, under Members) against the fake identity (e2e-fake/fake-identity.ts).
 // Each fake sign-in gets its own acme organization with three pending @example.com invitations:
 // new.hire (sent a minute ago, so in its 5-minute resend cooldown), grace (sent two days ago by
 // Ada Admin) and late (sent eight days ago, its link expired). Nothing sends mail.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
-const PAGE = "/orgs/acme/settings/invitations";
+const PAGE = "/org/acme/team";
 
 async function signIn(page: Page, role: "owner" | "admin" | "member" | "viewer") {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
@@ -16,25 +16,27 @@ async function signIn(page: Page, role: "owner" | "admin" | "member" | "viewer")
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
   await page.waitForURL((url) => url.pathname === PAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Invitations" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Invitations" })).toBeVisible();
 }
 
-const rows = (page: Page) => page.getByRole("table").locator("tbody tr");
+/** The Team page's Invitations section; inviting is Members' button, above it. */
+const invitations = (page: Page) => page.getByRole("region", { name: "Invitations" });
+const members = (page: Page) => page.getByRole("region", { name: "Members" });
+const rows = (page: Page) => invitations(page).getByRole("table").locator("tbody tr");
 const row = (page: Page, email: string) => rows(page).filter({ has: page.getByRole("rowheader", { name: email }) });
-const status = (page: Page) => page.locator(".om-status");
+const status = (page: Page) => invitations(page).locator(".om-status");
 
 test.describe("as an admin", () => {
   test("lists pending invitations with role, inviter and expiry", async ({ page }) => {
     await signIn(page, "admin");
-    await expect(page.getByText("3 pending invitations")).toBeVisible();
+    await expect(invitations(page).getByText("3 pending invitations")).toBeVisible();
     await expect(rows(page).locator("th")).toHaveText(["new.hire@example.com", "grace@example.com", "late@example.com"]);
     await expect(row(page, "grace@example.com").locator("td")).toContainText(["Admin", "Ada Admin"]);
     await expect(row(page, "new.hire@example.com").locator("td").nth(1)).toHaveText("Fake User");
     await expect(row(page, "late@example.com").locator("td").nth(1)).toHaveText("—");
     await expect(row(page, "late@example.com").getByText(/^Expired/)).toBeVisible();
 
-    const tabs = page.getByRole("navigation", { name: "Organization settings" });
-    await expect(tabs.getByRole("link", { name: "Invitations" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Team" })).toHaveAttribute("aria-current", "page");
   });
 
   test("shows the resend cooldown and resends", async ({ page }) => {
@@ -65,7 +67,7 @@ test.describe("as an admin", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Revoke invitation" }).click();
     await expect(status(page)).toHaveText("Invitation to grace@example.com revoked.");
     await expect(rows(page)).toHaveCount(2);
-    await expect(page.getByText("2 pending invitations")).toBeVisible();
+    await expect(invitations(page).getByText("2 pending invitations")).toBeVisible();
   });
 
   test("invites with the shared chip input, one role per address", async ({ page }) => {
@@ -84,7 +86,7 @@ test.describe("as an admin", () => {
     await dialog.getByLabel("Default role").selectOption("admin");
     await dialog.getByRole("button", { name: "Send 2 invitations" }).click();
     await expect(dialog).toBeHidden();
-    await expect(status(page)).toHaveText("Sent 2 invitations.");
+    await expect(members(page).locator(".om-status")).toHaveText("Sent 2 invitations.");
     await expect(rows(page)).toHaveCount(5);
     await expect(row(page, "lin@example.com").locator("td").first()).toHaveText("Member");
     await expect(row(page, "kai@example.com").locator("td").first()).toHaveText("Admin");
@@ -93,8 +95,8 @@ test.describe("as an admin", () => {
 
 test("as a member the list is hidden and inviting is disabled with its reason", async ({ page }) => {
   await signIn(page, "member");
-  await expect(page.getByText("Only owners and admins can see invitations")).toBeVisible();
-  await expect(page.getByRole("table")).toHaveCount(0);
+  await expect(invitations(page).getByText("Only owners and admins can see invitations")).toBeVisible();
+  await expect(invitations(page).getByRole("table")).toHaveCount(0);
   const invite = page.getByRole("button", { name: "Invite people" });
   await expect(invite).toBeDisabled();
   await expect(invite).toHaveAccessibleDescription("Only owners and admins can invite people.");
@@ -107,7 +109,7 @@ test("an empty list says so", async ({ page }) => {
     await page.getByRole("dialog").getByRole("button", { name: "Revoke invitation" }).click();
     await expect(status(page)).toHaveText(`Invitation to ${email} revoked.`);
   }
-  await expect(page.getByText("No pending invitations")).toBeVisible();
+  await expect(invitations(page).getByText("No pending invitations")).toBeVisible();
 });
 
 // Visual check (light/dark at 1440 and 390): `INVITATIONS_SHOTS=<dir> pnpm test:e2e:fake invitations`.
@@ -121,7 +123,7 @@ test("screenshots", async ({ page }) => {
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
         await page.reload();
-        await expect(page.getByRole("heading", { level: 1, name: "Invitations" })).toBeVisible();
+        await expect(page.getByRole("heading", { level: 2, name: "Invitations" })).toBeVisible();
         await page.screenshot({ path: `${dir}/invitations-${role}-${theme}-${width}.png`, fullPage: true });
       }
     }

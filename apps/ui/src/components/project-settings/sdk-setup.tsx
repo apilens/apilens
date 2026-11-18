@@ -31,7 +31,7 @@ export interface SdkSetupLoad {
 }
 
 /**
- * `/<project>/settings/sdk` (#817): the install steps onboarding showed (#333), for every SDK, with
+ * `/project/<project>/settings/sdk` (#817): the install steps onboarding showed (#333), for every SDK, with
  * the key as a placeholder (a stored key is never shown; keys are created under API keys and shown
  * once), the app name and the ingest URL; then, per app and environment, the SDK last reported and
  * when data last arrived, or "Waiting for the first request" with a refresh.

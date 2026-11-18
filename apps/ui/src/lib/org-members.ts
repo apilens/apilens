@@ -1,4 +1,4 @@
-// Organization members (#345): who may do what on `/orgs/<org>/settings/members`, the reason a
+// Organization members (#345): who may do what on `/org/<org>/team`, the reason a
 // control is disabled and the sentences shown for the server's error codes (the invite chip
 // input's parsing lives in invite-input.ts). Permissions come from the backend's capabilities
 // (`members.invite`, `members.remove`); the rules below only mirror the API's extra checks (owners only touch

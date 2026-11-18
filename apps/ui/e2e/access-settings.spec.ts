@@ -163,7 +163,7 @@ test("setup: an admin onboards a project with a first request and a teammate joi
   await page.getByRole("button", { name: "Send invitation" }).click();
   await expect(page.getByRole("heading", { name: "1 invitation sent", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Open project" }).click();
-  await at(page, `/${SLUG}/incidents`);
+  await at(page, `/project/${SLUG}/incidents`);
 
   // The teammate accepts the invitation with a new account.
   const [invite] = await mailTo(TEAMMATE_EMAIL, /./);
@@ -183,7 +183,7 @@ test("setup: an admin onboards a project with a first request and a teammate joi
 test("restricting the project takes it from the teammate; adding them as Viewer gives it back read-only", async () => {
   test.setTimeout(90_000);
   const page = adminPage;
-  const general = `/${SLUG}/settings`;
+  const general = `/project/${SLUG}/settings`;
 
   // Under the default (organization role) the teammate, an org member, edits the project.
   expect((await matePage.goto(general))?.status()).toBe(200);
@@ -191,7 +191,7 @@ test("restricting the project takes it from the teammate; adding them as Viewer 
   await expect(matePage.getByText("You can see these settings. Only project admins and editors can change them.")).toHaveCount(0);
 
   // Restrict.
-  await page.goto(`/${SLUG}/access`);
+  await page.goto(`/project/${SLUG}/access`);
   const card = page.getByRole("region", { name: "Default access" });
   await card.getByRole("button", { name: "Change default access" }).click();
   await card.getByRole("radio", { name: /^Restricted: only people added here/ }).check();
@@ -224,7 +224,7 @@ test("restricting the project takes it from the teammate; adding them as Viewer 
 
 test("rotating the ingest key keeps the old key working during the overlap", async () => {
   const page = adminPage;
-  await page.goto(`/${SLUG}/access/keys`);
+  await page.goto(`/project/${SLUG}/access/keys`);
   const card = page.getByRole("region", { name: "API keys" });
   const rows = card.locator("tbody tr.pk-row");
   await expect(rows).toHaveCount(1);
@@ -253,7 +253,7 @@ test("an environment's settings change, and the project is deleted and restored 
   const page = adminPage;
 
   // Environments: the SDK registered production; give it a colour.
-  await page.goto(`/${SLUG}/settings/environments`);
+  await page.goto(`/project/${SLUG}/settings/environments`);
   const env = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: ENVIRONMENT, exact: true }) });
   await expect(async () => {
     await page.reload();
@@ -265,7 +265,7 @@ test("an environment's settings change, and the project is deleted and restored 
   await expect(env.getByLabel(`Colour of ${ENVIRONMENT}`)).toHaveValue("teal");
 
   // Delete, with the slug typed to confirm.
-  await page.goto(`/${SLUG}/settings/danger`);
+  await page.goto(`/project/${SLUG}/settings/danger`);
   await page.getByRole("region", { name: "Pause, rename or delete" }).getByRole("button", { name: "Delete project" }).click();
   const del = page.getByRole("dialog", { name: `Delete ${PROJECT}?` });
   await expect(del.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -273,7 +273,7 @@ test("an environment's settings change, and the project is deleted and restored 
   await del.getByRole("button", { name: `Delete ${PROJECT}` }).click();
   await at(page, /^\/orgs\/[^/]+\/settings$/);
   await expect(page.getByRole("status").filter({ hasText: `Project ${SLUG} was deleted.` })).toBeVisible();
-  expect((await page.request.get(`/${SLUG}/incidents`)).status()).toBe(404);
+  expect((await page.request.get(`/project/${SLUG}/incidents`)).status()).toBe(404);
 
   // Restore from organization settings.
   const deleted = page.getByRole("region", { name: "Deleted projects" });
@@ -282,12 +282,12 @@ test("an environment's settings change, and the project is deleted and restored 
   await row.getByRole("button", { name: `Restore ${PROJECT}` }).click();
   await expect(deleted.getByRole("status").filter({ hasText: "is restored." })).toContainText(`${PROJECT} is restored.`);
   await deleted.getByRole("link", { name: `Open ${PROJECT}` }).click();
-  await at(page, `/${SLUG}/incidents`);
+  await at(page, `/project/${SLUG}/incidents`);
 });
 
 test("the Activity tab lists each of those actions", async () => {
   const page = adminPage;
-  await page.goto(`/${SLUG}/access/activity`);
+  await page.goto(`/project/${SLUG}/access/activity`);
   const log = page.getByRole("region", { name: "Activity log", exact: true });
   const events = log.locator("tbody tr.acl-row").getByRole("button");
   for (const sentence of [

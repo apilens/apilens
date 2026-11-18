@@ -48,20 +48,20 @@ test("the home screen persists and decides where / opens", async ({ page }) => {
   await expect(page.getByRole("form", { name: "Home screen" }).getByRole("radio", { name: /^Exceptions/ })).toBeChecked();
 
   await page.goto("/");
-  await page.waitForURL((url) => url.pathname === "/shop/errors");
+  await page.waitForURL((url) => url.pathname === "/project/shop/errors");
 
   await page.goto(PAGE);
   await page.getByRole("radio", { name: /^Requests across services/ }).check();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Home screen saved." })).toBeVisible();
   await page.goto("/");
-  await page.waitForURL((url) => url.pathname === "/shop/explore");
+  await page.waitForURL((url) => url.pathname === "/project/shop/explore");
 });
 
 test("a project with no ingested data opens SDK setup", async ({ page }) => {
   await seedShop(false);
   await signIn(page, PAGE);
   await page.goto("/");
-  await page.waitForURL((url) => url.pathname === "/shop/settings/sdk");
+  await page.waitForURL((url) => url.pathname === "/project/shop/settings/sdk");
   await expect(page.getByRole("heading", { level: 1, name: "SDK setup" })).toBeVisible();
 });

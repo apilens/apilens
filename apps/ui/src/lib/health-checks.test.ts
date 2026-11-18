@@ -54,6 +54,6 @@ describe("labels", () => {
   });
 
   it("builds the section path", () => {
-    expect(healthChecksPath("shop")).toBe("/shop/settings/health-checks");
+    expect(healthChecksPath("shop")).toBe("/project/shop/settings/health-checks");
   });
 });

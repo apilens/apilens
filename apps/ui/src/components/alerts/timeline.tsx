@@ -13,7 +13,7 @@ import { MetricChart } from "./metric-chart";
 import { RuleToggle } from "./rule-toggle";
 
 /**
- * `/<project>/incidents/<rule>` (#610): one alert rule's incidents as a timeline, newest first:
+ * `/project/<project>/incidents/<rule>` (#610): one alert rule's incidents as a timeline, newest first:
  * when each triggered and with what value, when the first notification went out, and when it
  * resolved (or how long it has been open), a page at a time with Newer and Older (the API's
  * cursors, `nextCursor` null on the oldest page), above them their values against the threshold

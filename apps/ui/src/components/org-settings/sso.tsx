@@ -1,7 +1,7 @@
 "use client";
 
 import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
-import { deleteSSOConnection, saveSSOConnection, testSSOConnection } from "@/app/orgs/[org]/settings/sso/actions";
+import { deleteSSOConnection, saveSSOConnection, testSSOConnection } from "@/app/org/[org]/sso/actions";
 import type { OrgRole, SSOConnection, SSOTestResult } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { addDomains } from "@/lib/org-settings";
@@ -21,7 +21,8 @@ import { roleLabel } from "@/lib/scope";
 import { ssoStartHref } from "@/lib/sso";
 import { ObIcon } from "../onboarding/ob";
 import { type OrgRef as BaseOrgRef, type Status } from "./controls";
-import { OrgSettingsNav } from "./nav";
+import { OrgSettingsFrame } from "./nav";
+import { orgHref } from "@/lib/routes";
 import { useTimeZone } from "@/lib/time-zone-context";
 import "./org-settings.css";
 import "./sso.css";
@@ -56,7 +57,7 @@ function useCopied(): [boolean, (text: string) => Promise<boolean>] {
 }
 
 /**
- * `/orgs/<org>/settings/sso` (#348): the organization's OpenID Connect connection (issuer,
+ * `/org/<org>/sso` (#348): the organization's OpenID Connect connection (issuer,
  * client, email domains, the role new people get), a discovery test, requiring SSO for the
  * domains, and removing the connection. Owners only; anyone else sees why.
  */
@@ -64,12 +65,7 @@ export function OrgSSOSettings({ org, connection }: { org: OrgRef; connection: S
   const owner = canManageSSO(org.role);
   const [conn, setConn] = useState(connection);
   return (
-    <div className="page page--measure os">
-      <header className="os-head">
-        <p className="cp-h">Organization</p>
-        <h1 className="cp-lede">Settings</h1>
-        <OrgSettingsNav org={org.slug} current="sso" role={org.role} />
-      </header>
+    <OrgSettingsFrame org={org.slug} role={org.role} current="sso" title="Single sign-on" measure>
 
       {owner ? (
         <>
@@ -90,7 +86,7 @@ export function OrgSSOSettings({ org, connection }: { org: OrgRef; connection: S
           </span>
         </p>
       )}
-    </div>
+    </OrgSettingsFrame>
   );
 }
 
@@ -512,7 +508,7 @@ function EnforceCard({ org, conn, onSaved }: { org: OrgRef; conn: SSOConnection 
   const [pending, start] = useTransition();
   const state = enforceState(conn, untested);
   const on = conn?.enforce ?? false;
-  const signIn = conn ? ssoStartHref(conn.start_url, { next: `/orgs/${org.slug}/settings/sso` }) : null;
+  const signIn = conn ? ssoStartHref(conn.start_url, { next: orgHref(org.slug, "sso") }) : null;
 
   const toggle = () => {
     if (!conn || pending || !state.allowed) return;

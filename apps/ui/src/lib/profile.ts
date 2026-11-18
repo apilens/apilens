@@ -3,6 +3,7 @@
 // and the sentences they show for the server's error codes. The server stays the authority;
 // these checks only spare a round trip. Pure; safe in Client Components and Server Actions alike.
 import { confirmMatches } from "./confirm";
+import { orgHref } from "./routes";
 
 /** Longest display name the API accepts (`maxLength` of `MePatchBody.name`). */
 export const MAX_NAME = 120;
@@ -64,7 +65,7 @@ export interface OwnedOrg {
 export function ownedOrgs(orgs: readonly { slug: string; name: string; role: string }[]): OwnedOrg[] {
   return orgs
     .filter((o) => o.role === "owner")
-    .map((o) => ({ slug: o.slug, name: o.name, href: `/orgs/${encodeURIComponent(o.slug)}/settings` }));
+    .map((o) => ({ slug: o.slug, name: o.name, href: orgHref(o.slug, "general") }));
 }
 
 /** The sentence the profile page shows for an API error `code`. */

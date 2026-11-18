@@ -65,8 +65,8 @@ describe("incidents", () => {
     expect(incidentsRange("24h")).toBe("24h");
     expect(incidentsRange("1y")).toBe("7d");
     expect(incidentsRange(undefined)).toBe("7d");
-    expect(incidentsHref("shop")).toBe("/shop/incidents");
-    expect(incidentsHref("shop", "30d")).toBe("/shop/incidents?range=30d");
+    expect(incidentsHref("shop")).toBe("/project/shop/incidents");
+    expect(incidentsHref("shop", "30d")).toBe("/project/shop/incidents?range=30d");
   });
 
   it("formats spans and durations", () => {

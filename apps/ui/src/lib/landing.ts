@@ -2,10 +2,11 @@
 // three branches (signed out is handled by the caller) can be unit tested.
 import { ONBOARDING_PATH } from "./auth-gate";
 import { HOME_VIEW, type ViewSlug } from "./data";
-import type { ContextProject, HomeScreen, ManagedApp, UserContext } from "./identity";
+import type { ContextOrg, ContextProject, HomeScreen, ManagedApp, UserContext } from "./identity";
 import { parseHome } from "./onboarding-save";
 import { projectSectionHref } from "./project-settings";
-import { findProject, orgHome } from "./scope";
+import { orgHref, projectHref } from "./routes";
+import { findProject } from "./scope";
 
 /** Onboarding steps that have a page at `/onboarding/<step>`. */
 const ONBOARDING_STEPS = new Set(["about", "join", "create", "project"]);
@@ -51,6 +52,18 @@ export function landingProject(ctx: UserContext): ContextProject | undefined {
   return last?.project ?? ctx.orgs.flatMap((o) => o.projects)[0];
 }
 
+/** The organization `/org` opens: the last project's when still visible, else the first one. */
+export function lastOrg(ctx: UserContext): ContextOrg | undefined {
+  const last = ctx.last_project_slug ? findProject(ctx, ctx.last_project_slug) : undefined;
+  return last?.org ?? ctx.orgs[0];
+}
+
+/** Where `/org` goes (Supabase's): the last organization's projects; onboarding without one. */
+export function orgLanding(ctx: UserContext): string {
+  const org = lastOrg(ctx);
+  return org ? orgHref(org.slug) : onboardingPath(ctx.onboarding?.step);
+}
+
 /**
  * Landing page for a signed-in user: onboarding (at the stored step) without an organization;
  * otherwise the last project (or the first visible one) on the preferred home view, or on
@@ -61,9 +74,9 @@ export function landingFor(ctx: UserContext, hasData?: boolean): string {
   if (ctx.orgs.length === 0) return onboardingPath(ctx.onboarding?.step);
 
   const project = landingProject(ctx);
-  if (project) return hasData === false ? sdkSetupPath(project.slug) : `/${project.slug}/${homeView(ctx)}`;
+  if (project) return hasData === false ? sdkSetupPath(project.slug) : projectHref(project.slug, homeView(ctx));
 
-  // Organizations but no project yet: finish onboarding, or open the organization.
+  // Organizations but no project yet: finish onboarding, or open the organization's projects.
   if (!ctx.onboarding?.completed) return onboardingPath(ctx.onboarding?.step);
-  return orgHome(ctx.orgs[0], homeView(ctx));
+  return orgHref(ctx.orgs[0].slug);
 }

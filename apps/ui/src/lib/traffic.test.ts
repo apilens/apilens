@@ -41,15 +41,15 @@ describe("parseTrafficQuery", () => {
 
 describe("trafficHref and endpointHref", () => {
   it("leaves defaults out of the URL", () => {
-    expect(trafficHref("shop", {})).toBe("/shop/traffic");
+    expect(trafficHref("shop", {})).toBe("/project/shop/traffic");
     // The range and an explicit "all environments" always travel (#993): a URL without them reads the smart defaults.
-    expect(trafficHref("shop", { range: "24h", env: "" })).toBe("/shop/traffic?range=24h&env=all");
-    expect(trafficHref("shop", { range: "1h", env: "production" })).toBe("/shop/traffic?range=1h&env=production");
+    expect(trafficHref("shop", { range: "24h", env: "" })).toBe("/project/shop/traffic?range=24h&env=all");
+    expect(trafficHref("shop", { range: "1h", env: "production" })).toBe("/project/shop/traffic?range=1h&env=production");
   });
 
   it("links an endpoint's detail with the path as one segment, keeping the scope", () => {
-    expect(endpointHref("shop", { method: "get", path: "/orders/{id}" }, { range: "24h", env: "" })).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=24h&env=all");
-    expect(endpointHref("shop", { method: "POST", path: "/charge" }, { range: "7d", env: "staging" })).toBe("/shop/endpoints/POST/%2Fcharge?range=7d&env=staging");
+    expect(endpointHref("shop", { method: "get", path: "/orders/{id}" }, { range: "24h", env: "" })).toBe("/project/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=24h&env=all");
+    expect(endpointHref("shop", { method: "POST", path: "/charge" }, { range: "7d", env: "staging" })).toBe("/project/shop/endpoints/POST/%2Fcharge?range=7d&env=staging");
   });
 
   it("says the scope in words", () => {
@@ -59,8 +59,8 @@ describe("trafficHref and endpointHref", () => {
   });
 
   it("keeps the app in the URL and opens a row's endpoint scoped to its app (#976)", () => {
-    expect(trafficHref("shop", { range: "24h", env: "", app: BILLING })).toBe(`/shop/traffic?range=24h&env=all&app=${BILLING}`);
-    expect(endpointHref("shop", { method: "GET", path: "/charge" }, { range: "1h", env: "", app: BILLING })).toBe(`/shop/endpoints/GET/%2Fcharge?range=1h&env=all&app=${BILLING}`);
+    expect(trafficHref("shop", { range: "24h", env: "", app: BILLING })).toBe(`/project/shop/traffic?range=24h&env=all&app=${BILLING}`);
+    expect(endpointHref("shop", { method: "GET", path: "/charge" }, { range: "1h", env: "", app: BILLING })).toBe(`/project/shop/endpoints/GET/%2Fcharge?range=1h&env=all&app=${BILLING}`);
   });
 });
 

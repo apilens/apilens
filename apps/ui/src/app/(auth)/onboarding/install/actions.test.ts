@@ -75,7 +75,7 @@ describe("finishInstallLater", () => {
     updateOnboarding.mockResolvedValue({});
     await expect(finishInstallLater("checkout")).rejects.toThrow("NEXT_REDIRECT");
     expect(updateOnboarding.mock.calls[0][0]).toEqual({ completed: true });
-    expect(redirect).toHaveBeenCalledWith(expect.stringMatching(/^\/checkout\/[a-z-]+\?setup=later$/));
+    expect(redirect).toHaveBeenCalledWith(expect.stringMatching(/^\/project\/checkout\/[a-z-]+\?setup=later$/));
   });
 
   it("refuses a project the user is not in", async () => {

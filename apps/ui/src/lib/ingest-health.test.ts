@@ -29,8 +29,8 @@ const sdk = (over: Partial<AppSdkStats> = {}): AppSdkStats => ({
 
 describe("ingestPath", () => {
   it("names the app in the query", () => {
-    expect(ingestPath("shop")).toBe("/shop/settings/ingest");
-    expect(ingestPath("shop", "checkout api")).toBe("/shop/settings/ingest?app=checkout%20api");
+    expect(ingestPath("shop")).toBe("/project/shop/settings/ingest");
+    expect(ingestPath("shop", "checkout api")).toBe("/project/shop/settings/ingest?app=checkout%20api");
   });
 });
 

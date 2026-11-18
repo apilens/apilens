@@ -4,7 +4,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const GENERAL = "/shop/settings";
+const GENERAL = "/project/shop/settings";
 const ADMIN = ["project.read", "project.update", "project.delete"];
 const EDITOR = ["project.read", "project.update"];
 const VIEWER = ["project.read"];

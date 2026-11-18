@@ -7,7 +7,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/performance";
+const PAGE = "/project/shop/performance";
 
 const bucket = (i: number) => new Date(Date.UTC(2026, 10, 5, 10, 0) + i * 15 * 60_000).toISOString();
 
@@ -160,7 +160,7 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram, the slow
   await expect(slow.nth(2).getByRole("cell").last()).toHaveText("980 ms");
   await expect(slow.nth(0).getByRole("link")).toHaveAttribute(
     "href",
-    "/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=req_charge",
+    "/project/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=req_charge",
   );
 
   // Time spent (#1001): requests × average, most first; routes without traffic have no time to rank.
@@ -173,7 +173,7 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram, the slow
   await expect(rows.nth(0).getByRole("cell")).toHaveText(["POST /charge", "4,200", "520 ms", "36.4 min", "86.4%"]);
   await expect(rows.nth(1).getByRole("cell")).toHaveText(["GET /orders/{id}", "8,200", "42 ms", "5.7 min", "13.6%"]);
   // Each endpoint opens its Response times tab, where its own threshold is set.
-  await expect(rows.nth(0).getByRole("link")).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=24h&env=all&tab=latency");
+  await expect(rows.nth(0).getByRole("link")).toHaveAttribute("href", "/project/shop/endpoints/POST/%2Fcharge?range=24h&env=all&tab=latency");
   // The old endpoints-by-p95 table repeated Traffic's; it is gone.
   await expect(page.getByRole("table", { name: "Endpoints by p95 response time" })).toHaveCount(0);
 
@@ -294,7 +294,7 @@ test.describe("with several apps (#976)", () => {
     const table = page.getByRole("table", { name: "Endpoints by time spent" });
     await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "Average", "Time spent", "Share"]);
     await expect(table.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");
-    await expect(table.getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?range=24h&env=all&app=${billing}&tab=latency`);
+    await expect(table.getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/project/shop/endpoints/POST/%2Fcharge?range=24h&env=all&app=${billing}&tab=latency`);
     const slowest = page.getByRole("table", { name: "Slowest requests" });
     await expect(slowest.getByRole("columnheader")).toHaveText(["Request", "App", "Status", "Time", "Response time"]);
     await expect(slowest.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");

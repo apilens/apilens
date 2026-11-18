@@ -45,7 +45,7 @@ export interface AppThresholdLoad {
 }
 
 /**
- * `/<project>/performance` (#595). How fast the project's API answers in a range and environment:
+ * `/project/<project>/performance` (#595). How fast the project's API answers in a range and environment:
  * p50, p75 and p95 tiles with their trend, the Apdex with a gauge and how it is scored, the
  * response-time histogram, then why it is slow (#1001): the slowest requests, each opening in
  * Explore, and the endpoints by time spent (requests × average), each opening its Response times

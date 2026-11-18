@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState, useTransition } from "react";
-import { saveCapturePolicy } from "@/app/[project]/settings/capture-actions";
+import { saveCapturePolicy } from "@/app/project/[project]/settings/capture-actions";
 import {
   APPLIES_WITHIN,
   DEFAULT_POLICY,
@@ -40,7 +40,7 @@ export interface CaptureLoad {
 type Status = { tone: "ok" | "err"; text: string } | null;
 
 /**
- * `/<project>/settings/capture` (#598): an app's remote capture policy (kill switch, sample rate,
+ * `/project/<project>/settings/capture` (#598): an app's remote capture policy (kill switch, sample rate,
  * headers and bodies, body size cap) and, per environment, what its SDKs reported running with
  * next to the narrower of the two, which is what applies. Holders of `capture.manage` (project
  * admins, organization owners and admins) edit; everyone else sees the same values read-only.

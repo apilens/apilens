@@ -155,8 +155,8 @@ describe("invitedOrg", () => {
 describe("invitedLanding", () => {
   it("opens the organization's first project, or its settings without one", () => {
     const c = ctx({ step: "about", completed: false }, [GLOBEX]);
-    expect(invitedLanding(c, GLOBEX)).toBe("/storefront/incidents");
-    expect(invitedLanding(c, { ...GLOBEX, projects: [] })).toBe("/orgs/globex/settings");
+    expect(invitedLanding(c, GLOBEX)).toBe("/project/storefront/incidents");
+    expect(invitedLanding(c, { ...GLOBEX, projects: [] })).toBe("/org/globex");
   });
 });
 
@@ -179,7 +179,7 @@ describe("invited project (#809)", () => {
       updateOnboarding: vi.fn(),
       projectName: "Checkout",
     });
-    expect(next).toBe("/checkout/incidents");
+    expect(next).toBe("/project/checkout/incidents");
   });
 
   it("while onboarding: saves the project so the about step opens it", async () => {
@@ -187,14 +187,14 @@ describe("invited project (#809)", () => {
     await acceptInvitation({ accept: async () => accepted, context: async () => ctx({ step: null, completed: false }, [WITH_CHECKOUT]), updateOnboarding, projectName: "Checkout" });
     expect(updateOnboarding).toHaveBeenCalledWith({ step: "about", answers: { org_slug: "globex", project_slug: "checkout" } });
     const c = ctx({ step: "about", completed: false, answers: { org_slug: "globex", project_slug: "checkout" } }, [WITH_CHECKOUT]);
-    expect(invitedLanding(c, WITH_CHECKOUT)).toBe("/checkout/incidents");
+    expect(invitedLanding(c, WITH_CHECKOUT)).toBe("/project/checkout/incidents");
   });
 
   it("falls back to the organization's first project when the named one is not in it", async () => {
     const next = await acceptInvitation({ accept: async () => accepted, context: async () => ctx({ step: null, completed: true }, [GLOBEX]), updateOnboarding: vi.fn(), projectName: "Checkout" });
-    expect(next).toBe("/storefront/incidents");
+    expect(next).toBe("/project/storefront/incidents");
     const c = ctx({ step: "about", completed: false, answers: { org_slug: "globex", project_slug: "shop" } }, [ACME, GLOBEX]);
-    expect(invitedLanding(c, GLOBEX)).toBe("/storefront/incidents");
+    expect(invitedLanding(c, GLOBEX)).toBe("/project/storefront/incidents");
   });
 });
 
@@ -219,7 +219,7 @@ describe("acceptInvitation", () => {
       context: async () => ctx({ step: "invite", completed: true }, [ACME, GLOBEX]),
       updateOnboarding,
     });
-    expect(next).toBe("/storefront/incidents");
+    expect(next).toBe("/project/storefront/incidents");
     expect(updateOnboarding).not.toHaveBeenCalled();
   });
 

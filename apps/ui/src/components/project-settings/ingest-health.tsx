@@ -41,7 +41,7 @@ export interface IngestLoad {
 }
 
 /**
- * `/<project>/settings/ingest` (#602): per app, what the ingest edge did with its records over the
+ * `/project/<project>/settings/ingest` (#602): per app, what the ingest edge did with its records over the
  * last 7 UTC days (accepted, rejected, truncated, masked) and what its SDKs dropped before sending,
  * by reason, over the instances seen in the last hour. Read-only for everyone who can view the
  * project; links to the runbook that says what to do when a counter moves.

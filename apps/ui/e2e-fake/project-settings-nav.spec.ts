@@ -23,7 +23,7 @@ const sectionNav = (page: Page) => page.getByRole("navigation", { name: "Project
 const ALL = ["General", "Environments", "SDK setup", "Capture", "Privacy", "Retention", "Ingest health", "Usage", "Alert channels", "Health checks", "Integrations", "Danger zone"];
 
 test("lists the sections in order, grouped, with the current one marked", async ({ page }) => {
-  await signIn(page, "/shop/settings/privacy");
+  await signIn(page, "/project/shop/settings/privacy");
   const nav = sectionNav(page);
   await expect(nav.getByRole("link")).toHaveText(ALL);
   for (const group of ["Project", "Data", "Alerting", "More"]) await expect(nav.getByRole("list", { name: group })).toBeVisible();
@@ -35,7 +35,7 @@ test("lists the sections in order, grouped, with the current one marked", async 
 });
 
 test("moves through the sections with the keyboard", async ({ page }) => {
-  await signIn(page, "/shop/settings/capture");
+  await signIn(page, "/project/shop/settings/capture");
   const nav = sectionNav(page);
   await nav.getByRole("link", { name: "Capture" }).focus();
   await page.keyboard.press("ArrowDown");
@@ -54,12 +54,12 @@ test("moves through the sections with the keyboard", async ({ page }) => {
 
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
-  await page.waitForURL((url) => url.pathname === "/shop/settings/environments");
+  await page.waitForURL((url) => url.pathname === "/project/shop/settings/environments");
   await expect(nav.getByRole("link", { name: "Environments" })).toHaveAttribute("aria-current", "page");
 });
 
 test("a section not built yet says so instead of a blank page", async ({ page }) => {
-  await signIn(page, "/shop/settings/retention");
+  await signIn(page, "/project/shop/settings/retention");
   await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Retention" })).toBeVisible();
   await expect(page.getByText("Nothing here yet.")).toBeVisible();
   await expect(sectionNav(page).getByRole("link", { name: "Retention" })).toHaveAttribute("aria-current", "page");
@@ -67,23 +67,23 @@ test("a section not built yet says so instead of a blank page", async ({ page })
 });
 
 test("the danger zone is listed only with project.delete", async ({ page }) => {
-  await signIn(page, "/shop/settings/usage", VIEWER);
+  await signIn(page, "/project/shop/settings/usage", VIEWER);
   await expect(sectionNav(page).getByRole("link")).toHaveText(ALL.filter((s) => s !== "Danger zone"));
 });
 
 test("a select replaces the nav on narrow screens", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await signIn(page, "/shop/settings/retention");
+  await signIn(page, "/project/shop/settings/retention");
   await expect(sectionNav(page)).toBeHidden();
   const pick = page.getByRole("combobox", { name: "Section" });
   await expect(pick).toHaveValue("retention");
   await pick.selectOption({ label: "Health checks" });
-  await page.waitForURL((url) => url.pathname === "/shop/settings/health-checks");
+  await page.waitForURL((url) => url.pathname === "/project/shop/settings/health-checks");
 });
 
 test("unknown and nested sections are 404", async ({ page }) => {
-  await signIn(page, "/shop/settings");
-  for (const path of ["/shop/settings/general", "/shop/settings/privacy/x"]) {
+  await signIn(page, "/project/shop/settings");
+  for (const path of ["/project/shop/settings/general", "/project/shop/settings/privacy/x"]) {
     const res = await page.goto(path);
     expect(res?.status()).toBe(404);
   }
@@ -93,10 +93,10 @@ test("unknown and nested sections are 404", async ({ page }) => {
 test("screenshots", async ({ page }) => {
   const dir = process.env.SETTINGS_NAV_SHOTS;
   test.skip(!dir, "set SETTINGS_NAV_SHOTS to a directory to capture screenshots");
-  await signIn(page, "/shop/settings/privacy");
+  await signIn(page, "/project/shop/settings/privacy");
   for (const [name, path] of [
-    ["privacy", "/shop/settings/privacy"],
-    ["general", "/shop/settings"],
+    ["privacy", "/project/shop/settings/privacy"],
+    ["general", "/project/shop/settings"],
   ]) {
     for (const theme of ["light", "dark"]) {
       await page.evaluate((t) => localStorage.setItem("theme", t), theme);

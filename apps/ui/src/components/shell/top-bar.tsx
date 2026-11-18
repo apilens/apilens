@@ -22,9 +22,10 @@ function Slash() {
 }
 
 /**
- * The top bar, Supabase style: home, then organization / project as switchable crumbs on the left;
- * the scope search (⌘K), docs and your account on the right. In account scope the last crumb is
- * Account settings; in organization scope there is no project crumb. Below 860px (#998) the bar
+ * The top bar, Supabase style: home, then organization / project as switchable crumbs on the left
+ * (each name links to its scope's home, its chevron switches); the scope search (⌘K), docs and your
+ * account on the right. In account scope the last crumb is `accountLabel` (Account settings; empty,
+ * so none, on Organizations); in organization scope there is no project crumb and no page title. Below 860px (#998) the bar
  * also names the page (`label`, the nav label) and, when any are open, links the open incident
  * count to Incidents keeping the current scope.
  */
@@ -36,6 +37,7 @@ export function TopBar({
   view,
   orgScope,
   account,
+  accountLabel = "Account settings",
   label,
   openIncidents,
   onMenu,
@@ -48,6 +50,7 @@ export function TopBar({
   view: string;
   orgScope: boolean;
   account: boolean;
+  accountLabel?: string;
   label: string;
   openIncidents: number;
   onMenu: () => void;
@@ -67,14 +70,14 @@ export function TopBar({
       <nav className="tb-crumbs" aria-label="Scope">
         <span className="tb-crumb tb-crumb--org">
           <Slash />
-          <OrgSelector orgs={orgs} org={org} orgScope={orgScope} />
+          <OrgSelector orgs={orgs} org={org} />
         </span>
-        {account ? (
+        {account && accountLabel ? (
           <span className="tb-crumb">
             <Slash />
-            <span className="tb-here">Account settings</span>
+            <span className="tb-here">{accountLabel}</span>
           </span>
-        ) : project && !orgScope ? (
+        ) : project && !orgScope && !account ? (
           <span className="tb-crumb tb-crumb--project">
             <Slash />
             <ProjectSelector org={org} project={project} view={view} />

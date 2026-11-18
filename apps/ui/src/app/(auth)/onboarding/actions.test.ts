@@ -126,7 +126,7 @@ describe("finishInvitedOnboarding", () => {
   it("finishes onboarding and opens the invited organization's first project", async () => {
     context.mockResolvedValue(ctx({ org_slug: "globex" }, [GLOBEX]));
     updateOnboarding.mockResolvedValue({});
-    await expect(finishInvitedOnboarding()).rejects.toEqual(new Redirect("/storefront/incidents"));
+    await expect(finishInvitedOnboarding()).rejects.toEqual(new Redirect("/project/storefront/incidents"));
     expect(updateOnboarding).toHaveBeenCalledWith({ completed: true }, { accessToken: "a" });
   });
 
@@ -189,7 +189,7 @@ describe("joinTeam", () => {
     joinOrg.mockResolvedValue(joined);
     context.mockResolvedValue(ctx({}, [GLOBEX]));
     updateOnboarding.mockResolvedValue({});
-    await expect(joinTeam("globex", "Globex")).rejects.toEqual(new Redirect("/storefront/incidents"));
+    await expect(joinTeam("globex", "Globex")).rejects.toEqual(new Redirect("/project/storefront/incidents"));
     expect(joinOrg).toHaveBeenCalledWith("globex", { accessToken: "a" });
     expect(updateOnboarding).toHaveBeenCalledWith({ completed: true, answers: { org_slug: "globex" } }, { accessToken: "a" });
   });

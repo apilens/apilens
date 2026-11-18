@@ -8,12 +8,13 @@ import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
 import "./retention.css";
+import { projectHref } from "@/lib/routes";
 
 /** What the page loaded: the signals, or the sentence for a read that failed. */
 export type RetentionLoad = Retention | { error: string };
 
 /**
- * `/<project>/settings/retention` (#818, #753 D10): how long each signal is kept and what happens
+ * `/project/<project>/settings/retention` (#818, #753 D10): how long each signal is kept and what happens
  * after, from `GET /projects/{slug}/retention`. Read-only for everyone: retention is set per
  * install by its operator, never per project. The header renders at once; the table streams in.
  */
@@ -23,7 +24,7 @@ export function RetentionFrame({ project, projectName, children }: { project: st
       <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Retention" className="os-head">
         <p className="rt-lede">
           How long {projectName} keeps each kind of data. For what each request stores and which fields are masked, open{" "}
-          <a className="cp-link" href={`/${project}/settings/privacy`}>
+          <a className="cp-link" href={projectHref(project, "settings", "privacy")}>
             Privacy
           </a>
           .

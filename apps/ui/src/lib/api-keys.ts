@@ -5,13 +5,14 @@
 import type { ApiKey, ApiKeyScope, Environment, KeyApp, RotateOverlap } from "./identity";
 import type { PageOptions } from "./pagination";
 import { zoned, zonedParts, zoneLabel, zoneOffsetMinutes } from "./time-zone";
+import { projectHref } from "./routes";
 
-/** The Access tab that lists the keys; `/<project>/settings/keys` redirects to it (#801). */
+/** The Access tab that lists the keys; `/project/<project>/settings/keys` redirects to it (#801). */
 export const KEYS_SECTION = "keys";
 
-/** `/<project>/access/keys`. */
+/** `/project/<project>/access/keys`. */
 export function keysPath(project: string): string {
-  return `/${project}/access/${KEYS_SECTION}`;
+  return projectHref(project, "access", KEYS_SECTION);
 }
 
 /** Longest key name the API accepts (`maxLength` of `CreateAPIKeyInputBody.name`). */

@@ -1,4 +1,4 @@
-// The endpoint detail page (#593): `/<project>/endpoints/<method>/<path>` with Requests, Errors,
+// The endpoint detail page (#593): `/project/<project>/endpoints/<method>/<path>` with Requests, Errors,
 // Response times and Data transferred tabs, and the endpoint's settings. Pure helpers (URL state,
 // formatting, settings input), unit-tested in endpoint-detail.test.ts.
 import { RANGE_LABEL } from "./consumers";
@@ -6,6 +6,7 @@ import type { ExploreScope } from "./explore";
 import type { EndpointSettings, LatencyBucket, PutEndpointSettingsRequest, QueryRange, SizeBucket, StatusClass } from "./identity";
 import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES, parseAppParam } from "./traffic";
+import { projectHref } from "./routes";
 
 export const ENDPOINT_TABS = [
   { slug: "requests", label: "Requests" },
@@ -94,7 +95,7 @@ export function endpointPageHref(project: string, ep: EndpointRef, q: Partial<En
   if (q.consumer) p.set("consumer", q.consumer);
   if (q.app) p.set("app", q.app);
   const s = p.toString();
-  return `/${encodeURIComponent(project)}/endpoints/${encodeURIComponent(ep.method)}/${encodeURIComponent(ep.path)}${s ? `?${s}` : ""}`;
+  return `${projectHref(project, "endpoints", encodeURIComponent(ep.method))}/${encodeURIComponent(ep.path)}${s ? `?${s}` : ""}`;
 }
 
 /** Whether a tab's read takes the status filter (the errors read does not). */

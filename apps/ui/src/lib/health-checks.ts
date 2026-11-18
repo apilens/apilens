@@ -5,6 +5,7 @@
 // Pure; safe in Client and Server Components and in Server Actions alike.
 import type { CreateHealthCheckRequest, HealthCheckProbe } from "./identity";
 import type { PageOptions } from "./pagination";
+import { projectHref } from "./routes";
 
 /** The section of project settings that lists the health checks. */
 export const HEALTH_CHECKS_SECTION = "health-checks";
@@ -18,9 +19,9 @@ export const CHECKS_PAGE: PageOptions = { sizes: [10, 25, 50], defaultPer: 10 };
 /** How often and how patiently a check is probed, as the panel explains it. */
 export const PROBE_POLICY = "Every minute, APILens sends GET to the URL with a 5 second timeout and retries once before the check counts as failing.";
 
-/** `/<project>/settings/health-checks`. */
+/** `/project/<project>/settings/health-checks`. */
 export function healthChecksPath(project: string): string {
-  return `/${project}/settings/${HEALTH_CHECKS_SECTION}`;
+  return projectHref(project, "settings", HEALTH_CHECKS_SECTION);
 }
 
 const MAX_URL = 2048;

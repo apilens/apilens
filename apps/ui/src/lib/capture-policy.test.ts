@@ -28,8 +28,8 @@ const stored = (over: Partial<CapturePolicy> = {}): CapturePolicy => ({
 
 describe("capturePath", () => {
   it("names the app in the query", () => {
-    expect(capturePath("shop")).toBe("/shop/settings/capture");
-    expect(capturePath("shop", "checkout api")).toBe("/shop/settings/capture?app=checkout%20api");
+    expect(capturePath("shop")).toBe("/project/shop/settings/capture");
+    expect(capturePath("shop", "checkout api")).toBe("/project/shop/settings/capture?app=checkout%20api");
   });
 });
 

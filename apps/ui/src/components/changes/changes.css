@@ -68,7 +68,7 @@
   .ch-actions { padding-top: var(--space-2); text-align: left; }
 }
 
-/* ---- One deploy (/<project>/changes/<id>) ----------------------------------------------------
+/* ---- One deploy (/project/<project>/changes/<id>) ----------------------------------------------------
    Color only for meaning: the verdict's edge and the deltas (error / ok), 4xx (warn) and 5xx
    (error) in the chart and error codes; everything else ink, muted ink and borders. */
 .chd { display: grid; gap: var(--space-6); }

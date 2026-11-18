@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useState, useTransition } from "react";
-import { resumeProjectIngest, saveProjectGeneral } from "@/app/[project]/settings/general-actions";
+import { resumeProjectIngest, saveProjectGeneral } from "@/app/project/[project]/settings/general-actions";
 import type { ProjectDetail } from "@/lib/identity";
 import { formatDay, formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
@@ -21,7 +21,7 @@ export type GeneralLoad = { project: ProjectDetail; names: Record<string, string
 type Status = { tone: "ok" | "err"; text: string } | null;
 
 /**
- * `/<project>/settings` (#815): the project's details (name and description) and its identifiers
+ * `/project/<project>/settings` (#815): the project's details (name and description) and its identifiers
  * (slug, project ID, who created it and when). A paused project shows a notice at the top with
  * Resume for those who may resume it. Holders of `project.update` (project admins and editors)
  * edit the details; everyone else sees them read-only.

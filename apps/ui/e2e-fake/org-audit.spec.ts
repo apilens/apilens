@@ -6,7 +6,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
-const PATH = "/orgs/acme/settings/audit";
+const PATH = "/org/acme/audit";
 
 async function seedAudit(body: Record<string, unknown> = {}) {
   const res = await fetch(`${IDENTITY}/__fake/audit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -24,6 +24,7 @@ async function signIn(page: Page, next: string, role: "owner" | "admin" | "membe
   await page.waitForURL((url) => url.pathname === next.split("?")[0]);
 }
 
+/** The settings menu beside the section (General, SSO, Audit log). */
 const tabs = (page: Page) => page.getByRole("navigation", { name: "Organization settings" });
 const log = (page: Page) => page.getByRole("region", { name: "Activity log", exact: true });
 const rows = (page: Page) => log(page).locator("tbody tr.acl-row");
@@ -36,17 +37,19 @@ test.afterAll(async () => {
   await seedAudit();
 });
 
-test("owners and admins get the Audit log tab; members and viewers don't, and a direct link says why", async ({ page }) => {
-  await signIn(page, "/orgs/acme/settings", "admin");
-  await expect(tabs(page).getByRole("link")).toHaveText(["General", "Members", "Invitations", "Single sign-on", "Audit log"]);
+test("owners and admins get Audit log in the settings menu; members and viewers don't, and a direct link says why", async ({ page }) => {
+  await signIn(page, "/org/acme/general", "admin");
+  await expect(tabs(page).getByRole("link")).toHaveText(["General", "SSO", "Audit log"]);
   await tabs(page).getByRole("link", { name: "Audit log" }).click();
   await page.waitForURL((url) => url.pathname === PATH);
   await expect(tabs(page).getByRole("link", { name: "Audit log" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { level: 1, name: "Audit log" })).toBeVisible();
   await expect(rows(page)).toHaveCount(25);
+  // Organization settings stays on in the rail on every settings section.
+  await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Organization settings" })).toHaveAttribute("aria-current", "page");
 
-  await signIn(page, "/orgs/acme/settings", "member");
-  await expect(tabs(page).getByRole("link")).toHaveText(["General", "Members", "Invitations", "Single sign-on"]);
+  await signIn(page, "/org/acme/general", "member");
+  await expect(tabs(page).getByRole("link")).toHaveText(["General", "SSO"]);
   const res = await page.goto(PATH);
   expect(res?.status()).toBe(200);
   await expect(page.getByRole("heading", { name: "You can’t see this organization’s audit log" })).toBeVisible();

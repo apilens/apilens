@@ -67,7 +67,7 @@ describe("ownedOrgs", () => {
         { slug: "acme", name: "Acme", role: "owner" },
         { slug: "beta", name: "Beta", role: "admin" },
       ]),
-    ).toEqual([{ slug: "acme", name: "Acme", href: "/orgs/acme/settings" }]);
+    ).toEqual([{ slug: "acme", name: "Acme", href: "/org/acme/general" }]);
   });
 });
 

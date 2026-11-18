@@ -35,23 +35,23 @@ describe("parseErrorsQuery", () => {
 
 describe("errorsHref", () => {
   it("leaves defaults out", () => {
-    expect(errorsHref("shop", {})).toBe("/shop/errors");
-    expect(errorsHref("shop", { tab: "status", range: "24h", env: "", code: null, view: "summary" })).toBe("/shop/errors?range=24h&env=all");
+    expect(errorsHref("shop", {})).toBe("/project/shop/errors");
+    expect(errorsHref("shop", { tab: "status", range: "24h", env: "", code: null, view: "summary" })).toBe("/project/shop/errors?range=24h&env=all");
   });
 
   it("keeps the scope and the open status code", () => {
-    expect(errorsHref("shop", { range: "1h", env: "staging", code: 404, view: "consumers" })).toBe("/shop/errors?range=1h&env=staging&code=404&view=consumers");
-    expect(errorsHref("shop", { code: 500, view: "summary" })).toBe("/shop/errors?code=500");
+    expect(errorsHref("shop", { range: "1h", env: "staging", code: 404, view: "consumers" })).toBe("/project/shop/errors?range=1h&env=staging&code=404&view=consumers");
+    expect(errorsHref("shop", { code: 500, view: "summary" })).toBe("/project/shop/errors?code=500");
   });
 
   it("drops the modal on the Issues tab, and a view without a code", () => {
-    expect(errorsHref("shop", { tab: "issues", code: 404, view: "details" })).toBe("/shop/errors?tab=issues");
-    expect(errorsHref("shop", { view: "details" })).toBe("/shop/errors");
+    expect(errorsHref("shop", { tab: "issues", code: 404, view: "details" })).toBe("/project/shop/errors?tab=issues");
+    expect(errorsHref("shop", { view: "details" })).toBe("/project/shop/errors");
   });
 
   it("keeps the pages, the modal's only with the modal", () => {
-    expect(errorsHref("shop", { page: 2, per: 50, code: 404, dpage: 3, dper: 25 })).toBe("/shop/errors?page=2&per=50&code=404&dpage=3&dper=25");
-    expect(errorsHref("shop", { page: 1, per: 25, dpage: 3 })).toBe("/shop/errors");
+    expect(errorsHref("shop", { page: 2, per: 50, code: 404, dpage: 3, dper: 25 })).toBe("/project/shop/errors?page=2&per=50&code=404&dpage=3&dper=25");
+    expect(errorsHref("shop", { page: 1, per: 25, dpage: 3 })).toBe("/project/shop/errors");
   });
 
   it("round-trips through parseErrorsQuery", () => {

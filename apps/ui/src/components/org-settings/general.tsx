@@ -1,14 +1,14 @@
 "use client";
 
 import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
-import { type OrgActionResult, deleteOrganization, saveOrgDomains, saveOrgName } from "@/app/orgs/[org]/settings/actions";
+import { type OrgActionResult, deleteOrganization, saveOrgDomains, saveOrgName } from "@/app/org/[org]/general/actions";
 import type { DeletedProject, Org } from "@/lib/identity";
 import { addDomains, canDeleteOrg, canManageOrg, checkOrgName, deleteConfirmed, MAX_ORG_NAME } from "@/lib/org-settings";
 import { roleLabel } from "@/lib/scope";
 import { ConfirmDialog } from "../confirm-dialog";
 import { ObIcon } from "../onboarding/ob";
 import { DeletedProjectsCard } from "./deleted-projects";
-import { OrgSettingsNav } from "./nav";
+import { OrgSettingsFrame } from "./nav";
 import "./org-settings.css";
 
 type Status = { tone: "ok" | "err"; text: string } | null;
@@ -26,7 +26,7 @@ function StatusLine({ status, id }: { status: Status; id: string }) {
 }
 
 /**
- * `/orgs/<org>/settings` (#347): the organization's name, its address (slug, read-only), the
+ * `/org/<org>/general` (#347): the organization's name, its address (slug, read-only), the
  * email domains whose people may join automatically, and deleting it. Owners and admins edit;
  * members and viewers see the same values read-only. Only owners see the delete button.
  * `deletedProjects` (#822): the restorable projects for owners and admins (null when they could
@@ -44,13 +44,7 @@ export function OrgGeneralSettings({
   const manage = canManageOrg(org.role);
   const [restored, setRestored] = useState<string[]>([]);
   return (
-    <div className="page page--measure os">
-      <header className="os-head">
-        <p className="cp-h">Organization</p>
-        <h1 className="cp-lede">Settings</h1>
-        <OrgSettingsNav org={org.slug} current="" role={org.role} />
-      </header>
-
+    <OrgSettingsFrame org={org.slug} role={org.role} current="general" title="General" measure>
       {deletedProject && !restored.includes(deletedProject) ? (
         <p className="os-note" role="status">
           <ObIcon name="done" />
@@ -73,7 +67,7 @@ export function OrgGeneralSettings({
         <DeletedProjectsCard org={org.slug} initial={deletedProjects} onRestored={(slug) => setRestored((list) => [...list, slug])} />
       ) : null}
       {canDeleteOrg(org.role) ? <DangerCard org={org} /> : null}
-    </div>
+    </OrgSettingsFrame>
   );
 }
 

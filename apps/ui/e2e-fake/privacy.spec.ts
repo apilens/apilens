@@ -4,7 +4,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PRIVACY = "/shop/settings/privacy";
+const PRIVACY = "/project/shop/settings/privacy";
 const EDITOR = ["project.read", "project.update"];
 
 async function signIn(page: Page, capabilities: string[] = EDITOR) {

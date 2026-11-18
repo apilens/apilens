@@ -31,6 +31,7 @@ import { RangePicker } from "../range-picker";
 import { type Series, Sparkline, StackedBars } from "./charts";
 import { IdentifyConsumers } from "./identify-consumers";
 import "./consumers.css";
+import { projectHref } from "@/lib/routes";
 
 /**
  * What the page read when no user is identified in the range (#989): the requests without a consumer
@@ -66,7 +67,7 @@ export function exploreConsumerHref(project: string, range: QueryRange, f: { con
 }
 
 /**
- * `/<project>/consumers` (#596). The users of the project's API, as the SDK identifies them on
+ * `/project/<project>/consumers` (#596). The users of the project's API, as the SDK identifies them on
  * each request: unique users over time split into new and returning, and a paged table by
  * requests, errors or last seen with a sparkline per user; or, by group, the groups the SDK
  * reports (the company or plan a user belongs to) with their traffic. A user opens a detail view:
@@ -156,7 +157,7 @@ function Notice({ children }: { children: React.ReactNode }) {
 function SearchForm({ project, q, label, placeholder }: { project: string; q: ConsumersQuery; label: string; placeholder: string }) {
   const id = `cs-search-${q.by}`;
   return (
-    <form className="cs-search" role="search" method="get" action={`/${encodeURIComponent(project)}/consumers`}>
+    <form className="cs-search" role="search" method="get" action={projectHref(project, "consumers")}>
       {q.range !== "24h" ? <input type="hidden" name="range" value={q.range} /> : null}
       {q.by === "groups" ? <input type="hidden" name="by" value="groups" /> : null}
       {q.group ? <input type="hidden" name="group" value={q.group} /> : null}
@@ -326,7 +327,7 @@ function ConsumersList({
                 </tbody>
               </table>
             )}
-            <Pagination pathname={`/${encodeURIComponent(project)}/consumers`} params={params} total={list.total} label="Users pages" />
+            <Pagination pathname={projectHref(project, "consumers")} params={params} total={list.total} label="Users pages" />
           </section>
         </>
       )}
@@ -596,7 +597,7 @@ function GroupsList({ project, q, params, groups, now }: { project: string; q: C
             </tbody>
           </table>
         )}
-        <Pagination pathname={`/${encodeURIComponent(project)}/consumers`} params={params} total={groups.total} label="Groups pages" />
+        <Pagination pathname={projectHref(project, "consumers")} params={params} total={groups.total} label="Groups pages" />
         <p className="cs-note cs-note--card">Groups are what the SDK reports with each request. A request counts for the group it was sent with; requests without a group are left out.</p>
       </section>
     </>
@@ -758,7 +759,7 @@ function ConsumerPanel({ project, q, params, detail, now }: { project: string; q
         ) : (
           <RecentTable rows={rows} label={errorsTab ? "Latest errors" : "Latest requests"} now={now} />
         )}
-        <Pagination pathname={`/${encodeURIComponent(project)}/consumers`} params={params} total={total} label={errorsTab ? "Latest errors pages" : "Latest requests pages"} />
+        <Pagination pathname={projectHref(project, "consumers")} params={params} total={total} label={errorsTab ? "Latest errors pages" : "Latest requests pages"} />
       </div>
     </section>
   );

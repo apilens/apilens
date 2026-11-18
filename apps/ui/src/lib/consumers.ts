@@ -5,6 +5,7 @@
 // helpers (URL state, chart geometry, copy), unit-tested in consumers.test.ts.
 import type { QueryRange, StatusSplit } from "./identity";
 import { zoneLabel, zoned } from "./time-zone";
+import { projectHref } from "./routes";
 
 export const CONSUMER_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -80,7 +81,7 @@ export function consumersHref(project: string, q: Partial<ConsumersQuery>): stri
     if (q.sort && q.sort !== "requests" && (q.by === "groups" || q.sort !== "consumers")) p.set("sort", q.sort);
   }
   const s = p.toString();
-  return `/${encodeURIComponent(project)}/consumers${s ? `?${s}` : ""}`;
+  return `${projectHref(project, "consumers")}${s ? `?${s}` : ""}`;
 }
 
 /** The view of one SDK group: its consumers, in the range. */

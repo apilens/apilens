@@ -7,6 +7,7 @@ import { isProjectSlug } from "@/lib/api-keys";
 import { identity, isApiError } from "@/lib/identity";
 import { homeView } from "@/lib/landing";
 import { withActionSession } from "@/lib/server-session";
+import { projectHref } from "@/lib/routes";
 
 const NOT_FOUND = "We couldn’t find that project. It may have been deleted.";
 const FAILED = "We couldn’t finish setup. Try again in a moment.";
@@ -19,7 +20,7 @@ export async function openProject(project: string): Promise<{ ok: false; error: 
       const ctx = await session.call((o) => identity().context(o));
       if (!ctx.orgs.some((org) => org.projects.some((p) => p.slug === project))) return { ok: false as const, error: NOT_FOUND };
       await session.call((o) => identity().updateOnboarding({ completed: true }, o));
-      return `/${project}/${homeView(ctx)}`;
+      return projectHref(project, homeView(ctx));
     } catch (err) {
       if (!isApiError(err)) throw err;
       return { ok: false as const, error: FAILED };

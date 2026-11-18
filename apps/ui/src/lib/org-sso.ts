@@ -1,4 +1,4 @@
-// Organization single sign-on (#348): the rules the `/orgs/<org>/settings/sso` form checks before
+// Organization single sign-on (#348): the rules the `/org/<org>/sso` form checks before
 // it calls `PUT /orgs/{slug}/sso`, and the sentences it shows for the server's error codes and
 // for a failed connection test. The server stays the authority (it alone knows which domains are
 // public providers, which ones another organization enforces, and whether the caller has signed

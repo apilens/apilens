@@ -21,11 +21,11 @@ async function signIn(page: Page, capabilities: string[] = ADMIN, stale = false)
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next: "/shop/access", capabilities, stale }),
+    body: JSON.stringify({ next: "/project/shop/access", capabilities, stale }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
-  await page.waitForURL((url) => url.pathname === "/shop/access");
+  await page.waitForURL((url) => url.pathname === "/project/shop/access");
 }
 
 const table = (page: Page) => page.getByRole("table", { name: "People with access to shop" });

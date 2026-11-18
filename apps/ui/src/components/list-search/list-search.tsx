@@ -6,7 +6,7 @@
 // rows. Paging itself is the shared <Pagination> (components/pagination) over lib/pagination.
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
-import { canonicalPageHref, parseQuery, withQuery } from "@/lib/list-search";
+import { type ListKeys, canonicalPageHref, parseQuery, withQuery } from "@/lib/list-search";
 import type { PageOptions, PageWindow, ParamsInput } from "@/lib/pagination";
 import "./list-search.css";
 
@@ -22,9 +22,9 @@ function hrefOf(pathname: string, p: URLSearchParams): string {
  * from (the page's params with that search; page 1 once it differs from the URL's). The URL follows
  * after a short pause; a URL change from elsewhere (back button, a link) resets the box.
  */
-export function useListSearch(pathname: string, params: ParamsInput) {
+export function useListSearch(pathname: string, params: ParamsInput, keys: ListKeys = {}) {
   const router = useRouter();
-  const urlQuery = parseQuery(params);
+  const urlQuery = parseQuery(params, keys.search);
   const [query, setQuery] = useState(urlQuery);
   /** The search this hook last wrote to the URL: its echo must not reset what is typed since. */
   const pushed = useRef<string | null>(null);
@@ -35,19 +35,24 @@ export function useListSearch(pathname: string, params: ParamsInput) {
     setQuery(urlQuery);
   }, [urlQuery]);
 
+  // Primitive keys, so a caller's fresh `keys` object each render does not restart the pause.
+  const searchKey = keys.search;
+  const pageKey = keys.page?.keys?.page;
+  const perKey = keys.page?.keys?.per;
   useEffect(() => {
     const q = query.trim();
     if (q === urlQuery) return;
     const t = setTimeout(() => {
       pushed.current = q;
-      router.replace(hrefOf(pathname, withQuery(params, q)), { scroll: false });
+      const page = pageKey && perKey ? { keys: { page: pageKey, per: perKey } } : undefined;
+      router.replace(hrefOf(pathname, withQuery(params, q, { search: searchKey, page })), { scroll: false });
     }, DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [query, urlQuery, pathname, params, router]);
+  }, [query, urlQuery, pathname, params, router, searchKey, pageKey, perKey]);
 
   /** Whether the URL already carries what is typed (the page links and the URL agree). */
   const settled = query.trim() === urlQuery;
-  return { query, setQuery, params: settled ? params : withQuery(params, query), settled };
+  return { query, setQuery, params: settled ? params : withQuery(params, query, keys), settled };
 }
 
 /**

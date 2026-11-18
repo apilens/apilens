@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useState, useTransition } from "react";
-import { changeMemberRole, removeMember, transferOwnership } from "@/app/orgs/[org]/settings/members/actions";
+import { changeMemberRole, removeMember, transferOwnership } from "@/app/org/[org]/team/member-actions";
 import type { Member, OrgRole } from "@/lib/identity";
 import {
   MEMBER_ROLES,
@@ -18,6 +18,7 @@ import {
   transferCandidates,
   transferGate,
 } from "@/lib/org-members";
+import { orgHref } from "@/lib/routes";
 import { roleLabel } from "@/lib/scope";
 import { ListSearch, useCanonicalPage, useListSearch } from "@/components/list-search/list-search";
 import { Pagination } from "@/components/pagination/pagination";
@@ -25,13 +26,12 @@ import { countLine, searchRows } from "@/lib/list-search";
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { DialogError, Gated, Modal, type OrgRef, type Status, statusOf } from "./controls";
 import { InviteDialog } from "./invite-dialog";
-import { OrgSettingsNav } from "./nav";
 import { useTimeZone } from "@/lib/time-zone-context";
 import "./org-settings.css";
 import "./members.css";
 
 /**
- * `/orgs/<org>/settings/members` (#345): everyone in the organization with their role and when
+ * Team › Members (`/org/<org>/team`, #345): everyone in the organization with their role and when
  * they joined. Owners and admins (`members.remove`) change roles and remove members; owners
  * transfer ownership; `members.invite` opens the invite dialog. Controls the user cannot use stay
  * visible, disabled, with the reason on hover and focus. The rows come from the server: after an
@@ -43,7 +43,7 @@ import "./members.css";
  */
 export function OrgMembersSettings({ org, members, viewer, search = {} }: { org: OrgRef; members: Member[]; viewer: Viewer; search?: SearchParams }) {
   const owners = ownerCount(members);
-  const pathname = `/orgs/${org.slug}/settings/members`;
+  const pathname = orgHref(org.slug, "team");
   const tz = useTimeZone();
   const list = useListSearch(pathname, search);
   const matched = searchRows(members, list.query, (m) => [m.user.name, m.user.email, roleLabel(m.role)]);
@@ -73,12 +73,10 @@ export function OrgMembersSettings({ org, members, viewer, search = {} }: { org:
   const transfer = transferGate(viewer, members);
 
   return (
-    <div className="page os om">
-      <header className="os-head">
-        <p className="cp-h">Organization</p>
-        <h1 className="cp-lede">Members</h1>
-        <OrgSettingsNav org={org.slug} current="members" role={viewer.role} />
-      </header>
+    <section className="om-sec" aria-labelledby="om-members-title">
+      <h2 id="om-members-title" className="om-sec__title">
+        Members
+      </h2>
 
       <div className="om-bar">
         <p className="om-count">{countLine(matched.length, members.length, "member", "members", list.query)}</p>
@@ -207,7 +205,7 @@ export function OrgMembersSettings({ org, members, viewer, search = {} }: { org:
         <TransferDialog org={org} open={transferring} candidates={transferCandidates(viewer, members)} onClose={() => setTransferring(false)} onDone={setStatus} />
       ) : null}
       {viewer.invite ? <InviteDialog org={org} open={inviting} onClose={() => setInviting(false)} onDone={setStatus} /> : null}
-    </div>
+    </section>
   );
 }
 

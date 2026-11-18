@@ -50,7 +50,7 @@ export interface SettingsLoad {
 }
 
 /**
- * `/<project>/endpoints/<method>/<path>` (#593). One endpoint of a project: the locked scope
+ * `/project/<project>/endpoints/<method>/<path>` (#593). One endpoint of a project: the locked scope
  * (method and path), a filter bar (range, environment, status class, app, consumer) and four tabs:
  * Requests, Errors, Response times and Data transferred. The app filter (#976) defaults to all apps.
  * Only the open tab's data is read; each tab is a link, so every view can be shared. The settings

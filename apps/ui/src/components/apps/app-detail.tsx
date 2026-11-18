@@ -50,7 +50,7 @@ export interface AppDetailProps {
 }
 
 /**
- * `/<project>/apps/<app>` (#995): one app's overview over the last 24 hours. The header names the
+ * `/project/<project>/apps/<app>` (#995): one app's overview over the last 24 hours. The header names the
  * app with its SDKs, environments, reporting state and health; tiles give requests, 5xx rate and
  * p95; the busiest endpoints each open the endpoint's page scoped to this app; then the SDK
  * instances and the deploys of the last 7 days. An app that has sent nothing yet shows how to set

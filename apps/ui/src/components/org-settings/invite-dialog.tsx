@@ -3,7 +3,7 @@
 // The invite dialog of the organization members and invitations pages (#345, #346): the shared
 // chip input (one role per address) and a role for the addresses added next.
 import { type FormEvent, useState, useTransition } from "react";
-import { inviteMembers } from "@/app/orgs/[org]/settings/members/actions";
+import { inviteMembers } from "@/app/org/[org]/team/member-actions";
 import { InviteInput } from "@/components/invite-input";
 import type { InviteRole } from "@/lib/identity";
 import { INVITE_ROLES, type InviteChip, addInviteChips, inviteChipsError, inviteEntries, sendInvitesLabel } from "@/lib/invite-input";

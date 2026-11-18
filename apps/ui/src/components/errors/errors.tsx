@@ -35,6 +35,7 @@ import { CountBars } from "./charts";
 import { ErrorModal, MarkExpected } from "./modal";
 import "../traffic/traffic.css";
 import "./errors.css";
+import { projectHref } from "@/lib/routes";
 
 /** The open tab and what its read answered: null when the API could not answer. */
 export type TabLoad = { tab: "status"; data: ErrorStatuses | null } | { tab: "issues"; data: ErrorGroup[] | null };
@@ -46,7 +47,7 @@ export interface DetailLoad {
 }
 
 /**
- * `/<project>/errors` (#594). The project's error responses in a range and environment: the
+ * `/project/<project>/errors` (#594). The project's error responses in a range and environment: the
  * Status codes tab shows 4xx and 5xx over time and every error status code by count, each opening
  * its detail in a modal (summary and frequency, consumers, and per-endpoint details pointing at
  * validation errors and exceptions, where a status code can be marked as expected); the Issues tab
@@ -164,7 +165,7 @@ function Card({ id, title, table, children }: { id: string; title: string; table
  * every page link keeps the rest of it.
  */
 function Pager({ project, href, total, label, options }: { project: string; href: string; total: number; label: string; options: PageOptions }) {
-  return <Pagination pathname={`/${encodeURIComponent(project)}/errors`} params={hrefParams(href)} total={total} label={label} {...options} />;
+  return <Pagination pathname={projectHref(project, "errors")} params={hrefParams(href)} total={total} label={label} {...options} />;
 }
 
 const Empty = ({ children }: { children: ReactNode }) => (

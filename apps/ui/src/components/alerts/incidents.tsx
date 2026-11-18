@@ -26,7 +26,7 @@ import { RangePicker } from "../range-picker";
 import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
 
 /**
- * `/<project>/incidents` (#610), the project's home view: each alert rule with incidents in the
+ * `/project/<project>/incidents` (#610), the project's home view: each alert rule with incidents in the
  * range (or one still open), open ones first, with the value that triggered the latest one
  * against the rule's threshold, when it started and how long it lasted or has lasted so far.
  * Each rule links to its timeline. `incidents` is null when the API could not answer; `apps`

@@ -101,15 +101,15 @@ async function signIn(page: Page, next: string) {
 
 /** The core pages: every surface in the project sidebar, plus an endpoint's detail. */
 const PAGES: { name: string; path: string }[] = [
-  { name: "traffic", path: "/shop/traffic" },
-  { name: "endpoint", path: "/shop/endpoints/GET/%2Forders%2F%7Bid%7D" },
-  { name: "explore", path: "/shop/explore" },
-  { name: "errors", path: "/shop/errors" },
-  { name: "performance", path: "/shop/performance" },
-  { name: "consumers", path: "/shop/consumers" },
-  { name: "apps", path: "/shop/apps" },
-  { name: "changes", path: "/shop/changes" },
-  { name: "incidents", path: "/shop/incidents" },
+  { name: "traffic", path: "/project/shop/traffic" },
+  { name: "endpoint", path: "/project/shop/endpoints/GET/%2Forders%2F%7Bid%7D" },
+  { name: "explore", path: "/project/shop/explore" },
+  { name: "errors", path: "/project/shop/errors" },
+  { name: "performance", path: "/project/shop/performance" },
+  { name: "consumers", path: "/project/shop/consumers" },
+  { name: "apps", path: "/project/shop/apps" },
+  { name: "changes", path: "/project/shop/changes" },
+  { name: "incidents", path: "/project/shop/incidents" },
 ];
 
 async function contrast(page: Page) {
@@ -120,7 +120,7 @@ async function contrast(page: Page) {
 const theme = (page: Page) => page.locator("html").getAttribute("data-theme");
 
 test("with nothing chosen, the app paints in the system colour scheme", async ({ page }) => {
-  await signIn(page, "/shop/traffic");
+  await signIn(page, "/project/shop/traffic");
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.reload();
@@ -134,7 +134,7 @@ test("with nothing chosen, the app paints in the system colour scheme", async ({
 
 test("the account menu offers Light, Dark and System, and System follows the OS", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await signIn(page, "/shop/traffic");
+  await signIn(page, "/project/shop/traffic");
   const menu = async () => {
     await page.getByRole("button", { name: /^Account menu/ }).click();
     return page.getByRole("menu", { name: "Account" });

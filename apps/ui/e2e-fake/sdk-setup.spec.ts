@@ -5,7 +5,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const SDK = "/shop/settings/sdk";
+const SDK = "/project/shop/settings/sdk";
 const SHOP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 /** `APILENS_PUBLIC_INGEST_URL` as the UI renders it (the default). */
 const INGEST_URL = "http://localhost:8080";
@@ -66,7 +66,7 @@ test("tabs switch the snippets, which carry the key placeholder, app name and in
   await expect(panel).toContainText(`base_url="${INGEST_URL}/v1"`);
   await expect(panel).toContainText('app_id="shop"');
   await expect(install(page)).toContainText(INGEST_URL);
-  await expect(install(page).getByRole("link", { name: "Create a key in API keys" })).toHaveAttribute("href", "/shop/access/keys");
+  await expect(install(page).getByRole("link", { name: "Create a key in API keys" })).toHaveAttribute("href", "/project/shop/access/keys");
   await expect(panel.getByRole("link", { name: "Python SDK docs (FastAPI)" })).toHaveAttribute("href", /\/setup-guides\/fastapi$/);
   // Never a stored key.
   await expect(install(page)).not.toContainText("apl_live_");
@@ -93,7 +93,7 @@ test("without api_keys.create the key line asks an admin instead", async ({ page
   await signIn(page, ["project.read"]);
   await expect(install(page).getByRole("link", { name: "Create a key in API keys" })).toHaveCount(0);
   await expect(install(page)).toContainText("Ask an admin for one");
-  await expect(install(page).getByRole("link", { name: "API keys", exact: true })).toHaveAttribute("href", "/shop/access/keys");
+  await expect(install(page).getByRole("link", { name: "API keys", exact: true })).toHaveAttribute("href", "/project/shop/access/keys");
 });
 
 test("a new app waits for its first request, and refresh shows it once it reports", async ({ page }) => {
@@ -125,7 +125,7 @@ test("the release and commit step, at #release, follows the SDKs the apps run", 
   await expect(release.getByRole("tabpanel")).toContainText('release=os.environ.get("GIT_SHA", "")');
   await expect(release.getByRole("tabpanel")).toContainText('commit=os.environ.get("GIT_SHA", "")');
   await expect(release.getByRole("tabpanel")).toContainText("export APILENS_COMMIT=$GIT_SHA");
-  await expect(release.getByRole("link", { name: "Integrations" })).toHaveAttribute("href", "/shop/settings/integrations");
+  await expect(release.getByRole("link", { name: "Integrations" })).toHaveAttribute("href", "/project/shop/settings/integrations");
 
   // No app reported yet: every SDK.
   await seedApps([]);

@@ -4,7 +4,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const HEALTH = "/shop/settings/health-checks";
+const HEALTH = "/project/shop/settings/health-checks";
 const SHOP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const CHECK = "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41";
 

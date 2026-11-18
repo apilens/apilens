@@ -20,7 +20,7 @@ import "./usage.css";
 export type UsageLoad = ProjectUsage | "off" | null;
 
 /**
- * `/<project>/settings/usage` (#819): the records the project sent over the last 30 UTC days, per
+ * `/project/<project>/settings/usage` (#819): the records the project sent over the last 30 UTC days, per
  * day, per app and per environment, what the edge rejected and why, and today's use of the ingest
  * quota. Read-only for everyone who can view the project; the same counters as Ingest health,
  * summed over the project's apps.

@@ -24,7 +24,7 @@ const SECTIONS: readonly [slug: string, title: string][] = [
   ["danger", "Danger zone"],
 ];
 
-const path = (slug: string) => `/shop/settings${slug ? `/${slug}` : ""}`;
+const path = (slug: string) => `/project/shop/settings${slug ? `/${slug}` : ""}`;
 
 async function signIn(page: Page, next: string) {
   await fetch(`${IDENTITY}/__fake/project`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });

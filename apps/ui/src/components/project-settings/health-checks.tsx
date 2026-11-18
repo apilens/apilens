@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
-import { createHealthCheck, deleteHealthCheck } from "@/app/[project]/settings/health-check-actions";
+import { createHealthCheck, deleteHealthCheck } from "@/app/project/[project]/settings/health-check-actions";
 import { useCanonicalPage } from "@/components/list-search/list-search";
 import { Pagination } from "@/components/pagination/pagination";
 import { CHECKS_PAGE, EVENTS_SHOWN, type HealthCheckField, PROBE_POLICY, attemptsLabel, formatLatency, healthChecksPath, probeOutcome } from "@/lib/health-checks";
@@ -28,7 +28,7 @@ export interface HealthChecksLoad {
 }
 
 /**
- * `/<project>/settings/health-checks` (#608): the project's active HTTP checks. Each check shows
+ * `/project/<project>/settings/health-checks` (#608): the project's active HTTP checks. Each check shows
  * its status and latest probe, and its latest failures with the failed request (status, latency,
  * error, attempts and the start of the response body, masked by the privacy policy). Project
  * admins add and delete checks; the API refuses anyone else (403) and the form says so.

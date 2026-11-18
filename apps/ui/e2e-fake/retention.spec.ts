@@ -5,7 +5,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const RETENTION = "/shop/settings/retention";
+const RETENTION = "/project/shop/settings/retention";
 
 async function post(path: string, body: Record<string, unknown>) {
   await fetch(`${IDENTITY}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -65,7 +65,7 @@ test("shows each signal's period and what happens after, from the API", async ({
   const who = card(page, "Who can change it");
   await expect(who).toContainText("Only the install’s operator can change it");
   await expect(who.getByRole("link", { name: "How to change retention" })).toHaveAttribute("href", /\/getting-started\/data-privacy#changing-retention-self-hosted$/);
-  await expect(page.getByRole("link", { name: "Privacy", exact: true }).first()).toHaveAttribute("href", "/shop/settings/privacy");
+  await expect(page.getByRole("link", { name: "Privacy", exact: true }).first()).toHaveAttribute("href", "/project/shop/settings/privacy");
 });
 
 test("shows the install defaults", async ({ page }) => {
@@ -91,7 +91,7 @@ test("says so when retention could not be loaded", async ({ page }) => {
 });
 
 test("shows a skeleton while the periods load", async ({ page }) => {
-  await signIn(page, "/shop/settings/privacy");
+  await signIn(page, "/project/shop/settings/privacy");
   await post("/__fake/retention", { delay_ms: 2500 });
   await page.goto(RETENTION, { waitUntil: "commit" });
   await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Retention" })).toBeVisible();

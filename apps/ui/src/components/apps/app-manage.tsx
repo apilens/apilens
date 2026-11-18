@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent, createContext, useCallback, useContext, useEffect, useId, useRef, useState, useTransition } from "react";
-import { type AppActionResult, acknowledgeApp, archiveApp, deleteApp, mergeApp, renameApp, restoreApp } from "@/app/[project]/apps/actions";
+import { type AppActionResult, acknowledgeApp, archiveApp, deleteApp, mergeApp, renameApp, restoreApp } from "@/app/project/[project]/apps/actions";
 import { MAX_APP_NAME, STATE_LABEL, canDelete, canRestore, checkAppName, doneText, mergeExplainer, mergeTargets, originText, stateText } from "@/lib/app-manage";
 import type { ManagedApp } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";

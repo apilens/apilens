@@ -1,6 +1,10 @@
 /* Organization settings → Members (#345). Tokens from tokens.css only. */
 .om .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
+/* Team (`/org/<org>/team`): Members, then Invitations, each under its own heading. */
+.om-sec + .om-sec { margin-top: var(--space-12); }
+.om-sec__title { margin: 0 0 var(--space-3); font: 600 15px/22px var(--font-sans); color: var(--ink); }
+
 .om-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
 .om-count { margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
 .om-status { margin-right: auto; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }

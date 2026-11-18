@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/explore";
+const PAGE = "/project/shop/explore";
 
 type Row = Record<string, unknown>;
 
@@ -84,8 +84,8 @@ const ROWS: Row[] = [
     timestamp: at(1200),
     app_id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
     method: "GET",
-    path: "/gone",
-    raw_path: "/gone",
+    path: "/project/gone",
+    raw_path: "/project/gone",
     status_code: 200,
     response_time_ms: 3,
     environment: "production",

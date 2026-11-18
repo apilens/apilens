@@ -173,9 +173,9 @@ describe("proxy", () => {
   });
 
   it("a present but tampered cookie counts as signed out and is cleared", async () => {
-    const res = await proxy(request("/acme/incidents", { [SESSION_COOKIE_NAME]: "AQ" + "A".repeat(60) }));
+    const res = await proxy(request("/project/acme/incidents", { [SESSION_COOKIE_NAME]: "AQ" + "A".repeat(60) }));
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("http://ui.test/sign-in?next=%2Facme%2Fincidents");
+    expect(res.headers.get("location")).toBe("http://ui.test/sign-in?next=%2Fproject%2Facme%2Fincidents");
     expect(res.headers.get("set-cookie")).toMatch(new RegExp(`^${SESSION_COOKIE_NAME}=;`));
   });
 
@@ -188,12 +188,12 @@ describe("proxy", () => {
 
   it("sets the refresh header near expiry and strips a forged one otherwise", async () => {
     const near = await cookieFor({ ...SESSION, exp: now() + 30 });
-    let res = await proxy(request("/acme/incidents", { [SESSION_COOKIE_NAME]: near }));
+    let res = await proxy(request("/project/acme/incidents", { [SESSION_COOKIE_NAME]: near }));
     expect(res.status).toBe(200);
     expect(res.headers.get(`x-middleware-request-${REFRESH_HEADER}`)).toBe("1");
 
     const fresh = await cookieFor({ ...SESSION, exp: now() + 900 });
-    res = await proxy(request("/acme/incidents", { [SESSION_COOKIE_NAME]: fresh }, { [REFRESH_HEADER]: "1" }));
+    res = await proxy(request("/project/acme/incidents", { [SESSION_COOKIE_NAME]: fresh }, { [REFRESH_HEADER]: "1" }));
     expect(res.headers.get(`x-middleware-request-${REFRESH_HEADER}`)).toBeNull();
     expect(res.headers.get("x-middleware-override-headers")?.split(",")).not.toContain(REFRESH_HEADER);
   });
@@ -201,5 +201,17 @@ describe("proxy", () => {
   it("API routes without a session get 401", async () => {
     const res = await proxy(request("/api/v1/projects"));
     expect(res.status).toBe(401);
+  });
+
+  it("moves an old URL permanently (308), query kept, before the sign-in check", async () => {
+    let res = await proxy(request("/acme/incidents?range=24h"));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("http://ui.test/project/acme/incidents?range=24h");
+    res = await proxy(request("/orgs/acme/settings/members?q=ada"));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("http://ui.test/org/acme/team?q=ada");
+    res = await proxy(request("/org/acme"));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("http://ui.test/sign-in?next=%2Forg%2Facme");
   });
 });

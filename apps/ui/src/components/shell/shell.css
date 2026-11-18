@@ -22,6 +22,10 @@
 .tb-scope:hover, .tb-scope.is-open { background: var(--surface-2); }
 .tb-scope .cp-ic { width: 14px; height: 14px; flex: none; color: var(--ink-muted); }
 .tb-scope .st-mark { width: 20px; height: 20px; border-radius: 5px; font: 600 10px/1 var(--font-sans); }
+/* A crumb is two targets, as in Supabase: the name opens the scope's home, the chevron the switcher. */
+.tb-split { display: flex; align-items: center; min-width: 0; }
+.tb-scope--link { padding-right: 4px; text-decoration: none; }
+.tb-scope--chev { flex: none; width: 24px; padding: 0; justify-content: center; }
 .tb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .tb-badge { flex: none; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; font: 500 11px/14px var(--font-sans); color: var(--ink-muted); }
 .tb-here { padding: 0 8px; font: 500 13px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }

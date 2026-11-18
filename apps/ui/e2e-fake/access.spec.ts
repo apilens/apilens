@@ -21,7 +21,7 @@ async function signIn(page: Page, next: string, capabilities: string[] = ADMIN) 
 const tabs = (page: Page) => page.getByRole("navigation", { name: "Access", exact: true });
 
 test("opens on Members with every tab for an admin", async ({ page }) => {
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await expect(tabs(page).getByRole("link")).toHaveText(["Members", "API keys", "Activity"]);
   await expect(tabs(page).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
   await expect(tabs(page).locator("[aria-current]")).toHaveCount(1);
@@ -30,44 +30,44 @@ test("opens on Members with every tab for an admin", async ({ page }) => {
 });
 
 test("deep links open each tab and the tabs link to each other", async ({ page }) => {
-  await signIn(page, "/shop/access/keys");
+  await signIn(page, "/project/shop/access/keys");
   await expect(tabs(page).getByRole("link", { name: "API keys" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "API keys" }).locator("tbody tr.pk-row")).toHaveCount(1);
   await expect(page).toHaveTitle(/^Access · shop/);
 
-  await page.goto("/shop/access/activity");
+  await page.goto("/project/shop/access/activity");
   await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
   await expect(tabs(page).getByRole("link", { name: "Activity" })).toHaveAttribute("aria-current", "page");
 
   await tabs(page).getByRole("link", { name: "Members" }).click();
-  await page.waitForURL((url) => url.pathname === "/shop/access");
+  await page.waitForURL((url) => url.pathname === "/project/shop/access");
   await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
 });
 
 test("the old /settings/keys redirects permanently to Access › API keys, keeping the query", async ({ page }) => {
-  await signIn(page, "/shop/access");
-  const res = await page.request.get("/shop/settings/keys?page=2", { maxRedirects: 0 });
+  await signIn(page, "/project/shop/access");
+  const res = await page.request.get("/project/shop/settings/keys?page=2", { maxRedirects: 0 });
   expect(res.status()).toBe(308);
-  expect(res.headers().location).toBe("/shop/access/keys?page=2");
-  await page.goto("/shop/settings/keys");
-  await page.waitForURL((url) => url.pathname === "/shop/access/keys");
+  expect(res.headers().location).toBe("/project/shop/access/keys?page=2");
+  await page.goto("/project/shop/settings/keys");
+  await page.waitForURL((url) => url.pathname === "/project/shop/access/keys");
   await expect(tabs(page).getByRole("link", { name: "API keys" })).toHaveAttribute("aria-current", "page");
 });
 
 test("a viewer sees Members and API keys read-only and no Activity tab", async ({ page }) => {
-  await signIn(page, "/shop/access", VIEWER);
+  await signIn(page, "/project/shop/access", VIEWER);
   await expect(tabs(page).getByRole("link")).toHaveText(["Members", "API keys"]);
   await tabs(page).getByRole("link", { name: "API keys" }).click();
-  await page.waitForURL((url) => url.pathname === "/shop/access/keys");
+  await page.waitForURL((url) => url.pathname === "/project/shop/access/keys");
   await expect(page.getByText("You can see this project’s keys but not change them.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
-  await page.goto("/shop/access/activity");
+  await page.goto("/project/shop/access/activity");
   await expect(page.getByRole("heading", { name: "You can’t see this project’s activity log" })).toBeVisible();
 });
 
 test("unknown and nested tabs are 404", async ({ page }) => {
-  await signIn(page, "/shop/access");
-  for (const path of ["/shop/access/members", "/shop/access/keys/x"]) {
+  await signIn(page, "/project/shop/access");
+  for (const path of ["/project/shop/access/members", "/project/shop/access/keys/x"]) {
     const res = await page.goto(path);
     expect(res?.status()).toBe(404);
   }
@@ -77,10 +77,10 @@ test("unknown and nested tabs are 404", async ({ page }) => {
 test("screenshots", async ({ page }) => {
   const dir = process.env.ACCESS_SHOTS;
   test.skip(!dir, "set ACCESS_SHOTS to a directory to capture screenshots");
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   for (const [name, path] of [
-    ["members", "/shop/access"],
-    ["keys", "/shop/access/keys"],
+    ["members", "/project/shop/access"],
+    ["keys", "/project/shop/access/keys"],
   ]) {
     for (const theme of ["light", "dark"]) {
       await page.evaluate((t) => localStorage.setItem("theme", t), theme);

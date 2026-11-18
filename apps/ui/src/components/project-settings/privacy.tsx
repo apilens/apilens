@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState, useTransition } from "react";
-import { savePrivacyPolicy } from "@/app/[project]/settings/privacy-actions";
+import { savePrivacyPolicy } from "@/app/project/[project]/settings/privacy-actions";
 import type { PrivacyPolicy } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
@@ -34,7 +34,7 @@ import "./privacy.css";
 type Status = { tone: "ok" | "err"; text: string } | null;
 
 /**
- * `/<project>/settings/privacy` (#599): the project's server-side deny list. Three pattern lists
+ * `/project/<project>/settings/privacy` (#599): the project's server-side deny list. Three pattern lists
  * (query parameters, headers, body fields) on top of the built-ins, which show as locked rows;
  * each pattern is checked as it is typed. A tester masks a sample request with a client-side
  * port of the edge's redactor, unsaved patterns included, so a pattern can be tried before it is

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { cancelRequestExport, startRequestExport } from "@/app/[project]/explore/export-actions";
+import { cancelRequestExport, startRequestExport } from "@/app/project/[project]/explore/export-actions";
 import type { ExploreState } from "@/lib/explore";
 import {
   EXPORT_POLL_MS,

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { restoreDeletedProject } from "@/app/orgs/[org]/settings/restore-actions";
+import { restoreDeletedProject } from "@/app/org/[org]/general/restore-actions";
 import { HOME_VIEW } from "@/lib/data";
 import { agoText, inText } from "@/lib/deleted-projects";
 import type { DeletedProject } from "@/lib/identity";
@@ -11,6 +11,7 @@ import { REAUTH_CANCELLED } from "@/lib/reauth";
 import { useReauth } from "../reauth-dialog";
 import { useTimeZone } from "@/lib/time-zone-context";
 import "./deleted-projects.css";
+import { projectHref } from "@/lib/routes";
 
 /** A relative date with the exact one beside it (and as its tooltip). */
 function When({ iso, relative }: { iso: string; relative: string }) {
@@ -26,7 +27,7 @@ function When({ iso, relative }: { iso: string; relative: string }) {
 }
 
 /**
- * `/orgs/<org>/settings` → Deleted projects (#822): the organization's deleted projects that can
+ * `/org/<org>/general` → Deleted projects (#822): the organization's deleted projects that can
  * still be restored, with when each was deleted and when it is removed for good (#753 D8).
  * Owners and admins only (the page passes nothing for others); hidden when there are none.
  * Restoring needs a recent sign-in (D12) and ends with a link to the project.
@@ -86,7 +87,7 @@ export function DeletedProjectsCard({
               <li key={p.id} className="dp-row">
                 <div className="dp-main">
                   <p className="dp-name">
-                    <b>{p.name}</b> <span className="dp-slug">/{p.slug}</span>
+                    <b>{p.name}</b> <span className="dp-slug">{projectHref(p.slug)}</span>
                   </p>
                   <p className="dp-meta">
                     Deleted <When iso={p.deleted_at} relative={agoText(p.deleted_at, now)} />
@@ -120,7 +121,7 @@ export function DeletedProjectsCard({
           {restored ? (
             <>
               {restored.name} is restored.{" "}
-              <Link href={`/${restored.slug}/${HOME_VIEW}`} className="dp-link">
+              <Link href={projectHref(restored.slug, HOME_VIEW)} className="dp-link">
                 Open {restored.name}
               </Link>
             </>

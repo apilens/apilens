@@ -63,10 +63,16 @@ describe("withQuery", () => {
   it("drops an empty search", () => {
     expect(withQuery({ q: "ada", page: "2" }, "").toString()).toBe("");
   });
+  it("uses a second list's own keys, leaving the first list's search and page alone", () => {
+    const keys = { search: "iq", page: { keys: { page: "ipage", per: "iper" } } };
+    expect(parseQuery({ q: "ada", iq: "bob" }, "iq")).toBe("bob");
+    expect(withQuery({ q: "ada", page: "2", ipage: "3" }, "bob", keys).toString()).toBe("q=ada&page=2&iq=bob");
+    expect(withQuery({ q: "ada", page: "2", iq: "bob", ipage: "3" }, "bob", keys).toString()).toBe("q=ada&page=2&iq=bob&ipage=3");
+  });
 });
 
 describe("canonicalPageHref", () => {
-  const path = "/orgs/acme/settings/members";
+  const path = "/org/acme/team";
   it("is null when the URL names the page shown", () => {
     expect(canonicalPageHref(path, {}, { page: 1 })).toBeNull();
     expect(canonicalPageHref(path, { page: "2" }, { page: 2 })).toBeNull();
@@ -84,6 +90,11 @@ describe("canonicalPageHref", () => {
   it("tidies a ?page=1 or a page that is not a number", () => {
     expect(canonicalPageHref(path, { page: "1" }, { page: 1 })).toBe(path);
     expect(canonicalPageHref(path, { page: "abc" }, { page: 1 })).toBe(path);
+  });
+  it("reads a second list's own page key", () => {
+    const options = { keys: { page: "ipage", per: "iper" } };
+    expect(canonicalPageHref(path, { page: "3", ipage: "2" }, { page: 2 }, options)).toBeNull();
+    expect(canonicalPageHref(path, { page: "3", ipage: "4" }, { page: 1 }, options)).toBe(`${path}?page=3`);
   });
   it("respects a table's own default size", () => {
     expect(canonicalPageHref(path, { page: "9", per: "10" }, { page: 2 }, { sizes: [10, 25], defaultPer: 10 })).toBe(`${path}?page=2&per=10`);

@@ -1,10 +1,11 @@
 // The app shell's tenancy, read from `GET /users/me/context` (#286): which organization and
 // project a URL points at, and how the shell labels them. Pure; safe in Client Components.
 import type { ContextOrg, ContextProject, OrgRole, ProjectRole, User, UserContext } from "./identity";
+import { orgHref, projectHref } from "./routes";
 
 export type { ContextOrg, ContextProject, ProjectRole, UserContext };
 
-/** The organization and project a `/<project>/...` URL points at, when the user can see it. */
+/** The organization and project a `/project/<project>/...` URL points at, when the user can see it. */
 export function findProject(ctx: UserContext, slug: string): { org: ContextOrg; project: ContextProject } | undefined {
   for (const org of ctx.orgs) {
     const project = org.projects.find((p) => p.slug === slug);
@@ -13,15 +14,15 @@ export function findProject(ctx: UserContext, slug: string): { org: ContextOrg; 
   return undefined;
 }
 
-/** The organization an `/orgs/<org>/...` URL points at, when the user is a member. */
+/** The organization an `/org/<org>/...` URL points at, when the user is a member. */
 export function findOrg(ctx: UserContext, slug: string): ContextOrg | undefined {
   return ctx.orgs.find((o) => o.slug === slug);
 }
 
-/** Where switching to an organization lands: its first project, or its settings when it has none. */
+/** Where joining or being invited to an organization lands: its first project, or its Projects page when it has none. */
 export function orgHome(org: ContextOrg, view: string): string {
   const first = org.projects[0];
-  return first ? `/${first.slug}/${view}` : `/orgs/${org.slug}/settings`;
+  return first ? projectHref(first.slug, view) : orgHref(org.slug);
 }
 
 /** The organization's single-letter mark. */

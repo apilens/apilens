@@ -6,7 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/endpoints/GET/%2Forders%2F%7Bid%7D";
+const PAGE = "/project/shop/endpoints/GET/%2Forders%2F%7Bid%7D";
 
 const bucket = (i: number) => new Date(Date.UTC(2026, 10, 5, 10, 0) + i * 15 * 60_000).toISOString();
 const ts = (i: number) => ({ ts: bucket(i) });
@@ -410,7 +410,7 @@ test.describe("with several apps", () => {
     expect((await reads()).at(-1)?.query).toEqual({ range: "24h", app: BILLING_ID });
     // Tabs and the Traffic link keep the app.
     await expect(tabs(page).getByRole("link", { name: "Errors" })).toHaveAttribute("href", `${PAGE}?tab=errors&range=24h&env=all&app=${BILLING_ID}`);
-    await expect(page.locator(".pagehead").getByRole("link", { name: "Traffic" })).toHaveAttribute("href", `/shop/traffic?range=24h&env=all&app=${BILLING_ID}`);
+    await expect(page.locator(".pagehead").getByRole("link", { name: "Traffic" })).toHaveAttribute("href", `/project/shop/traffic?range=24h&env=all&app=${BILLING_ID}`);
   });
 
   test("across all apps the tabs do not claim one app's settings", async ({ page }) => {

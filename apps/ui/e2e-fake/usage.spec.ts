@@ -4,7 +4,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const USAGE = "/shop/settings/usage";
+const USAGE = "/project/shop/settings/usage";
 const SHOP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const WORKER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 
@@ -78,7 +78,7 @@ test("shows records per day, by app and environment, rejections by reason and th
     "Reason not recordedunspecified",
   ]);
   await expect(reasons.getByRole("cell")).toHaveText(["60", "30", "10"]);
-  await expect(rejected.getByRole("link", { name: "Open Ingest health" })).toHaveAttribute("href", "/shop/settings/ingest");
+  await expect(rejected.getByRole("link", { name: "Open Ingest health" })).toHaveAttribute("href", "/project/shop/settings/ingest");
 
   const quota = card(page, "Quota");
   const meter = quota.getByRole("meter", { name: "Bytes today" });
@@ -89,10 +89,10 @@ test("shows records per day, by app and environment, rejections by reason and th
 
 test("numbers match Ingest health for the same days", async ({ page }) => {
   await seed(TRAFFIC);
-  await signIn(page, "/shop/settings/ingest");
+  await signIn(page, "/project/shop/settings/ingest");
   const fromHealth: Record<string, string[]> = {};
   for (const app of ["shop", "worker"]) {
-    await page.goto(`/shop/settings/ingest?app=${app}`);
+    await page.goto(`/project/shop/settings/ingest?app=${app}`);
     const tiles = page.getByRole("region", { name: "At the ingest edge" }).locator(".ih-tile__value");
     await expect(tiles).toHaveCount(4);
     fromHealth[app] = (await tiles.allTextContents()).slice(0, 2);

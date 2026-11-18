@@ -7,7 +7,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const ENVS = "/shop/settings/environments";
+const ENVS = "/project/shop/settings/environments";
 const EDITOR = ["project.read", "project.update"];
 const VIEWER = ["project.read"];
 
@@ -90,7 +90,7 @@ test("reorders with the move buttons, and Traffic's picker follows the order wit
   await page.reload();
   await expect(ordered(page).getByRole("heading")).toHaveText(["canary", "production", "staging", "preview"]);
 
-  await page.goto("/shop/traffic");
+  await page.goto("/project/shop/traffic");
   const picker = page.getByRole("combobox", { name: "Environment" });
   await expect(picker.locator("option")).toHaveText(["All environments", "canary", "production", "staging", "preview"]);
 });
@@ -118,7 +118,7 @@ test("hides an environment, which leaves Traffic's picker, and shows it again", 
   await expect(ordered(page).getByRole("heading")).toHaveText(["production", "staging", "canary"]);
   await expect(page.getByText("Hidden environments 2")).toBeVisible();
 
-  await page.goto("/shop/traffic");
+  await page.goto("/project/shop/traffic");
   await expect(page.getByRole("combobox", { name: "Environment" }).locator("option")).toHaveText(["All environments", "production", "staging", "canary"]);
 
   await page.goto(ENVS);

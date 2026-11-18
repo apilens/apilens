@@ -46,7 +46,7 @@ describe("consumerDocsUrl", () => {
 describe("exploreIpHref", () => {
   it("opens Explore narrowed to the client IP, in the range", () => {
     const href = new URL(exploreIpHref("shop", "6h", "203.0.113.7"), "http://x");
-    expect(href.pathname).toBe("/shop/explore");
+    expect(href.pathname).toBe("/project/shop/explore");
     expect(href.searchParams.get("ip")).toBe("203.0.113.7");
     expect(href.searchParams.get("range")).toBe("6h");
   });

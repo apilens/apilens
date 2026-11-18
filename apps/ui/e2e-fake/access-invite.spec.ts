@@ -50,7 +50,7 @@ test.afterAll(async () => {
 });
 
 test("invites someone new: the pending row appears, revoking removes it", async ({ page }) => {
-  await signIn(page, "/shop/access", INVITER);
+  await signIn(page, "/project/shop/access", INVITER);
   await expect(pendingRow(page, "new.dev@example.com")).toContainText("Editor");
   await expect(pendingRow(page, "new.dev@example.com").locator('td[data-label="Invited by"]')).toHaveText("Ada Admin");
 
@@ -80,7 +80,7 @@ test("invites someone new: the pending row appears, revoking removes it", async 
 });
 
 test("resends a pending invitation from the list", async ({ page }) => {
-  await signIn(page, "/shop/access", INVITER);
+  await signIn(page, "/project/shop/access", INVITER);
   const row = pendingRow(page, "new.dev@example.com");
   await row.getByRole("button", { name: "Resend invitation to new.dev@example.com" }).click();
   await expect(status(page)).toHaveText("Invitation resent to new.dev@example.com.");
@@ -88,7 +88,7 @@ test("resends a pending invitation from the list", async ({ page }) => {
 });
 
 test("shows each refused address's reason next to it and sends the rest", async ({ page }) => {
-  await signIn(page, "/shop/access", INVITER);
+  await signIn(page, "/project/shop/access", INVITER);
   const d = await startInvite(page, "fresh@example.com");
   const emails = d.getByRole("textbox", { name: /Email addresses/ });
   await emails.fill("ada@example.com");
@@ -112,7 +112,7 @@ test("shows each refused address's reason next to it and sends the rest", async 
 });
 
 test("without members.invite the option is disabled with the reason", async ({ page }) => {
-  await signIn(page, "/shop/access", ADMIN);
+  await signIn(page, "/project/shop/access", ADMIN);
   await page.getByRole("button", { name: "Add people" }).click();
   const d = page.getByRole("dialog", { name: "Add people to shop" });
   await d.getByRole("searchbox", { name: "Search organization members" }).fill("new.person@example.com");
@@ -128,7 +128,7 @@ test("without members.invite the option is disabled with the reason", async ({ p
 });
 
 test("an editor doesn't see pending invitations", async ({ page }) => {
-  await signIn(page, "/shop/access", EDITOR);
+  await signIn(page, "/project/shop/access", EDITOR);
   await expect(page.getByRole("table", { name: "People with access to shop" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Pending invitations" })).toHaveCount(0);
 });
@@ -142,9 +142,9 @@ test("the invitation names the project, and accepting lands there as a Viewer", 
   // Still onboarding: the about step, then straight into Checkout (not Globex's first project).
   await page.waitForURL((url) => url.pathname === "/onboarding/about");
   await page.getByRole("button", { name: "Continue to Globex" }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/checkout/"));
+  await page.waitForURL((url) => url.pathname.startsWith("/project/checkout/"));
 
   // Not an admin of Checkout: its activity log is not theirs.
-  await page.goto("/checkout/access/activity");
+  await page.goto("/project/checkout/access/activity");
   await expect(page.getByRole("heading", { name: "You can’t see this project’s activity log" })).toBeVisible();
 });

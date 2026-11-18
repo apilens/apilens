@@ -52,7 +52,7 @@ describe("the window in the URL", () => {
   const q = { range: "6h" as const, filters: { ...NO_FILTERS, method: "POST" }, from: at(2), to: at(8), at: at(5) };
   it("puts range, window and filters in a fixed order, and a deep link reads it back", () => {
     const href = exploreHref("shop", q);
-    expect(href).toBe(`/shop/explore?range=6h&from=${encodeURIComponent(at(2))}&to=${encodeURIComponent(at(8))}&at=${encodeURIComponent(at(5))}&method=POST`);
+    expect(href).toBe(`/project/shop/explore?range=6h&from=${encodeURIComponent(at(2))}&to=${encodeURIComponent(at(8))}&at=${encodeURIComponent(at(5))}&method=POST`);
     const back = parseExploreQuery(Object.fromEntries(new URL(href, "http://x").searchParams));
     expect(back).toEqual(q);
   });

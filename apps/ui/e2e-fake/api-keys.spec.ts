@@ -4,7 +4,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const KEYS = "/shop/access/keys";
+const KEYS = "/project/shop/access/keys";
 const MANAGE = ["project.read", "api_keys.create", "api_keys.revoke"];
 
 async function signIn(page: Page, opts: { capabilities?: string[]; apiKeys?: Record<string, unknown>[] } = {}) {
@@ -122,7 +122,7 @@ test("creates a key and shows it once with copy", async ({ page, context }) => {
 
   // The empty state points to SDK setup.
   await expect(card(page).getByRole("heading", { name: "No API keys yet" })).toBeVisible();
-  await expect(card(page).getByRole("link", { name: "Set up the SDK" })).toHaveAttribute("href", "/shop/settings/sdk");
+  await expect(card(page).getByRole("link", { name: "Set up the SDK" })).toHaveAttribute("href", "/project/shop/settings/sdk");
   await card(page).getByRole("button", { name: "Create API key" }).click();
   await expect(dialog(page).getByRole("heading", { name: "Create API key" })).toBeVisible();
   const name = dialog(page).getByRole("textbox", { name: /Name/ });

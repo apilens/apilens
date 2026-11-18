@@ -6,6 +6,7 @@ import { formatCount } from "./first-data";
 import type { DeployChange, DeployEndpoint, DeploySide, QueryRange } from "./identity";
 import { zoneLabel, zoned } from "./time-zone";
 import { formatPercent } from "./format";
+import { projectHref } from "./routes";
 
 /** The deploys the view lists: the last seven days, newest first. */
 export const CHANGES_RANGE: QueryRange = "7d";
@@ -100,12 +101,12 @@ export function exploreHref(project: string, d: Pick<DeployChange, "deployed_at"
   q.set("from", isoSecond(from));
   q.set("to", isoSecond(Math.max(to, from + MINUTE)));
   if (d.environment) q.set("env", d.environment);
-  return `/${encodeURIComponent(project)}/explore?${q.toString()}`;
+  return `${projectHref(project, "explore")}?${q.toString()}`;
 }
 
 /** The deploy's own page. */
 export function deployHref(project: string, id: string): string {
-  return `/${encodeURIComponent(project)}/changes/${encodeURIComponent(id)}`;
+  return projectHref(project, "changes", encodeURIComponent(id));
 }
 
 /** The list's filters: an app id and an environment, empty for all. */

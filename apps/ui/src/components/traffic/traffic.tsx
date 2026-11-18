@@ -45,7 +45,7 @@ import { LiveControl, LiveNumber } from "./live";
 import "./traffic.css";
 
 /**
- * `/<project>/traffic` (#592). The project's API traffic in a range and environment: tiles for
+ * `/project/<project>/traffic` (#592). The project's API traffic in a range and environment: tiles for
  * requests, errors (4xx and 5xx apart), p95 latency and Apdex; requests over time split by status
  * class and p95 over time; and the endpoints table, each row opening the endpoint's detail. The
  * scope is in the URL, so every view is a link, and the page reads itself again while live.

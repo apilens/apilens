@@ -7,7 +7,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/errors";
+const PAGE = "/project/shop/errors";
 
 const BUCKETS = [0, 1, 2, 3].map((i) => new Date(Date.UTC(2026, 10, 5, 10, 0) + i * 15 * 60_000).toISOString());
 const ROWS = [
@@ -172,7 +172,7 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(orders).toContainText("GET /invoices/{id}");
   await expect(orders).toContainText("210 responses, 2 consumers, last Nov 5, 2026, 10:30 AM UTC");
   await expect(orders).toContainText("No validation errors, no server exceptions");
-  await expect(orders.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all");
+  await expect(orders.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/project/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all");
 
   // Escape closes the modal and leaves the code out of the URL.
   await page.keyboard.press("Escape");
@@ -186,7 +186,7 @@ test("the details tab points at validation errors and server exceptions", async 
   const item = modal(page, "422 Unprocessable Content").getByRole("list", { name: "Endpoints" }).getByRole("listitem");
   await expect(item).toContainText("POST /invoices");
   await expect(item).toContainText("80 with validation errors, no server exceptions");
-  await expect(item.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=all");
+  await expect(item.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/project/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=all");
 
   await page.goto(allEnvs(`${PAGE}?code=500&view=details`));
   await expect(modal(page, "500 Internal Server Error").getByRole("listitem")).toContainText("No validation errors, 2 server exceptions");
@@ -227,7 +227,7 @@ test("marking a status code as expected updates the error rate on every surface"
   await expect(issues.locator("tbody tr").filter({ hasText: "/invoices/{id}" })).toHaveText([/500/]);
 
   // The endpoint's own settings now list 404 as expected.
-  await page.goto(allEnvs("/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all"));
+  await page.goto(allEnvs("/project/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all"));
   await page.getByRole("button", { name: "Endpoint settings" }).click();
   await expect(page.getByRole("dialog", { name: "Endpoint settings" }).getByRole("textbox", { name: "Expected status codes" })).toHaveValue("404");
 });
@@ -247,7 +247,7 @@ test("Issues tab: failed requests by endpoint and status, each opening the endpo
   await expect(issues.getByRole("columnheader")).toHaveText(["Endpoint", "Status", "Responses", "Consumers", "Last seen"]);
   await expect(issues.locator("tbody tr")).toHaveCount(4);
   await expect(issues.locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["GET /invoices/{id}", "404", "210", "2", "Nov 5, 2026, 10:30 AM UTC"]);
-  await expect(issues.getByRole("link", { name: "POST /invoices" })).toHaveAttribute("href", "/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=production");
+  await expect(issues.getByRole("link", { name: "POST /invoices" })).toHaveAttribute("href", "/project/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=production");
   const a11y = await new AxeBuilder({ page }).include(".er").analyze();
   expect(a11y.violations).toEqual([]);
 });

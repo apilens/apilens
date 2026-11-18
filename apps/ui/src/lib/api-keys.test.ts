@@ -78,7 +78,7 @@ const key = (over: Partial<ApiKey> = {}): ApiKey => ({
 
 describe("keysPath", () => {
   it("is the keys section of the project's settings", () => {
-    expect(keysPath("shop")).toBe("/shop/access/keys");
+    expect(keysPath("shop")).toBe("/project/shop/access/keys");
   });
 });
 
@@ -304,9 +304,9 @@ describe("keys pagination", () => {
     const { rows, window } = slicePage(many, parsePage({ page: "3" }, KEYS_PAGE));
     expect(rows).toHaveLength(10);
     expect(window.pages).toBe(3);
-    expect(pageRedirect("/shop/settings/keys", { page: "7" }, 60, KEYS_PAGE)).toBe("/shop/settings/keys?page=3");
-    expect(pageRedirect("/shop/settings/keys", { page: "2" }, 0, KEYS_PAGE)).toBe("/shop/settings/keys");
-    expect(pageRedirect("/shop/settings/keys", {}, 25, KEYS_PAGE)).toBeNull();
+    expect(pageRedirect("/project/shop/settings/keys", { page: "7" }, 60, KEYS_PAGE)).toBe("/project/shop/settings/keys?page=3");
+    expect(pageRedirect("/project/shop/settings/keys", { page: "2" }, 0, KEYS_PAGE)).toBe("/project/shop/settings/keys");
+    expect(pageRedirect("/project/shop/settings/keys", {}, 25, KEYS_PAGE)).toBeNull();
   });
 });
 

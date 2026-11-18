@@ -1,11 +1,11 @@
-// Organization settings → Members (#345) against the fake identity (e2e-fake/fake-identity.ts).
+// Team → Members (#345, `/org/acme/team`) against the fake identity (e2e-fake/fake-identity.ts).
 // Each fake sign-in gets its own acme organization: the signed-in "Fake User" with the role the
 // test asks for, plus Olive Owner (unless the user is the owner), Ada Admin, Max Member and Vera
 // Viewer, all @example.com. Capabilities in the context follow the role, as SpiceDB answers them.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
-const PAGE = "/orgs/acme/settings/members";
+const PAGE = "/org/acme/team";
 
 async function signIn(page: Page, role: "owner" | "admin" | "member" | "viewer") {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
@@ -16,20 +16,23 @@ async function signIn(page: Page, role: "owner" | "admin" | "member" | "viewer")
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
   await page.waitForURL((url) => url.pathname === PAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Members" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Team" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Members" })).toBeVisible();
 }
 
-const rows = (page: Page) => page.getByRole("table").locator("tbody tr");
+/** The Team page's Members section (Invitations sits under it). */
+const members = (page: Page) => page.getByRole("region", { name: "Members" });
+const rows = (page: Page) => members(page).getByRole("table").locator("tbody tr");
 const roleOf = (page: Page, name: string) => page.getByRole("combobox", { name: `Role of ${name}` });
 const removeButton = (page: Page, name: string) => page.getByRole("button", { name: `Remove ${name}` });
-const status = (page: Page) => page.locator(".om-status");
+const status = (page: Page) => members(page).locator(".om-status");
 
 test.describe("as an admin", () => {
   test("lists members and gates owner rows", async ({ page }) => {
     await signIn(page, "admin");
     await expect(rows(page).locator("th")).toHaveText([/Olive Owner/, /Fake User\s*You/, /Ada Admin/, /Max Member/, /Vera Viewer/]);
     await expect(rows(page).nth(1)).toHaveAttribute("aria-current", "true");
-    await expect(page.getByText("5 members")).toBeVisible();
+    await expect(members(page).getByText("5 members")).toBeVisible();
 
     await expect(roleOf(page, "Olive Owner")).toBeDisabled();
     await expect(roleOf(page, "Olive Owner")).toHaveAccessibleDescription("Only owners can change an owner’s role.");
@@ -68,7 +71,7 @@ test.describe("as an admin", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Remove member" }).click();
     await expect(status(page)).toHaveText("Vera Viewer was removed.");
     await expect(rows(page)).toHaveCount(4);
-    await expect(page.getByRole("table").getByText("Vera Viewer")).toHaveCount(0);
+    await expect(members(page).getByRole("table").getByText("Vera Viewer")).toHaveCount(0);
   });
 
   test("invites people from the dialog", async ({ page }) => {
@@ -129,12 +132,24 @@ test("as the only owner, transfers ownership and becomes an admin", async ({ pag
   await expect(page.getByRole("button", { name: "Transfer ownership" })).toBeDisabled();
 });
 
-test("the section tabs link General, Members, Invitations and Single sign-on", async ({ page }) => {
-  await signIn(page, "member");
-  const tabs = page.getByRole("navigation", { name: "Organization settings" });
-  await expect(tabs.getByRole("link")).toHaveText(["General", "Members", "Invitations", "Single sign-on"]);
-  await expect(tabs.getByRole("link", { name: "General" })).toHaveAttribute("href", "/orgs/acme/settings");
-  await expect(tabs.getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
+test("the org rail marks Team, and Members then Invitations share the page", async ({ page }) => {
+  await signIn(page, "admin");
+  const rail = page.getByRole("navigation", { name: "Pages" });
+  await expect(rail.getByRole("link")).toHaveText(["Projects", "Team", "Organization settings"]);
+  await expect(rail.getByRole("link", { name: "Team" })).toHaveAttribute("aria-current", "page");
+  await expect(rail.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/org/acme");
+  await expect(rail.getByRole("link", { name: "Organization settings" })).toHaveAttribute("href", "/org/acme/general");
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Members", "Invitations"]);
+  // Team has no settings menu of its own.
+  await expect(page.getByRole("navigation", { name: "Organization settings" })).toHaveCount(0);
+});
+
+test("the old Members and Invitations URLs land on Team, query kept", async ({ page }) => {
+  await signIn(page, "admin");
+  await page.goto("/orgs/acme/settings/members?q=ada");
+  await page.waitForURL((url) => url.pathname === PAGE && url.searchParams.get("q") === "ada");
+  await page.goto("/orgs/acme/settings/invitations");
+  await page.waitForURL((url) => url.pathname === PAGE);
 });
 
 // Visual check (light/dark at 1440 and 390): `MEMBERS_SHOTS=<dir> pnpm test:e2e:fake members`.
@@ -148,7 +163,7 @@ test("screenshots", async ({ page }) => {
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
         await page.reload();
-        await expect(page.getByRole("heading", { level: 1, name: "Members" })).toBeVisible();
+        await expect(page.getByRole("heading", { level: 1, name: "Team" })).toBeVisible();
         await page.screenshot({ path: `${dir}/members-${role}-${theme}-${width}.png`, fullPage: true });
       }
     }

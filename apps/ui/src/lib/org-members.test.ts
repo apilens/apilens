@@ -125,9 +125,9 @@ describe("display", () => {
   });
 
   it("links the settings sections", () => {
-    expect(orgSettingsHref("acme", { slug: "" })).toBe("/orgs/acme/settings");
-    expect(orgSettingsHref("acme", { slug: "members" })).toBe("/orgs/acme/settings/members");
-    expect(orgSettingsHref("acme", { slug: "invitations" })).toBe("/orgs/acme/settings/invitations");
+    expect(orgSettingsHref("acme", { slug: "general" })).toBe("/org/acme/general");
+    expect(orgSettingsHref("acme", { slug: "sso" })).toBe("/org/acme/sso");
+    expect(orgSettingsHref("acme", { slug: "audit" })).toBe("/org/acme/audit");
   });
 });
 

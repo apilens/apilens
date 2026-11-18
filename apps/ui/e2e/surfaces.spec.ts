@@ -51,7 +51,7 @@ const at = (page: Page, path: string) => page.waitForURL((url) => url.pathname =
 const grid = (page: Page) => page.getByRole("grid", { name: "Requests" });
 const bodyRows = (page: Page) => grid(page).locator(".ex-spacer [role=row]");
 const chips = (page: Page) => page.getByRole("list", { name: "Active filters" });
-const endpointPage = (method: string, path: string) => `/${PROJECT}/endpoints/${method}/${encodeURIComponent(path)}`;
+const endpointPage = (method: string, path: string) => `/project/${PROJECT}/endpoints/${method}/${encodeURIComponent(path)}`;
 
 /** Clears the expected status codes of an endpoint, so marking one starts from scratch. */
 async function clearExpected(page: Page, method: string, path: string) {
@@ -76,9 +76,9 @@ test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   const link = new URL(MAGIC_LINK);
-  link.searchParams.set("next", `/${PROJECT}/explore`);
+  link.searchParams.set("next", `/project/${PROJECT}/explore`);
   await page.goto(`${link.pathname}${link.search}`);
-  await at(page, `/${PROJECT}/explore`);
+  await at(page, `/project/${PROJECT}/explore`);
   await context.storageState({ path: STATE });
   await context.close();
 
@@ -99,7 +99,7 @@ test.afterAll(() => {
 
 test("Explore: the run's requests arrive, and the filters narrow them, kept in the URL", async ({ page }) => {
   // The batch the SDK sent shows up while the log polls (every 5 s while live).
-  await page.goto(`/${PROJECT}/explore?url_contains=${RUN}`);
+  await page.goto(`/project/${PROJECT}/explore?url_contains=${RUN}`);
   await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
   await expect(chips(page).getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText([`URL contains “${RUN}”`]);
   await expect(bodyRows(page)).toHaveCount(SEEDED, { timeout: 30_000 });
@@ -143,7 +143,7 @@ test("Explore: the run's requests arrive, and the filters narrow them, kept in t
 });
 
 test("Request detail: the drawer shows what the SDK captured, with validation errors", async ({ page }) => {
-  await page.goto(`/${PROJECT}/explore?method=POST&status=422&url_contains=${RUN}`);
+  await page.goto(`/project/${PROJECT}/explore?method=POST&status=422&url_contains=${RUN}`);
   await expect(bodyRows(page)).toHaveCount(INVALID_ORDERS, { timeout: 30_000 });
   await bodyRows(page).first().click();
 
@@ -178,7 +178,7 @@ test("Request detail: a chained exception shows every cause, and Copy exception 
   // beforeAll, so the earlier tests' row counts stay as they are.
   await send("GET", `/boom/chained?e2e=${RUN}`, 500);
 
-  await page.goto(`/${PROJECT}/explore?path=${encodeURIComponent("/boom/chained")}&url_contains=${RUN}`);
+  await page.goto(`/project/${PROJECT}/explore?path=${encodeURIComponent("/boom/chained")}&url_contains=${RUN}`);
   await expect(bodyRows(page)).toHaveCount(1, { timeout: 30_000 });
 
   const drawer = page.getByRole("dialog");
@@ -273,7 +273,7 @@ test("Errors: marking 422 as expected for POST /orders stops counting it, and cl
   // Start from no expected codes, whatever an earlier run left.
   await clearExpected(page, "POST", "/orders");
 
-  await page.goto(`/${PROJECT}/errors?code=422&view=details`);
+  await page.goto(`/project/${PROJECT}/errors?code=422&view=details`);
   const dialog = page.getByRole("dialog", { name: "422 Unprocessable Content" });
   const orders = dialog.getByRole("listitem").filter({ hasText: "/orders" });
   await expect(orders).toContainText("with validation errors");
@@ -297,7 +297,7 @@ test("Errors: marking 422 as expected for POST /orders stops counting it, and cl
   await expect(page.getByRole("dialog", { name: "Endpoint settings" }).getByRole("textbox", { name: "Expected status codes" })).toHaveValue("422");
   await page.keyboard.press("Escape");
   await clearExpected(page, "POST", "/orders");
-  await page.goto(`/${PROJECT}/errors`);
+  await page.goto(`/project/${PROJECT}/errors`);
   await expect(page.getByRole("table", { name: "Error status codes" }).getByRole("row").filter({ hasText: "422 Unprocessable Content" })).toHaveCount(1);
 });
 
@@ -306,7 +306,7 @@ test("Alerts: a rule on GET /boom opens an incident once the evaluator sees the 
   test.setTimeout(240_000);
   const name = `E2E boom ${RUN}`;
 
-  await page.goto(`/${PROJECT}/incidents/rules/new`);
+  await page.goto(`/project/${PROJECT}/incidents/rules/new`);
   const form = page.getByRole("form", { name: "New alert rule" });
   await form.getByLabel("Name").fill(name);
   await expect(form.getByLabel("App")).toHaveValue(/.+/);
@@ -318,7 +318,7 @@ test("Alerts: a rule on GET /boom opens an incident once the evaluator sees the 
   await form.getByLabel("Threshold").fill("50");
   await form.getByLabel("Notify after").fill("0");
   await form.getByRole("button", { name: "Create rule" }).click();
-  await at(page, `/${PROJECT}/incidents/rules`);
+  await at(page, `/project/${PROJECT}/incidents/rules`);
   const rule = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").filter({ hasText: name });
   await expect(rule).toContainText("Error rate > 50.0% over 5 min");
   await expect(rule).toContainText("GET /boom");
@@ -326,7 +326,7 @@ test("Alerts: a rule on GET /boom opens an incident once the evaluator sees the 
   // Every /boom in the window failed: 100% > 50%. Send a few more so the window surely holds some.
   for (let i = 0; i < BOOMS; i++) await boom();
 
-  await page.goto(`/${PROJECT}/incidents`);
+  await page.goto(`/project/${PROJECT}/incidents`);
   const incident = page.getByRole("table", { name: "Open incidents" }).locator("tbody tr").filter({ hasText: name });
   await expect(async () => {
     await page.reload();
@@ -342,10 +342,10 @@ test("Alerts: a rule on GET /boom opens an incident once the evaluator sees the 
   await expect(page.getByRole("list", { name: "Incidents of this rule" })).toContainText("Triggered");
 
   // Leave the stack as it was: delete the rule.
-  await page.goto(`/${PROJECT}/incidents/rules`);
+  await page.goto(`/project/${PROJECT}/incidents/rules`);
   await page.getByRole("table", { name: "Alert rules" }).getByRole("link", { name }).click();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
   await page.getByRole("button", { name: "Delete rule" }).click();
-  await at(page, `/${PROJECT}/incidents/rules`);
+  await at(page, `/project/${PROJECT}/incidents/rules`);
   await expect(page.getByRole("table", { name: "Alert rules" }).getByRole("link", { name })).toHaveCount(0);
 });

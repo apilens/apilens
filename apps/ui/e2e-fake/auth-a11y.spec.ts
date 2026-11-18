@@ -170,8 +170,8 @@ test.describe("without JavaScript", () => {
   });
 
   test("/verify without an address goes to sign-in on the server", async ({ page }) => {
-    await page.goto("/verify?next=%2Facme%2Frequests");
-    await expect(page).toHaveURL(/\/sign-in\?next=%2Facme%2Frequests$/);
+    await page.goto("/verify?next=%2Fproject%2Facme%2Frequests");
+    await expect(page).toHaveURL(/\/sign-in\?next=%2Fproject%2Facme%2Frequests$/);
     await expect(page.getByRole("heading", { level: 1, name: "Welcome back" })).toBeVisible();
   });
 });
