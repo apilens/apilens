@@ -19,8 +19,9 @@ import {
 } from "@/lib/performance";
 import { zoneLabel } from "@/lib/time-zone";
 import { TRAFFIC_RANGES, appName, appOptions, formatLatency } from "@/lib/traffic";
+import { latencyMarks } from "@/lib/chart-ticks";
 import { Histogram, LinesChart } from "../endpoint/charts";
-import { ScopeSelect } from "../endpoint/filters";
+import { ScopeFilters, ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
 import { RangePicker } from "../range-picker";
@@ -99,7 +100,7 @@ export function PerformanceView({
       />
 
       <div className="tr-bar">
-        <div className="tr-bar__scope">
+        <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
           <ScopeSelect
             label="Environment"
             value={q.env}
@@ -108,7 +109,7 @@ export function PerformanceView({
           {apps && (apps.length > 1 || q.app) ? (
             <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: href({ app: o.value }) }))} />
           ) : null}
-        </div>
+        </ScopeFilters>
         <div className="pf-bar__end">
           {apps && app && settings ? <AppThresholdMenu key={app.id} project={project} apps={apps} app={app} settings={settings} /> : null}
           <LiveControl />
@@ -147,7 +148,7 @@ export function PerformanceView({
           </section>
           <section className="tr-card" aria-labelledby="pf-hist">
             <h2 id="pf-hist">Response time distribution</h2>
-            <HistogramCard latency={latency} />
+            <HistogramCard latency={latency} thresholdMs={scoped && settings ? settings.apdex_threshold_ms : null} />
           </section>
         </>
       )}
@@ -236,14 +237,20 @@ function Tiles({
   );
 }
 
-function HistogramCard({ latency }: { latency: TrafficLatency }) {
-  const buckets = (latency.histogram ?? []).map((b) => ({ label: latencyBucketLabel(b), count: b.count }));
+/**
+ * The response-time histogram with p50 and p95 marked, and the Apdex threshold T when one app is the
+ * page's whole scope (across apps T differs, #976).
+ */
+function HistogramCard({ latency, thresholdMs }: { latency: TrafficLatency; thresholdMs: number | null }) {
+  const s = latency.summary;
+  const buckets = (latency.histogram ?? []).map((b) => ({ label: latencyBucketLabel(b), count: b.count, from: b.from_ms, to: b.to_ms }));
   return (
     <Histogram
       label="Response time histogram"
-      summary={`${formatCount(latency.summary.requests)} requests by response time, from ${buckets[0]?.label ?? "0 ms"} to ${buckets[buckets.length - 1]?.label ?? ""}.`}
+      summary={`${formatCount(s.requests)} requests by response time, from ${buckets[0]?.label ?? "0 ms"} to ${buckets[buckets.length - 1]?.label ?? ""}: p50 ${formatLatency(s.p50_ms)}, p95 ${formatLatency(s.p95_ms)}${thresholdMs ? `, Apdex threshold ${formatLatency(thresholdMs)}` : ""}.`}
       buckets={buckets}
       unit="count"
+      marks={latencyMarks(s, thresholdMs)}
     />
   );
 }
