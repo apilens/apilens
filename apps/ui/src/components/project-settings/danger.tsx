@@ -91,6 +91,13 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
   }, []);
 
   const wanted = slug.trim();
+  // Checked from an effect declared after the one above, so the checker exists even when the first
+  // keystroke lands right after hydration, before passive effects ran (as in onboarding's create
+  // steps). Checking from the change handler left that keystroke on "Checking…" for good (#1040).
+  useEffect(() => {
+    if (wanted === current.slug) checker.current?.cancel();
+    else checker.current?.check(wanted);
+  }, [wanted, current.slug]);
   const slugStatus: SlugStatus =
     checked?.slug === wanted ? checked.status : checkableSlug(wanted) && wanted !== current.slug ? { kind: "checking" } : { kind: "idle" };
 
@@ -133,7 +140,6 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
     setSlug(next);
     setSlugError(null);
     setStatus(null);
-    if (next.trim() !== current.slug) checker.current?.check(next.trim());
   };
 
   const askRename = (e: FormEvent) => {
