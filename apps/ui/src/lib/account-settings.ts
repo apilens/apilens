@@ -17,6 +17,7 @@ export const ACCOUNT_SECTIONS: readonly AccountSection[] = [
   { slug: "security", label: "Security", summary: "Passkeys, two-factor authentication and recovery codes." },
   { slug: "sessions", label: "Sessions", summary: "Devices signed in to your account." },
   { slug: "connected-accounts", label: "Connected accounts", summary: "Sign-in providers linked to your account." },
+  { slug: "preferences", label: "Preferences", summary: "What a project opens on when you sign in." },
   { slug: "danger", label: "Danger zone", summary: "Delete your account." },
 ];
 

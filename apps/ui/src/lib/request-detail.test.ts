@@ -199,7 +199,10 @@ function span(id: string, parent: string, startMs: number, dur: number, extra: P
     duration_ms: dur,
     status: "ok",
     status_code: 0,
+    status_message: "",
     attributes: {},
+    events: [],
+    links: [],
     ...extra,
   };
 }
@@ -262,7 +265,17 @@ describe("small readers", () => {
 describe("detailRead", () => {
   const request = { id: "x" };
   it("reads the detail, defaulting missing spans and logs", () => {
-    expect(detailRead(200, { ok: true, detail: { request, spans: null } })).toEqual({ kind: "detail", data: { request, spans: [], logs: [] } });
+    expect(detailRead(200, { ok: true, detail: { request, spans: null } })).toEqual({
+      kind: "detail",
+      data: { request, spans: [], logs: [], trace_truncated: false },
+    });
+  });
+
+  it("keeps the trace truncated flag", () => {
+    expect(detailRead(200, { ok: true, detail: { request, spans: [], logs: [], trace_truncated: true } })).toEqual({
+      kind: "detail",
+      data: { request, spans: [], logs: [], trace_truncated: true },
+    });
   });
 
   it("reads not found, an expired session and other failures", () => {

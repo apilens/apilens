@@ -9,7 +9,9 @@ import {
 } from "./utils.js";
 import { detectCommit, detectRelease } from "./release.js";
 import { resolveConfig } from "./env.js";
-import { runWithoutTrace } from "./trace.js";
+import { exceptionContent, truncateHeadTail } from "./exception.js";
+import { SpanRecorder } from "./spans.js";
+import { currentTraceContext, runWithoutTrace } from "./trace.js";
 import { gzipText, processEnv, processObject, randomUUID, runtimeName } from "./runtime.js";
 import {
   applyRemotePolicy,
@@ -21,10 +23,12 @@ import type {
   ApiLensClientConfig,
   ApiLensClientStats,
   ApiLensDropReason,
+  CaptureExceptionOptions,
   ApiLensFlushMode,
   ApiLensLogRecord,
   ApiLensRecord,
   ApiLensRecordInput,
+  ApiLensSignal,
   ApiLensSpanRecord,
   Logger,
 } from "./types.js";
@@ -45,12 +49,18 @@ const METADATA_DELAY_MS = 1000;
 // Env kill switches: `false`, `0`, `no` or `off` never send that report.
 const ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT";
 const ENV_SEND_METADATA = "APILENS_SEND_METADATA";
+const ENV_FLUSH_ON_SHUTDOWN = "APILENS_FLUSH_ON_SHUTDOWN";
 
 // Drop reasons reported by `ApiLensClient.dropCounts()` and `stats()`.
 const DROP_QUEUE_FULL = "queue_full"; // record-count cap (maxQueueSize) hit
 const DROP_QUEUE_BYTES = "queue_bytes"; // memory cap (maxQueueBytes) hit
 const DROP_NON_RETRYABLE = "non_retryable"; // ingest rejected the batch with a 4xx
-const DROP_RETRIES_EXHAUSTED = "retries_exhausted"; // still failing after maxRetries
+const DROP_RETRIES_EXHAUSTED = "retries_exhausted"; // still failing after maxRetrySeconds
+const DROP_SHUTDOWN = "shutdown"; // still queued when the shutdown flush ran out of time
+const DROP_SPAN_CAP = "span_cap"; // a request had more child spans than MAX_SPANS_PER_REQUEST
+// Left out of a 200 by ingest (invalid record, app not allowed). Ingest counts
+// these itself, so they are not reported again in the heartbeat's `dropped`.
+const DROP_SERVER_REJECTED = "server_rejected";
 // Not a drop: an oversized record was shortened (payloads first) to fit
 // maxBatchBytes and still sent. Excluded from `droppedCount`.
 const DROP_TRUNCATED = "truncated";
@@ -59,8 +69,23 @@ const DROP_REASONS: readonly ApiLensDropReason[] = [
   DROP_QUEUE_BYTES,
   DROP_NON_RETRYABLE,
   DROP_RETRIES_EXHAUSTED,
+  DROP_SHUTDOWN,
+  DROP_SPAN_CAP,
+  DROP_SERVER_REJECTED,
   DROP_TRUNCATED,
 ];
+/** Reasons not reported as SDK drops in the heartbeat's `dropped`. */
+const UNREPORTED_REASONS: ReadonlySet<ApiLensDropReason> = new Set([DROP_TRUNCATED, DROP_SERVER_REJECTED]);
+const SIGNALS: readonly ApiLensSignal[] = ["requests", "spans", "logs"];
+
+/** Default retry window of one batch (D7 of #897). */
+const MAX_RETRY_SECONDS = 300;
+/** Default bound on the flush at shutdown or process exit. */
+const SHUTDOWN_TIMEOUT_MS = 5000;
+/** The app metadata report is retried at most this often. */
+const METADATA_MAX_RETRIES = 3;
+/** Default retry cap in inline flush mode, where a flush runs per invocation. */
+const INLINE_MAX_RETRIES = 3;
 
 /**
  * Fixed per-record overhead added to the variable-length string fields when
@@ -83,6 +108,10 @@ function hexId(value: unknown, length: number): string {
   const raw = String(value || "").trim().toLowerCase();
   return raw.length === length && /^[0-9a-f]+$/.test(raw) ? raw : "";
 }
+
+// Span and log fields shortened first (head+tail kept) when one item exceeds
+// maxBatchBytes; then attribute values, then any other long string.
+const SIGNAL_TRUNCATE_FIELDS: readonly string[] = ["payload", "message"];
 
 // Fields shortened first when a single record exceeds maxBatchBytes.
 const TRUNCATE_FIELDS: readonly string[] = [
@@ -117,6 +146,10 @@ type RequiredConfig = {
   compress: boolean;
   flushMode: ApiLensFlushMode;
   maxRetries: number;
+  maxRetrySeconds: number;
+  flushOnShutdown: boolean;
+  shutdownTimeoutMs: number;
+  captureUnhandled: boolean;
   retryBackoffBaseMs: number;
   retryBackoffMaxMs: number;
   enabled: boolean;
@@ -130,6 +163,12 @@ type PreparedBatch = {
   count: number;
   body: string;
 };
+
+type DropTally = Record<ApiLensSignal, Partial<Record<ApiLensDropReason, number>>>;
+
+function emptyTally(): DropTally {
+  return { requests: {}, spans: {}, logs: {} };
+}
 
 type EncodedBody = {
   body: string | Uint8Array<ArrayBuffer>;
@@ -214,6 +253,379 @@ function estimateRecordBytes(record: ApiLensRecord): number {
     + String(record.raw_path || "").length
     + String(record.user_agent || "").length
   );
+}
+
+/**
+ * Serialised-size estimate of a queued span or log: its string fields and
+ * attribute keys/values plus a fixed `RECORD_OVERHEAD_BYTES`.
+ */
+function estimateSignalBytes(item: object): number {
+  let total = RECORD_OVERHEAD_BYTES;
+  for (const value of Object.values(item)) {
+    if (typeof value === "string") {
+      total += value.length;
+    } else if (value && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) {
+        total += key.length + String(child ?? "").length;
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Serialise a span or log, shortening it until its JSON fits in `limit`
+ * bytes: `payload` and `message` first (head and tail kept, D4), then the
+ * attribute values (longest first), then whole attributes, then any other
+ * long string. Undefined when it cannot be made to fit.
+ */
+function truncateSignalJson(item: object, limit: number): string | undefined {
+  const copy: Record<string, unknown> = { ...item };
+  const attrs: Record<string, unknown> | undefined =
+    copy.attributes && typeof copy.attributes === "object"
+      ? { ...(copy.attributes as Record<string, unknown>) }
+      : undefined;
+  if (attrs) {
+    copy.attributes = attrs;
+  }
+  let json = JSON.stringify(copy);
+  let bytes = Buffer.byteLength(json);
+  const fits = (): boolean => bytes <= limit;
+  const measure = (): void => {
+    json = JSON.stringify(copy);
+    bytes = Buffer.byteLength(json);
+  };
+  const shorten = (holder: Record<string, unknown>, key: string, headTail: boolean): void => {
+    while (!fits()) {
+      const value = String(holder[key] ?? "");
+      if (!value) {
+        return;
+      }
+      const nextLength = Math.max(Math.min(value.length - (bytes - limit), value.length - 1), 0);
+      // The head+tail marker costs ~30 chars; below that a plain cut is shorter.
+      holder[key] = headTail && nextLength > 64
+        ? truncateHeadTail(value, nextLength)
+        : value.slice(0, nextLength);
+      measure();
+    }
+  };
+
+  for (const field of SIGNAL_TRUNCATE_FIELDS) {
+    if (typeof copy[field] === "string") {
+      shorten(copy, field, true);
+    }
+  }
+  if (attrs) {
+    const keys = Object.keys(attrs).sort(
+      (a, b) => String(attrs[b] ?? "").length - String(attrs[a] ?? "").length,
+    );
+    for (const key of keys) {
+      shorten(attrs, key, true);
+    }
+    for (const key of keys) {
+      if (!fits()) {
+        delete attrs[key];
+        measure();
+      }
+    }
+  }
+  if (!fits()) {
+    const others = Object.keys(copy)
+      .filter((key) => typeof copy[key] === "string" && !SIGNAL_TRUNCATE_FIELDS.includes(key))
+      .sort((a, b) => String(copy[b]).length - String(copy[a]).length);
+    for (const key of others) {
+      shorten(copy, key, false);
+    }
+  }
+  return fits() ? json : undefined;
+}
+
+/**
+ * Records a 200 batch answer left out (partial accept): `invalid` plus the
+ * `records` of every `rejected` app. 0 for an empty or non-JSON body.
+ */
+function partialRejects(text: string, count: number): number {
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : undefined;
+  } catch {
+    return 0;
+  }
+  if (!data || typeof data !== "object") {
+    return 0;
+  }
+  const body = data as { invalid?: unknown; rejected?: unknown };
+  let failed = toNonNegativeInt(body.invalid, 0);
+  if (Array.isArray(body.rejected)) {
+    for (const entry of body.rejected) {
+      failed += toNonNegativeInt((entry as { records?: unknown } | null)?.records, 0);
+    }
+  }
+  return Math.min(failed, count);
+}
+
+/** Resolves after `ms` without holding the process open. */
+function unrefDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, Math.max(ms, 0));
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+  });
+}
+
+type ExitProcess = {
+  pid: number;
+  on: (event: string, listener: (...args: unknown[]) => void) => unknown;
+  removeListener: (event: string, listener: (...args: unknown[]) => void) => unknown;
+  listenerCount: (event: string) => number;
+  kill: (pid: number, signal: string) => unknown;
+};
+
+const EXIT_SIGNALS = ["SIGTERM", "SIGINT"] as const;
+let exitHooksInstalled = false;
+
+function exitProcess(): ExitProcess | undefined {
+  const proc = processObject() as Partial<ExitProcess> | undefined;
+  return proc
+    && typeof proc.on === "function"
+    && typeof proc.removeListener === "function"
+    && typeof proc.listenerCount === "function"
+    && typeof proc.kill === "function"
+    ? (proc as ExitProcess)
+    : undefined;
+}
+
+/** `beforeExit`: the event loop ran dry; flush and send the final heartbeat. */
+function onBeforeExit(): void {
+  const client = ApiLensClient.current();
+  if (client?.config.flushOnShutdown) {
+    void client.handleShutdown().catch(() => undefined);
+  }
+}
+
+/**
+ * `SIGTERM` / `SIGINT`: flush (bounded by `shutdownTimeoutMs`), then raise
+ * the signal again when nothing else listens for it, so its default action
+ * (exit) still happens. When the app has its own listener, it stays in charge.
+ */
+function onExitSignal(signal: unknown): void {
+  const proc = exitProcess();
+  if (!proc) {
+    return;
+  }
+  const name = String(signal);
+  // A second signal while flushing takes the default action at once.
+  proc.removeListener(name, onExitSignal);
+  const client = ApiLensClient.current();
+  const flush = client?.config.flushOnShutdown
+    ? client.handleShutdown().catch(() => undefined)
+    : Promise.resolve();
+  void flush.then(() => {
+    if (proc.listenerCount(name) === 0) {
+      proc.kill(proc.pid, name);
+    }
+  });
+}
+
+/** Install the exit flush once per process (Node; no-op elsewhere). */
+function installExitHooks(): void {
+  const proc = exitProcess();
+  if (exitHooksInstalled || !proc) {
+    return;
+  }
+  exitHooksInstalled = true;
+  proc.on("beforeExit", onBeforeExit);
+  for (const signal of EXIT_SIGNALS) {
+    proc.on(signal, onExitSignal);
+  }
+}
+
+// ── Process-level exception capture (`captureUnhandled`) ────────────────────
+//
+// A listener for `uncaughtException` / `unhandledRejection` changes what Node
+// does: the process no longer crashes. So when the SDK's listener is the only
+// one, it does what Node would have done itself, after shipping the error:
+// a crash flushes (bounded by `shutdownTimeoutMs`) and then rethrows, so Node
+// prints the error and exits with code 1 as before. When the app has its own
+// listener, it stays in charge and the SDK only ships the error.
+
+type UnhandledProcess = ExitProcess & {
+  emit: (event: string, ...args: unknown[]) => boolean;
+  emitWarning?: (warning: string, type?: string) => void;
+  exitCode?: number | string;
+  execArgv?: string[];
+  env?: Record<string, string | undefined>;
+  nextTick?: (fn: () => void) => void;
+};
+
+/** Values thrown or rejected that were already shipped (one log per error). */
+const shippedErrors = new WeakSet<object>();
+let unhandledHooksInstalled = false;
+
+function unhandledProcess(): UnhandledProcess | undefined {
+  const proc = exitProcess() as UnhandledProcess | undefined;
+  return proc && typeof proc.emit === "function" ? proc : undefined;
+}
+
+/**
+ * Node's `--unhandled-rejections` mode, from the command line or
+ * `NODE_OPTIONS` ("throw", Node's default, when unset).
+ */
+function unhandledRejectionsMode(proc: UnhandledProcess): string {
+  const args = [
+    ...(Array.isArray(proc.execArgv) ? proc.execArgv : []),
+    ...String(proc.env?.NODE_OPTIONS || "").split(/\s+/),
+  ];
+  let mode = "throw";
+  args.forEach((arg, i) => {
+    if (arg.startsWith("--unhandled-rejections=")) {
+      mode = arg.slice("--unhandled-rejections=".length);
+    } else if (arg === "--unhandled-rejections" && args[i + 1]) {
+      mode = args[i + 1];
+    }
+  });
+  return mode.trim().toLowerCase() || "throw";
+}
+
+/** Ship `error` once (ERROR exception log); false when it was shipped already. */
+function shipProcessError(error: unknown, mechanism: string): boolean {
+  if (typeof error === "object" && error !== null) {
+    if (shippedErrors.has(error)) {
+      return false;
+    }
+    shippedErrors.add(error);
+  }
+  try {
+    ApiLensClient.current()?.captureException(error, { level: "ERROR", mechanism });
+  } catch {
+    // Never let capture get in the way of the app's own error handling.
+  }
+  return true;
+}
+
+/** Start sending what is queued now (the process keeps running). */
+function flushSoon(): void {
+  const client = ApiLensClient.current();
+  if (client) {
+    void client.flushOnce().catch(() => undefined);
+  }
+}
+
+/**
+ * The error would have crashed the process: flush, then rethrow it with the
+ * SDK's listeners gone so Node prints it and exits with code 1, as it would
+ * have without the SDK. A second fatal error during the flush crashes at once.
+ */
+function crashAfterFlush(proc: UnhandledProcess, error: unknown): void {
+  proc.removeListener("uncaughtException", onUncaughtException);
+  proc.removeListener("unhandledRejection", onUnhandledRejection);
+  unhandledHooksInstalled = false;
+  const client = ApiLensClient.current();
+  const flush = client ? client.handleShutdown().catch(() => undefined) : Promise.resolve();
+  void flush.then(() => {
+    const raise = (): void => {
+      throw error;
+    };
+    if (typeof proc.nextTick === "function") {
+      proc.nextTick(raise);
+    } else {
+      setTimeout(raise, 0);
+    }
+  });
+}
+
+/** The error Node raises for an unhandled rejection whose reason is not an Error. */
+function rejectionError(reason: unknown): unknown {
+  if (reason instanceof Error) {
+    return reason;
+  }
+  let shown: string;
+  try {
+    shown = typeof reason === "string" ? reason : JSON.stringify(reason) ?? String(reason);
+  } catch {
+    shown = Object.prototype.toString.call(reason);
+  }
+  const error = new Error(
+    "This error originated either by throwing inside of an async function without a catch block, "
+      + "or by rejecting a promise which was not handled with .catch(). The promise rejected with the"
+      + ` reason "${shown}".`,
+  ) as Error & { code?: string };
+  error.code = "ERR_UNHANDLED_REJECTION";
+  return error;
+}
+
+function onUncaughtException(error: unknown, origin?: unknown): void {
+  const proc = unhandledProcess();
+  shipProcessError(error, origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException");
+  if (!proc) {
+    return;
+  }
+  if (proc.listenerCount("uncaughtException") > 1) {
+    // The app handles it: the process keeps running.
+    flushSoon();
+    return;
+  }
+  crashAfterFlush(proc, error);
+}
+
+function onUnhandledRejection(reason: unknown): void {
+  const proc = unhandledProcess();
+  shipProcessError(reason, "unhandledRejection");
+  if (!proc) {
+    return;
+  }
+  if (proc.listenerCount("unhandledRejection") > 1) {
+    flushSoon();
+    return;
+  }
+  // What Node does when no listener is set, per `--unhandled-rejections`.
+  switch (unhandledRejectionsMode(proc)) {
+    case "throw": {
+      // Raised as an uncaught exception: the app's listener gets it, else a crash.
+      const error = rejectionError(reason);
+      if (typeof error === "object" && error !== null) {
+        shippedErrors.add(error);
+      }
+      if (proc.listenerCount("uncaughtException") > 1) {
+        proc.emit("uncaughtException", error, "unhandledRejection");
+      } else {
+        crashAfterFlush(proc, error);
+      }
+      return;
+    }
+    case "warn-with-error-code": {
+      proc.emitWarning?.(String(reason instanceof Error ? reason.stack : reason), "UnhandledPromiseRejectionWarning");
+      proc.exitCode = 1;
+      flushSoon();
+      return;
+    }
+    default:
+      // "strict" already raised it as an uncaught exception; "warn" warns
+      // whether or not a listener is set; "none" stays silent.
+      flushSoon();
+  }
+}
+
+/** Install the process-level exception listeners once per process (Node; no-op elsewhere). */
+function installUnhandledHooks(): void {
+  const proc = unhandledProcess();
+  if (unhandledHooksInstalled || !proc) {
+    return;
+  }
+  unhandledHooksInstalled = true;
+  proc.on("uncaughtException", onUncaughtException);
+  proc.on("unhandledRejection", onUnhandledRejection);
+}
+
+/**
+ * Ship `error` as an exception log (ERROR by default, or WARN for an error
+ * the app handled), tied to the trace of the request being handled when
+ * called inside one. A no-op before the client is created or while capture
+ * is off.
+ */
+function captureException(error: unknown, options: CaptureExceptionOptions = {}): void {
+  ApiLensClient.current()?.captureException(error, options);
 }
 
 /**
@@ -334,6 +746,11 @@ class ApiLensClient {
     return ApiLensClient.instance;
   }
 
+  /** The live client, or undefined. */
+  public static current(): ApiLensClient | undefined {
+    return ApiLensClient.instance;
+  }
+
   public static async shutdown(): Promise<void> {
     if (ApiLensClient.instance) {
       await ApiLensClient.instance.handleShutdown();
@@ -342,18 +759,32 @@ class ApiLensClient {
 
   public config: RequiredConfig;
   public queue: ApiLensRecord[];
-  /** Spans waiting for `POST /v1/traces` (bounded by `maxQueueSize`). */
+  /** Spans waiting for `POST /v1/traces` (bounded by `maxQueueSize` and `maxQueueBytes`). */
   public spanQueue: ApiLensSpanRecord[] = [];
-  /** Logs waiting for `POST /v1/logs` (bounded by `maxQueueSize`). */
+  /** Logs waiting for `POST /v1/logs` (bounded by `maxQueueSize` and `maxQueueBytes`). */
   public logQueue: ApiLensLogRecord[] = [];
-  /** Overridable in tests: the wait between retries and its jitter source. */
+  /** Overridable in tests: the wait between retries, its jitter source and the clock. */
   public sleepFn: (ms: number) => Promise<void> = sleep;
   public randomFn: () => number = Math.random;
+  public nowFn: () => number = Date.now;
   private queueSizes: number[] = [];
   private queuedBytesTotal = 0;
+  /** Estimated size of each queued span / log, and their totals. */
+  private signalSizes = new Map<unknown[], { sizes: number[]; bytes: number }>([
+    [this.spanQueue, { sizes: [], bytes: 0 }],
+    [this.logQueue, { sizes: [], bytes: 0 }],
+  ]);
   private drops = Object.fromEntries(
     DROP_REASONS.map((reason) => [reason, 0]),
   ) as Record<ApiLensDropReason, number>;
+  /** Drops per signal since start, and the part a heartbeat already reported. */
+  private signalDrops: DropTally = emptyTally();
+  private reportedDrops: DropTally = emptyTally();
+  /** Background flushes still running (a batch may be retrying). */
+  private inFlight = new Set<Promise<number>>();
+  /** Set by `handleShutdown()`: retries stop at this time (`nowFn` ms). */
+  private shutdownDeadline = Number.POSITIVE_INFINITY;
+  private serverRejectLoggedAt = 0;
   private sentBatches = 0;
   private sentRecords = 0;
   private failedBatches = 0;
@@ -422,7 +853,15 @@ class ApiLensClient {
       ),
       compress: config.compress !== false,
       flushMode: config.flushMode === "inline" ? "inline" : "background",
-      maxRetries: Math.max(toNonNegativeInt(config.maxRetries, 3), 0),
+      // No attempt cap unless one is set: the window bounds the retries. Inline
+      // mode (edge) flushes inside the invocation, so it keeps a small cap.
+      maxRetries: config.maxRetries === undefined || config.maxRetries === null
+        ? (config.flushMode === "inline" ? INLINE_MAX_RETRIES : Number.POSITIVE_INFINITY)
+        : Math.max(toNonNegativeInt(config.maxRetries, 0), 0),
+      maxRetrySeconds: Math.max(toNumber(config.maxRetrySeconds, MAX_RETRY_SECONDS), 0),
+      flushOnShutdown: config.flushOnShutdown !== false && envFlagEnabled(ENV_FLUSH_ON_SHUTDOWN),
+      shutdownTimeoutMs: Math.max(toNonNegativeInt(config.shutdownTimeoutMs, SHUTDOWN_TIMEOUT_MS), 0),
+      captureUnhandled: config.captureUnhandled !== false,
       retryBackoffBaseMs: Math.max(
         toNonNegativeInt(config.retryBackoffBaseMs, 250),
         1,
@@ -483,9 +922,82 @@ class ApiLensClient {
     return { ...this.drops };
   }
 
+  /** Records dropped so far for each signal, by reason (only non-zero counts). */
+  public signalDropCounts(): DropTally {
+    return {
+      requests: { ...this.signalDrops.requests },
+      spans: { ...this.signalDrops.spans },
+      logs: { ...this.signalDrops.logs },
+    };
+  }
+
   /** Estimated bytes held by the queue (bounded by `maxQueueBytes`). */
   public get queuedBytes(): number {
     return this.queuedBytesTotal;
+  }
+
+  /** Estimated bytes held by the span queue (bounded by `maxQueueBytes`). */
+  public get queuedSpanBytes(): number {
+    return this.sizesOf(this.spanQueue).bytes;
+  }
+
+  /** Estimated bytes held by the log queue (bounded by `maxQueueBytes`). */
+  public get queuedLogBytes(): number {
+    return this.sizesOf(this.logQueue).bytes;
+  }
+
+  /** True while anything is queued or a batch is being sent. */
+  public hasPending(): boolean {
+    return this.queue.length > 0 || this.spanQueue.length > 0 || this.logQueue.length > 0
+      || this.inFlight.size > 0;
+  }
+
+  /**
+   * Count records dropped before they reached the queue (the per-request
+   * span cap); reported in the next heartbeat like every other drop.
+   */
+  public reportDrop(signal: ApiLensSignal, reason: ApiLensDropReason, count = 1): void {
+    this.recordDrop(signal, reason, Math.max(Math.trunc(Number(count) || 0), 0));
+  }
+
+  private recordDrop(signal: ApiLensSignal, reason: ApiLensDropReason, count = 1): void {
+    if (count <= 0) {
+      return;
+    }
+    this.drops[reason] += count;
+    const bucket = this.signalDrops[signal];
+    bucket[reason] = (bucket[reason] ?? 0) + count;
+  }
+
+  /**
+   * Drops not yet reported by a heartbeat, for its `dropped` field; undefined
+   * when there are none. Truncated and server-rejected records are left out.
+   */
+  private unreportedDrops(): DropTally | undefined {
+    const out = emptyTally();
+    let any = false;
+    for (const signal of SIGNALS) {
+      for (const [reason, total] of Object.entries(this.signalDrops[signal]) as Array<[ApiLensDropReason, number]>) {
+        if (UNREPORTED_REASONS.has(reason)) {
+          continue;
+        }
+        const pending = total - (this.reportedDrops[signal][reason] ?? 0);
+        if (pending > 0) {
+          out[signal][reason] = pending;
+          any = true;
+        }
+      }
+    }
+    return any ? out : undefined;
+  }
+
+  private markDropsReported(sent: DropTally): void {
+    for (const signal of SIGNALS) {
+      for (const [reason, count] of Object.entries(sent[signal]) as Array<[ApiLensDropReason, number]>) {
+        const bucket = this.reportedDrops[signal];
+        bucket[reason] = (bucket[reason] ?? 0) + count;
+      }
+    }
   }
 
   /** Point-in-time delivery health snapshot. */
@@ -493,6 +1005,8 @@ class ApiLensClient {
     return {
       queuedRecords: this.queue.length,
       queuedBytes: this.queuedBytesTotal,
+      queuedSpanBytes: this.queuedSpanBytes,
+      queuedLogBytes: this.queuedLogBytes,
       sentBatches: this.sentBatches,
       sentRecords: this.sentRecords,
       failedBatches: this.failedBatches,
@@ -540,9 +1054,15 @@ class ApiLensClient {
     if (this.flushIntervalId || !this.isEnabled()) {
       return;
     }
+    if (this.config.flushOnShutdown) {
+      installExitHooks();
+    }
+    if (this.config.captureUnhandled) {
+      installUnhandledHooks();
+    }
 
     this.flushIntervalId = setInterval(() => {
-      void this.flushOnce();
+      this.flushInBackground();
     }, this.config.flushIntervalMs);
 
     if (typeof this.flushIntervalId.unref === "function") {
@@ -560,8 +1080,12 @@ class ApiLensClient {
     this.flushIntervalId = undefined;
   }
 
-  /** Queue one request record; true when it was queued with its detail (sampled in). */
-  public capture(payload: ApiLensRecordInput): boolean {
+  /**
+   * Queue one request record; true when it was queued with its detail
+   * (sampled in). `options.keep` marks a failed request, which the remote
+   * policy's sample rate never samples out.
+   */
+  public capture(payload: ApiLensRecordInput, options: { keep?: boolean } = {}): boolean {
     return this.captureRecord(
       normalizeRecord(
         payload,
@@ -569,11 +1093,12 @@ class ApiLensClient {
         this.config.projectSlug,
         this.config.appId,
       ),
+      options,
     );
   }
 
   /** Queue one request record; true when it was queued with its detail (sampled in). */
-  public captureRecord(record: ApiLensRecord): boolean {
+  public captureRecord(record: ApiLensRecord, options: { keep?: boolean } = {}): boolean {
     if (!this.isEnabled()) {
       return false;
     }
@@ -584,7 +1109,7 @@ class ApiLensClient {
 
     // The remote policy only narrows: it can drop the record, sample it out
     // or strip detail, never add any back.
-    if (this.remotePolicyState && !applyRemotePolicy(record, this.remotePolicyState, this.randomFn)) {
+    if (this.remotePolicyState && !applyRemotePolicy(record, this.remotePolicyState, this.randomFn, options.keep === true)) {
       return false;
     }
 
@@ -593,18 +1118,18 @@ class ApiLensClient {
     if (size > maxBytes) {
       // A single record over the whole budget would evict everything and
       // still not fit: shed it instead.
-      this.drops[DROP_QUEUE_BYTES] += 1;
+      this.recordDrop("requests", DROP_QUEUE_BYTES);
       return false;
     }
 
     if (this.queue.length >= this.config.maxQueueSize) {
       this.shiftQueue();
-      this.drops[DROP_QUEUE_FULL] += 1;
+      this.recordDrop("requests", DROP_QUEUE_FULL);
     }
 
     while (this.queue.length > 0 && this.queuedBytesTotal + size > maxBytes) {
       this.shiftQueue();
-      this.drops[DROP_QUEUE_BYTES] += 1;
+      this.recordDrop("requests", DROP_QUEUE_BYTES);
     }
 
     this.queue.push(record);
@@ -612,22 +1137,75 @@ class ApiLensClient {
     this.queuedBytesTotal += size;
 
     if (this.queue.length >= this.config.batchSize) {
-      void this.flushOnce();
+      this.flushInBackground();
     }
     return record.sampled;
   }
 
   /** Queue one span for `POST /v1/traces` (dropped while not capturing). */
   public captureSpan(record: ApiLensSpanRecord): void {
-    this.captureSignal(this.spanQueue, record);
+    this.captureSignal(this.spanQueue, record, "spans");
   }
 
   /** Queue one log for `POST /v1/logs` (dropped while not capturing). */
   public captureLog(record: ApiLensLogRecord): void {
-    this.captureSignal(this.logQueue, record);
+    this.captureSignal(this.logQueue, record, "logs");
   }
 
-  private captureSignal<T extends { release: string; commit: string }>(queue: T[], record: T): void {
+  /**
+   * Queue `error` as an exception log (`apilens.exception`: the full
+   * exception, causes and AggregateError members included; ERROR unless
+   * `options.level` says WARN). Inside a request it carries that request's
+   * trace and span id, so it lines up with the request in the trace view.
+   */
+  public captureException(error: unknown, options: CaptureExceptionOptions = {}): void {
+    if (!this.isCapturing()) {
+      return;
+    }
+    const content = exceptionContent(error);
+    const recorder = new SpanRecorder(this, this.config.appId, this.config.environment, this.config.appId);
+    recorder.errorLog(currentTraceContext(), {
+      level: options.level === "WARN" ? "WARN" : "ERROR",
+      message: content.message,
+      payload: content.payload,
+      loggerName: "apilens.exception",
+      attributes: {
+        ...content.attributes,
+        "exception.mechanism": options.mechanism || "captureException",
+      },
+      method: "",
+      path: "",
+      statusCode: 0,
+      consumerId: "",
+      consumerName: "",
+      consumerGroup: "",
+    });
+  }
+
+  private sizesOf(queue: unknown[]): { sizes: number[]; bytes: number } {
+    let entry = this.signalSizes.get(queue);
+    if (!entry) {
+      // The queue array was replaced: start its accounting afresh.
+      entry = { sizes: queue.map((item) => estimateSignalBytes(item as object)), bytes: 0 };
+      entry.bytes = entry.sizes.reduce((a, b) => a + b, 0);
+      this.signalSizes.set(queue, entry);
+    }
+    return entry;
+  }
+
+  private shiftSignal<T>(queue: T[]): T | undefined {
+    const item = queue.shift();
+    const entry = this.sizesOf(queue);
+    const size = entry.sizes.shift() ?? 0;
+    entry.bytes = Math.max(entry.bytes - size, 0);
+    return item;
+  }
+
+  private captureSignal<T extends { release: string; commit: string }>(
+    queue: T[],
+    record: T,
+    signal: ApiLensSignal,
+  ): void {
     if (!this.isCapturing()) {
       return;
     }
@@ -637,12 +1215,36 @@ class ApiLensClient {
     if (!record.commit) {
       record.commit = this.config.commit;
     }
+    const size = estimateSignalBytes(record);
+    const maxBytes = this.config.maxQueueBytes;
+    if (size > maxBytes) {
+      this.recordDrop(signal, DROP_QUEUE_BYTES);
+      return;
+    }
+    const entry = this.sizesOf(queue);
     if (queue.length >= this.config.maxQueueSize) {
-      queue.shift();
-      this.drops[DROP_QUEUE_FULL] += 1;
+      this.shiftSignal(queue);
+      this.recordDrop(signal, DROP_QUEUE_FULL);
+    }
+    while (queue.length > 0 && entry.bytes + size > maxBytes) {
+      this.shiftSignal(queue);
+      this.recordDrop(signal, DROP_QUEUE_BYTES);
     }
     queue.push(record);
+    entry.sizes.push(size);
+    entry.bytes += size;
     if (queue.length >= this.config.batchSize) {
+      this.flushInBackground();
+    }
+  }
+
+  /**
+   * Start a flush from a timer or a full batch, unless one is still running:
+   * during an outage one batch retries for up to `maxRetrySeconds` while the
+   * queues keep filling (bounded), instead of piling up concurrent retries.
+   */
+  private flushInBackground(): void {
+    if (this.inFlight.size === 0) {
       void this.flushOnce();
     }
   }
@@ -683,24 +1285,34 @@ class ApiLensClient {
    * Send the next batch of each queue (requests, spans, logs). Returns the
    * number of items delivered.
    */
-  public async flushOnce(): Promise<number> {
-    const batches: Array<{ batch: PreparedBatch; path?: string; label: string }> = [];
+  public flushOnce(): Promise<number> {
+    const run = this.flushBatches();
+    this.inFlight.add(run);
+    const done = (): void => {
+      this.inFlight.delete(run);
+    };
+    run.then(done, done);
+    return run;
+  }
+
+  private async flushBatches(): Promise<number> {
+    const batches: Array<{ batch: PreparedBatch; path?: string; label: string; signal: ApiLensSignal }> = [];
     const requests = this.takeBatch();
     if (requests.count) {
-      batches.push({ batch: requests, label: "records" });
+      batches.push({ batch: requests, label: "records", signal: "requests" });
     }
     const spans = this.takeSignalBatch(this.spanQueue, "spans");
     if (spans.count) {
-      batches.push({ batch: spans, path: this.config.tracesPath, label: "spans" });
+      batches.push({ batch: spans, path: this.config.tracesPath, label: "spans", signal: "spans" });
     }
     const logs = this.takeSignalBatch(this.logQueue, "logs");
     if (logs.count) {
-      batches.push({ batch: logs, path: this.config.logsPath, label: "logs" });
+      batches.push({ batch: logs, path: this.config.logsPath, label: "logs", signal: "logs" });
     }
 
     let total = 0;
-    for (const { batch, path, label } of batches) {
-      if (await this.sendBatchWithRetry(batch, path)) {
+    for (const { batch, path, label, signal } of batches) {
+      if (await this.sendBatchWithRetry(batch, signal, path)) {
         total += batch.count;
       } else {
         this.config.logger.warn?.(
@@ -775,8 +1387,20 @@ class ApiLensClient {
     return sent;
   }
 
+  /**
+   * Stop the client. With `flush` (default), send what is queued and the
+   * final heartbeat, all within `shutdownTimeoutMs`: retries stop at that
+   * deadline and whatever is still queued then is counted as `shutdown`.
+   */
   public async handleShutdown({ flush = true }: { flush?: boolean } = {}): Promise<void> {
+    if (ApiLensClient.instance === this) {
+      // A second shutdown (exit hook plus the app's own) finds no instance.
+      ApiLensClient.instance = undefined;
+    }
     const sendFinal = this.heartbeatsStarted && this.heartbeatsEnabled();
+    const timeoutMs = this.config.shutdownTimeoutMs;
+    const startedAt = this.nowFn();
+    this.shutdownDeadline = startedAt + timeoutMs;
     this.config.enabled = false;
     this.stop();
     for (const [key, timer] of this.metadataTimers) {
@@ -790,13 +1414,32 @@ class ApiLensClient {
     this.pendingMetadata.clear();
 
     if (flush) {
-      await this.flushAll();
+      const drained = (async () => {
+        await this.flushAll();
+        await Promise.all([...this.inFlight]);
+      })();
+      await Promise.race([drained, unrefDelay(timeoutMs)]);
+      this.dropQueued(DROP_SHUTDOWN);
     }
     if (sendFinal) {
-      await this.sendHeartbeat({ final: true });
+      const left = Math.max(startedAt + timeoutMs - this.nowFn(), 0);
+      await Promise.race([this.sendHeartbeat({ final: true }), unrefDelay(left)]);
     }
+  }
 
-    ApiLensClient.instance = undefined;
+  /** Empty every queue, counting what was in it as dropped for `reason`. */
+  private dropQueued(reason: ApiLensDropReason): void {
+    this.recordDrop("requests", reason, this.queue.length);
+    while (this.queue.length > 0) {
+      this.shiftQueue();
+    }
+    for (const [queue, signal] of [[this.spanQueue, "spans"], [this.logQueue, "logs"]] as const) {
+      this.recordDrop(signal, reason, queue.length);
+      queue.length = 0;
+      const entry = this.sizesOf(queue);
+      entry.sizes = [];
+      entry.bytes = 0;
+    }
   }
 
   private heartbeatsEnabled(): boolean {
@@ -937,11 +1580,21 @@ class ApiLensClient {
       return { ok: false, nextMs: interval };
     }
     try {
-      const body = stripApiKeyFields(this.heartbeatPayload(app.appId, app.environment, { final }));
+      const payload = this.heartbeatPayload(app.appId, app.environment, { final });
+      // The client's drops go with its own app's heartbeat only, counted once:
+      // what is sent here is marked reported on 200 and resent otherwise.
+      const dropped = key === this.primaryHeartbeatKey() ? this.unreportedDrops() : undefined;
+      if (dropped) {
+        payload.dropped = dropped;
+      }
+      const body = stripApiKeyFields(payload);
       const response = await this.post(
         await this.encodeBody(JSON.stringify(body)),
         this.config.heartbeatPath,
       );
+      if (dropped) {
+        this.markDropsReported(dropped);
+      }
       this.applyHeartbeatResponse(await response.text());
       return { ok: true, nextMs: interval };
     } catch (error) {
@@ -952,6 +1605,10 @@ class ApiLensClient {
       this.config.logger.debug?.("API Lens heartbeat failed", error);
       return { ok: false, nextMs: interval };
     }
+  }
+
+  private primaryHeartbeatKey(): string {
+    return `${this.config.appId}\0${this.config.environment}`;
   }
 
   private applyHeartbeatResponse(text: string): void {
@@ -1046,7 +1703,8 @@ class ApiLensClient {
       return false;
     }
     let lastError: unknown;
-    for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
+    const maxRetries = Math.min(this.config.maxRetries, METADATA_MAX_RETRIES);
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
         await this.post(encoded, this.config.metadataPath);
         return true;
@@ -1063,7 +1721,7 @@ class ApiLensClient {
           }
           return false;
         }
-        if (attempt < this.config.maxRetries) {
+        if (attempt < maxRetries) {
           const retryAfterMs = error instanceof IngestError ? error.retryAfterMs : undefined;
           await this.sleepFn(retryAfterMs ?? this.backoffMs(attempt));
         }
@@ -1106,12 +1764,12 @@ class ApiLensClient {
       if (bytes > limit) {
         const truncated = truncateRecordJson(record, limit);
         if (truncated === undefined) {
-          this.drops[DROP_QUEUE_BYTES] += 1;
+          this.recordDrop("requests", DROP_QUEUE_BYTES);
           continue;
         }
         json = truncated;
         bytes = Buffer.byteLength(json);
-        this.drops[DROP_TRUNCATED] += 1;
+        this.recordDrop("requests", DROP_TRUNCATED);
       }
 
       parts.push(json);
@@ -1126,25 +1784,33 @@ class ApiLensClient {
 
   /**
    * Cut the next `{"<key>": [...]}` batch off a span or log queue, by
-   * `batchSize` and `maxBatchBytes`. An item larger than the limit is dropped.
+   * `batchSize` and `maxBatchBytes`. An item larger than the limit is
+   * truncated (payload, message, then attributes) rather than dropped.
    */
-  private takeSignalBatch(queue: unknown[], key: string): PreparedBatch {
+  private takeSignalBatch(queue: unknown[], key: ApiLensSignal): PreparedBatch {
     const prefix = `{"${key}":[`;
     const limit = this.config.maxBatchBytes - prefix.length - BATCH_SUFFIX.length;
     const parts: string[] = [];
     let total = 0;
 
     while (queue.length > 0 && parts.length < this.config.batchSize) {
-      const json = JSON.stringify(queue[0]);
-      const bytes = Buffer.byteLength(json);
+      const item = queue[0] as object;
+      let json = JSON.stringify(item);
+      let bytes = Buffer.byteLength(json);
       const separator = parts.length > 0 ? 1 : 0;
       if (parts.length > 0 && total + separator + bytes > limit) {
         break;
       }
-      queue.shift();
+      this.shiftSignal(queue);
       if (bytes > limit) {
-        this.drops[DROP_QUEUE_BYTES] += 1;
-        continue;
+        const truncated = truncateSignalJson(item, limit);
+        if (truncated === undefined) {
+          this.recordDrop(key, DROP_QUEUE_BYTES);
+          continue;
+        }
+        json = truncated;
+        bytes = Buffer.byteLength(json);
+        this.recordDrop(key, DROP_TRUNCATED);
       }
       parts.push(json);
       total += separator + bytes;
@@ -1153,17 +1819,39 @@ class ApiLensClient {
     return { count: parts.length, body: `${prefix}${parts.join(",")}${BATCH_SUFFIX}` };
   }
 
-  private async sendBatchWithRetry(batch: PreparedBatch, path?: string): Promise<boolean> {
+  /**
+   * POST one batch, retrying 408/429/5xx and network errors with backoff
+   * (or `Retry-After`) until `maxRetrySeconds` has passed since the first
+   * attempt, or the shutdown deadline. A 200 that left some records out
+   * (partial accept) is a success; those records count as `server_rejected`.
+   */
+  private async sendBatchWithRetry(
+    batch: PreparedBatch,
+    signal: ApiLensSignal,
+    path?: string,
+  ): Promise<boolean> {
     const payload = await this.encodeBody(batch.body);
     let reason: ApiLensDropReason = DROP_RETRIES_EXHAUSTED;
     let lastError: unknown;
+    const windowEnd = this.nowFn() + this.config.maxRetrySeconds * 1000;
 
-    for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
+    for (let attempt = 0; ; attempt += 1) {
       try {
-        await this.post(payload, path);
+        const response = await this.post(payload, path);
+        let text = "";
+        try {
+          text = await response.text();
+        } catch {
+          text = "";
+        }
+        const rejected = partialRejects(text, batch.count);
         this.sentBatches += 1;
-        this.sentRecords += batch.count;
+        this.sentRecords += batch.count - rejected;
         this.lastSuccessAt = new Date().toISOString();
+        if (rejected > 0) {
+          this.recordDrop(signal, DROP_SERVER_REJECTED, rejected);
+          this.logServerRejects(signal, rejected, text);
+        }
         return true;
       } catch (error) {
         lastError = error;
@@ -1176,11 +1864,15 @@ class ApiLensClient {
           break;
         }
         const retryAfterMs = error instanceof IngestError ? error.retryAfterMs : undefined;
-        await this.sleepFn(retryAfterMs ?? this.backoffMs(attempt));
+        const waitMs = retryAfterMs ?? this.backoffMs(attempt);
+        if (this.nowFn() + waitMs > Math.min(windowEnd, this.shutdownDeadline)) {
+          break;
+        }
+        await this.sleepFn(waitMs);
       }
     }
 
-    this.drops[reason] += batch.count;
+    this.recordDrop(signal, reason, batch.count);
     this.failedBatches += 1;
     this.lastError = lastError instanceof Error ? lastError.message : String(lastError);
     if (reason === DROP_RETRIES_EXHAUSTED) {
@@ -1203,6 +1895,18 @@ class ApiLensClient {
       this.config.logger.debug?.("API Lens gzip failed; sending identity", error);
       return { body, gzipped: false };
     }
+  }
+
+  private logServerRejects(signal: ApiLensSignal, count: number, body: string): void {
+    const now = Date.now();
+    if (now - this.serverRejectLoggedAt < NON_RETRYABLE_LOG_INTERVAL_MS) {
+      return;
+    }
+    this.serverRejectLoggedAt = now;
+    this.config.logger.warn?.(
+      `API Lens ingest left out ${count} ${signal} of a batch; the rest were stored.`,
+      body.slice(0, 512),
+    );
   }
 
   private logNonRetryable(error: IngestError): void {
@@ -1340,6 +2044,7 @@ class ApiLensClient {
 export {
   ApiLensClient,
   DROP_REASONS,
+  captureException,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MIN_INTERVAL_MS,
   METADATA_DELAY_MS,
@@ -1348,6 +2053,9 @@ export {
   stripApiKeyFields,
   RECORD_OVERHEAD_BYTES,
   estimateRecordBytes,
+  estimateSignalBytes,
+  partialRejects,
+  truncateSignalJson,
   normalizeRecord,
   parseRetryAfter,
 };

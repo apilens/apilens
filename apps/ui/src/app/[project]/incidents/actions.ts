@@ -5,7 +5,7 @@
 // is a public POST endpoint) with the same checks the forms run, calls the API as the signed-in
 // user and answers a sentence to show, never a raw error. Authorization is the API's
 // (`project#manage_alerts`); the UI only hides what the user can't do.
-import { type ChannelDraft, type RuleDraft, type RuleErrors, alertError, checkChannelDraft, checkRuleDraft, testError } from "@/lib/alerts";
+import { METRICS as ALERT_METRICS, type ChannelDraft, type RuleDraft, type RuleErrors, alertError, checkChannelDraft, checkRuleDraft, testError } from "@/lib/alerts";
 import { isProjectSlug } from "@/lib/api-keys";
 import { type AlertMetric, type AlertCondition, type ChannelType, identity, isApiError } from "@/lib/identity";
 import { type ServerSession, withActionSession } from "@/lib/server-session";
@@ -14,7 +14,7 @@ export type AlertActionResult = { ok: true; id?: string } | { ok: false; error: 
 
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 64;
 const str = (v: unknown, max = 2048) => (typeof v === "string" ? v.slice(0, max) : "");
-const METRICS: AlertMetric[] = ["traffic", "errors", "error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"];
+const METRICS: AlertMetric[] = ALERT_METRICS.map((m) => m.value);
 const CONDITIONS: AlertCondition[] = ["gt", "gte", "lt", "lte"];
 const TYPES: ChannelType[] = ["email", "slack", "teams", "webhook"];
 

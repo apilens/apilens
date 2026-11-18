@@ -40,7 +40,8 @@ def test_defaults_table_matches_config() -> None:
     assert cfg.compress is True
     assert f"level {client_module.GZIP_LEVEL}" in _row("compress")
     assert f"{_num(cfg.timeout)} s" in _row("timeout")
-    assert f"`{cfg.max_retries}`" in _row("max_retries")
+    assert cfg.max_retries is None
+    assert f"`{_num(cfg.max_retry_seconds)}` s" in _row("max_retry_seconds")
     assert f"{_num(cfg.retry_backoff_base)} s / {_num(cfg.retry_backoff_max)} s" in _row(
         "retry_backoff_base"
     )

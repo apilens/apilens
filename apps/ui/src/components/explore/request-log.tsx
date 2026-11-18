@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
-import { RANGE_LABEL } from "@/lib/consumers";
 import {
   EXPLORE_RANGES,
   type ExploreState,
@@ -26,12 +25,14 @@ import {
   statusClass,
   visibleWindow,
 } from "@/lib/explore";
-import { NO_FILTERS, activeCount } from "@/lib/explore-filters";
+import { type FilterSuggestions, NO_FILTERS, activeCount } from "@/lib/explore-filters";
 import { formatAgo, shownPath } from "@/lib/first-data";
-import type { RequestRow, RequestTimeline } from "@/lib/identity";
+import type { NamedApp, RequestRow, RequestTimeline } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
+import { RangePicker } from "../range-picker";
+import { useAppName } from "./app-names";
 import { FilterBar } from "./filter-bar";
 import { RequestDrawer } from "./request-drawer";
 import { Timeline } from "./timeline";
@@ -43,7 +44,8 @@ const SKELETON_ROWS = 8;
 
 /**
  * The Explore request log (#585): the project's newest requests (at most 200), one row each with
- * time, method, path, status, latency, consumer and response size. Only the rows in view are in the
+ * time, app, method, path, status, latency, consumer and response size, and the environment when
+ * the project has more than one (#975). Only the rows in view are in the
  * DOM, so scrolling stays smooth at any page size. Rows are one tab stop: arrows, Page Up/Down,
  * Home and End move between them; keys with ⌘, Ctrl or Alt pass through (⌘K still opens the
  * switcher). While live it reads the log again every 5 s (not while the tab is hidden), keeping
@@ -56,6 +58,8 @@ const SKELETON_ROWS = 8;
 export function RequestLog({
   project,
   environments,
+  suggestions,
+  apps,
   query: q,
   initial,
   trail,
@@ -66,6 +70,10 @@ export function RequestLog({
 }: {
   project: string;
   environments: readonly string[];
+  /** What the Path and Consumer filters suggest (#983). */
+  suggestions?: FilterSuggestions;
+  /** The project's apps (#975) the App filter offers; null when they could not be read. */
+  apps: readonly NamedApp[] | null;
   query: ExploreState;
   initial: RequestRow[] | null;
   trail: string[];
@@ -152,24 +160,17 @@ export function RequestLog({
   );
 
   const clearHref = exploreHref(project, { ...q, filters: NO_FILTERS });
+  // The Env column only reads apart when the project has more than one environment (#975).
+  const columns = logColumns(environments.length > 1);
 
   return (
     <>
       {/* The toolbar: one row of range, filters, saved view, Export and Live. The filter form opens
           on its own full-width line under it (.ex-filters is display: contents). */}
       <div className="ex-tools">
-        <nav className="ex-seg" aria-label="Time range">
-          {EXPLORE_RANGES.map((r) => {
-            // Another range starts over: the timeline's zoom and jump point (#587) belong to this one.
-            const href = exploreHref(project, { range: r, filters: q.filters });
-            return (
-              <a key={r} href={href} onClick={(e) => go(e, href)} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-                {r}
-              </a>
-            );
-          })}
-        </nav>
-        <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
+        {/* Another range starts over: the timeline's zoom and jump point (#587) belong to this one. */}
+        <RangePicker options={EXPLORE_RANGES} value={q.range} href={(r) => exploreHref(project, { range: r, filters: q.filters })} onNavigate={go} />
+        <FilterBar project={project} environments={environments} suggestions={suggestions} apps={apps} query={q} navigate={navigate} />
         <div className="ex-tools__end">
           {actions}
           {paged ? (
@@ -206,7 +207,7 @@ export function RequestLog({
       ) : null}
 
       {loading ? (
-        <LogGrid rows={null} now={now} caption="" busy />
+        <LogGrid rows={null} columns={columns} now={now} caption="" busy />
       ) : rows === null ? (
         <div className="ex-notice ex-notice--error" role="alert">
           <ObIcon name="info" />
@@ -241,6 +242,7 @@ export function RequestLog({
       ) : (
         <LogGrid
           rows={rows}
+          columns={columns}
           now={now}
           onOpen={open}
           caption={logCaption(q, pages.page, rows.length, filtered, tz)}
@@ -252,13 +254,16 @@ export function RequestLog({
   );
 }
 
-const COLUMNS = ["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"] as const;
+type Column = "Time" | "App" | "Env" | "Method" | "Path" | "Status" | "Latency" | "Consumer" | "Size";
+/** The log's columns; Env only with `env` (the project has more than one environment). */
+const logColumns = (env: boolean): readonly Column[] => ["Time", "App", ...(env ? (["Env"] as const) : []), "Method", "Path", "Status", "Latency", "Consumer", "Size"];
 /** What a header cell says, where it says more than the column's name: the Time column names the zone. */
-const header = (c: (typeof COLUMNS)[number], tz: string) => (c === "Time" ? `Time (${zoneLabel(tz)})` : c);
+const header = (c: Column, tz: string) => (c === "Time" ? `Time (${zoneLabel(tz)})` : c);
 
 /** The grid: a header row and a scrolling, virtualised body. `rows` null draws skeleton rows. */
 function LogGrid({
   rows,
+  columns,
   now,
   caption,
   busy = false,
@@ -266,6 +271,7 @@ function LogGrid({
   pager,
 }: {
   rows: RequestRow[] | null;
+  columns: readonly Column[];
   now: number;
   caption: string;
   busy?: boolean;
@@ -354,14 +360,15 @@ function LogGrid({
     focusRow(next);
   };
 
+  const env = columns.includes("Env");
   const { start, end } = visibleWindow(scrollTop, viewport > ROW_HEIGHT ? viewport - ROW_HEIGHT : 0, count);
   const shown = [];
   for (let i = start; i < end; i++) {
     shown.push(
       rows ? (
-        <LogRow key={keys[i]} row={rows[i]} index={i} now={now} focusable={i === focusIndex} onFocus={setFocusKey} onOpen={onOpen} rowId={keys[i]} />
+        <LogRow key={keys[i]} row={rows[i]} env={env} index={i} now={now} focusable={i === focusIndex} onFocus={setFocusKey} onOpen={onOpen} rowId={keys[i]} />
       ) : (
-        <SkeletonRow key={i} index={i} />
+        <SkeletonRow key={i} index={i} columns={columns} />
       ),
     );
   }
@@ -370,11 +377,11 @@ function LogGrid({
     <div className="ex-card">
       {/* The grid scrolls itself; its header row sticks to the top, so columns always line up. */}
       <div
-        className="ex-grid"
+        className={`ex-grid${env ? " has-env" : ""}`}
         role="grid"
         aria-label="Requests"
         aria-rowcount={count + 1}
-        aria-colcount={COLUMNS.length}
+        aria-colcount={columns.length}
         aria-busy={busy || undefined}
         ref={scroller}
         onScroll={onScroll}
@@ -382,7 +389,7 @@ function LogGrid({
       >
         <div role="rowgroup" className="ex-head">
           <div className="ex-row ex-row--head" role="row" aria-rowindex={1}>
-            {COLUMNS.map((c) => (
+            {columns.map((c) => (
               <div key={c} role="columnheader" className={`ex-cell ex-cell--${c.toLowerCase()}`}>
                 {header(c, tz)}
               </div>
@@ -405,6 +412,7 @@ function LogGrid({
 
 const LogRow = memo(function LogRow({
   row: r,
+  env,
   index,
   now,
   focusable,
@@ -413,6 +421,8 @@ const LogRow = memo(function LogRow({
   rowId,
 }: {
   row: RequestRow;
+  /** Whether the Env column is on. */
+  env: boolean;
   index: number;
   now: number;
   focusable: boolean;
@@ -426,6 +436,7 @@ const LogRow = memo(function LogRow({
   const tone = latencyTone(r.response_time_ms);
   const status = statusClass(r.status_code);
   const time = logTime(r.timestamp, now, tz);
+  const app = useAppName(r.app_id);
   // The URL as requested is what reads apart row to row; the route it matched is in the title.
   const pathTitle = r.path && r.path !== path ? `${path}\nRoute ${r.method.toUpperCase()} ${r.path}` : path;
   return (
@@ -447,6 +458,20 @@ const LogRow = memo(function LogRow({
           {time.day ? null : <span className="ex-time__ms">{time.ms}</span>}
         </time>
       </div>
+      <div role="gridcell" className="ex-cell ex-cell--app">
+        {app !== null ? (
+          <span title={app}>{app}</span>
+        ) : (
+          <span className="ex-faint" title={r.app_id ? "An app this project no longer lists." : "No app reported."}>
+            –
+          </span>
+        )}
+      </div>
+      {env ? (
+        <div role="gridcell" className="ex-cell ex-cell--env">
+          <span title={r.environment}>{r.environment}</span>
+        </div>
+      ) : null}
       <div role="gridcell" className="ex-cell ex-cell--method">
         {r.method.toUpperCase()}
       </div>
@@ -480,10 +505,10 @@ const LogRow = memo(function LogRow({
   );
 });
 
-function SkeletonRow({ index }: { index: number }) {
+function SkeletonRow({ index, columns }: { index: number; columns: readonly Column[] }) {
   return (
     <div className="ex-row ex-row--skeleton" role="row" aria-rowindex={index + 2} style={{ transform: `translateY(${index * ROW_HEIGHT}px)` }}>
-      {COLUMNS.map((c) => (
+      {columns.map((c) => (
         <div key={c} role="gridcell" className={`ex-cell ex-cell--${c.toLowerCase()}`}>
           <span className="ex-bone" aria-hidden="true" />
         </div>

@@ -17,7 +17,8 @@ func ptr[T any](v T) *T { return &v }
 
 func TestMetricCatalogueMatchesSchema(t *testing.T) {
 	// alert_rules.metric CHECK in 00016_alerts.sql.
-	want := []string{"traffic", "errors", "error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"}
+	want := []string{
+		"traffic", "errors", "error_rate", "server_errors", "server_error_rate", "client_errors", "client_error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"}
 	if len(Metrics) != len(want) {
 		t.Fatalf("Metrics = %v, want %v", Metrics, want)
 	}
@@ -186,6 +187,51 @@ func TestBuildQuerySource(t *testing.T) {
 
 // TestBuildQueryGroup checks a group filter binds the SDK group name to
 // consumer_group on raw rows, for every metric.
+// TestBuildQueryErrorSplit checks the server (5xx) and client (4xx) error
+// metrics count only their class, from the rollup and from raw rows, and
+// that the combined metrics still count both.
+func TestBuildQueryErrorSplit(t *testing.T) {
+	scope := queryScope{project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300)}
+	cases := []struct {
+		m           Metric
+		rollup, raw string
+	}{
+		{MetricErrors, "toFloat64(sum(client_errors) + sum(server_errors))", "toFloat64(countIf(status_code >= 400))"},
+		{MetricErrorRate, "if(sum(requests) = 0, 0, (sum(client_errors) + sum(server_errors)) / sum(requests))", "if(count() = 0, 0, countIf(status_code >= 400) / count())"},
+		{MetricServerErrors, "toFloat64(sum(server_errors))", "toFloat64(countIf(status_code >= 500))"},
+		{MetricServerErrorRate, "if(sum(requests) = 0, 0, sum(server_errors) / sum(requests))", "if(count() = 0, 0, countIf(status_code >= 500) / count())"},
+		{MetricClientErrors, "toFloat64(sum(client_errors))", "toFloat64(countIf(status_code >= 400 AND status_code < 500))"},
+		{MetricClientErrorRate, "if(sum(requests) = 0, 0, sum(client_errors) / sum(requests))", "if(count() = 0, 0, countIf(status_code >= 400 AND status_code < 500) / count())"},
+	}
+	for _, c := range cases {
+		q, err := buildQuery(c.m, scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(q.sql, "SELECT toUInt64(sum(requests)), "+c.rollup+" FROM api_requests_1m ") {
+			t.Errorf("%s rollup:\n%s", c.m, q.sql)
+		}
+		s := scope
+		s.filters = Filters{Consumer: "alice"}
+		q, err = buildQuery(c.m, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(q.sql, "SELECT count(), "+c.raw+" FROM api_requests ") {
+			t.Errorf("%s raw:\n%s", c.m, q.sql)
+		}
+	}
+	for _, m := range Metrics {
+		if got, want := m.countLike(), m == MetricTraffic || m == MetricErrors || m == MetricServerErrors ||
+			m == MetricClientErrors || m == MetricUniqueConsumers; got != want {
+			t.Errorf("%s countLike = %v, want %v", m, got, want)
+		}
+		if got, want := m.IsRate(), m == MetricErrorRate || m == MetricServerErrorRate || m == MetricClientErrorRate; got != want {
+			t.Errorf("%s IsRate = %v, want %v", m, got, want)
+		}
+	}
+}
+
 func TestBuildQueryGroup(t *testing.T) {
 	scope := queryScope{
 		project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300),

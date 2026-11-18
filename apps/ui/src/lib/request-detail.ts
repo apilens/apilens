@@ -396,7 +396,7 @@ export function detailRead(status: number, body: unknown): DetailRead {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   if (b.ok === true && typeof b.detail === "object" && b.detail !== null) {
     const d = b.detail as Partial<RequestDetailRead>;
-    if (d.request && typeof d.request === "object") return { kind: "detail", data: { request: d.request, spans: d.spans ?? [], logs: d.logs ?? [] } };
+    if (d.request && typeof d.request === "object") return { kind: "detail", data: { request: d.request, spans: d.spans ?? [], logs: d.logs ?? [], trace_truncated: d.trace_truncated === true } };
   }
   const code = typeof b.code === "string" ? b.code : status >= 500 ? "unavailable" : "network_error";
   if (status === 401 && code === "session_expired") return { kind: "expired", next: typeof b.next === "string" ? b.next : "/sign-in" };

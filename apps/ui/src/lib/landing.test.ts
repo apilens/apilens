@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_VIEW } from "./data";
-import type { ContextOrg, UserContext } from "./identity";
-import { landingFor, onboardingPath } from "./landing";
+import { ApiError, type ContextOrg, type UserContext } from "./identity";
+import { HOME_SCREEN_VIEW, homeView, landingFor, onboardingPath, projectHasData, sdkSetupPath } from "./landing";
 
 class Redirect extends Error {
   constructor(readonly location: string) {
@@ -11,6 +11,7 @@ class Redirect extends Error {
 
 let payload: object | null = null;
 const getContext = vi.fn();
+const listManagedApps = vi.fn();
 
 vi.mock("next/navigation", () => ({
   redirect: (location: string) => {
@@ -18,8 +19,12 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("./auth/server", () => ({
-  getSession: async () => ({ payload }),
+  getSession: async () => ({ payload, call: <T,>(fn: (o: { accessToken: string }) => Promise<T>) => fn({ accessToken: "a" }) }),
   getContext: (next: string) => getContext(next),
+}));
+vi.mock("./identity", async (orig) => ({
+  ...(await orig<typeof import("./identity")>()),
+  identity: () => ({ listManagedApps }),
 }));
 
 const { default: Home } = await import("@/app/page");
@@ -69,9 +74,31 @@ describe("landingFor", () => {
     expect(landingFor(ctx())).toBe(`/billing/${HOME_VIEW}`);
   });
 
-  it("uses the home preference when it names a view", () => {
-    expect(landingFor(ctx({}, { home: "explore" as never }))).toBe("/billing/explore");
-    expect(landingFor(ctx({}, { home: "endpoints" }))).toBe(`/billing/${HOME_VIEW}`);
+  it.each([
+    ["endpoints", "traffic"],
+    ["requests", "explore"],
+    ["exceptions", "errors"],
+  ] as const)("home screen %s opens %s", (home, view) => {
+    expect(HOME_SCREEN_VIEW[home]).toBe(view);
+    expect(homeView(ctx({}, { home }))).toBe(view);
+    expect(landingFor(ctx({}, { home }))).toBe(`/billing/${view}`);
+    expect(landingFor(ctx({}, { home }), true)).toBe(`/billing/${view}`);
+  });
+
+  it("an unknown home preference opens the default view", () => {
+    expect(landingFor(ctx({}, { home: "explore" as never }))).toBe(`/billing/${HOME_VIEW}`);
+    expect(landingFor(ctx({}, { home: "dashboard" as never }))).toBe(`/billing/${HOME_VIEW}`);
+  });
+
+  it("a project with no ingested data opens Settings > SDK setup, whatever the home screen", () => {
+    expect(sdkSetupPath("billing")).toBe("/billing/settings/sdk");
+    expect(landingFor(ctx(), false)).toBe("/billing/settings/sdk");
+    expect(landingFor(ctx({}, { home: "exceptions" }), false)).toBe("/billing/settings/sdk");
+    expect(landingFor(ctx({ last_project_slug: null }), false)).toBe("/shop/settings/sdk");
+    // The rule never overrides onboarding.
+    expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }), false)).toBe(
+      "/onboarding/join",
+    );
   });
 
   it("falls back to the first visible project without a (visible) last project", () => {
@@ -85,6 +112,21 @@ describe("landingFor", () => {
       "/onboarding/create",
     );
     expect(landingFor(ctx({ orgs: [empty], last_project_slug: null }))).toBe("/orgs/acme/settings");
+  });
+});
+
+describe("projectHasData", () => {
+  const app = (first: string | null, last: string | null = null) => ({ first_seen_at: first, last_seen_at: last });
+
+  it("is false without apps, or when no app ever reported", () => {
+    expect(projectHasData(null)).toBe(false);
+    expect(projectHasData([])).toBe(false);
+    expect(projectHasData([app(null), app(null)])).toBe(false);
+  });
+
+  it("is true once any app has been seen", () => {
+    expect(projectHasData([app(null), app("2026-11-10T00:00:00Z")])).toBe(true);
+    expect(projectHasData([app(null, "2026-11-10T00:00:00Z")])).toBe(true);
   });
 });
 
@@ -102,6 +144,8 @@ describe("/ (app/page.tsx)", () => {
   beforeEach(() => {
     payload = { access: "a", refresh: "r", exp: 0, remember: false, uid: "u1" };
     getContext.mockReset();
+    listManagedApps.mockReset();
+    listManagedApps.mockResolvedValue({ apps: [{ first_seen_at: "2026-11-10T00:00:00Z", last_seen_at: null }] });
   });
 
   it("signed out → /sign-in", async () => {
@@ -117,7 +161,20 @@ describe("/ (app/page.tsx)", () => {
   });
 
   it("signed in with projects → last project on the home view", async () => {
-    getContext.mockResolvedValue(ctx({}, { home: "explore" as never }));
+    getContext.mockResolvedValue(ctx({}, { home: "requests" }));
     await expect(Home()).rejects.toEqual(new Redirect("/billing/explore"));
+    expect(listManagedApps).toHaveBeenCalledWith("billing", { accessToken: "a" });
+  });
+
+  it("signed in on a project with no ingested data → its SDK setup", async () => {
+    getContext.mockResolvedValue(ctx({}, { home: "exceptions" }));
+    listManagedApps.mockResolvedValue({ apps: [{ first_seen_at: null, last_seen_at: null }] });
+    await expect(Home()).rejects.toEqual(new Redirect("/billing/settings/sdk"));
+  });
+
+  it("the data check failing falls back to the home view", async () => {
+    getContext.mockResolvedValue(ctx({}, { home: "exceptions" }));
+    listManagedApps.mockRejectedValue(new ApiError({ status: 403, code: "forbidden" }));
+    await expect(Home()).rejects.toEqual(new Redirect("/billing/errors"));
   });
 });

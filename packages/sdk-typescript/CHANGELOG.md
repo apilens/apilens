@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- Database spans: every `pg` and `mysql2` statement run while handling a
+  request becomes a `db` child span with `db.system`, `db.operation` and an
+  obfuscated `db.statement` (literals replaced by `?`, comments removed, cut to
+  2 KiB). Prisma: `instrumentPrisma(prisma)` returns an extended client that
+  traces model and raw operations. New option `captureDbSpans` (default true).
+- The per-request span cap rises from 256 to 2,000 (`MAX_SPANS_PER_REQUEST`)
+  and spans past it are no longer lost silently: they are counted as
+  `span_cap` drops and reported in the heartbeat.
+- Errors outside a request: on Node the client ships `uncaughtException` and
+  `unhandledRejection` as ERROR exception logs and flushes them before the
+  process exits (`captureUnhandled`, default true). Node's exit behaviour is
+  kept: a crash still crashes (exit code 1) after the flush, the
+  `--unhandled-rejections` mode is honoured and an app listener stays in
+  charge. New `captureException(err, { level })` ships an error the app
+  caught, tied to the current request's trace.
+- Errors handled by the app's own error handlers still ship their stack: an
+  Express error middleware (in the app or a sub-router, also one that swaps
+  the error), a Fastify `setErrorHandler`, a NestJS exception filter (errors
+  from handlers, guards, pipes and Nest middleware), a Koa try/catch error
+  middleware and Hono `onError`. The error closest to where it was raised is
+  the one reported, once per request.
+- Full exception payload: the exception log renders `name: message`, the
+  stack, every `Caused by:` from `error.cause` (depth 10, cycle-safe) and
+  every `AggregateError` member; a non-`Error` throw sends `String(value)`
+  plus a JSON preview. The payload cap rises from 8,000 chars (head only) to
+  64 KiB keeping head and tail. New log attributes `exception.type`,
+  `exception.message`, `exception.chain_depth`. New `stackTraceLimit` option
+  (default 50) raises `Error.stackTraceLimit` at init unless the app already
+  set it higher.
+- Errors are never sampled: a request whose handler threw (whatever status
+  the app answered) or that answered 5xx is always kept, with its spans and
+  error log, whatever `sampleRate`, `sampleOnRequest`, `sampleOnResponse` or
+  the remote sample rate say. Remote `enabled: false` still turns capture off.
+- The error log is sent for every thrown error, ERROR for a 5xx and WARN
+  below 500, and no longer depends on span capture (`captureSpans: false` /
+  `APILENS_CAPTURE_SPANS=false` send it without a trace id).
+- No silent loss: a failing batch is retried with backoff for up to
+  `maxRetrySeconds` (default 300) instead of 3 attempts (`maxRetries` is now
+  an optional cap); one batch retries at a time. Drops are counted per signal
+  (`client.signalDropCounts()`) and sent in the heartbeat's `dropped` field
+  until a heartbeat is accepted. The span and log queues are bounded by
+  `maxQueueBytes` too, and an oversize span or log is truncated (`payload`
+  and `message` head and tail kept, then attributes) instead of dropped. A
+  200 that leaves records out (`invalid` / `rejected`) counts them as
+  `server_rejected`. On Node the client flushes on `beforeExit`, `SIGTERM`
+  and `SIGINT` (`flushOnShutdown`, default on; the signal is raised again
+  when the app has no listener of its own), and `handleShutdown` is bounded
+  by `shutdownTimeoutMs` (default 5000); still-queued records count as
+  `shutdown`.
+
 - Koa middleware (`apilens-js-sdk/koa`: `apiLensKoa`, `instrumentKoa`,
   `setConsumer`) with the route template from `@koa/router`'s
   `ctx._matchedRoute` and the `routers` option's routes in the metadata report.

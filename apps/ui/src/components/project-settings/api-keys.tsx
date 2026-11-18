@@ -60,6 +60,7 @@ import { ObIcon } from "../onboarding/ob";
 import { AccessFields } from "./access-fields";
 import { Pagination } from "../pagination/pagination";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./api-keys.css";
@@ -200,11 +201,9 @@ export function ApiKeysSettings({
 
   return (
     <div className="page os ak">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Access</p>
-        <h1 className="cp-lede">API keys</h1>
+      <PageHeader project={project} projectName={projectName} title="Access" className="os-head">
         {nav}
-      </header>
+      </PageHeader>
 
       <section className="os-card pk ak-card" aria-labelledby="ak-title">
         <div className="os-card__head pk-head">

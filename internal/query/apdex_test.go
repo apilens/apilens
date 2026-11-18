@@ -78,6 +78,39 @@ func TestApdexThresholdPrecedence(t *testing.T) {
 	}
 }
 
+// TestApdexCountsServerErrorsFrustrated checks the Apdex columns only let
+// a request below 500, or with a 5xx its endpoint expects, be satisfied or
+// tolerating, and that the arguments follow the placeholders in order.
+func TestApdexCountsServerErrorsFrustrated(t *testing.T) {
+	with, counts, args := (apdexThresholds{}).selectCounts()
+	if with != "WITH 500 AS apdex_t, status_code < 500 AS apdex_ok" || len(args) != 0 {
+		t.Fatalf("default with = %q %v", with, args)
+	}
+	want := "count(), countIf(apdex_ok AND response_time_ms <= apdex_t), " +
+		"countIf(apdex_ok AND response_time_ms > apdex_t AND response_time_ms <= 4 * apdex_t)"
+	if counts != want {
+		t.Fatalf("counts = %q, want %q", counts, want)
+	}
+
+	app := uuid.New()
+	th := apdexThresholds{
+		apps:  []appThreshold{{app: app, ms: 250}},
+		rules: metricRules{expected: []expectedRule{{endpointKey{app: app, method: "GET", path: "/mixed"}, []int32{503}}}},
+	}
+	with, _, args = th.selectCounts()
+	wantWith := "WITH multiIf(app_id = ?, 250, 500) AS apdex_t, " +
+		"(status_code < 500 OR ((app_id = ? AND method = ? AND path = ? AND status_code IN (503)))) AS apdex_ok"
+	if with != wantWith {
+		t.Fatalf("with = %q, want %q", with, wantWith)
+	}
+	if len(args) != 4 || args[0] != app || args[1] != app || args[2] != "GET" || args[3] != "/mixed" {
+		t.Fatalf("args = %v", args)
+	}
+	if strings.Count(with, "?") != len(args) {
+		t.Fatalf("placeholders and args differ: %q %v", with, args)
+	}
+}
+
 type fakeAppSettingsCatalog struct {
 	fakeSettingsCatalog
 	threshold *int32

@@ -84,6 +84,10 @@ type spanRecord struct {
 	Attributes   map[string]json.RawMessage `json:"attributes"`
 	Release      string                     `json:"release"`
 	Commit       string                     `json:"commit"`
+	// M5 fields; older SDKs omit them.
+	StatusMessage string            `json:"status_message"`
+	Events        []spanEventRecord `json:"events"`
+	Links         []spanLinkRecord  `json:"links"`
 }
 
 type deployRecord struct {
@@ -96,9 +100,15 @@ type deployRecord struct {
 	DeployedAt  flexTime `json:"deployed_at"`
 }
 
+// accepted is the 200 answer of a batch call. rejected lists the apps whose
+// records were refused; invalid counts the records refused on their own
+// (bad field, timestamp or id) and errors names up to maxRecordErrors of
+// them by their index in the body.
 type accepted struct {
 	Accepted int           `json:"accepted"`
 	Rejected []rejectedApp `json:"rejected,omitempty"`
+	Invalid  int           `json:"invalid,omitempty"`
+	Errors   []recordError `json:"errors,omitempty"`
 }
 
 func (e *Edge) checkCount(n int) *apiError {
@@ -119,9 +129,9 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Requests []requestRecord `json:"requests"`
+		Requests []json.RawMessage `json:"requests"`
 	}
-	size, aerr := e.decodeJSON(w, r, &body)
+	size, aerr := e.decodeBatch(w, r, &body)
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Requests))
 	}
@@ -131,41 +141,48 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	slugs, idents := make([]string, len(body.Requests)), make([]string, len(body.Requests))
-	for i, rec := range body.Requests {
+	now := e.now()
+	inv := &invalidRecords{}
+	recs := parseRecords(body.Requests, "requests", func(rec requestRecord) string { return rec.AppID }, func(rec requestRecord) string {
+		if !validTimestamp(rec.Timestamp.Time, now) {
+			return ".timestamp is missing or out of range"
+		}
+		if strings.TrimSpace(rec.Method) == "" || short(rec.Path) == "" {
+			return ": method and path are required"
+		}
+		return ""
+	}, inv)
+	e.rejectInvalid(r.Context(), p.ProjectID, signal, inv, t)
+	if len(recs) == 0 {
+		e.answer(w, signal, 0, nil, inv)
+		return
+	}
+	slugs, idents := make([]string, len(recs)), make([]string, len(recs))
+	for i, rec := range recs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p, len(body.Requests), size, t); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(recs), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	envs := recordEnvs(body.Requests, func(rec requestRecord) string { return rec.Environment })
+	envs := recordEnvs(recs, func(rec requestRecord) string { return rec.Environment })
 	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr == nil {
-		body.Requests = filterRecords(body.Requests, func(rec requestRecord) string { return rec.AppID }, batch)
-		aerr = e.redactRequests(r.Context(), p.ProjectID, batch.apps, body.Requests, t)
+		recs = filterRecords(recs, func(rec requestRecord) string { return rec.AppID }, batch)
+		aerr = e.redactRequests(r.Context(), p.ProjectID, batch.apps, recs, t)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
 	apps := batch.apps
-	e.capRequests(r.Context(), apps, body.Requests, t)
+	e.capRequests(r.Context(), apps, recs, t)
 
-	now := e.now()
-	rows := make([]pipeline.RequestRow, 0, len(body.Requests))
-	for i, rec := range body.Requests {
-		if !validTimestamp(rec.Timestamp.Time, now) {
-			e.fail(w, signal, errValidation("requests[%d].timestamp is missing or out of range", i))
-			return
-		}
+	rows := make([]pipeline.RequestRow, 0, len(recs))
+	for _, rec := range recs {
 		method := strings.ToUpper(strings.TrimSpace(rec.Method))
 		path := short(rec.Path)
-		if method == "" || path == "" {
-			e.fail(w, signal, errValidation("requests[%d]: method and path are required", i))
-			return
-		}
 		rows = append(rows, pipeline.RequestRow{
 			ProjectID:        p.ProjectID,
 			AppID:            apps[strings.TrimSpace(rec.AppID)],
@@ -199,13 +216,16 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitRequests(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
 	for _, row := range rows {
 		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows), batch)
+	e.answer(w, signal, len(rows), batch, inv)
 }
 
 func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -216,9 +236,9 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Logs []logRecord `json:"logs"`
+		Logs []json.RawMessage `json:"logs"`
 	}
-	size, aerr := e.decodeJSON(w, r, &body)
+	size, aerr := e.decodeBatch(w, r, &body)
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Logs))
 	}
@@ -228,20 +248,33 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	slugs, idents := make([]string, len(body.Logs)), make([]string, len(body.Logs))
-	for i, rec := range body.Logs {
+	now := e.now()
+	inv := &invalidRecords{}
+	recs := parseRecords(body.Logs, "logs", func(rec logRecord) string { return rec.AppID }, func(rec logRecord) string {
+		if !validTimestamp(rec.Timestamp.Time, now) {
+			return ".timestamp is missing or out of range"
+		}
+		return ""
+	}, inv)
+	e.rejectInvalid(r.Context(), p.ProjectID, signal, inv, t)
+	if len(recs) == 0 {
+		e.answer(w, signal, 0, nil, inv)
+		return
+	}
+	slugs, idents := make([]string, len(recs)), make([]string, len(recs))
+	for i, rec := range recs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p, len(body.Logs), size, t); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(recs), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	envs := recordEnvs(body.Logs, func(rec logRecord) string { return rec.Environment })
+	envs := recordEnvs(recs, func(rec logRecord) string { return rec.Environment })
 	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr == nil {
-		body.Logs = filterRecords(body.Logs, func(rec logRecord) string { return rec.AppID }, batch)
-		aerr = e.redactLogs(r.Context(), p.ProjectID, batch.apps, body.Logs, t)
+		recs = filterRecords(recs, func(rec logRecord) string { return rec.AppID }, batch)
+		aerr = e.redactLogs(r.Context(), p.ProjectID, batch.apps, recs, t)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
@@ -249,13 +282,8 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	apps := batch.apps
 
-	now := e.now()
-	rows := make([]pipeline.LogRow, 0, len(body.Logs))
-	for i, rec := range body.Logs {
-		if !validTimestamp(rec.Timestamp.Time, now) {
-			e.fail(w, signal, errValidation("logs[%d].timestamp is missing or out of range", i))
-			return
-		}
+	rows := make([]pipeline.LogRow, 0, len(recs))
+	for _, rec := range recs {
 		rows = append(rows, pipeline.LogRow{
 			ProjectID:      p.ProjectID,
 			AppID:          apps[strings.TrimSpace(rec.AppID)],
@@ -272,7 +300,7 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 			ConsumerGroup:  truncate(strings.TrimSpace(rec.ConsumerGroup), 256),
 			TraceID:        hexID(rec.TraceID, traceIDHexLen),
 			SpanID:         hexID(rec.SpanID, spanIDHexLen),
-			Payload:        truncate(rec.Payload, maxLogPayloadChars),
+			Payload:        truncateHeadTail(rec.Payload, maxLogPayloadChars),
 			Attributes:     attributes(rec.Attributes),
 			Release:        release(rec.Release),
 			Commit:         commit(rec.Commit),
@@ -280,13 +308,16 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitLogs(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
 	for _, row := range rows {
 		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows), batch)
+	e.answer(w, signal, len(rows), batch, inv)
 }
 
 func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
@@ -297,9 +328,9 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Spans []spanRecord `json:"spans"`
+		Spans []json.RawMessage `json:"spans"`
 	}
-	size, aerr := e.decodeJSON(w, r, &body)
+	size, aerr := e.decodeBatch(w, r, &body)
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Spans))
 	}
@@ -309,36 +340,43 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	slugs, idents := make([]string, len(body.Spans)), make([]string, len(body.Spans))
-	for i, rec := range body.Spans {
+	now := e.now()
+	inv := &invalidRecords{}
+	recs := parseRecords(body.Spans, "spans", func(rec spanRecord) string { return rec.AppID }, func(rec spanRecord) string {
+		if hexID(rec.TraceID, traceIDHexLen) == "" || hexID(rec.SpanID, spanIDHexLen) == "" {
+			return ": trace_id and span_id must be W3C hex ids"
+		}
+		if !validTimestamp(rec.Timestamp.Time, now) {
+			return ".timestamp is missing or out of range"
+		}
+		return ""
+	}, inv)
+	e.rejectInvalid(r.Context(), p.ProjectID, signal, inv, t)
+	if len(recs) == 0 {
+		e.answer(w, signal, 0, nil, inv)
+		return
+	}
+	slugs, idents := make([]string, len(recs)), make([]string, len(recs))
+	for i, rec := range recs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p, len(body.Spans), size, t); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(recs), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	envs := recordEnvs(body.Spans, func(rec spanRecord) string { return rec.Environment })
+	envs := recordEnvs(recs, func(rec spanRecord) string { return rec.Environment })
 	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
-	body.Spans = filterRecords(body.Spans, func(rec spanRecord) string { return rec.AppID }, batch)
+	recs = filterRecords(recs, func(rec spanRecord) string { return rec.AppID }, batch)
 	apps := batch.apps
 
-	now := e.now()
-	rows := make([]pipeline.SpanRow, 0, len(body.Spans))
-	for i, rec := range body.Spans {
+	rows := make([]pipeline.SpanRow, 0, len(recs))
+	for _, rec := range recs {
 		traceID, spanID := hexID(rec.TraceID, traceIDHexLen), hexID(rec.SpanID, spanIDHexLen)
-		if traceID == "" || spanID == "" {
-			e.fail(w, signal, errValidation("spans[%d]: trace_id and span_id must be W3C hex ids", i))
-			return
-		}
-		if !validTimestamp(rec.Timestamp.Time, now) {
-			e.fail(w, signal, errValidation("spans[%d].timestamp is missing or out of range", i))
-			return
-		}
 		status := "ok"
 		if strings.EqualFold(strings.TrimSpace(rec.Status), "error") {
 			status = "error"
@@ -347,34 +385,47 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		if kind == "" {
 			kind = "internal"
 		}
+		appID := apps[strings.TrimSpace(rec.AppID)]
+		events, eventsCut := spanEvents(rec.Events, rec.Timestamp.Time)
+		links, linksCut := spanLinks(rec.Links)
+		if eventsCut || linksCut {
+			e.truncated.WithLabelValues(FieldSpanEvents).Inc()
+			t.app(appID).Truncated++
+		}
 		rows = append(rows, pipeline.SpanRow{
-			ProjectID:    p.ProjectID,
-			AppID:        apps[strings.TrimSpace(rec.AppID)],
-			Environment:  environment(rec.Environment),
-			Timestamp:    rec.Timestamp.Time,
-			TraceID:      traceID,
-			SpanID:       spanID,
-			ParentSpanID: hexID(rec.ParentSpanID, spanIDHexLen),
-			Name:         short(rec.Name),
-			Kind:         truncate(kind, 32),
-			ServiceName:  short(rec.ServiceName),
-			DurationMs:   nonNegative(rec.DurationMs),
-			Status:       status,
-			StatusCode:   clampStatus(rec.StatusCode),
-			Attributes:   attributes(rec.Attributes),
-			Release:      release(rec.Release),
-			Commit:       commit(rec.Commit),
+			ProjectID:     p.ProjectID,
+			AppID:         appID,
+			Environment:   environment(rec.Environment),
+			Timestamp:     rec.Timestamp.Time,
+			TraceID:       traceID,
+			SpanID:        spanID,
+			ParentSpanID:  hexID(rec.ParentSpanID, spanIDHexLen),
+			Name:          short(rec.Name),
+			Kind:          truncate(kind, 32),
+			ServiceName:   short(rec.ServiceName),
+			DurationMs:    nonNegative(rec.DurationMs),
+			Status:        status,
+			StatusCode:    clampStatus(rec.StatusCode),
+			Attributes:    attributes(rec.Attributes),
+			Release:       release(rec.Release),
+			Commit:        commit(rec.Commit),
+			StatusMessage: truncate(strings.TrimSpace(rec.StatusMessage), maxSpanStatusMessageChars),
+			Events:        events,
+			Links:         links,
 		})
 	}
 	if err := e.sink.SubmitSpans(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
 	for _, row := range rows {
 		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows), batch)
+	e.answer(w, signal, len(rows), batch, inv)
 }
 
 func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
@@ -385,9 +436,9 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Deploys []deployRecord `json:"deploys"`
+		Deploys []json.RawMessage `json:"deploys"`
 	}
-	size, aerr := e.decodeJSON(w, r, &body)
+	size, aerr := e.decodeBatch(w, r, &body)
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Deploys))
 	}
@@ -397,38 +448,46 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	slugs, idents := make([]string, len(body.Deploys)), make([]string, len(body.Deploys))
-	for i, rec := range body.Deploys {
+	now := e.now()
+	inv := &invalidRecords{}
+	recs := parseRecords(body.Deploys, "deploys", func(rec deployRecord) string { return rec.AppID }, func(rec deployRecord) string {
+		if release(rec.Release) == "" {
+			return ".release is required"
+		}
+		if at := rec.DeployedAt.Time; !at.IsZero() && !validTimestamp(at, now) {
+			return ".deployed_at is out of range"
+		}
+		return ""
+	}, inv)
+	e.rejectInvalid(r.Context(), p.ProjectID, signal, inv, t)
+	if len(recs) == 0 {
+		e.answer(w, signal, 0, nil, inv)
+		return
+	}
+	slugs, idents := make([]string, len(recs)), make([]string, len(recs))
+	for i, rec := range recs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p, len(body.Deploys), size, t); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(recs), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	envs := recordEnvs(body.Deploys, func(rec deployRecord) string { return rec.Environment })
+	envs := recordEnvs(recs, func(rec deployRecord) string { return rec.Environment })
 	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, true, t)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
-	body.Deploys = filterRecords(body.Deploys, func(rec deployRecord) string { return rec.AppID }, batch)
+	recs = filterRecords(recs, func(rec deployRecord) string { return rec.AppID }, batch)
 	apps := batch.apps
 
-	now := e.now()
-	rows := make([]pipeline.DeployRow, 0, len(body.Deploys))
-	for i, rec := range body.Deploys {
+	rows := make([]pipeline.DeployRow, 0, len(recs))
+	for _, rec := range recs {
 		rel := release(rec.Release)
-		if rel == "" {
-			e.fail(w, signal, errValidation("deploys[%d].release is required", i))
-			return
-		}
 		at := rec.DeployedAt.Time
 		if at.IsZero() {
 			at = now.UTC()
-		} else if !validTimestamp(at, now) {
-			e.fail(w, signal, errValidation("deploys[%d].deployed_at is out of range", i))
-			return
 		}
 		appID := uuid.Nil
 		if id := strings.TrimSpace(rec.AppID); id != "" {
@@ -446,23 +505,14 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitDeploys(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
 	for _, row := range rows {
 		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows), batch)
-}
-
-// ok answers 200 with the stored count and, when the records of some apps
-// were refused, which and why.
-func (e *Edge) ok(w http.ResponseWriter, signal string, n int, b *appBatch) {
-	e.records.WithLabelValues(signal, "accepted").Add(float64(n))
-	e.batches.WithLabelValues(signal, "200").Inc()
-	out := accepted{Accepted: n}
-	if b != nil {
-		out.Rejected = b.report
-	}
-	writeJSON(w, http.StatusOK, out)
+	e.answer(w, signal, len(rows), batch, inv)
 }

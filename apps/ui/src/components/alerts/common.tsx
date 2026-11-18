@@ -3,19 +3,32 @@ import type { ReactNode } from "react";
 import { STATUS_LABEL, incidentsHref, rulesHref, statusTone } from "@/lib/alerts";
 import type { AlertStatus } from "@/lib/identity";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "./alerts.css";
 
-/** The alerts pages' title and their two tabs: Incidents and Alert rules. */
-export function AlertsHeader({ project, projectName, tab, title, lead, children }: { project: string; projectName: string; tab: "incidents" | "rules"; title: string; lead?: string; children?: ReactNode }) {
+/**
+ * The alerts pages' header (PageHeader, #992) and their two tabs: Incidents and Alert rules. The
+ * title is the sidebar's label, Incidents; `section` names a rule or the new rule under it.
+ * `children` sit in the actions slot (a button, the range picker).
+ */
+export function AlertsHeader({
+  project,
+  projectName,
+  tab,
+  section,
+  lead,
+  children,
+}: {
+  project: string;
+  projectName: string;
+  tab: "incidents" | "rules";
+  section?: string;
+  lead?: string;
+  children?: ReactNode;
+}) {
   return (
-    <header className="pagehead al-head">
-      <div>
-        <p className="cp-h">{projectName} · Incidents</p>
-        <h1 className="cp-lede">{title}</h1>
-        {lead ? <p className="al-lead">{lead}</p> : null}
-      </div>
-      {children}
+    <PageHeader project={project} projectName={projectName} title="Incidents" section={section} lead={lead} actions={children}>
       <nav className="os-tabs" aria-label="Alerts">
         <Link className={`os-tab${tab === "incidents" ? " on" : ""}`} href={incidentsHref(project)} aria-current={tab === "incidents" ? "page" : undefined}>
           Incidents
@@ -24,7 +37,7 @@ export function AlertsHeader({ project, projectName, tab, title, lead, children 
           Alert rules
         </Link>
       </nav>
-    </header>
+    </PageHeader>
   );
 }
 

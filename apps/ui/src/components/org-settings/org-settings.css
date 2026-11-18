@@ -33,7 +33,7 @@
 
 /* Allowed domains: chips and the entry share one field that grows. */
 .os-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); cursor: text; }
-.os-chips:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.os-chips:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .os-chips.bad { border-color: var(--error); }
 .os-chips.ro { background: var(--surface-2); cursor: default; }
 .os-chips input { flex: 1; min-width: 140px; height: 28px; padding: 0 4px; border: 0; outline: 0; background: none; color: var(--ink); font: 400 14px/1 var(--font-sans); }

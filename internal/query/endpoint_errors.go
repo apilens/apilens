@@ -13,7 +13,8 @@ import (
 // Endpoint detail, Errors tab: the error status codes of one endpoint
 // (method + route template), the client / server error-rate trend, the
 // validation errors of its rejected requests grouped by field, and the
-// server exceptions its handlers raised grouped by type and message.
+// server exceptions its handlers raised grouped by fingerprint (type and
+// top in-app frame, see exception_groups.go).
 //
 // Status codes the endpoint's settings mark as expected are not errors: they
 // are left out of the error counts, rates and the status breakdown (the
@@ -42,6 +43,7 @@ type endpointErrorsInput struct {
 	RangeInput
 	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" example:"GET" doc:"HTTP method, e.g. GET (case-insensitive)."`
 	Path     string `path:"path" minLength:"1" maxLength:"1024" example:"/orders/{id}" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
+	App      string `query:"app" format:"uuid" doc:"App id; empty means the endpoint across every app of the project. An app of another project matches nothing."`
 	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests and exceptions from this consumer id; empty means all."`
 }
 
@@ -86,8 +88,10 @@ type endpointValidationError struct {
 }
 
 type endpointException struct {
+	Fingerprint   string    `json:"fingerprint" doc:"Group key: a hash of the exception type and the top in-app frame (else the message with ids replaced)."`
 	ExceptionType string    `json:"exception_type" doc:"Exception class, e.g. ValueError or IllegalStateException; empty when the SDK reported none."`
-	Message       string    `json:"message" doc:"Exception message."`
+	Message       string    `json:"message" doc:"Message of the latest occurrence."`
+	TopFrame      string    `json:"top_frame" doc:"Top in-app frame of the stack trace, line number left out, e.g. app/orders.py:get_order; empty when none was found."`
 	Count         uint64    `json:"count" doc:"Occurrences in the range."`
 	Consumers     uint64    `json:"consumers" doc:"Distinct consumers whose requests raised it."`
 	FirstSeen     time.Time `json:"first_seen" doc:"First occurrence in the range."`
@@ -108,7 +112,7 @@ type endpointErrorsOutput struct {
 		Points           []endpointErrorsPoint     `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Statuses         []endpointStatusCount     `json:"statuses" doc:"Error status codes (400 and above) by count, expected status codes left out."`
 		ValidationErrors []endpointValidationError `json:"validation_errors" doc:"Validation errors of rejected requests grouped by (loc, msg, type), most frequent first (at most 50)."`
-		Exceptions       []endpointException       `json:"exceptions" doc:"Server exceptions grouped by (exception_type, message), most frequent first (at most 50)."`
+		Exceptions       []endpointException       `json:"exceptions" doc:"Server exceptions grouped by fingerprint (type and top in-app frame), most frequent first (at most 50)."`
 	}
 }
 
@@ -127,9 +131,12 @@ func (s *Service) endpointErrors(ctx context.Context, in *endpointErrorsInput) (
 	}
 	method := strings.ToUpper(in.Method)
 	seconds := int(w.bucket.Seconds())
-	where, args := endpointFilter(p.ProjectID, &endpointRequestsInput{
-		RangeInput: in.RangeInput, Path: in.Path, Consumer: in.Consumer,
+	where, args, err := endpointFilter(p.ProjectID, &endpointRequestsInput{
+		RangeInput: in.RangeInput, Path: in.Path, App: in.App, Consumer: in.Consumer,
 	}, method, "timestamp", w, true)
+	if err != nil {
+		return nil, err
+	}
 	// isError matches a row whose status code is an error not expected for
 	// its endpoint; its arguments precede those of where.
 	isError, errArgs := "status_code >= 400", []any(nil)
@@ -238,6 +245,10 @@ func (s *Service) endpointValidationErrors(ctx context.Context, where string, ar
 
 func (s *Service) endpointExceptions(ctx context.Context, project uuid.UUID, in *endpointErrorsInput, method string, w window) ([]endpointException, error) {
 	where, args := tenantFilter(project, in.Env)
+	where, args, err := withApp(where, args, in.App)
+	if err != nil {
+		return nil, err
+	}
 	where += " AND endpoint_method = ? AND endpoint_path = ? AND timestamp >= ? AND timestamp < ?" +
 		" AND level IN ('ERROR', 'CRITICAL') AND logger_name = ?"
 	args = append(args, method, in.Path, w.from, w.to, exceptionLogger)
@@ -245,12 +256,14 @@ func (s *Service) endpointExceptions(ctx context.Context, project uuid.UUID, in 
 		where += " AND consumer_id = ?"
 		args = append(args, in.Consumer)
 	}
-	// The message is "<type>: <message>", so grouping on it groups on both.
+	// Grouped by fingerprint (type and top in-app frame, else normalised
+	// message); the message, stack and trace shown are the latest.
 	rows, err := s.ch.Query(ctx, `
-		SELECT message, count() AS n, uniqIf(consumer_id, consumer_id != ''), min(timestamp), max(timestamp),
+		SELECT `+exceptionFingerprintSQL+`, exc_type, any(exc_frame), argMax(message, timestamp),
+		       count() AS n, uniqIf(consumer_id, consumer_id != ''), min(timestamp), max(timestamp),
 		       argMax(payload, timestamp), argMax(trace_id, timestamp)
-		FROM api_logs WHERE `+where+`
-		GROUP BY message ORDER BY n DESC, message LIMIT ?`, append(args, maxExceptionGroups)...)
+		FROM (`+exceptionRowsSQL([]string{"message", "consumer_id", "timestamp", "payload", "trace_id"}, where)+`)
+		GROUP BY exc_type, exc_key ORDER BY n DESC, exc_type, exc_key LIMIT ?`, append(args, maxExceptionGroups)...)
 	if err != nil {
 		return nil, internalError("endpoint exceptions", err)
 	}
@@ -258,13 +271,13 @@ func (s *Service) endpointExceptions(ctx context.Context, project uuid.UUID, in 
 	out := []endpointException{}
 	for rows.Next() {
 		var (
-			e   endpointException
-			msg string
+			e        endpointException
+			typ, msg string
 		)
-		if err := rows.Scan(&msg, &e.Count, &e.Consumers, &e.FirstSeen, &e.LastSeen, &e.StackTrace, &e.TraceID); err != nil {
+		if err := rows.Scan(&e.Fingerprint, &typ, &e.TopFrame, &msg, &e.Count, &e.Consumers, &e.FirstSeen, &e.LastSeen, &e.StackTrace, &e.TraceID); err != nil {
 			return nil, internalError("endpoint exceptions", err)
 		}
-		e.ExceptionType, e.Message = splitException(msg)
+		e.ExceptionType, e.Message = exceptionLabel(typ, msg)
 		out = append(out, e)
 	}
 	return out, rows.Err()

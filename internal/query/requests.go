@@ -36,11 +36,12 @@ const maxStatusTerms = 20
 
 type requestsInput struct {
 	RangeInput
-	ConsumerID      string  `query:"consumer_id" maxLength:"256" doc:"Only requests from this consumer id."`
+	App             string  `query:"app" format:"uuid" doc:"Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing."`
+	ConsumerID      string  `query:"consumer_id" maxLength:"256" doc:"Only requests from this consumer: its id or its name, exactly."`
 	ConsumerGroup   string  `query:"consumer_group" maxLength:"256" doc:"Only requests from consumers of this group."`
 	IP              string  `query:"ip" maxLength:"64" doc:"Only requests from this client IP address (exact match)."`
 	Method          string  `query:"method" pattern:"^[A-Za-z]{1,16}$" doc:"Only requests with this HTTP method (case-insensitive)."`
-	Path            string  `query:"path" maxLength:"1024" doc:"Route template, e.g. /orders/{id}."`
+	Path            string  `query:"path" maxLength:"1024" doc:"Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or <param>) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests."`
 	URLContains     string  `query:"url_contains" maxLength:"1024" doc:"Only requests whose raw URL path (with query string) contains this text, ignoring case."`
 	PayloadContains string  `query:"payload_contains" maxLength:"1024" doc:"Only requests whose request or response body contains this text, ignoring case. Bodies are only kept for sampled requests with body capture on."`
 	RequestSizeMin  uint64  `query:"request_size_min" doc:"Only requests with a request body of at least this many bytes."`
@@ -185,6 +186,13 @@ func likeContains(s string) string {
 	return "%" + r.Replace(s) + "%"
 }
 
+// isRouteTemplate reports whether a path filter names route parameters the
+// way the SDK integrations report them: {id} (OpenAPI, FastAPI, Spring),
+// :id (Express) or <id> (Flask).
+func isRouteTemplate(p string) bool {
+	return strings.ContainsAny(p, "{<") || strings.Contains(p, "/:")
+}
+
 // requestFilter builds the WHERE clause of the request log after the tenant,
 // range and environment predicates.
 func requestFilter(in *requestsInput, clauses []string, args []any) ([]string, []any, error) {
@@ -194,11 +202,32 @@ func requestFilter(in *requestsInput, clauses []string, args []any) ([]string, [
 			args = append(args, v)
 		}
 	}
-	eq("consumer_id", in.ConsumerID)
+	if in.App != "" {
+		id, err := uuid.Parse(in.App)
+		if err != nil {
+			return nil, nil, huma.Error422UnprocessableEntity("app must be a UUID")
+		}
+		clauses = append(clauses, "app_id = ?")
+		args = append(args, id)
+	}
+	// The log shows a consumer's name where it has one, so the filter takes either (#983).
+	if in.ConsumerID != "" {
+		clauses = append(clauses, "(consumer_id = ? OR consumer_name = ?)")
+		args = append(args, in.ConsumerID, in.ConsumerID)
+	}
 	eq("consumer_group", in.ConsumerGroup)
 	eq("ip_address", in.IP)
 	eq("method", strings.ToUpper(in.Method))
-	eq("path", in.Path)
+	// The log shows raw URLs: a path that is not a route template falls back to url_contains (#983).
+	if in.Path != "" {
+		if isRouteTemplate(in.Path) {
+			clauses = append(clauses, "path = ?")
+			args = append(args, in.Path)
+		} else {
+			clauses = append(clauses, "(path = ? OR raw_path ILIKE ?)")
+			args = append(args, in.Path, likeContains(in.Path))
+		}
+	}
 	eq("trace_id", in.TraceID)
 	if in.URLContains != "" {
 		clauses = append(clauses, "raw_path ILIKE ?")

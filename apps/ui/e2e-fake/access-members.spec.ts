@@ -43,7 +43,8 @@ test("lists everyone with their effective role and where it comes from", async (
   await expect(table(page).locator("thead th")).toHaveText(["Person", "Role", "Source", "Last active", "Added by", "Actions"]);
 
   const olive = row(page, "Olive Owner");
-  await expect(olive.locator('td[data-label="Role"]')).toHaveText("Admin");
+  await expect(olive.locator('td[data-label="Role"]')).toHaveText("Admin Org owner");
+  await expect(row(page, "Ada Admin").locator('td[data-label="Role"]')).toHaveText("Admin");
   await expect(olive.locator('td[data-label="Source"] li')).toHaveText(["Organization owner"]);
   await expect(olive.locator('td[data-label="Added by"]')).toHaveText("—");
 

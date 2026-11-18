@@ -30,7 +30,7 @@ const SPAN_FIELDS = [
   "status_code", "timestamp", "trace_id",
 ];
 const LOG_FIELDS = [
-  "app_id", "commit", "consumer_group", "consumer_id", "consumer_name", "endpoint_method",
+  "app_id", "attributes", "commit", "consumer_group", "consumer_id", "consumer_name", "endpoint_method",
   "endpoint_path", "environment", "level", "logger_name", "message", "payload",
   "project_slug", "release", "span_id", "status_code", "timestamp", "trace_id",
 ];
@@ -296,6 +296,11 @@ describe("Express tracing (e2e)", () => {
     });
     expect(logs[0].payload).toContain("TypeError: card declined");
     expect(logs[0].payload).toContain("tracing.test.ts");
+    expect(logs[0].attributes).toEqual({
+      "exception.type": "TypeError",
+      "exception.message": "card declined",
+      "exception.chain_depth": "0",
+    });
   });
 
   it("records the error when Express' default handler answers", async () => {
@@ -341,7 +346,7 @@ describe("Express tracing (e2e)", () => {
     expect(sent(calls, "/v1/traces", "spans")).toHaveLength(2);
   });
 
-  it("keeps trace ids but sends no spans or logs for a sampled-out request", async () => {
+  it("keeps trace ids but sends no spans or logs for a sampled-out healthy request", async () => {
     const calls: Call[] = [];
     const seen: string[] = [];
     const downstreamUrl = await listen((req, res) => {
@@ -352,10 +357,10 @@ describe("Express tracing (e2e)", () => {
     useApiLens(app, config(calls, { sampleRate: 0 }));
     app.get("/fail", async (_req, res) => {
       await (await fetch(downstreamUrl)).text();
-      res.status(500).end();
+      res.status(404).end();
     });
 
-    await request(app).get("/fail").expect(500);
+    await request(app).get("/fail").expect(404);
     await ApiLensClient.getInstance().flushAll();
 
     const [record] = sent(calls, "/v1/requests", "requests");
@@ -369,7 +374,7 @@ describe("Express tracing (e2e)", () => {
   it.each([
     ["captureSpans: false", { captureSpans: false }, undefined],
     ["APILENS_CAPTURE_SPANS=false", { captureSpans: true }, "false"],
-  ])("%s disables trace ids, spans, propagation and the error log", async (_name, extra, env) => {
+  ])("%s disables trace ids, spans and propagation, never the error log", async (_name, extra, env) => {
     if (env !== undefined) {
       process.env.APILENS_CAPTURE_SPANS = env;
     }
@@ -394,7 +399,41 @@ describe("Express tracing (e2e)", () => {
     expect(record.trace_id).toBe("");
     expect(record.span_id).toBe("");
     expect(seen).toEqual([undefined, undefined]);
-    expect(calls.map((c) => new URL(c.url).pathname)).toEqual(["/v1/requests"]);
+    expect(calls.map((c) => new URL(c.url).pathname).sort()).toEqual(["/v1/logs", "/v1/requests"]);
+    const [log] = sent(calls, "/v1/logs", "logs");
+    expect(log).toMatchObject({
+      level: "ERROR",
+      message: "Error: boom",
+      logger_name: "apilens.exception",
+      status_code: 500,
+      trace_id: "",
+      span_id: "",
+    });
+    expect(log.payload).toContain("tracing.test.ts");
+  });
+
+  it("keeps the spans and ERROR log of a sampled-out request that failed", async () => {
+    const calls: Call[] = [];
+    const downstreamUrl = await listen((_req, res) => {
+      res.end("ok");
+    });
+    const app = express();
+    useApiLens(app, config(calls, { sampleRate: 0 }));
+    app.get("/fail", async () => {
+      await (await fetch(downstreamUrl)).text();
+      throw new Error("db down");
+    });
+
+    await request(app).get("/fail").expect(500);
+    await ApiLensClient.getInstance().flushAll();
+
+    const [record] = sent(calls, "/v1/requests", "requests");
+    expect(record.sampled).toBe(true);
+    const spans = sent(calls, "/v1/traces", "spans");
+    expect(spans.map((s) => s.kind).sort()).toEqual(["http", "server"]);
+    const logs = sent(calls, "/v1/logs", "logs");
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ level: "ERROR", trace_id: record.trace_id, span_id: record.span_id });
   });
 
   it("leaves calls outside a request untouched", async () => {

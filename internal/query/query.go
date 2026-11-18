@@ -228,6 +228,14 @@ func resolveWindow(name string, now time.Time) (window, error) {
 	return window{name: name, from: to.Add(-r.span), to: to, bucket: r.bucket, table: r.table}, nil
 }
 
+// previous is the window of the same length just before w, the same query
+// shifted back by its span: the baseline of the "vs previous" comparison on
+// the summary tiles (#1000).
+func (w window) previous() window {
+	span := w.to.Sub(w.from)
+	return window{name: w.name, from: w.from.Add(-span), to: w.from, bucket: w.bucket, table: w.table}
+}
+
 // queryCtx bounds every dashboard query.
 func queryCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{

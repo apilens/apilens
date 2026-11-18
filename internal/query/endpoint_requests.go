@@ -32,6 +32,7 @@ type endpointRequestsInput struct {
 	RangeInput
 	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" example:"GET" doc:"HTTP method, e.g. GET (case-insensitive)."`
 	Path     string `path:"path" minLength:"1" maxLength:"1024" example:"/orders/{id}" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
+	App      string `query:"app" format:"uuid" doc:"App id; empty means the endpoint across every app of the project. An app of another project matches nothing."`
 	Status   string `query:"status" enum:"all,2xx,3xx,4xx,5xx" default:"all" doc:"Only requests with a status code in this class."`
 	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests from this consumer id; empty means all."`
 }
@@ -47,7 +48,7 @@ type StatusSplit struct {
 
 type endpointRequestsSummary struct {
 	StatusSplit
-	RequestsPerMinute float64 `json:"requests_per_minute" doc:"requests / minutes of the range."`
+	RequestsPerMinute float64 `json:"requests_per_minute" doc:"requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter."`
 }
 
 type endpointRequestsPoint struct {
@@ -78,8 +79,12 @@ type endpointRequestsOutput struct {
 // endpointFilter is the WHERE clause shared by the queries of the endpoint
 // detail. ts names the time column of the table read; raw adds the status
 // and consumer filters, which only raw rows can answer.
-func endpointFilter(project uuid.UUID, in *endpointRequestsInput, method, ts string, w window, raw bool) (string, []any) {
+func endpointFilter(project uuid.UUID, in *endpointRequestsInput, method, ts string, w window, raw bool) (string, []any, error) {
 	where, args := tenantFilter(project, in.Env)
+	where, args, err := withApp(where, args, in.App)
+	if err != nil {
+		return "", nil, err
+	}
 	clauses := []string{where, "method = ?", "path = ?", ts + " >= ?", ts + " < ?"}
 	args = append(args, method, in.Path, w.from, w.to)
 	if raw {
@@ -92,7 +97,7 @@ func endpointFilter(project uuid.UUID, in *endpointRequestsInput, method, ts str
 			args = append(args, in.Consumer)
 		}
 	}
-	return strings.Join(clauses, " AND "), args
+	return strings.Join(clauses, " AND "), args, nil
 }
 
 // Status split aggregates over raw rows and over the rollups, in
@@ -107,7 +112,8 @@ func (s *Service) endpointRequests(ctx context.Context, in *endpointRequestsInpu
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	now := s.now()
+	w, err := resolveWindow(in.Range, now)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +125,10 @@ func (s *Service) endpointRequests(ctx context.Context, in *endpointRequestsInpu
 	if raw {
 		table, ts, split = "api_requests", "timestamp", rawSplit
 	}
-	where, args := endpointFilter(p.ProjectID, in, method, ts, w, raw)
+	where, args, err := endpointFilter(p.ProjectID, in, method, ts, w, raw)
+	if err != nil {
+		return nil, err
+	}
 
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
@@ -154,13 +163,13 @@ func (s *Service) endpointRequests(ctx context.Context, in *endpointRequestsInpu
 	if err := rows.Err(); err != nil {
 		return nil, internalError("endpoint timeseries", err)
 	}
-	b.Summary.RequestsPerMinute = float64(b.Summary.Requests) / w.to.Sub(w.from).Minutes()
+	b.Summary.RequestsPerMinute = perMinute(b.Summary.Requests, w, now, firstBucket(got))
 	b.Points = make([]endpointRequestsPoint, 0, int(w.to.Sub(w.from)/w.bucket))
 	for t := w.from; t.Before(w.to); t = t.Add(w.bucket) {
 		b.Points = append(b.Points, endpointRequestsPoint{TS: t, StatusSplit: got[t.Unix()]})
 	}
 
-	where, args = endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
+	where, args, _ = endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
 	crows, err := s.ch.Query(qctx, `
 		SELECT consumer_id, argMax(consumer_name, timestamp), `+rawSplit+`
 		FROM api_requests WHERE `+where+` AND consumer_id != ''

@@ -25,7 +25,7 @@ test("opens on Members with every tab for an admin", async ({ page }) => {
   await expect(tabs(page).getByRole("link")).toHaveText(["Members", "API keys", "Activity"]);
   await expect(tabs(page).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
   await expect(tabs(page).locator("[aria-current]")).toHaveCount(1);
-  await expect(page.getByRole("heading", { level: 1, name: "Members" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
   await expect(page).toHaveTitle(/^Access · shop/);
 });
 
@@ -36,12 +36,12 @@ test("deep links open each tab and the tabs link to each other", async ({ page }
   await expect(page).toHaveTitle(/^Access · shop/);
 
   await page.goto("/shop/access/activity");
-  await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
   await expect(tabs(page).getByRole("link", { name: "Activity" })).toHaveAttribute("aria-current", "page");
 
   await tabs(page).getByRole("link", { name: "Members" }).click();
   await page.waitForURL((url) => url.pathname === "/shop/access");
-  await expect(page.getByRole("heading", { level: 1, name: "Members" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
 });
 
 test("the old /settings/keys redirects permanently to Access › API keys, keeping the query", async ({ page }) => {

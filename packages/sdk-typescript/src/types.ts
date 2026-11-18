@@ -111,10 +111,27 @@ export type ApiLensLogRecord = {
   consumer_group: string;
   trace_id: string;
   span_id: string;
-  /** The stack trace, when the request failed with an error. */
+  /**
+   * The full exception (stack, causes, AggregateError members; 64 KiB
+   * head+tail cap), when the request failed with an error.
+   */
   payload: string;
+  /** `exception.type`, `exception.message`, `exception.chain_depth` on an exception log. */
+  attributes?: Record<string, string>;
   release: string;
   commit: string;
+};
+
+/** Options for `captureException`. */
+export type CaptureExceptionOptions = {
+  /** ERROR (default) or WARN, for an error the app caught and handled. */
+  level?: "ERROR" | "WARN";
+  /**
+   * How the error was caught, sent as the `exception.mechanism` attribute
+   * (default `captureException`; the process listeners use
+   * `uncaughtException` / `unhandledRejection`).
+   */
+  mechanism?: string;
 };
 
 /** How the client delivers: from timers, or once per request (see `flushMode`). */
@@ -172,7 +189,33 @@ export type ApiLensClientConfig = {
    * which sends what is queued plus a due heartbeat and the metadata report.
    */
   flushMode?: ApiLensFlushMode;
+  /**
+   * Optional cap on retries of one batch. Default: no cap; a batch is retried
+   * until `maxRetrySeconds` has passed.
+   */
   maxRetries?: number;
+  /**
+   * How long one batch keeps being retried (408/429/5xx/network errors) with
+   * backoff before it is dropped as `retries_exhausted` (default 300 s).
+   */
+  maxRetrySeconds?: number;
+  /**
+   * Flush what is queued when the process exits (`beforeExit`, `SIGTERM`,
+   * `SIGINT`; Node, background flush mode). Default true. The signal is not
+   * swallowed: when no other listener handles it, it is raised again after
+   * the flush, so the process still exits.
+   */
+  flushOnShutdown?: boolean;
+  /** Upper bound on the flush at shutdown or exit, in ms (default 5000). */
+  shutdownTimeoutMs?: number;
+  /**
+   * Capture `uncaughtException` and `unhandledRejection` (Node, background
+   * flush mode) as ERROR exception logs and flush them before the process
+   * exits. Default true. Node's exit behaviour is kept: an error that would
+   * have crashed the process still crashes it (exit code 1) after the flush,
+   * bounded by `shutdownTimeoutMs`; an app listener stays in charge.
+   */
+  captureUnhandled?: boolean;
   /** Full-jitter exponential backoff for 408/429/5xx/network errors. */
   retryBackoffBaseMs?: number;
   retryBackoffMaxMs?: number;
@@ -208,7 +251,13 @@ export type ApiLensDropReason =
   | "queue_bytes"
   | "non_retryable"
   | "retries_exhausted"
+  | "shutdown"
+  | "span_cap"
+  | "server_rejected"
   | "truncated";
+
+/** The signals the client queues and reports drops for. */
+export type ApiLensSignal = "requests" | "spans" | "logs";
 
 export type ApiLensClientStats = {
   queuedRecords: number;
@@ -216,6 +265,9 @@ export type ApiLensClientStats = {
   sentBatches: number;
   sentRecords: number;
   failedBatches: number;
+  /** Estimated bytes held by the span and log queues. */
+  queuedSpanBytes: number;
+  queuedLogBytes: number;
   /** Records lost for any reason (sum of dropCounts minus `truncated`). */
   droppedCount: number;
   dropCounts: Record<ApiLensDropReason, number>;
@@ -343,6 +395,18 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
    * regardless of this option.
    */
   captureSpans?: boolean;
+  /**
+   * Database spans (default true, needs `captureSpans`): a child `db` span
+   * per `pg` / `mysql2` statement with the statement's literals replaced by
+   * `?`. Prisma: use the client returned by `instrumentPrisma(prisma)`.
+   */
+  captureDbSpans?: boolean;
+  /**
+   * `Error.stackTraceLimit` applied at init (default 50, V8's own is 10) so
+   * the exception log carries deep stacks. Never lowers a limit the app
+   * already set higher.
+   */
+  stackTraceLimit?: number;
   /** `service_name` on spans (default: the app id). */
   serviceName?: string;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;

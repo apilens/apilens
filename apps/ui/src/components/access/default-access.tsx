@@ -1,16 +1,18 @@
 "use client";
 
-// The project's default access card on Access › Members (#808, #753 D2): what organization
-// members get here without being added. Three choices with a sentence each. A narrower choice
+// The project's default access on Access › Members (#808, #753 D2): what organization members
+// get here without being added. Under the people table it is one line with "Change" (#999); Change
+// opens the three choices with a sentence each. A narrower choice
 // first asks the API for a dry run and confirms in the shared dialog with how many people lose
 // access (the dry run's count) and who drops to a lower role, naming up to five. A wider choice
-// is saved directly. Changing it needs `access.manage` and a recent sign-in (D12); everyone else
-// sees the current setting read-only. Styled by default-access.css.
+// is saved directly, and the line comes back. Changing it needs `access.manage` and a recent
+// sign-in (D12); everyone else sees the line with the reason and no Change. Styled by default-access.css.
 import { useRouter } from "next/navigation";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { previewDefaultAccess, setDefaultAccess } from "@/app/[project]/access/default-access-actions";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useReauth } from "@/components/reauth-dialog";
+import { defaultAccessText } from "@/lib/access-members";
 import {
   type AccessImpact,
   CHOICE_HELP,
@@ -54,9 +56,24 @@ export function DefaultAccessCard({
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>({ tone: "", text: "" });
+  const [editing, setEditing] = useState(false);
   const { withReauth, dialog: reauthDialog } = useReauth();
   const headId = `${id}-h`;
   const reasonId = `${id}-why`;
+  const changeRef = useRef<HTMLButtonElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  // Focus follows the toggle: into the checked choice on Change, back to Change when it closes.
+  const moved = useRef(false);
+  useEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    if (editing) formRef.current?.querySelector<HTMLInputElement>("input[type=radio]:checked")?.focus();
+    else changeRef.current?.focus();
+  }, [editing]);
+  const toggle = (open: boolean) => {
+    moved.current = true;
+    setEditing(open);
+  };
 
   const apply = async (to: DefaultAccess) => {
     const result = await withReauth(() => setDefaultAccess(project, to));
@@ -65,6 +82,7 @@ export function DefaultAccessCard({
       setSelected(to);
       setConfirm(null);
       setStatus({ tone: "ok", text: SAVED_TEXT[to] });
+      toggle(false);
       router.refresh();
       return;
     }
@@ -117,56 +135,85 @@ export function DefaultAccessCard({
     setStatus({ tone: "", text: "Cancelled. The default access is unchanged." });
   };
 
+  const close = () => {
+    setSelected(current);
+    setStatus({ tone: "", text: "" });
+    toggle(false);
+  };
+
+  const statusLine = (
+    <p className={`os-status da-status${status.tone ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
+      {status.text}
+    </p>
+  );
+
   return (
-    <section className="os-card da" aria-labelledby={headId}>
-      <form onSubmit={submit} noValidate>
-        <div className="os-card__head">
-          <h2 id={headId}>Default access</h2>
-          <p>What people in {orgName} get on {projectName} without being added here.</p>
-        </div>
-        <div className="os-card__body">
-          <fieldset className="da-choices" disabled={!can.allowed || pending} aria-describedby={can.allowed ? undefined : reasonId}>
-            <legend className="sr-only">Default access for {projectName}</legend>
-            {DEFAULT_ACCESS_CHOICES.map((def) => (
-              <label key={def} className={`da-choice${selected === def ? " on" : ""}`}>
-                <input
-                  type="radio"
-                  name={`${id}-def`}
-                  value={def}
-                  checked={selected === def}
-                  aria-describedby={`${id}-${def}-help`}
-                  onChange={() => {
-                    setSelected(def);
-                    setStatus({ tone: "", text: "" });
-                  }}
-                />
-                <span>
-                  <b>
-                    {choiceTitle(def, orgName)}
-                    {current === def ? <span className="da-current">Current</span> : null}
-                  </b>
-                  <span id={`${id}-${def}-help`}>{CHOICE_HELP[def]}</span>
-                </span>
-              </label>
-            ))}
-          </fieldset>
-          {can.allowed ? null : (
-            <p id={reasonId} className="os-help">
-              Only project admins can change the default access.
-            </p>
-          )}
-        </div>
-        {can.allowed ? (
+    <section className={`os-card da${editing ? " is-open" : ""}`} aria-labelledby={headId}>
+      {editing ? (
+        <form ref={formRef} onSubmit={submit} noValidate>
+          <div className="os-card__head">
+            <h2 id={headId}>Default access</h2>
+            <p>What people in {orgName} get on {projectName} without being added here.</p>
+          </div>
+          <div className="os-card__body">
+            <fieldset className="da-choices" disabled={pending}>
+              <legend className="sr-only">Default access for {projectName}</legend>
+              {DEFAULT_ACCESS_CHOICES.map((def) => (
+                <label key={def} className={`da-choice${selected === def ? " on" : ""}`}>
+                  <input
+                    type="radio"
+                    name={`${id}-def`}
+                    value={def}
+                    checked={selected === def}
+                    aria-describedby={`${id}-${def}-help`}
+                    onChange={() => {
+                      setSelected(def);
+                      setStatus({ tone: "", text: "" });
+                    }}
+                  />
+                  <span>
+                    <b>
+                      {choiceTitle(def, orgName)}
+                      {current === def ? <span className="da-current">Current</span> : null}
+                    </b>
+                    <span id={`${id}-${def}-help`}>{CHOICE_HELP[def]}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          </div>
           <div className="os-card__foot">
-            <p className={`os-status${status.tone ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
-              {status.text}
-            </p>
+            {statusLine}
+            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={close} disabled={pending}>
+              Cancel
+            </button>
             <button type="submit" className={`ah-btn ah-btn--primary ah-btn--sm${pending && !confirm ? " is-loading" : ""}`} disabled={pending || selected === current}>
               Save default access
             </button>
           </div>
-        ) : null}
-      </form>
+        </form>
+      ) : (
+        <div className="da-line">
+          <h2 id={headId} className="sr-only">
+            Default access
+          </h2>
+          <div className="da-line__t">
+            <p className="da-line__text">{defaultAccessText(current)}</p>
+            {can.allowed ? (
+              statusLine
+            ) : (
+              <p id={reasonId} className="da-line__why">
+                Only project admins can change the default access.
+              </p>
+            )}
+          </div>
+          {can.allowed ? (
+            <button ref={changeRef} type="button" className="ah-btn ah-btn--secondary ah-btn--sm" aria-label="Change default access" onClick={() => toggle(true)}>
+              Change
+            </button>
+          ) : null}
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirm !== null}

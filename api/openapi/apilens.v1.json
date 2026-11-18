@@ -562,6 +562,10 @@
               "traffic",
               "errors",
               "error_rate",
+              "server_errors",
+              "server_error_rate",
+              "client_errors",
+              "client_error_rate",
               "p50",
               "p75",
               "p95",
@@ -685,11 +689,15 @@
             "$ref": "#/components/schemas/AlertFilters"
           },
           "metric": {
-            "description": "What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "description": "What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
             "enum": [
               "traffic",
               "errors",
               "error_rate",
+              "server_errors",
+              "server_error_rate",
+              "client_errors",
+              "client_error_rate",
               "p50",
               "p75",
               "p95",
@@ -719,7 +727,7 @@
             "type": "integer"
           },
           "threshold": {
-            "description": "Not negative; at most 1 for error_rate and apdex.",
+            "description": "Not negative; at most 1 for the error rates and apdex.",
             "format": "double",
             "type": "number"
           },
@@ -810,6 +818,108 @@
         },
         "required": [
           "rules"
+        ],
+        "type": "object"
+      },
+      "AnonymousCaller": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ip_address": {
+            "description": "Client IP address as stored with the requests; empty when not captured.",
+            "type": "string"
+          },
+          "last_seen": {
+            "description": "Last anonymous request from this IP and user agent in the range.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "requests": {
+            "description": "All requests.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "user_agent": {
+            "description": "User-Agent header as stored with the requests; empty when not captured.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ip_address",
+          "user_agent",
+          "last_seen",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "AnonymousCallersOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AnonymousCallersOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "callers": {
+            "description": "The client IP and user agent pairs with the most requests without a consumer in the range (at most limit), most requests first.",
+            "items": {
+              "$ref": "#/components/schemas/AnonymousCaller"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/StatusSplit",
+            "description": "Requests in the range without a consumer, by outcome."
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "totals",
+          "callers"
         ],
         "type": "object"
       },
@@ -929,6 +1039,16 @@
             "format": "int64",
             "type": "integer"
           },
+          "sdk_dropped": {
+            "description": "Records the app's SDKs dropped before sending over the days, per signal and reason, most first; empty when none were dropped. Reported in SDK heartbeats and kept per hour.",
+            "items": {
+              "$ref": "#/components/schemas/SDKDroppedRecords"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "totals": {
             "$ref": "#/components/schemas/IngestCounts",
             "description": "Sum over the days."
@@ -939,7 +1059,8 @@
           "app",
           "days",
           "totals",
-          "daily"
+          "daily",
+          "sdk_dropped"
         ],
         "type": "object"
       },
@@ -2407,7 +2528,7 @@
             "type": "integer"
           },
           "requests_per_minute": {
-            "description": "requests / minutes of the range.",
+            "description": "requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter.",
             "format": "double",
             "type": "number"
           },
@@ -2798,11 +2919,15 @@
             "$ref": "#/components/schemas/AlertFilters"
           },
           "metric": {
-            "description": "What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "description": "What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
             "enum": [
               "traffic",
               "errors",
               "error_rate",
+              "server_errors",
+              "server_error_rate",
+              "client_errors",
+              "client_error_rate",
               "p50",
               "p75",
               "p95",
@@ -2832,7 +2957,7 @@
             "type": "integer"
           },
           "threshold": {
-            "description": "Not negative; at most 1 for error_rate and apdex.",
+            "description": "Not negative; at most 1 for the error rates and apdex.",
             "format": "double",
             "type": "number"
           },
@@ -3703,8 +3828,12 @@
             "description": "Exception class; empty when the SDK reported none.",
             "type": "string"
           },
+          "fingerprint": {
+            "description": "Group key: a hash of the exception type and the top in-app frame (else the message with ids replaced).",
+            "type": "string"
+          },
           "message": {
-            "description": "Exception message.",
+            "description": "Message of the latest occurrence.",
             "type": "string"
           },
           "method": {
@@ -3718,11 +3847,17 @@
           "path": {
             "description": "Route of the endpoint that last raised it; empty when not reported.",
             "type": "string"
+          },
+          "top_frame": {
+            "description": "Top in-app frame of the stack trace, line number left out; empty when none was found.",
+            "type": "string"
           }
         },
         "required": [
+          "fingerprint",
           "exception_type",
           "message",
+          "top_frame",
           "before",
           "after",
           "new",
@@ -4110,12 +4245,17 @@
         "additionalProperties": false,
         "properties": {
           "apdex": {
-            "description": "Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests.",
+            "description": "Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests.",
             "format": "double",
             "type": [
               "number",
               "null"
             ]
+          },
+          "app_id": {
+            "description": "The app that serves the endpoint.",
+            "format": "uuid",
+            "type": "string"
           },
           "client_errors": {
             "description": "4xx responses, expected status codes of the endpoint left out.",
@@ -4161,9 +4301,15 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "total_time_ms": {
+            "description": "Sum of the response times of the range's requests, in milliseconds (requests × average): where the API spends its time.",
+            "format": "double",
+            "type": "number"
           }
         },
         "required": [
+          "app_id",
           "method",
           "path",
           "requests",
@@ -4172,6 +4318,7 @@
           "error_rate",
           "p50_ms",
           "p95_ms",
+          "total_time_ms",
           "apdex",
           "discovered_only"
         ],
@@ -4241,7 +4388,7 @@
             "type": "integer"
           },
           "exceptions": {
-            "description": "Server exceptions grouped by (exception_type, message), most frequent first (at most 50).",
+            "description": "Server exceptions grouped by fingerprint (type and top in-app frame), most frequent first (at most 50).",
             "items": {
               "$ref": "#/components/schemas/EndpointException"
             },
@@ -4388,6 +4535,10 @@
             "description": "Exception class, e.g. ValueError or IllegalStateException; empty when the SDK reported none.",
             "type": "string"
           },
+          "fingerprint": {
+            "description": "Group key: a hash of the exception type and the top in-app frame (else the message with ids replaced).",
+            "type": "string"
+          },
           "first_seen": {
             "description": "First occurrence in the range.",
             "format": "date-time",
@@ -4399,11 +4550,15 @@
             "type": "string"
           },
           "message": {
-            "description": "Exception message.",
+            "description": "Message of the latest occurrence.",
             "type": "string"
           },
           "stack_trace": {
             "description": "Stack trace of the latest occurrence.",
+            "type": "string"
+          },
+          "top_frame": {
+            "description": "Top in-app frame of the stack trace, line number left out, e.g. app/orders.py:get_order; empty when none was found.",
             "type": "string"
           },
           "trace_id": {
@@ -4412,8 +4567,10 @@
           }
         },
         "required": [
+          "fingerprint",
           "exception_type",
           "message",
+          "top_frame",
           "count",
           "consumers",
           "first_seen",
@@ -4635,7 +4792,7 @@
             "type": "integer"
           },
           "requests_per_minute": {
-            "description": "requests / minutes of the range.",
+            "description": "requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter.",
             "format": "double",
             "type": "number"
           },
@@ -4923,7 +5080,7 @@
             "type": "string"
           },
           "endpoints": {
-            "description": "Endpoints by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out.",
+            "description": "Endpoints (one per app, method and path) by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out.",
             "items": {
               "$ref": "#/components/schemas/Endpoint"
             },
@@ -5687,6 +5844,10 @@
               "null"
             ]
           },
+          "previous": {
+            "$ref": "#/components/schemas/ErrorSplit",
+            "description": "Requests and errors over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."
+          },
           "range": {
             "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
@@ -5773,13 +5934,18 @@
             "readOnly": true,
             "type": "string"
           },
+          "app": {
+            "description": "Only requests served by this app (id); empty means every app of the project.",
+            "format": "uuid",
+            "type": "string"
+          },
           "consumer_group": {
             "description": "Only requests from consumers of this group.",
             "maxLength": 256,
             "type": "string"
           },
           "consumer_id": {
-            "description": "Only requests from this consumer id.",
+            "description": "As in GET /api/v1/requests: a consumer id or name.",
             "maxLength": 256,
             "type": "string"
           },
@@ -5811,7 +5977,7 @@
             "type": "string"
           },
           "path": {
-            "description": "Route template, e.g. /orders/{id}.",
+            "description": "As in GET /api/v1/requests: a route template, e.g. /orders/{id}, or text the raw URL path contains.",
             "maxLength": 1024,
             "type": "string"
           },
@@ -6219,6 +6385,27 @@
             ],
             "type": "string"
           },
+          "dropped": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "description": "Records dropped since the previous heartbeat answered 200, per signal (requests, spans, logs) and reason (queue_full, retries_exhausted, ...). The SDK resets them on 200 and adds them to the next heartbeat otherwise. Shown per app and hour in Ingest health; other signals are ignored. At most 32 reasons per signal; reasons are lowercase letters, digits, '_', '.' or '-', up to 64 characters; counts are not negative.",
+            "examples": [
+              {
+                "requests": {
+                  "queue_full": 3
+                },
+                "spans": {
+                  "retries_exhausted": 12
+                }
+              }
+            ],
+            "type": "object"
+          },
           "environment": {
             "description": "Defaults to production",
             "examples": [
@@ -6509,6 +6696,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "sdk_dropped": {
+            "description": "Records the app's SDKs dropped before sending, all signals and reasons (see sdk_dropped of the app).",
+            "format": "int64",
+            "type": "integer"
+          },
           "truncated": {
             "description": "Request record fields (payloads, headers) cut to the server-side cap; a record can count up to four times.",
             "format": "int64",
@@ -6517,6 +6709,7 @@
         },
         "required": [
           "date",
+          "sdk_dropped",
           "accepted",
           "rejected",
           "truncated",
@@ -7063,7 +7256,7 @@
         "additionalProperties": false,
         "properties": {
           "apdex": {
-            "description": "Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests.",
+            "description": "Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests.",
             "format": "double",
             "type": [
               "number",
@@ -9957,7 +10150,7 @@
             "type": "string"
           },
           "logs": {
-            "description": "Logs of the request's trace, oldest first (at most 500); empty without a trace id.",
+            "description": "Logs of the request's trace, oldest first (at most 2000); empty without a trace id.",
             "items": {
               "$ref": "#/components/schemas/TraceLog"
             },
@@ -9971,7 +10164,7 @@
             "description": "The request record."
           },
           "spans": {
-            "description": "Spans of the request's trace, oldest first (at most 2000); empty without a trace id.",
+            "description": "Spans of the request's trace, oldest first (at most 10000); empty without a trace id.",
             "items": {
               "$ref": "#/components/schemas/SpanOut"
             },
@@ -9979,12 +10172,17 @@
               "array",
               "null"
             ]
+          },
+          "trace_truncated": {
+            "description": "True when the trace had more than 10000 spans or 2000 logs and the rest were left out.",
+            "type": "boolean"
           }
         },
         "required": [
           "request",
           "spans",
-          "logs"
+          "logs",
+          "trace_truncated"
         ],
         "type": "object"
       },
@@ -10679,6 +10877,35 @@
         ],
         "type": "object"
       },
+      "SDKDroppedRecords": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "The drop reason as the SDKs name it: queue_full, queue_bytes, non_retryable, retries_exhausted, ...",
+            "type": "string"
+          },
+          "records": {
+            "description": "Records dropped.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "signal": {
+            "description": "The signal of the dropped records.",
+            "enum": [
+              "requests",
+              "spans",
+              "logs"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal",
+          "reason",
+          "records"
+        ],
+        "type": "object"
+      },
       "SSOConnectionBody": {
         "additionalProperties": false,
         "properties": {
@@ -11260,6 +11487,34 @@
         ],
         "type": "object"
       },
+      "SlowestRequestsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SlowestRequestsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "requests": {
+            "description": "Slowest first, then newest first; each id opens GET /api/v1/requests/{id}.",
+            "items": {
+              "$ref": "#/components/schemas/RequestRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "type": "object"
+      },
       "SlugAvailableOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -11294,6 +11549,51 @@
         ],
         "type": "object"
       },
+      "SpanEventOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Event attributes, as strings.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Event name, e.g. exception.",
+            "type": "string"
+          },
+          "time": {
+            "description": "When the event happened (nanosecond precision).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "name",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "SpanLinkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "span_id": {
+            "description": "Span id of the linked span.",
+            "type": "string"
+          },
+          "trace_id": {
+            "description": "Trace id of the linked span.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "span_id"
+        ],
+        "type": "object"
+      },
       "SpanOut": {
         "additionalProperties": false,
         "properties": {
@@ -11309,9 +11609,29 @@
             "format": "double",
             "type": "number"
           },
+          "events": {
+            "description": "Timestamped span events, oldest first, e.g. an exception event with exception.type, exception.message and exception.stacktrace attributes.",
+            "items": {
+              "$ref": "#/components/schemas/SpanEventOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "kind": {
             "description": "OpenTelemetry span kind: server, client, internal, producer or consumer.",
             "type": "string"
+          },
+          "links": {
+            "description": "Spans this span links to.",
+            "items": {
+              "$ref": "#/components/schemas/SpanLinkOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "name": {
             "description": "Span name, e.g. GET /orders/{id} or SELECT orders.",
@@ -11343,6 +11663,10 @@
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "status_message": {
+            "description": "Status description, e.g. why the span failed; empty when none was reported.",
+            "type": "string"
           }
         },
         "required": [
@@ -11355,7 +11679,10 @@
           "duration_ms",
           "status",
           "status_code",
-          "attributes"
+          "status_message",
+          "attributes",
+          "events",
+          "links"
         ],
         "type": "object"
       },
@@ -11430,7 +11757,7 @@
             "type": "string"
           },
           "apdex": {
-            "description": "Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied \u003c= T \u003c tolerating \u003c= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests.",
+            "description": "Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied \u003c= T \u003c tolerating \u003c= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests.",
             "format": "double",
             "type": [
               "number",
@@ -11442,6 +11769,11 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "current_per_minute": {
+            "description": "Requests in the last full minute.",
+            "format": "double",
+            "type": "number"
           },
           "error_rate": {
             "description": "(client_errors + server_errors) / requests",
@@ -11468,6 +11800,10 @@
             "format": "double",
             "type": "number"
           },
+          "previous": {
+            "$ref": "#/components/schemas/SummaryTotals",
+            "description": "The same totals over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."
+          },
           "range": {
             "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
@@ -11479,7 +11815,7 @@
             "type": "integer"
           },
           "requests_per_minute": {
-            "description": "requests / minutes of the range.",
+            "description": "requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter.",
             "format": "double",
             "type": "number"
           },
@@ -11507,6 +11843,81 @@
           "p95_ms",
           "p99_ms",
           "requests_per_minute",
+          "current_per_minute",
+          "apdex"
+        ],
+        "type": "object"
+      },
+      "SummaryTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "apdex": {
+            "description": "Apdex score from 0 to 1, scored as the range's; null without requests.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "client_errors": {
+            "description": "4xx responses, leaving out the expected status codes of each endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "error_rate": {
+            "description": "(client_errors + server_errors) / requests",
+            "format": "double",
+            "type": "number"
+          },
+          "from": {
+            "description": "Start of the window (inclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "p50_ms": {
+            "description": "Median response time, in milliseconds (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "p95_ms": {
+            "description": "95th percentile response time, in milliseconds (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "p99_ms": {
+            "description": "99th percentile response time, in milliseconds (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
+            "description": "Requests in the window.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "5xx responses, leaving out the expected status codes of each endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to": {
+            "description": "End of the window (exclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "requests",
+          "client_errors",
+          "server_errors",
+          "error_rate",
+          "p50_ms",
+          "p95_ms",
+          "p99_ms",
           "apdex"
         ],
         "type": "object"
@@ -11653,12 +12064,27 @@
       "TraceLog": {
         "additionalProperties": false,
         "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Log attributes, as strings, e.g. exception.type, exception.message, exception.chain_depth.",
+            "type": "object"
+          },
           "level": {
             "description": "Log level, e.g. INFO, WARNING, ERROR.",
             "type": "string"
           },
+          "logger_name": {
+            "description": "Logger that emitted the record, e.g. apilens.exception; empty when not reported.",
+            "type": "string"
+          },
           "message": {
             "description": "Log message.",
+            "type": "string"
+          },
+          "payload": {
+            "description": "Structured payload of the record; for an apilens.exception log, the full exception (type, message, frames and chained causes), at most 64 KiB with head and tail kept.",
             "type": "string"
           },
           "span_id": {
@@ -11675,7 +12101,10 @@
           "timestamp",
           "level",
           "message",
-          "span_id"
+          "logger_name",
+          "span_id",
+          "payload",
+          "attributes"
         ],
         "type": "object"
       },
@@ -11692,7 +12121,7 @@
             "type": "string"
           },
           "logs": {
-            "description": "Log records correlated with the trace, oldest first (at most 500).",
+            "description": "Log records correlated with the trace, oldest first (at most 2000).",
             "items": {
               "$ref": "#/components/schemas/TraceLog"
             },
@@ -11702,7 +12131,7 @@
             ]
           },
           "spans": {
-            "description": "Spans of the trace in the project, oldest first (at most 2000).",
+            "description": "Spans of the trace in the project, oldest first (at most 10000).",
             "items": {
               "$ref": "#/components/schemas/SpanOut"
             },
@@ -11714,12 +12143,17 @@
           "trace_id": {
             "description": "The trace id asked for.",
             "type": "string"
+          },
+          "truncated": {
+            "description": "True when the trace had more than 10000 spans or 2000 logs and the rest were left out.",
+            "type": "boolean"
           }
         },
         "required": [
           "trace_id",
           "spans",
-          "logs"
+          "logs",
+          "truncated"
         ],
         "type": "object"
       },
@@ -11764,6 +12198,10 @@
               "array",
               "null"
             ]
+          },
+          "previous": {
+            "$ref": "#/components/schemas/LatencySummary",
+            "description": "The summary over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."
           },
           "range": {
             "description": "Time range of the response: 1h, 6h, 24h or 7d.",
@@ -12513,6 +12951,104 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/anonymous-callers": {
+      "get": {
+        "description": "The requests of the range the SDK sent without a consumer, by outcome, and the client IP and user agent pairs that made the most of them, with their last request. Requests with a consumer are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-anonymous-callers",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most callers to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 10,
+              "description": "Most callers to list.",
+              "format": "int64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousCallersOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Requests without a consumer, and their top callers by client IP and user agent",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/apps/{id}/capture-policy": {
       "get": {
         "description": "Returns the remote capture policy of the app. Needs `view` on its project (any member, including viewers). An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
@@ -12916,7 +13452,7 @@
     },
     "/api/v1/apps/{id}/ingest-stats": {
       "get": {
-        "description": "Counters the ingest edge keeps per app and UTC day, the per-app split of the Prometheus totals apilens_ingest_records_total (accepted, rejected), apilens_ingest_truncated_total and apilens_ingest_masked_total. Records not tied to an app (project-wide deploys, OTLP resources of unknown services) are not counted. Days are kept for 30 days. An app that is not in the project answers 404; 503 when the counter store (Valkey) is not configured.",
+        "description": "Counters the ingest edge keeps per app and UTC day, the per-app split of the Prometheus totals apilens_ingest_records_total (accepted, rejected), apilens_ingest_truncated_total and apilens_ingest_masked_total. Records not tied to an app (project-wide deploys, OTLP resources of unknown services) are not counted. sdk_dropped holds the records the app's SDKs dropped before sending, by signal and reason, as their heartbeats reported them. Days are kept for 30 days. An app that is not in the project answers 404; 503 when the counter store (Valkey) is not configured.",
         "operationId": "get-app-ingest-stats",
         "parameters": [
           {
@@ -12989,7 +13525,7 @@
             "readKey": []
           }
         ],
-        "summary": "Per-app ingest health: accepted, rejected, truncated and masked records",
+        "summary": "Per-app ingest health: accepted, rejected, truncated, masked and SDK-dropped records",
         "tags": [
           "Dashboard"
         ]
@@ -16969,6 +17505,17 @@
             }
           },
           {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
             "description": "Only requests and exceptions from this consumer id; empty means all.",
             "explode": false,
             "in": "query",
@@ -17089,6 +17636,17 @@
               ],
               "maxLength": 1024,
               "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -17235,6 +17793,17 @@
             }
           },
           {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
             "description": "Only requests with a status code in this class.",
             "explode": false,
             "in": "query",
@@ -17373,6 +17942,17 @@
               ],
               "maxLength": 1024,
               "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the endpoint across every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -28442,12 +29022,23 @@
             }
           },
           {
-            "description": "Only requests from this consumer id.",
+            "description": "Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests from this consumer: its id or its name, exactly.",
             "explode": false,
             "in": "query",
             "name": "consumer_id",
             "schema": {
-              "description": "Only requests from this consumer id.",
+              "description": "Only requests from this consumer: its id or its name, exactly.",
               "maxLength": 256,
               "type": "string"
             }
@@ -28486,12 +29077,12 @@
             }
           },
           {
-            "description": "Route template, e.g. /orders/{id}.",
+            "description": "Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or \u003cparam\u003e) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests.",
             "explode": false,
             "in": "query",
             "name": "path",
             "schema": {
-              "description": "Route template, e.g. /orders/{id}.",
+              "description": "Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or \u003cparam\u003e) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests.",
               "maxLength": 1024,
               "type": "string"
             }
@@ -28711,6 +29302,115 @@
         ]
       }
     },
+    "/api/v1/requests/slowest": {
+      "get": {
+        "description": "The raw requests of the range (or one environment, or one app) with the longest response time, slowest first (ties: newest first). Endpoints excluded from metrics are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-slowest-requests",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most requests to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 10,
+              "description": "Most requests to list.",
+              "format": "int64",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlowestRequestsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Slowest requests: the requests of the range with the longest response time",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/requests/timeline": {
       "get": {
         "description": "The same filters as list-requests, counted per bucket by status class, for the timeline above the log. Every bucket of the window is listed, empty ones with zeros. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
@@ -28777,6 +29477,17 @@
             "schema": {
               "description": "End of the window (RFC 3339, exclusive); clamped to the range.",
               "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -29131,7 +29842,7 @@
     },
     "/api/v1/traffic/endpoints": {
       "get": {
-        "description": "Per endpoint (method and route template) traffic, error split, latency percentiles and Apdex over the range, most requests first. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "Per endpoint (app, method and route template) traffic, error split, latency percentiles and Apdex over the range, most requests first: a route served by several apps is one row per app. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts. app narrows to one app. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-endpoints",
         "parameters": [
           {
@@ -29173,6 +29884,17 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -29229,7 +29951,7 @@
     },
     "/api/v1/traffic/latency": {
       "get": {
-        "description": "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out; app narrows to one app. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-traffic-latency",
         "parameters": [
           {
@@ -29271,6 +29993,17 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -30720,7 +31453,7 @@
     },
     "/v1/heartbeat": {
       "post": {
-        "description": "Sent by every SDK process on start and then about once a minute. Records the instance as last seen now (the app shows as reporting for 5 minutes) and answers the app's remote capture policy, which the SDK applies until the next heartbeat. At most one heartbeat per instance every 10 seconds; a faster one answers 429 with Retry-After. On 503 the SDK keeps its previous policy. A body with an `api_key` field at any depth is rejected with 422.",
+        "description": "Sent by every SDK process on start and then about once a minute. Records the instance as last seen now (the app shows as reporting for 5 minutes), adds the SDK's drop counts (`dropped`) to the app's hourly counters, and answers the app's remote capture policy, which the SDK applies until the next heartbeat. At most one heartbeat per instance every 10 seconds; a faster one answers 429 with Retry-After. On 503 the SDK keeps its previous policy. A body with an `api_key` field at any depth is rejected with 422.",
         "operationId": "ingest-heartbeat",
         "requestBody": {
           "content": {

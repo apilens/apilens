@@ -3,21 +3,32 @@ import { exploreHref, parseExploreQuery, requestsPath } from "./explore";
 import {
   type ExploreFilters,
   FILTER_KEYS,
+  MAX_SUGGESTIONS,
   NO_FILTERS,
   activeCount,
+  consumerSuggestions,
+  endpointSuggestions,
   filterChips,
   filterEntries,
   filterQuery,
   fromDraft,
+  STATUS_SEGMENTS,
+  moreCount,
   normalizeStatus,
   parseFilters,
   sameFilters,
+  searchSuggestions,
+  statusSegment,
   toDraft,
+  uniqueEndpoints,
   withoutChip,
 } from "./explore-filters";
 
+const APP = "7b1f0c2e-9a4d-4e3b-8c5a-1d2e3f4a5b6c";
+
 const ALL: ExploreFilters = {
   env: "production",
+  app: APP,
   method: "POST",
   status: "4xx,500-503",
   path: "/orders/{id}",
@@ -93,6 +104,11 @@ describe("parseFilters", () => {
     expect(f.latency_min).toBe(0.25);
     expect(f.latency_max).toBe(0);
   });
+  it("reads the app as a lower-case id and drops one that is not an id", () => {
+    expect(parseFilters({ app: ` ${APP.toUpperCase()} ` }).app).toBe(APP);
+    expect(parseFilters({ app: "shop" }).app).toBe("");
+    expect(parseFilters({ app: `${APP}x` }).app).toBe("");
+  });
   it("drops text longer than the API takes", () => {
     expect(parseFilters({ env: "e".repeat(65), ip: "1".repeat(64) })).toEqual({ ...NO_FILTERS, ip: "1".repeat(64) });
   });
@@ -102,7 +118,7 @@ describe("the URL round trip", () => {
   it("a deep link reproduces the exact filtered view", () => {
     const q = { range: "6h" as const, filters: ALL };
     const href = exploreHref("my shop", q);
-    expect(href.startsWith("/my%20shop/explore?range=6h&env=production&method=POST&status=4xx%2C500-503&")).toBe(true);
+    expect(href.startsWith(`/my%20shop/explore?range=6h&env=production&app=${APP}&method=POST&status=4xx%2C500-503&`)).toBe(true);
     expect(parseExploreQuery(paramsOf(href))).toEqual(q);
     // The same link, built again, is byte-for-byte the same.
     expect(exploreHref("my shop", parseExploreQuery(paramsOf(href)))).toBe(href);
@@ -138,6 +154,7 @@ describe("filterChips / withoutChip", () => {
   it("names each active filter, with a min/max pair as one chip", () => {
     expect(filterChips(ALL).map((c) => c.label)).toEqual([
       "Environment production",
+      "App 7b1f0c2e",
       "Method POST",
       "Status 4xx, 500-503",
       "Path /orders/{id}",
@@ -151,7 +168,13 @@ describe("filterChips / withoutChip", () => {
       "Latency 100.5 ms to 2000 ms",
       "Sampled out",
     ]);
-    expect(activeCount(ALL)).toBe(13);
+    expect(activeCount(ALL)).toBe(14);
+  });
+  it("names the app by its name when known, else by the start of its id", () => {
+    const f = { ...NO_FILTERS, app: APP };
+    expect(filterChips(f, [], (id) => (id === APP ? "Orders" : null)).map((c) => c.label)).toEqual(["App Orders"]);
+    expect(filterChips(f, [], () => null).map((c) => c.label)).toEqual(["App 7b1f0c2e"]);
+    expect(withoutChip(f, filterChips(f)[0])).toEqual(NO_FILTERS);
   });
   it("reads open-ended ranges", () => {
     const labels = filterChips({ ...NO_FILTERS, latency_min: 500, response_size_max: 0, sampled: "true" }).map((c) => c.label);
@@ -182,6 +205,12 @@ describe("the edit form", () => {
     if (r.ok) return;
     expect(Object.keys(r.errors).sort()).toEqual(["ip", "latency_max", "method", "request_size_min", "status"]);
   });
+  it("takes the app picked from the list and refuses anything else", () => {
+    expect(fromDraft({ ...toDraft(NO_FILTERS), app: APP })).toEqual({ ok: true, filters: { ...NO_FILTERS, app: APP } });
+    const r = fromDraft({ ...toDraft(NO_FILTERS), app: "orders" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(Object.keys(r.errors)).toEqual(["app"]);
+  });
   it("refuses a maximum below the minimum", () => {
     const r = fromDraft({ ...toDraft(NO_FILTERS), latency_min: "500", latency_max: "100" });
     expect(r.ok).toBe(false);
@@ -191,5 +220,75 @@ describe("the edit form", () => {
   it("compares filters by value", () => {
     expect(sameFilters(ALL, { ...ALL })).toBe(true);
     expect(sameFilters(ALL, { ...ALL, latency_max: 2001 })).toBe(false);
+  });
+});
+
+describe("filter suggestions (#983)", () => {
+  const ENDPOINTS = uniqueEndpoints([
+    { method: "get", path: "/orders/{id}" },
+    { method: "POST", path: "/charge" },
+    { method: "GET", path: "/orders/{id}" },
+    { method: "GET", path: "/orders" },
+    { method: "GET", path: "" },
+  ]);
+  const CONSUMERS = [
+    { id: "c_acme", name: "Acme Corp" },
+    { id: "c_beta", name: "" },
+    { id: "", name: "Nobody" },
+  ];
+
+  it("lists each method and route once, busiest first", () => {
+    expect(ENDPOINTS).toEqual([
+      { method: "GET", path: "/orders/{id}" },
+      { method: "POST", path: "/charge" },
+      { method: "GET", path: "/orders" },
+    ]);
+  });
+  it("suggests the endpoints whose method and route contain the text, of the picked method only", () => {
+    expect(endpointSuggestions(ENDPOINTS, "")).toHaveLength(3);
+    expect(endpointSuggestions(ENDPOINTS, "ORDERS")).toEqual([ENDPOINTS[0], ENDPOINTS[2]]);
+    expect(endpointSuggestions(ENDPOINTS, "post /ch")).toEqual([ENDPOINTS[1]]);
+    expect(endpointSuggestions(ENDPOINTS, "", "post")).toEqual([ENDPOINTS[1]]);
+    expect(endpointSuggestions(ENDPOINTS, "/orders/1042")).toEqual([]);
+    const many = Array.from({ length: 20 }, (_, i) => ({ method: "GET", path: `/r${i}` }));
+    expect(endpointSuggestions(many, "/r")).toHaveLength(MAX_SUGGESTIONS);
+  });
+  it("suggests consumers by name or id, never one without an id", () => {
+    expect(consumerSuggestions(CONSUMERS, "acme corp")).toEqual([CONSUMERS[0]]);
+    expect(consumerSuggestions(CONSUMERS, "C_BE")).toEqual([CONSUMERS[1]]);
+    expect(consumerSuggestions(CONSUMERS, "nobody")).toEqual([]);
+    expect(consumerSuggestions(CONSUMERS, "")).toEqual(CONSUMERS.slice(0, 2));
+  });
+  it("names a known consumer on its chip, as the log shows it", () => {
+    expect(filterChips({ ...NO_FILTERS, consumer_id: "c_acme" }, CONSUMERS).map((c) => c.label)).toEqual(["Consumer Acme Corp"]);
+    expect(filterChips({ ...NO_FILTERS, consumer_id: "c_beta" }, CONSUMERS).map((c) => c.label)).toEqual(["Consumer c_beta"]);
+    expect(filterChips({ ...NO_FILTERS, consumer_id: "Acme Corp" }).map((c) => c.label)).toEqual(["Consumer Acme Corp"]);
+  });
+  it("search suggests endpoints then consumers, consumers keeping a few places (#985)", () => {
+    const s = { endpoints: ENDPOINTS, consumers: CONSUMERS };
+    expect(searchSuggestions(s, "acme")).toEqual([{ kind: "consumer", id: "c_acme", name: "Acme Corp" }]);
+    expect(searchSuggestions(s, "/charge")).toEqual([{ kind: "endpoint", method: "POST", path: "/charge" }]);
+    expect(searchSuggestions(s, "").map((x) => x.kind)).toEqual(["endpoint", "endpoint", "endpoint", "consumer", "consumer"]);
+    const many = { endpoints: Array.from({ length: 20 }, (_, i) => ({ method: "GET", path: `/c${i}` })), consumers: CONSUMERS };
+    const out = searchSuggestions(many, "c");
+    expect(out).toHaveLength(MAX_SUGGESTIONS);
+    expect(out.filter((x) => x.kind === "consumer")).toHaveLength(2);
+  });
+});
+
+describe("status segments and the More filters count (#985)", () => {
+  it("knows the segments and nothing else", () => {
+    expect(STATUS_SEGMENTS.map((s) => s.label)).toEqual(["All", "Errors", "4xx", "5xx"]);
+    expect(statusSegment("")).toBe("");
+    expect(statusSegment(normalizeStatus("4XX, 5xx") ?? "x")).toBe("4xx,5xx");
+    expect(statusSegment("5xx")).toBe("5xx");
+    expect(statusSegment("404")).toBeNull();
+    expect(statusSegment("5xx,4xx")).toBeNull();
+  });
+  it("counts only the filters the visible row does not show", () => {
+    expect(moreCount(NO_FILTERS)).toBe(0);
+    expect(moreCount({ ...NO_FILTERS, env: "production", app: APP, path: "/x", status: "5xx" })).toBe(0);
+    expect(moreCount({ ...NO_FILTERS, status: "404" })).toBe(1);
+    expect(moreCount({ ...NO_FILTERS, method: "GET", latency_min: 1, latency_max: 9, status: "4xx" })).toBe(2);
   });
 });

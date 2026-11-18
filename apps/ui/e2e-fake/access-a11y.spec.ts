@@ -131,7 +131,7 @@ for (const tab of TABS) {
         await page.setViewportSize({ width, height });
         await page.goto(tab.path);
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-        await expect(page.getByRole("heading", { level: 1, name: tab.name, exact: true })).toBeVisible();
+        await expect(page.getByRole("heading", { level: 1, name: "Access", exact: true })).toBeVisible();
         await tab.ready(page);
 
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${at} scrolls sideways`).toBe(true);

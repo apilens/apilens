@@ -22,6 +22,9 @@
  *
  * A callback that throws is logged once and treated as `undefined`; the
  * error never reaches the request handler.
+ *
+ * Errors are never sampled: the capture core keeps a request whose handler
+ * threw or that answered 5xx whatever these steps decided (see `capture.ts`).
  */
 
 import type { Logger } from "./types.js";

@@ -1,8 +1,11 @@
 package retention
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -34,11 +37,26 @@ func TestModifyTTL(t *testing.T) {
 }
 
 // TestSignalsMatchSchema keeps the catalogue in step with the TTLs the
-// ClickHouse schema creates and with the retention.* defaults.
+// ClickHouse schema ends up with (the CREATE in 00001, then any later
+// migration's MODIFY TTL) and with the retention.* defaults.
 func TestSignalsMatchSchema(t *testing.T) {
 	raw, err := os.ReadFile("../migrations/clickhouse/00001_telemetry.sql")
 	if err != nil {
 		t.Fatal(err)
+	}
+	files, err := filepath.Glob("../migrations/clickhouse/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(files)
+	var ups [][]byte // the Up section of each migration after 00001, in order
+	for _, f := range files[1:] {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		up, _, _ := bytes.Cut(b, []byte("-- +goose Down"))
+		ups = append(ups, up)
 	}
 	defaults := map[string]int{}
 	for _, b := range config.RetentionBounds {
@@ -53,6 +71,12 @@ func TestSignalsMatchSchema(t *testing.T) {
 			continue
 		}
 		schemaDays, _ := strconv.Atoi(string(m[1]))
+		modify := regexp.MustCompile(`ALTER TABLE ` + s.Table + ` MODIFY TTL ` + regexp.QuoteMeta(s.TimeExpr) + ` \+ INTERVAL (\d+) DAY`)
+		for _, up := range ups {
+			for _, mm := range modify.FindAllSubmatch(up, -1) {
+				schemaDays, _ = strconv.Atoi(string(mm[1]))
+			}
+		}
 		want := s.FixedDays
 		if s.Configurable {
 			configurable++

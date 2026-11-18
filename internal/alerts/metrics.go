@@ -21,6 +21,14 @@ const (
 	MetricErrors Metric = "errors"
 	// MetricErrorRate is errors / requests, a fraction from 0 to 1.
 	MetricErrorRate Metric = "error_rate"
+	// MetricServerErrors is the number of requests answered 5xx.
+	MetricServerErrors Metric = "server_errors"
+	// MetricServerErrorRate is server errors / requests, from 0 to 1.
+	MetricServerErrorRate Metric = "server_error_rate"
+	// MetricClientErrors is the number of requests answered 4xx.
+	MetricClientErrors Metric = "client_errors"
+	// MetricClientErrorRate is client errors / requests, from 0 to 1.
+	MetricClientErrorRate Metric = "client_error_rate"
 	// MetricP50 is the median response time in milliseconds.
 	MetricP50 Metric = "p50"
 	// MetricP75 is the 75th percentile response time in milliseconds.
@@ -36,7 +44,9 @@ const (
 
 // Metrics lists every metric, in catalogue order.
 var Metrics = []Metric{
-	MetricTraffic, MetricErrors, MetricErrorRate, MetricP50, MetricP75, MetricP95, MetricApdex, MetricUniqueConsumers,
+	MetricTraffic, MetricErrors, MetricErrorRate,
+	MetricServerErrors, MetricServerErrorRate, MetricClientErrors, MetricClientErrorRate,
+	MetricP50, MetricP75, MetricP95, MetricApdex, MetricUniqueConsumers,
 }
 
 // Valid reports whether m is a metric alert_rules accepts.
@@ -52,7 +62,16 @@ func (m Metric) Valid() bool {
 // countLike reports whether m is a count, which is 0 (not "no data") over a
 // window without requests.
 func (m Metric) countLike() bool {
-	return m == MetricTraffic || m == MetricErrors || m == MetricUniqueConsumers
+	switch m {
+	case MetricTraffic, MetricErrors, MetricServerErrors, MetricClientErrors, MetricUniqueConsumers:
+		return true
+	}
+	return false
+}
+
+// IsRate reports whether m is a fraction from 0 to 1 of the requests.
+func (m Metric) IsRate() bool {
+	return m == MetricErrorRate || m == MetricServerErrorRate || m == MetricClientErrorRate
 }
 
 // Condition is alert_rules.condition: how a value compares to the

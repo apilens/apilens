@@ -19,7 +19,8 @@ func registerTrafficLatency(api huma.API, s *Service) {
 		OperationID: "get-traffic-latency", Method: http.MethodGet, Path: "/api/v1/traffic/latency",
 		Summary: "Response time: percentiles, p50/p75/p95 trend, Apdex and histogram",
 		Description: "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the " +
-			"p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out." + readAccess,
+			"p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out; " +
+			"app narrows to one app." + readAccess,
 		Tags: []string{"Dashboard"}, Security: security,
 	}, s.trafficLatency)
 }
@@ -33,10 +34,11 @@ type trafficLatencyOutput struct {
 		Summary       LatencySummary  `json:"summary" doc:"Percentiles are t-digest estimates; apdex scores each request against its endpoint's latency threshold, else its app's, else 500 ms."`
 		Points        []latencyPoint  `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Histogram     []latencyBucket `json:"histogram" doc:"Response-time histogram over raw requests, always 14 log-spaced buckets with edges (ms) 0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, +inf; empty buckets have count 0."`
+		Previous      *LatencySummary `json:"previous,omitempty" doc:"The summary over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."`
 	}
 }
 
-func (s *Service) trafficLatency(ctx context.Context, in *RangeInput) (*trafficLatencyOutput, error) {
+func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*trafficLatencyOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -50,6 +52,10 @@ func (s *Service) trafficLatency(ctx context.Context, in *RangeInput) (*trafficL
 		return nil, err
 	}
 	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	tenant, targs, err = withApp(tenant, targs, in.App)
+	if err != nil {
+		return nil, err
+	}
 	scope, sargs := rules.withoutExcluded(tenant, targs)
 	where, args := scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), w.from, w.to)
 	rawWhere, rawArgs := scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), w.from, w.to)
@@ -60,6 +66,18 @@ func (s *Service) trafficLatency(ctx context.Context, in *RangeInput) (*trafficL
 	b.Summary, b.Points, b.Histogram, err = s.latencyReport(ctx, p.ProjectID, w, w.table, "bucket", rollLatency, where, args, rawWhere, rawArgs)
 	if err != nil {
 		return nil, err
+	}
+	pw := w.previous()
+	qctx, cancel := queryCtx(ctx)
+	defer cancel()
+	prev, err := s.latencySummary(qctx, p.ProjectID, pw.table, rollLatency,
+		scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), pw.from, pw.to),
+		scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), pw.from, pw.to))
+	if err != nil {
+		return nil, err
+	}
+	if prev.Requests > 0 {
+		b.Previous = &prev
 	}
 	return out, nil
 }

@@ -90,7 +90,8 @@ class ApiLensEnvTest {
     ApiLensConfig config = ApiLensConfig.builderFromEnv(env).appId("explicit").build();
     assertEquals("explicit", config.appId());
     assertEquals(50, config.batchSize());
-    assertEquals(3, config.maxRetries());
+    assertEquals(ApiLensConfig.UNLIMITED_RETRIES, config.maxRetries());
+    assertEquals(ApiLensConfig.DEFAULT_MAX_RETRY_DURATION, config.maxRetryDuration());
     assertEquals("production", ApiLensConfig.fromEnv(Map.of()).environment());
   }
 

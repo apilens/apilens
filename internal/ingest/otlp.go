@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
+	"github.com/apilens/apilens/internal/controlplane/privacy"
 	"github.com/apilens/apilens/internal/pipeline"
 )
 
@@ -242,6 +244,8 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 
 	now := e.now()
 	rows := make([]pipeline.SpanRow, 0, total)
+	var excLogs []pipeline.LogRow
+	rds := e.redactors(p.ProjectID)
 	var rejected int64
 	for i, rs := range req.GetResourceSpans() {
 		ri := resources[i]
@@ -249,7 +253,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 		known = known && p.AllowsEnvironment(environment(ri.environment))
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
-				row, valid := spanRow(sp, ri, now)
+				row, valid, cut := spanRow(sp, ri, now)
 				if !known || !valid {
 					rejected++
 					if known {
@@ -257,13 +261,45 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 					}
 					continue
 				}
+				if cut {
+					e.truncated.WithLabelValues(FieldSpanEvents).Inc()
+					t.app(appID).Truncated++
+				}
 				row.ProjectID, row.AppID = p.ProjectID, appID
 				rows = append(rows, row)
+				logs := exceptionLogs(sp, row)
+				if len(logs) == 0 {
+					continue
+				}
+				red, aerr := rds.get(r.Context(), appID)
+				if aerr != nil {
+					e.otlpFail(w, c, signal, aerr)
+					return
+				}
+				for j := range logs {
+					if redactLogRow(red, &logs[j]) {
+						e.masked.WithLabelValues("logs").Inc()
+						t.app(appID).Masked++
+					}
+				}
+				excLogs = append(excLogs, logs...)
 			}
 		}
 	}
 	if len(rows) > 0 {
 		if err := e.sink.SubmitSpans(r.Context(), rows); err != nil {
+			e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+			for _, row := range rows {
+				t.reject(row.AppID, ReasonStorageUnavailable, 1)
+			}
+			e.otlpFail(w, c, signal, e.submitError(err))
+			return
+		}
+	}
+	// Exception logs make OTLP exceptions show in Errors like the SDKs' own.
+	// They derive from accepted spans and are not counted as records.
+	if len(excLogs) > 0 {
+		if err := e.sink.SubmitLogs(r.Context(), excLogs); err != nil {
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}
@@ -281,12 +317,14 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	c.write(w, http.StatusOK, resp)
 }
 
-func spanRow(sp *tracepb.Span, ri resourceInfo, now time.Time) (pipeline.SpanRow, bool) {
+// spanRow maps an OTLP span; cut reports that its events or links were cut
+// to the caps of span_events.go.
+func spanRow(sp *tracepb.Span, ri resourceInfo, now time.Time) (row pipeline.SpanRow, valid, cut bool) {
 	traceID := hexID(hex.EncodeToString(sp.GetTraceId()), traceIDHexLen)
 	spanID := hexID(hex.EncodeToString(sp.GetSpanId()), spanIDHexLen)
 	start := unixNano(sp.GetStartTimeUnixNano())
 	if traceID == "" || spanID == "" || !validTimestamp(start, now) {
-		return pipeline.SpanRow{}, false
+		return pipeline.SpanRow{}, false, false
 	}
 	var durationMs float64
 	if end := sp.GetEndTimeUnixNano(); end > sp.GetStartTimeUnixNano() {
@@ -297,22 +335,158 @@ func spanRow(sp *tracepb.Span, ri resourceInfo, now time.Time) (pipeline.SpanRow
 	if sp.GetStatus().GetCode() == tracepb.Status_STATUS_CODE_ERROR {
 		st = "error"
 	}
+	events, eventsCut := spanEvents(otlpSpanEvents(sp.GetEvents()), start)
+	links, linksCut := spanLinks(otlpSpanLinks(sp.GetLinks()))
 	return pipeline.SpanRow{
-		Environment:  environment(ri.environment),
-		Timestamp:    start,
-		TraceID:      traceID,
-		SpanID:       spanID,
-		ParentSpanID: hexID(hex.EncodeToString(sp.GetParentSpanId()), spanIDHexLen),
-		Name:         short(sp.GetName()),
-		Kind:         spanKind(sp.GetKind()),
-		ServiceName:  short(ri.service),
-		DurationMs:   durationMs,
-		Status:       st,
-		StatusCode:   statusCode,
-		Attributes:   attrs,
-		Release:      release(ri.release),
-		Commit:       commit(ri.commit),
-	}, true
+		Environment:   environment(ri.environment),
+		Timestamp:     start,
+		TraceID:       traceID,
+		SpanID:        spanID,
+		ParentSpanID:  hexID(hex.EncodeToString(sp.GetParentSpanId()), spanIDHexLen),
+		Name:          short(sp.GetName()),
+		Kind:          spanKind(sp.GetKind()),
+		ServiceName:   short(ri.service),
+		DurationMs:    durationMs,
+		Status:        st,
+		StatusCode:    statusCode,
+		Attributes:    attrs,
+		Release:       release(ri.release),
+		Commit:        commit(ri.commit),
+		StatusMessage: truncate(strings.TrimSpace(sp.GetStatus().GetMessage()), maxSpanStatusMessageChars),
+		Events:        events,
+		Links:         links,
+	}, true, eventsCut || linksCut
+}
+
+// otlpSpanEvents converts OTLP span events into the JSON span schema so both
+// receivers apply the same caps. Nested (kvlist and array) attribute values
+// are dropped, as for span attributes.
+func otlpSpanEvents(in []*tracepb.Span_Event) []spanEventRecord {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]spanEventRecord, len(in))
+	for i, ev := range in {
+		var ts time.Time
+		if ns := ev.GetTimeUnixNano(); ns != 0 {
+			ts = unixNano(ns)
+		}
+		var attrs map[string]json.RawMessage
+		for _, kv := range ev.GetAttributes() {
+			v := kv.GetValue()
+			if v.GetKvlistValue() != nil || v.GetArrayValue() != nil {
+				continue
+			}
+			raw, err := json.Marshal(anyString(v))
+			if err != nil {
+				continue
+			}
+			if attrs == nil {
+				attrs = make(map[string]json.RawMessage, len(ev.GetAttributes()))
+			}
+			attrs[kv.GetKey()] = raw
+		}
+		out[i] = spanEventRecord{Timestamp: flexTime{ts}, Name: ev.GetName(), Attributes: attrs}
+	}
+	return out
+}
+
+func otlpSpanLinks(in []*tracepb.Span_Link) []spanLinkRecord {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]spanLinkRecord, len(in))
+	for i, l := range in {
+		out[i] = spanLinkRecord{TraceID: hex.EncodeToString(l.GetTraceId()), SpanID: hex.EncodeToString(l.GetSpanId())}
+	}
+	return out
+}
+
+const (
+	// exceptionEvent is the semantic-convention name of a recorded exception.
+	exceptionEvent = "exception"
+	// exceptionLogger is the logger name of the exception records the SDKs
+	// write when a handler raises (and the Errors page reads).
+	exceptionLogger = "apilens.exception"
+)
+
+// exceptionLogs is an apilens.exception log for every exception event of a
+// span within the event cap, shaped like the SDKs' own: message
+// "<type>: <message>", the stack trace as payload, on the span so it shows
+// in Errors and in the trace. Message and payload are capped by redactLogRow.
+func exceptionLogs(sp *tracepb.Span, row pipeline.SpanRow) []pipeline.LogRow {
+	var out []pipeline.LogRow
+	evs := sp.GetEvents()
+	for _, ev := range evs[:min(len(evs), maxSpanEvents)] {
+		if ev.GetName() != exceptionEvent {
+			continue
+		}
+		var typ, msg, stack string
+		attrs := map[string]string{}
+		for _, kv := range ev.GetAttributes() {
+			v := anyString(kv.GetValue())
+			switch kv.GetKey() {
+			case "exception.type":
+				typ = strings.TrimSpace(v)
+			case "exception.message":
+				msg = v
+			case stacktraceKey:
+				stack = v
+				continue
+			case "exception.escaped":
+			default:
+				continue
+			}
+			attrs[kv.GetKey()] = truncate(v, maxAttributeValueChars)
+		}
+		ts := row.Timestamp
+		if ns := ev.GetTimeUnixNano(); ns != 0 {
+			ts = unixNano(ns)
+		}
+		out = append(out, pipeline.LogRow{
+			ProjectID:      row.ProjectID,
+			AppID:          row.AppID,
+			Environment:    row.Environment,
+			Timestamp:      ts,
+			Level:          "ERROR",
+			Message:        exceptionMessage(typ, msg),
+			LoggerName:     exceptionLogger,
+			EndpointMethod: truncate(strings.ToUpper(row.Attributes["http.request.method"]), 16),
+			EndpointPath:   short(firstNonEmpty(row.Attributes["http.route"], row.Attributes["url.path"])),
+			StatusCode:     row.StatusCode,
+			TraceID:        row.TraceID,
+			SpanID:         row.SpanID,
+			Payload:        stack,
+			Attributes:     attrs,
+			Release:        row.Release,
+			Commit:         row.Commit,
+		})
+	}
+	return out
+}
+
+func exceptionMessage(typ, msg string) string {
+	switch {
+	case typ != "" && msg != "":
+		return typ + ": " + msg
+	case typ != "":
+		return typ
+	case msg != "":
+		return msg
+	default:
+		return exceptionEvent
+	}
+}
+
+// redactLogRow masks a log row in place like redactLog, then caps its
+// message and payload (masking sees whole values). It reports whether
+// anything was masked.
+func redactLogRow(r *privacy.Redactor, row *pipeline.LogRow) bool {
+	msg, payload := r.Text(row.Message), r.Body(row.Payload)
+	masked := msg != row.Message || payload != row.Payload
+	row.Message = truncate(msg, maxLogMessageChars)
+	row.Payload = truncateHeadTail(payload, maxLogPayloadChars)
+	return masked
 }
 
 // unixNano converts OTLP nanoseconds; out-of-range values become the zero
@@ -374,6 +548,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 
 	now := e.now()
 	rows := make([]pipeline.LogRow, 0, total)
+	rds := e.redactors(p.ProjectID)
 	var rejected int64
 	for i, rl := range req.GetResourceLogs() {
 		ri := resources[i]
@@ -390,6 +565,15 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 					}
 					continue
 				}
+				red, aerr := rds.get(r.Context(), appID)
+				if aerr != nil {
+					e.otlpFail(w, c, signal, aerr)
+					return
+				}
+				if redactLogRow(red, &row) {
+					e.masked.WithLabelValues("logs").Inc()
+					t.app(appID).Masked++
+				}
 				row.ProjectID, row.AppID = p.ProjectID, appID
 				rows = append(rows, row)
 			}
@@ -397,6 +581,10 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(rows) > 0 {
 		if err := e.sink.SubmitLogs(r.Context(), rows); err != nil {
+			e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+			for _, row := range rows {
+				t.reject(row.AppID, ReasonStorageUnavailable, 1)
+			}
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}
@@ -426,7 +614,14 @@ func logRow(lr *logspb.LogRecord, ri resourceInfo, scope string, now time.Time) 
 	if !validTimestamp(ts, now) {
 		return pipeline.LogRow{}, false
 	}
-	attrs, statusCode := otlpAttributes(lr.GetAttributes())
+	// exception.stacktrace is the payload (64 KiB head+tail), not an
+	// attribute cut to maxAttributeValueChars.
+	kvs, stack := lr.GetAttributes(), ""
+	if i := slices.IndexFunc(kvs, func(kv *commonpb.KeyValue) bool { return kv.GetKey() == stacktraceKey }); i >= 0 {
+		stack = anyString(kvs[i].GetValue())
+		kvs = slices.Delete(slices.Clone(kvs), i, i+1)
+	}
+	attrs, statusCode := otlpAttributes(kvs)
 	level := logLevel(lr.GetSeverityText())
 	if lr.GetSeverityText() == "" {
 		level = severityLevel(lr.GetSeverityNumber())
@@ -435,8 +630,9 @@ func logRow(lr *logspb.LogRecord, ri resourceInfo, scope string, now time.Time) 
 		Environment:    environment(ri.environment),
 		Timestamp:      ts,
 		Level:          level,
-		Message:        truncate(anyString(lr.GetBody()), maxLogMessageChars),
+		Message:        anyString(lr.GetBody()), // capped by redactLogRow
 		LoggerName:     short(scope),
+		Payload:        stack,
 		EndpointMethod: truncate(strings.ToUpper(attrs["http.request.method"]), 16),
 		EndpointPath:   short(firstNonEmpty(attrs["http.route"], attrs["url.path"])),
 		StatusCode:     statusCode,

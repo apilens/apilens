@@ -5,6 +5,7 @@ import { isoSecond } from "./explore-timeline";
 import { formatCount } from "./first-data";
 import type { DeployChange, DeployEndpoint, DeploySide, QueryRange } from "./identity";
 import { zoneLabel, zoned } from "./time-zone";
+import { formatPercent } from "./format";
 
 /** The deploys the view lists: the last seven days, newest first. */
 export const CHANGES_RANGE: QueryRange = "7d";
@@ -52,16 +53,9 @@ export function p95Delta(before: DeploySide, after: DeploySide): Delta {
   return { tone, text: `${signed(Math.round(ms), 0)} ms (${signed(Math.round(ratio * 100), 0)}%)` };
 }
 
-/** An error rate (0..1) as a percentage: `0%`, `<0.1%`, `2.4%`. */
-export function formatRate(rate: number): string {
-  if (!Number.isFinite(rate) || rate <= 0) return "0%";
-  if (rate < 0.001) return "<0.1%";
-  return `${(rate * 100).toFixed(1)}%`;
-}
-
 /** One side's error rate for the table, or a dash without traffic. */
 export function sideRate(side: DeploySide): string {
-  return side.requests > 0 ? formatRate(side.error_rate) : "–";
+  return side.requests > 0 ? formatPercent(side.error_rate) : "–";
 }
 
 /** One side's p95 for the table, or a dash without traffic. */

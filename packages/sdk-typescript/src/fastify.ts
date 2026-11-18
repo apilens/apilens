@@ -28,7 +28,7 @@ import type {
 } from "fastify";
 
 import type { ApiLensClient } from "./client.js";
-import { CaptureCore, recordRequestError, requestError, type RequestCapture } from "./capture.js";
+import { CaptureCore, keepFirstRequestError, requestError, type RequestCapture } from "./capture.js";
 import { buildAppMetadata, packageVersion, type AppRoute, type FrameworkInfo } from "./metadata.js";
 import { expressPathToTemplate } from "./routes.js";
 import type { ApiLensConsumer, ApiLensExpressConfig } from "./types.js";
@@ -71,6 +71,39 @@ export function fastifyPathToTemplate(url: unknown): string | undefined {
 function methodsOf(route: RouteOptions): string[] {
   const methods = Array.isArray(route.method) ? route.method : [route.method];
   return methods.map((m) => String(m).toUpperCase());
+}
+
+type ErrorHandlerFn = (this: unknown, error: unknown, request: FastifyRequest, reply: FastifyReply) => unknown;
+
+/**
+ * Wrap `setErrorHandler` on the instance (encapsulated plugins registered
+ * later inherit it) so each error handler the app sets keeps the error
+ * before it answers. `onError` already sees the error first on Fastify 5;
+ * this covers Fastify versions that run `onError` only when the handler
+ * replies with an error. Never throws.
+ */
+function wrapSetErrorHandler(fastify: FastifyInstance): void {
+  try {
+    const target = fastify as unknown as { setErrorHandler?: (handler: unknown) => unknown };
+    const original = target.setErrorHandler;
+    if (typeof original !== "function") {
+      return;
+    }
+    target.setErrorHandler = function (this: unknown, handler: unknown) {
+      if (typeof handler !== "function") {
+        return original.call(this, handler);
+      }
+      const userHandler = handler as ErrorHandlerFn;
+      return original.call(this, function (this: unknown, error: unknown, request: FastifyRequest, reply: FastifyReply) {
+        if (request?.raw) {
+          keepFirstRequestError(request.raw, error);
+        }
+        return userHandler.call(this, error, request, reply);
+      });
+    };
+  } catch {
+    // Leave error capture to the onError hook.
+  }
 }
 
 /**
@@ -152,9 +185,10 @@ export function attachFastify(
   });
 
   fastify.addHook("onError", (request, _reply, error, done) => {
-    recordRequestError(request.raw, error);
+    keepFirstRequestError(request.raw, error);
     done();
   });
+  wrapSetErrorHandler(fastify);
 
   fastify.addHook("onSend", (request, reply, payload, done) => {
     captures

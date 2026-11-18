@@ -1,5 +1,5 @@
 // Access › Members › Default access (#808) against the fake identity (e2e-fake/fake-identity.ts):
-// every transition between the three defaults, the dry run's count and names in the confirmation,
+// the one line under the table with Change (#999), every transition between the three defaults, the dry run's count and names in the confirmation,
 // cancel leaving the setting unchanged, the "Restricted" label, a stale sign-in, and a viewer
 // seeing the setting read-only. The fake's measured seed is nine acme people under `org_role`:
 // three of them (Max, Vera, Sam) have access only through the default. No email is sent.
@@ -33,9 +33,17 @@ const RESTRICTED = /^Restricted: only people added here/;
 const save = (page: Page) => card(page).getByRole("button", { name: "Save default access" });
 const status = (page: Page) => card(page).getByRole("status");
 const label = (page: Page) => page.locator(".os-head .da-restricted");
-const summary = (page: Page) => page.locator(".am-summary__def");
+const summary = (page: Page) => card(page).locator(".da-line__text");
+const change = (page: Page) => card(page).getByRole("button", { name: "Change default access" });
+
+/** Opens the choices with Change unless they are already open. */
+async function open(page: Page) {
+  if (await change(page).isVisible()) await change(page).click();
+  await expect(card(page).getByRole("radio")).toHaveCount(3);
+}
 
 async function pick(page: Page, name: RegExp) {
+  await open(page);
   await choice(page, name).check();
   await save(page).click();
 }
@@ -47,14 +55,27 @@ test.afterAll(async () => {
   await seed();
 });
 
-test("lists the three choices with a sentence each and the current one checked", async ({ page }) => {
+test("sits under the people table as one line; Change lists the three choices with the current one checked", async ({ page }) => {
   await signIn(page);
+  await expect(summary(page)).toHaveText("Default access: organization members can edit and organization viewers can view.");
+  await expect(card(page).getByRole("radio")).toHaveCount(0);
+  const tableBottom = await page.getByRole("table", { name: /^People with access to / }).evaluate((el) => el.getBoundingClientRect().bottom);
+  const cardTop = await card(page).evaluate((el) => el.getBoundingClientRect().top);
+  expect(cardTop).toBeGreaterThan(tableBottom);
+
+  await change(page).click();
   await expect(card(page).getByRole("radio")).toHaveCount(3);
+  await expect(choice(page, FOLLOW)).toBeFocused();
   await expect(choice(page, FOLLOW)).toBeChecked();
   await expect(card(page).getByText(/^Everyone in .+ can view/)).toBeVisible();
   await expect(choice(page, FOLLOW)).toHaveAccessibleDescription("Organization members can edit and organization viewers can view.");
   await expect(save(page)).toBeDisabled();
   await expect(label(page)).toHaveCount(0);
+
+  // Cancel closes the choices and puts focus back on Change.
+  await card(page).getByRole("button", { name: "Cancel" }).click();
+  await expect(card(page).getByRole("radio")).toHaveCount(0);
+  await expect(change(page)).toBeFocused();
 });
 
 test("org role → restricted: the dry run's count and names, then Restricted", async ({ page }) => {
@@ -74,6 +95,7 @@ test("org role → restricted: the dry run's count and names, then Restricted", 
   await expect(page.getByText(/^6 people have access/)).toBeVisible();
 
   await page.reload();
+  await open(page);
   await expect(choice(page, RESTRICTED)).toBeChecked();
   await expect(label(page)).toHaveText("Restricted");
 });
@@ -93,6 +115,7 @@ test("org role → view only drops editors without taking access", async ({ page
 test("view only → restricted confirms; view only → org role saves at once", async ({ page }) => {
   await seed({ default_access: "viewer" });
   await signIn(page);
+  await open(page);
   await expect(choice(page, VIEW)).toBeChecked();
 
   await pick(page, RESTRICTED);
@@ -106,7 +129,7 @@ test("view only → restricted confirms; view only → org role saves at once", 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(status(page)).toHaveText("Default access now follows the organization role.");
   await expect(label(page)).toHaveCount(0);
-  await expect(choice(page, FOLLOW)).toBeChecked();
+  await expect(summary(page)).toHaveText("Default access: organization members can edit and organization viewers can view.");
 });
 
 test("restricted → view only and view only → org role widen without a dialog", async ({ page }) => {
@@ -119,6 +142,7 @@ test("restricted → view only and view only → org role widen without a dialog
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await page.reload();
+  await open(page);
   await expect(choice(page, VIEW)).toBeChecked();
   await pick(page, FOLLOW);
   await expect(summary(page)).toHaveText("Default access: organization members can edit and organization viewers can view.");
@@ -148,7 +172,7 @@ test("cancel (button or Escape) leaves the setting unchanged", async ({ page }) 
   await expect(choice(page, FOLLOW)).toBeChecked();
 
   await page.reload();
-  await expect(choice(page, FOLLOW)).toBeChecked();
+  await expect(summary(page)).toHaveText("Default access: organization members can edit and organization viewers can view.");
   await expect(label(page)).toHaveCount(0);
   await expect(page.getByText("9 people have access: 4 Admins, 3 Editors, 2 Viewers.")).toBeVisible();
 });
@@ -188,10 +212,10 @@ test("a stale sign-in confirms who you are before the dry run", async ({ page })
 test("a viewer sees the current setting read-only", async ({ page }) => {
   await seed({ default_access: "viewer" });
   await signIn(page, VIEWER);
-  await expect(choice(page, VIEW)).toBeChecked();
-  for (const r of await card(page).getByRole("radio").all()) await expect(r).toBeDisabled();
+  await expect(summary(page)).toHaveText("Default access: everyone in the organization can view.");
   await expect(card(page).getByText("Only project admins can change the default access.")).toBeVisible();
-  await expect(save(page)).toHaveCount(0);
+  await expect(card(page).getByRole("button")).toHaveCount(0);
+  await expect(card(page).getByRole("radio")).toHaveCount(0);
 });
 
 // Visual check (light/dark at 1440 and 390): `ACCESS_SHOTS=<dir> pnpm test:e2e:fake access-default`.
@@ -208,6 +232,7 @@ test("screenshots", async ({ page }) => {
       await page.goto("/shop/access");
       await expect(card(page)).toBeVisible();
       await page.screenshot({ path: `${dir}/access-default-${theme}-${width}.png`, fullPage: true });
+      await page.screenshot({ path: `${dir}/access-default-${theme}-${width}-first-screen.png` });
     }
   }
   await seed({ default_access: "org_role" });

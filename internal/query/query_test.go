@@ -51,6 +51,33 @@ func TestResolveWindowAlignsToBuckets(t *testing.T) {
 	}
 }
 
+// TestPreviousWindowShiftsBySpan checks the baseline of the tile comparison
+// (#1000): the window of the same length ending where the range starts, on
+// the same buckets and rollup table, for every range.
+func TestPreviousWindowShiftsBySpan(t *testing.T) {
+	now := time.Date(2026, 10, 22, 10, 37, 12, 0, time.UTC)
+	for _, name := range []string{"1h", "6h", "24h", "7d"} {
+		w, err := resolveWindow(name, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := w.previous()
+		if !p.to.Equal(w.from) {
+			t.Errorf("%s: previous ends %v, want the range start %v", name, p.to, w.from)
+		}
+		if p.to.Sub(p.from) != w.to.Sub(w.from) || p.from.Truncate(w.bucket) != p.from {
+			t.Errorf("%s: previous [%v, %v) is not the same span, bucket-aligned", name, p.from, p.to)
+		}
+		if p.name != w.name || p.bucket != w.bucket || p.table != w.table {
+			t.Errorf("%s: previous reads %s/%v/%s, want %s/%v/%s", name, p.name, p.bucket, p.table, w.name, w.bucket, w.table)
+		}
+	}
+	w, _ := resolveWindow("24h", now)
+	if p := w.previous(); !p.from.Equal(time.Date(2026, 10, 20, 10, 45, 0, 0, time.UTC)) || !p.to.Equal(time.Date(2026, 10, 21, 10, 45, 0, 0, time.UTC)) {
+		t.Errorf("24h previous = [%v, %v)", p.from, p.to)
+	}
+}
+
 func TestTenantFilterAlwaysStartsWithProject(t *testing.T) {
 	pid := uuid.New()
 	where, args := tenantFilter(pid, "")

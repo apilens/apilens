@@ -288,7 +288,7 @@ def test_asgi_cannot_undrop_a_request_sampled_out_at_request_stage():
         return True
 
     mw = ApiLensASGIMiddleware(
-        _asgi_app(500), client, app_id="orders-api", sample_rate=0.0, sample_on_response=keep_everything
+        _asgi_app(404), client, app_id="orders-api", sample_rate=0.0, sample_on_response=keep_everything
     )
     _run_asgi(mw)
     (rec,) = client.records
@@ -548,7 +548,7 @@ def test_django_cannot_undrop(django_settings, monkeypatch):
 
     from apilens.django import ApiLensDjangoMiddleware
 
-    mw = ApiLensDjangoMiddleware(_django_view(500))
+    mw = ApiLensDjangoMiddleware(_django_view(404))
     mw(RequestFactory().post("/orders", data=b"{}", content_type="application/json"))
     (rec,) = client.records
     assert rec["sampled"] is False and all(rec[k] == "" for k in DETAIL_KEYS)

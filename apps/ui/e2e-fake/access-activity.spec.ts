@@ -40,7 +40,7 @@ test.afterAll(async () => {
 
 test("lists the project's activity newest first with the retention line, a page at a time", async ({ page }) => {
   await signIn(page, PATH);
-  await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
   await expect(rows(page)).toHaveCount(25);
   const first = rows(page).first();
   await expect(first.getByRole("button")).toHaveText("Ada Admin rotated key Production backend");
@@ -167,7 +167,7 @@ test("without audit.read the tab is hidden and a direct link shows the not-allow
   await expect(page.getByRole("navigation", { name: "Access", exact: true }).getByRole("link")).toHaveText(["Members", "API keys"]);
   const res = await page.goto(PATH);
   expect(res?.status()).toBe(200);
-  await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Access" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "You can’t see this project’s activity log" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Activity log", exact: true })).toHaveCount(0);
 });

@@ -41,7 +41,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
   return (
     <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
       <ProjectSettingsFrame project={project} sections={visibleProjectSections(context.capabilities, project, found.slug)} current={found.slug}>
-        {content ? await content(ctx) : <NotBuiltSection projectName={ctx.projectName} section={found} />}
+        {content ? await content(ctx) : <NotBuiltSection project={project} projectName={ctx.projectName} section={found} />}
       </ProjectSettingsFrame>
     </AppShell>
   );

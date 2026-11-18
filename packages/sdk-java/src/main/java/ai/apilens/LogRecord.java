@@ -8,6 +8,9 @@ import java.util.Map;
 
 /** One error log sent to the API Lens /logs ingest endpoint. */
 public final class LogRecord {
+  /** Payload cap (D4): 64 KiB, head and tail kept so the root cause survives. */
+  public static final int MAX_PAYLOAD_CHARS = 64 * 1024;
+
   private final Instant timestamp;
   private final String environment;
   private final String level;
@@ -44,7 +47,7 @@ public final class LogRecord {
     this.consumerGroup = Strings.clean(builder.consumerGroup);
     this.projectSlug = Strings.clean(builder.projectSlug);
     this.appId = Strings.clean(builder.appId);
-    this.payload = Strings.truncate(builder.payload, 8000);
+    this.payload = Strings.truncateHeadTail(builder.payload, MAX_PAYLOAD_CHARS);
     this.attributes = Map.copyOf(builder.attributes);
     this.release = Strings.clean(builder.release);
     this.commit = Strings.clean(builder.commit);

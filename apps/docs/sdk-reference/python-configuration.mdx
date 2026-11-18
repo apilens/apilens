@@ -34,7 +34,8 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `ca_bundle_path` | `""` | Custom CA bundle for private CAs. |
 | `max_queue_size` | `10_000` | Per-queue cap; oldest records are dropped when full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues; oldest records are dropped once exceeded. |
-| `max_retries` | `3` | Delivery attempts per batch. |
+| `max_retry_seconds` | `300.0` | How long a failed batch (408, 429, 5xx, network error) is retried before it is dropped. |
+| `max_retries` | `None` | Deprecated alias of `max_retry_seconds` (the window that many backoff retries used to cover). |
 | `retry_backoff_base` | `0.25` | Exponential backoff base (seconds). |
 | `retry_backoff_max` | `5.0` | Backoff ceiling (seconds). |
 | `compress` | `True` | gzip each batch (`Content-Encoding: gzip`); `False` sends plain JSON. |
@@ -69,6 +70,7 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
 | `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
 | `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
+| `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. See [Local variables](/sdk-reference/exceptions#local-variables-python). |
 | `capture_content_types` | JSON, `+json`, `text/*`, form-encoded | Media-type globs whose bodies are captured; it replaces the defaults. Other bodies are stored as `[<content-type>, N bytes omitted]`. See [Data privacy](/getting-started/data-privacy#which-bodies-are-captured). |
 | `redact_query_params` | `None` | Regexes matched against query parameter names; matched values stored as `[redacted]`. |
 | `redact_headers` | `None` | Regexes matched against header names, on top of the built-in sensitive-header list. |
@@ -77,10 +79,12 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` adds to it. |
 | `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely (case-insensitive search). `APILENS_EXCLUDE_USER_AGENTS` adds to it. |
 | `default_exclusions` | `True` | Skip the built-in health/probe paths and probe user agents. `False` turns them off; your own exclusions still apply. See [Default exclusions](/getting-started/data-privacy#default-exclusions). |
-| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail (headers, bodies, spans, error log) is kept. The base record is always sent. See [Sampling](/sdk-reference/sampling). |
+| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail (headers, bodies, spans) is kept. The base record is always sent, and a request that raised or answered 5xx is always kept. See [Sampling](/sdk-reference/sampling). |
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. |
 | `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. |
-| `capture_spans` | `True` | Automatic tracing + error-trace capture. |
+| `capture_spans` | `True` | Automatic tracing. Exception logs are sent even when it is off. |
+| `capture_db_spans` | `True` | Database statements (SQLAlchemy, Django ORM, psycopg, asyncpg) become `db` spans with literals replaced by `?`. Needs `capture_spans`. |
+| `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. See [Logging integrations](/sdk-reference/exceptions#logging-integrations). |
 | `service_name` | `""` | Span service name (defaults to the app id). |
 | `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
 | `route_resolver` | `None` | Custom callback returning the route template for a request. |
@@ -117,6 +121,7 @@ parsed values as a dict.
 | `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | `capture_validation_errors` | bool | `true` |
+| `APILENS_CAPTURE_LOCALS` | `capture_locals` | bool | `false` |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
 | `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |
@@ -128,6 +133,8 @@ parsed values as a dict.
 | `APILENS_CAPTURE_IP` | `capture_ip` | bool; `false` wins over code | `true` |
 | `APILENS_ANONYMIZE_IP` | `anonymize_ip` | bool; `true` wins over code | `false` |
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | `capture_db_spans` | bool | `true` |
+| `APILENS_CAPTURE_LOGS` | `capture_logs` | `errors` or `off` | `errors` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
 | `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
@@ -207,8 +214,8 @@ handler = Mangum(app, lifespan="off")
 ```
 
 Mangum returns the response to Lambda when the app returns, so on Lambda the
-flush adds the ingest round-trip to the invocation. Keep `timeout` and
-`max_retries` low. The Django middleware does not flush inline; call
+flush adds the ingest round-trip to the invocation. Keep `timeout` low; a
+failed batch stays queued for the next invocation. The Django middleware does not flush inline; call
 `client.flush()` yourself (e.g. from a `request_finished` signal).
 
 **CronJobs and scripts.** Use the client as a context manager

@@ -6,6 +6,7 @@ from __future__ import annotations
 import gzip
 import json
 import random
+import re
 import string
 from datetime import datetime, timezone
 
@@ -13,7 +14,7 @@ import pytest
 
 from apilens.client import ApiLensClient, ApiLensConfig
 from apilens.client import client as client_mod
-from apilens.client.client import MIN_BATCH_BYTES, TRUNCATION_MARKER
+from apilens.client.client import MIN_BATCH_BYTES
 from apilens.client.models import LogRecord, RequestRecord, SpanRecord
 
 KB = 1024
@@ -28,6 +29,9 @@ class _Resp:
 
     def __exit__(self, *_a):
         return False
+
+    def read(self):
+        return b"{}"
 
 
 @pytest.fixture
@@ -137,8 +141,9 @@ def test_oversized_record_is_truncated_payloads_first(sent):
     (wire,) = json.loads(raw)["requests"]
     assert wire["path"] == "/big"
     assert wire["request_headers"] == rec.request_headers  # untouched: payloads went first
-    assert wire["request_payload"] == "" or wire["request_payload"].endswith(TRUNCATION_MARKER)
-    assert wire["response_payload"].endswith(TRUNCATION_MARKER)
+    assert wire["request_payload"] == "" or "chars truncated]" in wire["request_payload"]
+    # Head and tail survive around the marker (D4 of #897).
+    assert re.fullmatch(r"p+\n…\[\d+ chars truncated\]…\np+", wire["response_payload"])
     assert client.drop_counts()["truncated"] == 1
     assert client.dropped_count == 0  # truncated records are delivered, not dropped
     # The queued record itself is not mutated.

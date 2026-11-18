@@ -38,7 +38,7 @@ test.afterAll(async () => {
 
 test("shows the three actions with what each one does", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Danger zone" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Danger zone" })).toBeVisible();
   await expect(page).toHaveTitle(/^Danger zone · Project settings/);
   const c = card(page);
   await expect(c).toContainText("Pause data collection");
@@ -92,7 +92,7 @@ test("renames the slug after the availability check; the old URL redirects", asy
 
   await page.goto("/shop/settings/danger");
   await page.waitForURL((url) => url.pathname === "/shop-api/settings/danger");
-  await expect(page.getByRole("heading", { level: 1, name: "Danger zone" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Danger zone" })).toBeVisible();
 });
 
 test("delete needs the exact slug; then the project is gone from the switcher without a reload", async ({ page }) => {

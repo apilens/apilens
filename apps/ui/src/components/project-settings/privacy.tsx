@@ -25,6 +25,8 @@ import {
 import { REDACTED, type RedactorDefaults, compileRedactor } from "@/lib/privacy-redact";
 import { ObIcon } from "../onboarding/ob";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./privacy.css";
@@ -43,10 +45,7 @@ export function PrivacySettings({ projectName, project, policy }: { project: str
   const manage = useCan("project.update").allowed;
   return (
     <div className="page page--measure os prv">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Privacy</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Privacy" className="os-head" />
       {policy === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s privacy policy. Reload the page to try again.

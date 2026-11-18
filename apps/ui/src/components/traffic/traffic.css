@@ -15,7 +15,7 @@
 .tr-seg a:focus-visible, .tr-ep__link:focus-visible, .tr .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .tr-env { display: inline-flex; align-items: center; gap: var(--space-2); font: 500 13px/20px var(--font-sans); color: var(--ink-muted); }
 .tr-select { height: 30px; min-width: 180px; padding: 0 28px 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font: 400 13px/1 var(--font-sans); appearance: none; cursor: pointer; }
-.tr-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.tr-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 .tr-live { display: inline-flex; align-items: center; gap: var(--space-2); }
 .tr-live__state { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/16px var(--font-mono); color: var(--ink); }
@@ -65,6 +65,13 @@
 /* The hovered (or keyboard-picked) bucket: its slot is shaded, line charts add a crosshair and dots. */
 .tr-hit.is-on { fill: var(--surface-2); }
 .tr-plot--hover { cursor: crosshair; }
+.tr-plot--open { cursor: pointer; }
+/* A count or cell that opens its requests in Explore (#977). */
+.tr-drill { color: inherit; text-decoration: underline dotted var(--border-strong); text-underline-offset: 3px; }
+/* Above the row's stretched endpoint link (.tr-ep__link::after), so the cell opens Explore. */
+.tr-row .tr-drill { position: relative; z-index: 1; }
+.tr-drill:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
+.tr-drill:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
 .tr-dot { pointer-events: none; }
 .tr-dot.ep-c-p50 { stroke: var(--ink-muted); }
 .tr-dot.ep-c-p75 { stroke: var(--info); }
@@ -84,6 +91,13 @@
 .tr-table td { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); vertical-align: middle; }
 .tr-table tbody tr:first-child td { border-top: 0; }
 .tr-table th.tr-num, .tr-table td.tr-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Sortable headers (#1001): the column name is a link; the arrow repeats aria-sort for sight (as
+   generated content with empty alt text, so it is never read twice). */
+.tr-sort { display: inline-flex; align-items: center; gap: 2px; color: inherit; font: inherit; text-decoration: none; }
+.tr-sort:hover, th[aria-sort] .tr-sort { color: var(--ink); }
+th[aria-sort="ascending"] .tr-sort::after { content: "↑" / ""; }
+th[aria-sort="descending"] .tr-sort::after { content: "↓" / ""; }
+.tr-sort:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
 .tr-row { position: relative; }
 .tr-row:hover { background: var(--surface-2); }
 .tr-ep__link { color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
@@ -122,3 +136,33 @@
 /* An interactive sparkline (shared chart hover): a taller hit area than the 24px line. */
 .tr-spark--hover { cursor: crosshair; }
 .tr-spark--hover svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* The "vs previous" line under a summary tile (#1000). */
+.tr-compare { font: 400 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.tr-compare--bad { color: var(--error); }
+.tr-compare--good { color: var(--ok); }
+
+/* The endpoints table's path search and the declared routes without traffic (#1003). */
+.tr-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tr-search { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; padding: 0 var(--space-4) var(--space-3); }
+.tr-search__box { display: inline-flex; align-items: center; gap: 6px; width: 260px; max-width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); }
+.tr-search__box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tr-search__box svg { flex: none; width: 14px; height: 14px; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
+.tr-search__box input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--ink); font: 400 13px/20px var(--font-sans); }
+.tr-search__box input::placeholder { color: var(--ink-muted); }
+.tr-btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); color: var(--ink); font: 500 13px/20px var(--font-sans); white-space: nowrap; cursor: pointer; }
+.tr-btn:hover { background: var(--surface-2); }
+.tr-btn:focus-visible, .tr-declared summary:focus-visible, .tr-declared__link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.tr-declared { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-4); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.tr-declared summary { cursor: pointer; font-weight: 500; color: var(--ink-muted); width: fit-content; }
+.tr-declared summary:hover { color: var(--ink); }
+.tr-declared__lead { margin: var(--space-2) 0; color: var(--ink-muted); }
+.tr-declared ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.tr-declared__link { color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+.tr-declared__link b { font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.tr-declared__link code { font: 400 13px/20px var(--font-mono); }
+.tr-declared__link:hover code { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 760px) {
+  .tr-search { width: 100%; box-sizing: border-box; }
+  .tr-search__box { flex: 1; width: auto; }
+}

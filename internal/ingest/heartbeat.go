@@ -64,17 +64,18 @@ func (e *Edge) WithHeartbeat(store HeartbeatStore, cache HeartbeatCache) *Edge {
 type Heartbeat struct {
 	_ struct{} `json:"-" additionalProperties:"true"` // newer SDKs may send more
 
-	ProjectSlug string         `json:"project_slug,omitempty" doc:"Optional; must match the API key's project"`
-	AppID       string         `json:"app_id,omitempty" doc:"The app: its name (an unknown name creates the app when the key may create apps), slug or UUID. Omitted or empty: the project's default app." example:"storefront"`
-	Environment string         `json:"environment,omitempty" doc:"Defaults to production" example:"production"`
-	InstanceID  string         `json:"instance_id" minLength:"1" maxLength:"128" doc:"Stable id of the SDK process, generated once per process start" example:"4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e"`
-	SDKName     string         `json:"sdk_name,omitempty" example:"apilenss"`
-	SDKVersion  string         `json:"sdk_version,omitempty" example:"0.5.0"`
-	Runtime     string         `json:"runtime,omitempty" doc:"Language runtime and version" example:"python 3.13.1"`
-	Release     string         `json:"release,omitempty" doc:"Version of the app being monitored" example:"2026.11.05"`
-	Commit      string         `json:"commit,omitempty" doc:"VCS commit of the app being monitored" example:"9f2c1ab"`
-	PID         *int64         `json:"pid,omitempty" doc:"OS process id" example:"4242"`
-	Stats       map[string]any `json:"stats,omitempty" doc:"SDK counters since start (records queued, sent, dropped). At most 16 KiB."`
+	ProjectSlug string                      `json:"project_slug,omitempty" doc:"Optional; must match the API key's project"`
+	AppID       string                      `json:"app_id,omitempty" doc:"The app: its name (an unknown name creates the app when the key may create apps), slug or UUID. Omitted or empty: the project's default app." example:"storefront"`
+	Environment string                      `json:"environment,omitempty" doc:"Defaults to production" example:"production"`
+	InstanceID  string                      `json:"instance_id" minLength:"1" maxLength:"128" doc:"Stable id of the SDK process, generated once per process start" example:"4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e"`
+	SDKName     string                      `json:"sdk_name,omitempty" example:"apilenss"`
+	SDKVersion  string                      `json:"sdk_version,omitempty" example:"0.5.0"`
+	Runtime     string                      `json:"runtime,omitempty" doc:"Language runtime and version" example:"python 3.13.1"`
+	Release     string                      `json:"release,omitempty" doc:"Version of the app being monitored" example:"2026.11.05"`
+	Commit      string                      `json:"commit,omitempty" doc:"VCS commit of the app being monitored" example:"9f2c1ab"`
+	PID         *int64                      `json:"pid,omitempty" doc:"OS process id" example:"4242"`
+	Stats       map[string]any              `json:"stats,omitempty" doc:"SDK counters since start (records queued, sent, dropped). At most 16 KiB."`
+	Dropped     map[string]map[string]int64 `json:"dropped,omitempty" doc:"Records dropped since the previous heartbeat answered 200, per signal (requests, spans, logs) and reason (queue_full, retries_exhausted, ...). The SDK resets them on 200 and adds them to the next heartbeat otherwise. Shown per app and hour in Ingest health; other signals are ignored. At most 32 reasons per signal; reasons are lowercase letters, digits, '_', '.' or '-', up to 64 characters; counts are not negative." example:"{\"requests\":{\"queue_full\":3},\"spans\":{\"retries_exhausted\":12}}"`
 }
 
 // HeartbeatPolicy is the remote capture policy of the app, returned on every
@@ -146,6 +147,11 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, errValidation("pid must not be negative"))
 		return
 	}
+	drops, aerr := sdkDrops(body.Dropped)
+	if aerr != nil {
+		e.fail(w, signal, aerr)
+		return
+	}
 	statsJSON := []byte("{}")
 	if body.Stats != nil {
 		var err error
@@ -208,6 +214,8 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Counted only on the 200 that tells the SDK to reset them.
+	e.flushSDKDrops(r.Context(), appID, drops)
 	e.records.WithLabelValues(signal, "accepted").Inc()
 	e.batches.WithLabelValues(signal, "200").Inc()
 	writeJSON(w, http.StatusOK, HeartbeatAccepted{Policy: toHeartbeatPolicy(pol)})
@@ -298,7 +306,7 @@ func addHeartbeatOperation(oapi *huma.OpenAPI, errBody *huma.Schema) {
 		Path:        "/v1/heartbeat",
 		Summary:     "Report an SDK instance is alive and fetch the capture policy",
 		Description: "Sent by every SDK process on start and then about once a minute. Records the instance as last seen now " +
-			"(the app shows as reporting for 5 minutes) and answers the app's remote capture policy, which the SDK applies " +
+			"(the app shows as reporting for 5 minutes), adds the SDK's drop counts (`dropped`) to the app's hourly counters, and answers the app's remote capture policy, which the SDK applies " +
 			"until the next heartbeat. At most one heartbeat per instance every 10 seconds; a faster one answers 429 with " +
 			"Retry-After. On 503 the SDK keeps its previous policy. A body with an `api_key` field at any depth is rejected with 422.",
 		Tags:        []string{server.TagIngest},

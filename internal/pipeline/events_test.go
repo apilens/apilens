@@ -61,3 +61,31 @@ func TestDeployEventProjectWide(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSpanEventCarriesStatusMessageEventsLinks(t *testing.T) {
+	at := time.Date(2026, 10, 22, 10, 0, 0, 5, time.UTC)
+	ev := SpanRow{
+		ProjectID: uuid.New(), Timestamp: at, StatusMessage: "card declined",
+		Events: []SpanEventRow{{Time: at, Name: "exception", Attributes: map[string]string{"exception.type": "ValueError"}}},
+		Links:  []SpanLink{{TraceID: "5bf92f3577b34da6a3ce929d0e0e4736", SpanID: "10f067aa0ba902b7"}},
+	}.Event()
+	b, err := proto.Marshal(&eventv1.SpanBatch{Events: []*eventv1.SpanEvent{ev}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var batch eventv1.SpanBatch
+	if err := proto.Unmarshal(b, &batch); err != nil {
+		t.Fatal(err)
+	}
+	got := batch.GetEvents()[0]
+	if got.GetStatusMessage() != "card declined" || len(got.GetEvents()) != 1 {
+		t.Fatalf("span event = %v", got)
+	}
+	if e := got.GetEvents()[0]; e.GetName() != "exception" || !e.GetTime().AsTime().Equal(at) ||
+		e.GetAttributes()["exception.type"] != "ValueError" {
+		t.Errorf("event = %v", e)
+	}
+	if l := got.GetLinks(); len(l) != 1 || l[0].GetTraceId() != "5bf92f3577b34da6a3ce929d0e0e4736" || l[0].GetSpanId() != "10f067aa0ba902b7" {
+		t.Errorf("links = %v", l)
+	}
+}

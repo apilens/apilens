@@ -42,7 +42,7 @@ test.afterAll(async () => {
 
 test("lists the environments in order with where they came from, and the hidden ones collapsed", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Environments" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Environments" })).toBeVisible();
   await expect(page.getByText("5 of 20 environments used")).toBeVisible();
   await expect(ordered(page).getByRole("heading")).toHaveText(["production", "staging", "canary", "preview"]);
 

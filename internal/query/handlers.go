@@ -66,8 +66,9 @@ var dashboardDescriptions = map[string]string{
 		"app narrows to one app.",
 	"get-traffic-timeseries": "Requests, errors and p95 per bucket of the range (1 minute for 1h, 5 minutes for 6h, 15 minutes for 24h, " +
 		"1 hour for 7d), oldest first and zero-filled. app narrows to one app.",
-	"list-endpoints": "Per endpoint (method and route template) traffic, error split, latency percentiles and Apdex over the range, " +
-		"most requests first. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts.",
+	"list-endpoints": "Per endpoint (app, method and route template) traffic, error split, latency percentiles and Apdex over the range, " +
+		"most requests first: a route served by several apps is one row per app. Routes an app declared with POST /v1/metadata but " +
+		"that had no traffic follow with zero counts. app narrows to one app.",
 	"get-endpoint-requests": "The requests tab of an endpoint: totals by outcome, requests per minute, the outcome split per bucket " +
 		"and the top consumers. An endpoint without traffic answers zeros, not 404.",
 	"get-endpoint-latency": "The response-time tab of an endpoint: summary percentiles and Apdex, the p50/p75/p95 trend per bucket " +
@@ -124,6 +125,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
 	registerErrorStatus(api, s)
 	registerTrafficLatency(api, s)
+	registerSlowestRequests(api, s)
 	registerDeployChanges(api, s)
 	registerDeployDetail(api, s)
 	registerIngestStatus(api, s, guard)
@@ -133,6 +135,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerAppIngestStats(api, s)
 	registerSavedViews(api, s, guard)
 	registerConsumerGroupTraffic(api, s)
+	registerAnonymousCallers(api, s)
 	registerExports(api, s, guard)
 	registerAlerts(api, s, guard)
 	registerHealthChecks(api, s, guard)
@@ -221,19 +224,80 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 
 type summaryOutput struct {
 	Body struct {
-		Range             string    `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
-		From              time.Time `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
-		To                time.Time `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
-		Requests          uint64    `json:"requests" doc:"Requests in the range."`
-		ClientErrors      uint64    `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
-		ServerErrors      uint64    `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
-		ErrorRate         float64   `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
-		P50Ms             float64   `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
-		P95Ms             float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
-		P99Ms             float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
-		RequestsPerMinute float64   `json:"requests_per_minute" doc:"requests / minutes of the range."`
-		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests."`
+		Range             string         `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From              time.Time      `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To                time.Time      `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		Requests          uint64         `json:"requests" doc:"Requests in the range."`
+		ClientErrors      uint64         `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
+		ServerErrors      uint64         `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
+		ErrorRate         float64        `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
+		P50Ms             float64        `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
+		P95Ms             float64        `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
+		P99Ms             float64        `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
+		RequestsPerMinute float64        `json:"requests_per_minute" doc:"requests / minutes of the active span: the range, or the time since the first bucket with data when that is shorter."`
+		CurrentPerMinute  float64        `json:"current_per_minute" doc:"Requests in the last full minute."`
+		Apdex             *float64       `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests."`
+		Previous          *summaryTotals `json:"previous,omitempty" doc:"The same totals over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."`
 	}
+}
+
+// summaryTotals are the totals of the summary over one window: the range
+// itself, or the window before it for the comparison (#1000).
+type summaryTotals struct {
+	From         time.Time `json:"from" doc:"Start of the window (inclusive, bucket-aligned)."`
+	To           time.Time `json:"to" doc:"End of the window (exclusive, bucket-aligned)."`
+	Requests     uint64    `json:"requests" doc:"Requests in the window."`
+	ClientErrors uint64    `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
+	ServerErrors uint64    `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
+	ErrorRate    float64   `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
+	P50Ms        float64   `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
+	P95Ms        float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
+	P99Ms        float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
+	Apdex        *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, scored as the range's; null without requests."`
+	first        time.Time // start of the first bucket with data, zero without any
+}
+
+// summaryScope is what a summary window is read with: the tenant filter
+// (app included), the same filter without excluded endpoints, the endpoint
+// rules and the Apdex thresholds.
+type summaryScope struct {
+	rules      metricRules
+	thresholds apdexThresholds
+	tenant     string
+	targs      []any
+	where      string
+	args       []any
+}
+
+// totals reads the summary totals of w.
+func (s *Service) totals(ctx context.Context, sc summaryScope, w window) (summaryTotals, error) {
+	t := summaryTotals{From: w.from, To: w.to}
+	var q []float32
+	err := s.ch.QueryRow(ctx, fmt.Sprintf(`
+		SELECT sum(requests), sum(client_errors), sum(server_errors), %s, min(bucket)
+		FROM %s WHERE %s AND bucket >= ? AND bucket < ?`, quantiles, w.table, sc.where),
+		append(append([]any{}, sc.args...), w.from, w.to)...).Scan(&t.Requests, &t.ClientErrors, &t.ServerErrors, &q, &t.first)
+	if err != nil {
+		return t, internalError("summary", err)
+	}
+	if t.Requests == 0 {
+		t.first = time.Time{}
+		return t, nil
+	}
+	expected, err := s.expectedErrors(ctx, sc.rules, sc.tenant, sc.targs, w.from, w.to, "''")
+	if err != nil {
+		return t, err
+	}
+	expected[""].subtract(&t.ClientErrors, &t.ServerErrors)
+	apdex, err := s.apdex(ctx, sc.thresholds, sc.where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sc.args...), w.from, w.to), "''")
+	if err != nil {
+		return t, err
+	}
+	t.ErrorRate = float64(t.ClientErrors+t.ServerErrors) / float64(t.Requests)
+	t.P50Ms, t.P95Ms, t.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
+	t.Apdex = apdex[""].score()
+	t.first = t.first.UTC()
+	return t, nil
 }
 
 func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutput, error) {
@@ -241,56 +305,51 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	now := s.now()
+	w, err := resolveWindow(in.Range, now)
 	if err != nil {
 		return nil, err
 	}
-	rules, err := s.endpointRules(ctx, p.ProjectID)
-	if err != nil {
+	var sc summaryScope
+	if sc.rules, err = s.endpointRules(ctx, p.ProjectID); err != nil {
 		return nil, err
 	}
-	tenant, targs := tenantFilter(p.ProjectID, in.Env)
-	tenant, targs, err = withApp(tenant, targs, in.App)
-	if err != nil {
+	sc.tenant, sc.targs = tenantFilter(p.ProjectID, in.Env)
+	if sc.tenant, sc.targs, err = withApp(sc.tenant, sc.targs, in.App); err != nil {
 		return nil, err
 	}
-	where, args := rules.withoutExcluded(tenant, targs)
+	sc.where, sc.args = sc.rules.withoutExcluded(sc.tenant, sc.targs)
+	if sc.thresholds, err = s.apdexThresholds(ctx, p.ProjectID); err != nil {
+		return nil, err
+	}
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
-	var (
-		requests, clientErrors, serverErrors uint64
-		q                                    []float32
-	)
-	err = s.ch.QueryRow(qctx, fmt.Sprintf(`
-		SELECT sum(requests), sum(client_errors), sum(server_errors), %s
-		FROM %s WHERE %s AND bucket >= ? AND bucket < ?`, quantiles, w.table, where),
-		append(args, w.from, w.to)...).Scan(&requests, &clientErrors, &serverErrors, &q)
-	if err != nil {
-		return nil, internalError("summary", err)
-	}
-	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "''")
+	cur, err := s.totals(qctx, sc, w)
 	if err != nil {
 		return nil, err
 	}
-	expected[""].subtract(&clientErrors, &serverErrors)
-	thresholds, err := s.apdexThresholds(ctx, p.ProjectID)
+	var current uint64
+	lastMinute := now.UTC().Truncate(time.Minute).Add(-time.Minute)
+	err = s.ch.QueryRow(qctx, `SELECT sum(requests) FROM api_requests_1m WHERE `+sc.where+` AND bucket = ?`,
+		append(append([]any{}, sc.args...), lastMinute)...).Scan(&current)
 	if err != nil {
-		return nil, err
+		return nil, internalError("summary current rate", err)
 	}
-	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), "''")
+	prev, err := s.totals(qctx, sc, w.previous())
 	if err != nil {
 		return nil, err
 	}
 	out := &summaryOutput{}
 	b := &out.Body
 	b.Range, b.From, b.To = w.name, w.from, w.to
-	b.Requests, b.ClientErrors, b.ServerErrors = requests, clientErrors, serverErrors
-	if requests > 0 {
-		b.ErrorRate = float64(clientErrors+serverErrors) / float64(requests)
-		b.P50Ms, b.P95Ms, b.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
+	b.Requests, b.ClientErrors, b.ServerErrors = cur.Requests, cur.ClientErrors, cur.ServerErrors
+	b.ErrorRate, b.P50Ms, b.P95Ms, b.P99Ms = cur.ErrorRate, cur.P50Ms, cur.P95Ms, cur.P99Ms
+	b.RequestsPerMinute = perMinute(cur.Requests, w, now, cur.first)
+	b.CurrentPerMinute = float64(current)
+	b.Apdex = cur.Apdex
+	if prev.Requests > 0 {
+		b.Previous = &prev
 	}
-	b.RequestsPerMinute = float64(requests) / w.to.Sub(w.from).Minutes()
-	b.Apdex = apdex[""].score()
 	return out, nil
 }
 
@@ -382,10 +441,12 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 
 type endpointsInput struct {
 	RangeInput
-	Limit int `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most endpoints to list, by requests."`
+	App   string `query:"app" format:"uuid" doc:"App id; empty means every app of the project. An app of another project matches nothing."`
+	Limit int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most endpoints to list, by requests."`
 }
 
 type endpoint struct {
+	AppID        string   `json:"app_id" format:"uuid" doc:"The app that serves the endpoint."`
 	Method       string   `json:"method" doc:"HTTP method of the endpoint, upper case."`
 	Path         string   `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
 	Requests     uint64   `json:"requests" doc:"Requests in the range."`
@@ -394,7 +455,8 @@ type endpoint struct {
 	ErrorRate    float64  `json:"error_rate" doc:"(client_errors + server_errors) / requests; 0 without requests."`
 	P50Ms        float64  `json:"p50_ms" doc:"Median response time, in milliseconds."`
 	P95Ms        float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
-	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
+	TotalTimeMs  float64  `json:"total_time_ms" doc:"Sum of the response times of the range's requests, in milliseconds (requests × average): where the API spends its time."`
+	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests."`
 	// DiscoveredOnly marks a route an app declared in its metadata that had
 	// no traffic in the range; its counts are zero.
 	DiscoveredOnly bool `json:"discovered_only" doc:"True for a route an app declared (POST /v1/metadata) without traffic in the range; its counts are zero and it is listed after the endpoints with traffic."`
@@ -402,7 +464,7 @@ type endpoint struct {
 
 type endpointsOutput struct {
 	Body struct {
-		Endpoints []endpoint `json:"endpoints" doc:"Endpoints by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out."`
+		Endpoints []endpoint `json:"endpoints" doc:"Endpoints (one per app, method and path) by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out."`
 	}
 }
 
@@ -420,10 +482,14 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		return nil, err
 	}
 	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	tenant, targs, err = withApp(tenant, targs, in.App)
+	if err != nil {
+		return nil, err
+	}
 	where, args := rules.withoutExcluded(tenant, targs)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
-	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "concat(method, ' ', path)")
+	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, endpointKeyExpr)
 	if err != nil {
 		return nil, err
 	}
@@ -431,14 +497,14 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
-	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), "concat(method, ' ', path)")
+	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), endpointKeyExpr)
 	if err != nil {
 		return nil, err
 	}
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
-		SELECT method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), %s
+		SELECT app_id, method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), sum(latency_sum_ms), %s
 		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
-		GROUP BY method, path ORDER BY total DESC, path LIMIT ?`, quantiles, w.table, where),
+		GROUP BY app_id, method, path ORDER BY total DESC, path, method, app_id LIMIT ?`, quantiles, w.table, where),
 		append(args, w.from, w.to, in.Limit)...)
 	if err != nil {
 		return nil, internalError("endpoints", err)
@@ -448,18 +514,21 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	out.Body.Endpoints = []endpoint{}
 	for rows.Next() {
 		var (
-			e endpoint
-			q []float32
+			e   endpoint
+			app uuid.UUID
+			q   []float32
 		)
-		if err := rows.Scan(&e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &q); err != nil {
+		if err := rows.Scan(&app, &e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &e.TotalTimeMs, &q); err != nil {
 			return nil, internalError("endpoints", err)
 		}
-		expected[e.Method+" "+e.Path].subtract(&e.ClientErrors, &e.ServerErrors)
+		e.AppID = app.String()
+		key := endpointRowKey(e.AppID, e.Method, e.Path)
+		expected[key].subtract(&e.ClientErrors, &e.ServerErrors)
 		if e.Requests > 0 {
 			e.ErrorRate = float64(e.ClientErrors+e.ServerErrors) / float64(e.Requests)
 		}
 		e.P50Ms, e.P95Ms = quantile(q, 0), quantile(q, 3)
-		e.Apdex = apdex[e.Method+" "+e.Path].score()
+		e.Apdex = apdex[key].score()
 		out.Body.Endpoints = append(out.Body.Endpoints, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -470,9 +539,18 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		if err != nil {
 			return nil, err
 		}
-		out.Body.Endpoints = withDiscovered(out.Body.Endpoints, routes, rules, in.Limit)
+		out.Body.Endpoints = withDiscovered(out.Body.Endpoints, routes, rules, in.App, in.Limit)
 	}
 	return out, nil
+}
+
+// endpointKeyExpr keys the per-endpoint reads of the endpoints list on the
+// app, method and path of a row, as endpointRowKey does in Go.
+const endpointKeyExpr = "concat(toString(app_id), ' ', method, ' ', path)"
+
+// endpointRowKey is endpointKeyExpr of an endpoint.
+func endpointRowKey(app, method, path string) string {
+	return app + " " + method + " " + path
 }
 
 // statusClasses are the status code ranges of the status filters.
@@ -545,30 +623,55 @@ type traceInput struct {
 }
 
 type spanOut struct {
-	SpanID       string            `json:"span_id" doc:"Span id (16 lowercase hex characters)."`
-	ParentSpanID string            `json:"parent_span_id" doc:"Parent span id; empty for a root span."`
-	Name         string            `json:"name" doc:"Span name, e.g. GET /orders/{id} or SELECT orders."`
-	Kind         string            `json:"kind" doc:"OpenTelemetry span kind: server, client, internal, producer or consumer."`
-	ServiceName  string            `json:"service_name" doc:"Service that recorded the span."`
-	Start        time.Time         `json:"start" doc:"Start time of the span."`
-	DurationMs   float64           `json:"duration_ms" doc:"Duration, in milliseconds."`
-	Status       string            `json:"status" doc:"Span status: ok, error or unset."`
-	StatusCode   uint16            `json:"status_code" doc:"HTTP status code of an HTTP span; 0 otherwise."`
-	Attributes   map[string]string `json:"attributes" doc:"Span attributes, as strings."`
+	SpanID        string            `json:"span_id" doc:"Span id (16 lowercase hex characters)."`
+	ParentSpanID  string            `json:"parent_span_id" doc:"Parent span id; empty for a root span."`
+	Name          string            `json:"name" doc:"Span name, e.g. GET /orders/{id} or SELECT orders."`
+	Kind          string            `json:"kind" doc:"OpenTelemetry span kind: server, client, internal, producer or consumer."`
+	ServiceName   string            `json:"service_name" doc:"Service that recorded the span."`
+	Start         time.Time         `json:"start" doc:"Start time of the span."`
+	DurationMs    float64           `json:"duration_ms" doc:"Duration, in milliseconds."`
+	Status        string            `json:"status" doc:"Span status: ok, error or unset."`
+	StatusCode    uint16            `json:"status_code" doc:"HTTP status code of an HTTP span; 0 otherwise."`
+	StatusMessage string            `json:"status_message" doc:"Status description, e.g. why the span failed; empty when none was reported."`
+	Attributes    map[string]string `json:"attributes" doc:"Span attributes, as strings."`
+	Events        []spanEventOut    `json:"events" doc:"Timestamped span events, oldest first, e.g. an exception event with exception.type, exception.message and exception.stacktrace attributes."`
+	Links         []spanLinkOut     `json:"links" doc:"Spans this span links to."`
+}
+
+type spanEventOut struct {
+	Time       time.Time         `json:"time" doc:"When the event happened (nanosecond precision)."`
+	Name       string            `json:"name" doc:"Event name, e.g. exception."`
+	Attributes map[string]string `json:"attributes" doc:"Event attributes, as strings."`
+}
+
+type spanLinkOut struct {
+	TraceID string `json:"trace_id" doc:"Trace id of the linked span."`
+	SpanID  string `json:"span_id" doc:"Span id of the linked span."`
 }
 
 type traceLog struct {
-	Timestamp time.Time `json:"timestamp" doc:"When the log record was emitted."`
-	Level     string    `json:"level" doc:"Log level, e.g. INFO, WARNING, ERROR."`
-	Message   string    `json:"message" doc:"Log message."`
-	SpanID    string    `json:"span_id" doc:"Span the record was emitted in; empty when none."`
+	Timestamp  time.Time         `json:"timestamp" doc:"When the log record was emitted."`
+	Level      string            `json:"level" doc:"Log level, e.g. INFO, WARNING, ERROR."`
+	Message    string            `json:"message" doc:"Log message."`
+	LoggerName string            `json:"logger_name" doc:"Logger that emitted the record, e.g. apilens.exception; empty when not reported."`
+	SpanID     string            `json:"span_id" doc:"Span the record was emitted in; empty when none."`
+	Payload    string            `json:"payload" doc:"Structured payload of the record; for an apilens.exception log, the full exception (type, message, frames and chained causes), at most 64 KiB with head and tail kept."`
+	Attributes map[string]string `json:"attributes" doc:"Log attributes, as strings, e.g. exception.type, exception.message, exception.chain_depth."`
 }
+
+// Trace read limits: a trace answers at most this many spans and logs, and
+// sets truncated when either was cut.
+const (
+	maxTraceSpans = 10000
+	maxTraceLogs  = 2000
+)
 
 type traceOutput struct {
 	Body struct {
-		TraceID string     `json:"trace_id" doc:"The trace id asked for."`
-		Spans   []spanOut  `json:"spans" doc:"Spans of the trace in the project, oldest first (at most 2000)."`
-		Logs    []traceLog `json:"logs" doc:"Log records correlated with the trace, oldest first (at most 500)."`
+		TraceID   string     `json:"trace_id" doc:"The trace id asked for."`
+		Spans     []spanOut  `json:"spans" doc:"Spans of the trace in the project, oldest first (at most 10000)."`
+		Logs      []traceLog `json:"logs" doc:"Log records correlated with the trace, oldest first (at most 2000)."`
+		Truncated bool       `json:"truncated" doc:"True when the trace had more than 10000 spans or 2000 logs and the rest were left out."`
 	}
 }
 
@@ -581,7 +684,7 @@ func (s *Service) trace(ctx context.Context, in *traceInput) (*traceOutput, erro
 	defer cancel()
 	out := &traceOutput{}
 	out.Body.TraceID = in.TraceID
-	out.Body.Spans, out.Body.Logs, err = s.traceSpansAndLogs(qctx, p.ProjectID, in.TraceID)
+	out.Body.Spans, out.Body.Logs, out.Body.Truncated, err = s.traceSpansAndLogs(qctx, p.ProjectID, in.TraceID)
 	if err != nil {
 		return nil, err
 	}
@@ -591,48 +694,103 @@ func (s *Service) trace(ctx context.Context, in *traceInput) (*traceOutput, erro
 	return out, nil
 }
 
-// traceSpansAndLogs reads the spans (at most 2000) and correlated logs (at
-// most 500) of one trace of a project, oldest first.
-func (s *Service) traceSpansAndLogs(ctx context.Context, project uuid.UUID, traceID string) ([]spanOut, []traceLog, error) {
-	spans, logs := []spanOut{}, []traceLog{}
+// traceSpansAndLogs reads the spans (at most maxTraceSpans) and correlated
+// logs (at most maxTraceLogs) of one trace of a project, oldest first, with
+// span status messages, events and links and log payloads and attributes.
+// truncated reports that either list was cut at its limit.
+func (s *Service) traceSpansAndLogs(ctx context.Context, project uuid.UUID, traceID string) (spans []spanOut, logs []traceLog, truncated bool, err error) {
+	spans, logs = []spanOut{}, []traceLog{}
+	// One row past the limit tells a full trace from a cut one.
 	rows, err := s.ch.Query(ctx, `
-		SELECT span_id, parent_span_id, name, kind, service_name, timestamp, duration_ms, status, status_code, attributes
-		FROM api_spans WHERE project_id = ? AND trace_id = ? ORDER BY timestamp, span_id LIMIT 2000`, project, traceID)
+		SELECT span_id, parent_span_id, name, kind, service_name, timestamp, duration_ms, status, status_code,
+		       status_message, attributes, events.time, events.name, events.attributes, links.trace_id, links.span_id
+		FROM api_spans WHERE project_id = ? AND trace_id = ? ORDER BY timestamp, span_id LIMIT ?`,
+		project, traceID, maxTraceSpans+1)
 	if err != nil {
-		return nil, nil, internalError("trace spans", err)
+		return nil, nil, false, internalError("trace spans", err)
 	}
 	for rows.Next() {
-		var sp spanOut
+		var (
+			sp                    spanOut
+			eventTimes            []time.Time
+			eventNames            []string
+			eventAttrs            []map[string]string
+			linkTraces, linkSpans []string
+		)
 		if err := rows.Scan(&sp.SpanID, &sp.ParentSpanID, &sp.Name, &sp.Kind, &sp.ServiceName, &sp.Start, &sp.DurationMs,
-			&sp.Status, &sp.StatusCode, &sp.Attributes); err != nil {
+			&sp.Status, &sp.StatusCode, &sp.StatusMessage, &sp.Attributes, &eventTimes, &eventNames, &eventAttrs,
+			&linkTraces, &linkSpans); err != nil {
 			_ = rows.Close()
-			return nil, nil, internalError("trace spans", err)
+			return nil, nil, false, internalError("trace spans", err)
 		}
+		sp.Attributes = nonNilAttrs(sp.Attributes)
+		sp.Events = zipSpanEvents(eventTimes, eventNames, eventAttrs)
+		sp.Links = zipSpanLinks(linkTraces, linkSpans)
 		spans = append(spans, sp)
 	}
 	_ = rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, nil, internalError("trace spans", err)
+		return nil, nil, false, internalError("trace spans", err)
 	}
+	spans, spansCut := capTrace(spans, maxTraceSpans)
 
 	lrows, err := s.ch.Query(ctx, `
-		SELECT timestamp, level, message, span_id
-		FROM api_logs WHERE project_id = ? AND trace_id = ? ORDER BY timestamp LIMIT 500`, project, traceID)
+		SELECT timestamp, level, message, logger_name, span_id, payload, attributes
+		FROM api_logs WHERE project_id = ? AND trace_id = ? ORDER BY timestamp LIMIT ?`,
+		project, traceID, maxTraceLogs+1)
 	if err != nil {
-		return nil, nil, internalError("trace logs", err)
+		return nil, nil, false, internalError("trace logs", err)
 	}
 	defer func() { _ = lrows.Close() }()
 	for lrows.Next() {
 		var l traceLog
-		if err := lrows.Scan(&l.Timestamp, &l.Level, &l.Message, &l.SpanID); err != nil {
-			return nil, nil, internalError("trace logs", err)
+		if err := lrows.Scan(&l.Timestamp, &l.Level, &l.Message, &l.LoggerName, &l.SpanID, &l.Payload, &l.Attributes); err != nil {
+			return nil, nil, false, internalError("trace logs", err)
 		}
+		l.Attributes = nonNilAttrs(l.Attributes)
 		logs = append(logs, l)
 	}
 	if err := lrows.Err(); err != nil {
-		return nil, nil, internalError("trace logs", err)
+		return nil, nil, false, internalError("trace logs", err)
 	}
-	return spans, logs, nil
+	logs, logsCut := capTrace(logs, maxTraceLogs)
+	return spans, logs, spansCut || logsCut, nil
+}
+
+// capTrace cuts rows to limit and reports whether anything was cut.
+func capTrace[T any](rows []T, limit int) ([]T, bool) {
+	if len(rows) > limit {
+		return rows[:limit], true
+	}
+	return rows, false
+}
+
+// zipSpanEvents joins the parallel arrays of the Nested events column into
+// events; a ragged row keeps only the complete events.
+func zipSpanEvents(times []time.Time, names []string, attrs []map[string]string) []spanEventOut {
+	n := min(len(times), len(names), len(attrs))
+	out := make([]spanEventOut, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, spanEventOut{Time: times[i].In(time.UTC), Name: names[i], Attributes: nonNilAttrs(attrs[i])})
+	}
+	return out
+}
+
+// zipSpanLinks joins the element arrays of the links tuple column.
+func zipSpanLinks(traces, spans []string) []spanLinkOut {
+	n := min(len(traces), len(spans))
+	out := make([]spanLinkOut, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, spanLinkOut{TraceID: traces[i], SpanID: spans[i]})
+	}
+	return out
+}
+
+func nonNilAttrs(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
 }
 
 // ---------------------------------------------------------------- deploys

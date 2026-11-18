@@ -39,7 +39,7 @@ test.beforeEach(async () => {
 
 test("an admin edits the policy and sees it apply within 60 s", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Capture", exact: true })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Capture", exact: true })).toBeVisible();
   await expect(policy(page)).toContainText("Saved changes apply within 60 s, on the SDKs’ next heartbeat.");
   await expect(policy(page)).toContainText("Never changed: the app captures everything.");
   await expect(toggle(page, "Capture requests")).toHaveAttribute("aria-checked", "true");
@@ -135,7 +135,7 @@ test("shows what each environment's SDK runs with and the narrower setting that 
   const table = sdk(page).getByRole("table", { name: "production" });
   await expect(table.getByRole("columnheader")).toHaveText(["Setting", "This policy", "SDK config", "Applies"]);
   const row = (name: string) => table.getByRole("row").filter({ has: page.getByRole("rowheader", { name, exact: true }) });
-  await expect(row("Sample rate").getByRole("cell")).toHaveText(["50%", "25%", "25%set by the SDK"]);
+  await expect(row("Sample rate").getByRole("cell")).toHaveText(["50.0%", "25.0%", "25.0%set by the SDK"]);
   await expect(row("Headers").getByRole("cell")).toHaveText(["On", "Off", "Offset by the SDK"]);
   await expect(row("Request bodies").getByRole("cell")).toHaveText(["On", "On", "On"]);
   await expect(row("Response bodies").getByRole("cell")).toHaveText(["On", "Not reported", "On"]);
@@ -145,7 +145,7 @@ test("shows what each environment's SDK runs with and the narrower setting that 
   await rate(page).fill("10");
   await save(page).click();
   await expect(status(page)).toHaveText("Saved. Shop’s SDKs apply it within 60 s.");
-  await expect(row("Sample rate").getByRole("cell")).toHaveText(["10%", "25%", "10%"]);
+  await expect(row("Sample rate").getByRole("cell")).toHaveText(["10.0%", "25.0%", "10.0%"]);
 });
 
 test("without SDK reports the page says so", async ({ page }) => {

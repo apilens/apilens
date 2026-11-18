@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { badgeText } from "@/lib/alerts";
-import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
+import { PROJECT_SETTINGS, type Section, VIEWS } from "@/lib/data";
 import type { User } from "@/lib/identity";
+import { sidebarHref } from "@/lib/nav-scope";
+import { navGroups } from "@/lib/nav-sections";
 import type { ContextOrg, ContextProject } from "@/lib/scope";
 import { Icon } from "./icons";
 import { NavIcon, type NavIconName } from "./nav-icons";
@@ -22,21 +25,24 @@ interface Props {
   orgScope: boolean;
   /** Account scope (`/settings/*`): Account settings is the current page. */
   account?: boolean;
+  /** Open incidents in the project (#610): the Incidents badge; 0 shows none. */
+  openIncidents: number;
   collapsed: boolean;
   drawer?: boolean;
   onCollapse: () => void;
 }
 
 /**
- * One sidebar: the organization in the top cell, the project under it, the main pages as one list,
- * then the settings pages, and at the foot your account and the collapse control. The app (service) and environment are
- * chosen in the top bar.
+ * One sidebar: the organization in the top cell, the project under it, the pages under their
+ * section headings (Monitor and Catalog up top, Configure with Project settings at the bottom, #998), and at the foot your account and the collapse control. The app (service) and environment are
+ * chosen in the top bar. The page links keep the current `range` and `env` (#992), so the scope travels.
  */
-export function Sidebar({ user, orgs, org, project, view, orgScope, account = false, collapsed, drawer, onCollapse }: Props) {
+export function Sidebar({ user, orgs, org, project, view, orgScope, account = false, openIncidents, collapsed, drawer, onCollapse }: Props) {
+  const search = useSearchParams();
   const row = (p: ContextProject, slug: string, label: string, icon: NavIconName, extra?: React.ReactNode) => {
     const on = !orgScope && view === slug;
     return (
-      <Link key={slug} href={`/${p.slug}/${slug}`} className={`cp-sitem${on ? " on" : ""}`} aria-current={on ? "page" : undefined} aria-label={collapsed ? label : undefined} data-tip={collapsed ? label : undefined}>
+      <Link key={slug} href={sidebarHref(p.slug, slug, search)} className={`cp-sitem${on ? " on" : ""}`} aria-current={on ? "page" : undefined} aria-label={collapsed ? label : undefined} data-tip={collapsed ? label : undefined}>
         <span className="sl">
           <NavIcon name={icon} active={on} />
         </span>
@@ -46,7 +52,7 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
     );
   };
 
-  const open = badgeText(useOpenIncidents(project?.slug, view));
+  const open = badgeText(openIncidents);
   const item = (p: ContextProject) => (v: (typeof VIEWS)[number]) => {
     const badge =
       v.slug === "incidents" && open ? (
@@ -55,6 +61,20 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
         </span>
       ) : null;
     return row(p, v.slug, v.label, v.slug as NavIconName, badge);
+  };
+
+  // A labelled group per section; the heading hides in the collapsed rail (a divider stands in).
+  const groups = navGroups();
+  const group = (section: Section, rows: React.ReactNode[]) => {
+    const id = `side-sh-${section.toLowerCase()}`;
+    return (
+      <div key={section} className="side-group" role="group" aria-labelledby={id}>
+        <h2 id={id} className="cp-sh">
+          {section}
+        </h2>
+        <div className="cp-snav">{rows}</div>
+      </div>
+    );
   };
 
   return (
@@ -66,16 +86,15 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
       {orgScope || !project ? null : <ProjectRow org={org} project={project} view={view} collapsed={collapsed} />}
 
       <nav className="side-nav side-nav--main" aria-label="Views">
-        <div className="cp-snav">
-          {project ? VIEWS.filter((v) => v.section !== "Configure").map(item(project)) : null}
-        </div>
+        {project ? groups.filter((g) => g.section !== "Configure").map((g) => group(g.section, g.views.map(item(project)))) : null}
       </nav>
 
       <nav className="side-nav side-nav--settings" aria-label="Settings">
-        <div className="cp-snav">
-          {project ? VIEWS.filter((v) => v.section === "Configure").map(item(project)) : null}
-          {project ? row(project, PROJECT_SETTINGS.slug, PROJECT_SETTINGS.label, "settings") : null}
-        </div>
+        {project
+          ? groups
+              .filter((g) => g.section === "Configure")
+              .map((g) => group(g.section, [...g.views.map(item(project)), row(project, PROJECT_SETTINGS.slug, PROJECT_SETTINGS.label, "settings")]))
+          : null}
       </nav>
 
       <div className="cp-sfoot cp-sfoot--toggle side-foot">
@@ -90,9 +109,10 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
 
 /**
  * How many of the project's incidents are open (#610), read from `GET /api/projects/{slug}/incidents`
- * when the project or the page changes; 0 until it answers and whenever it can't.
+ * when the project or the page changes; 0 until it answers and whenever it can't. Read once by the
+ * shell for both the sidebar badge and the mobile bar.
  */
-function useOpenIncidents(project: string | undefined, view: string): number {
+export function useOpenIncidents(project: string | undefined, view: string): number {
   const [open, setOpen] = useState(0);
   useEffect(() => {
     if (!project) return setOpen(0);

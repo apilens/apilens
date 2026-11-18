@@ -1,7 +1,7 @@
 // Node builtins for the core (see runtime.ts); first, before the core runs.
 import "./node.js";
 
-export { ApiLensClient, DROP_REASONS } from "./client.js";
+export { ApiLensClient, DROP_REASONS, captureException } from "./client.js";
 export { describeAppChoice, resolveAppId } from "./app.js";
 export type { AppIdSource } from "./app.js";
 export {
@@ -50,8 +50,17 @@ export {
   resolveEndpointPath,
 } from "./routes.js";
 export {
+  MAX_DB_STATEMENT_CHARS,
+  instrumentDatabases,
+  instrumentMysql2,
+  instrumentPg,
+  instrumentPrisma,
+  obfuscateSql,
+} from "./db.js";
+export {
   ENV_CAPTURE_SPANS,
   MAX_PENDING_SPANS,
+  MAX_SPANS_PER_REQUEST,
   envSpansEnabled,
   instrumentOutboundHttp,
   stripUrl,
@@ -113,8 +122,10 @@ export type {
   ApiLensFlushMode,
   ApiLensLogRecord,
   ApiLensRecord,
+  ApiLensSignal,
   ApiLensRecordInput,
   ApiLensSpanRecord,
+  CaptureExceptionOptions,
   CaptureProfile,
   Logger,
   RequestLoggingConfig,

@@ -1,9 +1,13 @@
 // The Performance page (#595): response times of a project over a range and an environment,
-// its Apdex, the response-time histogram, the endpoints by p95 and the app-wide response time
-// threshold. Pure helpers (URL state, sorting, threshold input), unit-tested in performance.test.ts.
+// its Apdex, the response-time histogram, the slowest requests, where the time goes (#1001) and the
+// app-wide response time threshold. Pure helpers (URL state, ranking, threshold input), unit-tested
+// in performance.test.ts.
 import { RANGE_LABEL } from "./consumers";
-import type { AppSettings, EndpointTraffic, QueryRange } from "./identity";
-import { DEFAULT_RANGE, TRAFFIC_RANGES, endpointHref } from "./traffic";
+import { exploreHref } from "./explore";
+import { NO_FILTERS } from "./explore-filters";
+import type { AppSettings, EndpointTraffic, QueryRange, RequestRow } from "./identity";
+import { envParam } from "./scope-defaults";
+import { DEFAULT_RANGE, TRAFFIC_RANGES, endpointHref, formatLatency, parseAppParam } from "./traffic";
 
 /** The Apdex threshold T when neither the endpoint nor its app sets one, in ms. */
 export const DEFAULT_THRESHOLD_MS = 500;
@@ -12,13 +16,12 @@ export const MAX_APP_THRESHOLD_MS = 600_000;
 /** How many endpoints the table asks for (the API's largest page). */
 export const PERF_ENDPOINTS_LIMIT = 500;
 
-/** The longest environment name and app slug the API takes. */
+/** The longest environment name the API takes. */
 const MAX_ENV = 64;
-const MAX_APP = 63;
 
 /**
  * The page's state, all of it in the URL: `?range=&env=&app=`. An empty env means all
- * environments; `app` picks the app whose threshold the settings dialog edits (else the first).
+ * environments; an empty app (an app id, #976) means all apps.
  */
 export interface PerformanceState {
   range: QueryRange;
@@ -39,39 +42,85 @@ export function parsePerformanceQuery(params: SearchParams): PerformanceState {
   return {
     range: TRAFFIC_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
     env: capped(params.env, MAX_ENV),
-    app: capped(params.app, MAX_APP),
+    app: parseAppParam(params.app),
   };
 }
 
-/** The page URL for `q`, leaving defaults out. */
+/** The page URL for `q`, leaving defaults out; a range and env always go in, a URL without them reads the smart defaults (#993). */
 export function performanceHref(project: string, q: Partial<PerformanceState>): string {
   const p = new URLSearchParams();
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.env) p.set("env", q.env);
+  if (q.range) p.set("range", q.range);
+  if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.app) p.set("app", q.app);
   const s = p.toString();
   return `/${encodeURIComponent(project)}/performance${s ? `?${s}` : ""}`;
 }
 
-/** An endpoint's Response times tab, keeping the range and environment. */
-export function endpointLatencyHref(project: string, ep: Pick<EndpointTraffic, "method" | "path">, q: PerformanceState): string {
-  const href = endpointHref(project, ep, { range: q.range, env: q.env });
+/** An endpoint's Response times tab, keeping the range and environment, scoped to the row's app (#976). */
+export function endpointLatencyHref(project: string, ep: Pick<EndpointTraffic, "method" | "path"> & { app_id?: string }, q: PerformanceState): string {
+  const href = endpointHref(project, ep, { range: q.range, env: q.env, app: ep.app_id || q.app });
   return `${href}${href.includes("?") ? "&" : "?"}tab=latency`;
 }
 
-/** The scope in words: `the last 24 hours in production`. */
-export function perfScopeText(q: PerformanceState): string {
-  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`;
+/** The scope in words: `the last 24 hours in production`, then `for Billing` with one app in scope. */
+export function perfScopeText(q: PerformanceState, appLabel?: string): string {
+  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}${q.app && appLabel ? ` for ${appLabel}` : ""}`;
+}
+
+/** How many requests the Slowest requests list shows (#1001). */
+export const SLOWEST_LIMIT = 10;
+/** How many endpoints the Time spent ranking shows (#1001). */
+export const TIME_SPENT_LIMIT = 10;
+
+/** One endpoint in the Time spent ranking: its total response time, average and share of the scope's. */
+export interface TimeSpentRow {
+  endpoint: EndpointTraffic;
+  /** Sum of its requests' response times (requests × average), in ms. */
+  totalMs: number;
+  avgMs: number;
+  /** Its part of the time of every endpoint with requests, 0 to 1. */
+  share: number;
 }
 
 /**
- * Endpoints with requests, slowest p95 first (ties: more requests first, then by path). Routes
- * listed without traffic have no response times to rank, so they are left out.
+ * Where the API spends its time (#1001): endpoints by total response time (requests × average),
+ * most first (ties: more requests first, then by path), the first `limit`. An endpoint without
+ * requests has no time to rank, so it is left out; the share is of every endpoint's time, not just
+ * the listed ones.
  */
-export function byP95(endpoints: readonly EndpointTraffic[]): EndpointTraffic[] {
-  return endpoints
-    .filter((e) => e.requests > 0)
-    .sort((a, b) => b.p95_ms - a.p95_ms || b.requests - a.requests || a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+export function byTimeSpent(endpoints: readonly EndpointTraffic[], limit = TIME_SPENT_LIMIT): TimeSpentRow[] {
+  const rows = endpoints
+    .filter((e) => e.requests > 0 && (e.total_time_ms ?? 0) > 0)
+    .map((e) => ({ endpoint: e, totalMs: e.total_time_ms ?? 0, avgMs: (e.total_time_ms ?? 0) / e.requests }));
+  const total = rows.reduce((n, r) => n + r.totalMs, 0);
+  return rows
+    .sort((a, b) => b.totalMs - a.totalMs || b.endpoint.requests - a.endpoint.requests || a.endpoint.path.localeCompare(b.endpoint.path) || a.endpoint.method.localeCompare(b.endpoint.method))
+    .slice(0, limit)
+    .map((r) => ({ ...r, share: r.totalMs / total }));
+}
+
+/** A total time in ms, for Time spent: `840 ms`, `12.4 s`, `3.5 min`, `2.1 h`. */
+export function formatTimeSpent(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 60_000) return formatLatency(ms);
+  const min = ms / 60_000;
+  if (min < 59.95) return `${min.toFixed(1)} min`;
+  return `${(min / 60).toFixed(1)} h`;
+}
+
+/**
+ * Where a slow request opens (#1001): Explore narrowed to its environment, endpoint and response
+ * time or slower, so it heads the list, with `?request=` naming it for the request permalink (#987).
+ */
+export function slowRequestHref(
+  project: string,
+  r: Pick<RequestRow, "id" | "environment" | "method" | "path" | "response_time_ms">,
+  q: Pick<PerformanceState, "range">,
+): string {
+  const href = exploreHref(project, {
+    range: q.range,
+    filters: { ...NO_FILTERS, env: r.environment, method: r.method.toUpperCase(), path: r.path, latency_min: Math.floor(r.response_time_ms) },
+  });
+  return r.id ? `${href}${href.includes("?") ? "&" : "?"}request=${encodeURIComponent(r.id)}` : href;
 }
 
 /**
@@ -106,8 +155,8 @@ export const apdexBandRange = (b: { from: number; to: number }) => `${b.from.toF
  */
 export function apdexExplanation(app?: { name: string; thresholdMs: number } | null): string[] {
   return [
-    "Apdex scores response times from 0 (all frustrated) to 1 (all satisfied) against a threshold T.",
-    "Satisfied: answered within T. Tolerating: within 4T. Frustrated: slower than 4T.",
+    "Apdex scores requests from 0 (all frustrated) to 1 (all satisfied) against a response time threshold T.",
+    "Satisfied: answered within T. Tolerating: within 4T. Frustrated: slower than 4T, or a server error (5xx) the endpoint does not expect.",
     "Apdex = (satisfied + tolerating / 2) / requests.",
     app
       ? `T is the endpoint’s own threshold, else its app’s (${app.name}: ${app.thresholdMs} ms), else ${DEFAULT_THRESHOLD_MS} ms.`
@@ -161,5 +210,14 @@ export function thresholdError(code: string): string {
   }
 }
 
+/** A sentence for an API error code when reading an app's threshold for the settings dialog (#976). */
+export function loadThresholdError(code: string): string {
+  if (code === "forbidden" || code === "invalid_request" || code === "validation_failed" || code === "bad_request") {
+    return "We couldn’t load this app’s response time threshold just now. Try again in a moment.";
+  }
+  return thresholdError(code);
+}
+
 export const PERFORMANCE_LOAD_FAILED = "We couldn’t load response times just now.";
 export const PERF_ENDPOINTS_LOAD_FAILED = "We couldn’t load endpoints just now.";
+export const SLOWEST_LOAD_FAILED = "We couldn’t load the slowest requests just now.";

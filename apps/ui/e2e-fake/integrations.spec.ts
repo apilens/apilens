@@ -61,7 +61,7 @@ test.afterAll(async () => {
 
 test("a host the API refuses shows its reason next to the field", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Integrations" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Integrations" })).toBeVisible();
   await field(page).fill("https://git.example.com/acme/shop");
   await card(page).getByRole("button", { name: "Save" }).click();
   const reason = card(page).getByText("The repository must be on github.com, gitlab.com or bitbucket.org.");

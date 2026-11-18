@@ -9,7 +9,7 @@ Capturing a request only puts a record on an in-memory queue. A background worke
 
 1. **Capture** builds the record (masked, sampled, size-capped) and appends it to one of three queues: requests, spans or logs.
 2. **Flush** runs every `flush_interval` (3 s), or as soon as a queue holds `batch_size` records. It cuts the queue into batches of at most `batch_size` records **and** at most `max_batch_bytes` of JSON.
-3. **Send** gzips each batch and POSTs it to `/v1/requests`, `/v1/traces` or `/v1/logs`. Failures that may succeed later are retried with backoff; the rest are dropped and counted.
+3. **Send** gzips each batch and POSTs it to `/v1/requests`, `/v1/traces` or `/v1/logs`. Failures that may succeed later are retried with backoff for up to 5 minutes; the rest are dropped, counted and reported to APILens in the next [heartbeat](/ingest/heartbeat#drop-counters).
 
 Each SDK delivers from one background worker (a daemon thread in Python and Java, timers in Node). Serverless runtimes swap that for an [inline flush](#serverless) at the end of each invocation.
 
@@ -24,12 +24,15 @@ Each SDK delivers from one background worker (a daemon thread in Python and Java
 | `max_queue_bytes` | `maxQueueBytes` | `maxQueueBytes` (`apilens.max-queue-bytes`) | 64 MB, shared by the three queues |
 | `compress` | `compress` | `compress` (`apilens.compress`) | `true` (gzip, level 5) |
 | `timeout` | `timeoutMs` | `timeout` (`apilens.timeout`) | 5 s per POST |
-| `max_retries` | `maxRetries` | `maxRetries` (`apilens.max-retries`) | `3` |
+| `max_retry_seconds` | `maxRetrySeconds` | `maxRetryDuration` (`apilens.max-retry-duration`) | `300` s |
+| `max_retries` (deprecated alias of `max_retry_seconds`) | `maxRetries` | `maxRetries` (`apilens.max-retries`) | no attempt cap: the window alone bounds retries (TypeScript `flushMode: "inline"`: 3) |
+| `flush_on_shutdown` | `flushOnShutdown` | `registerShutdownHook` (plain client; Spring closes the bean instead) | `true` |
+| `shutdown_timeout` | `shutdownTimeoutMs` | `shutdownTimeout` (`apilens.shutdown-timeout`) | 5 s |
 | `retry_backoff_base` / `retry_backoff_max` | `retryBackoffBaseMs` / `retryBackoffMaxMs` | `retryBackoffBase` / `retryBackoffMax` | 0.25 s / 5 s |
 | `mode` | `flushMode` | not available | `thread` / `background` |
 | `proxy_url` | not available (use `fetchImpl`) | not available (use JVM properties) | none |
 
-`max_batch_bytes` has a floor: 16 KB in Python, 1 KB in TypeScript and Java. Python and TypeScript also read `APILENS_BATCH_SIZE` and `APILENS_FLUSH_INTERVAL`; Python reads `APILENS_MODE` and `APILENS_PROXY` too.
+`max_batch_bytes` has a floor: 16 KB in Python, 1 KB in TypeScript and Java. Python and TypeScript also read `APILENS_BATCH_SIZE` and `APILENS_FLUSH_INTERVAL`; Python reads `APILENS_MODE` and `APILENS_PROXY` too. Java reads `APILENS_MAX_RETRY_SECONDS`, `APILENS_MAX_RETRIES` and `APILENS_SHUTDOWN_TIMEOUT` (seconds) in `ApiLensConfig.fromEnv()`.
 
 ## Queue limits and the memory math
 
@@ -59,7 +62,7 @@ That ceiling is only reached while ingest is unreachable or slower than your tra
 
 A batch is cut at `batch_size` records or `max_batch_bytes`, whichever comes first. The byte cap is measured on the uncompressed JSON because that is what the ingest edge limits: it rejects bodies over 16 MB, counted both on the wire and after decompression. A backlog of large records therefore goes out as several requests rather than one oversized body that ingest would reject whole.
 
-A single record larger than `max_batch_bytes` on its own is not dropped. Its bodies are cut first (then headers, message and attributes), marked `...[truncated]`, and it is sent. Those records are counted under `truncated`, which is not a drop.
+A single record larger than `max_batch_bytes` on its own is not dropped. Its bodies are cut first (then headers, message and attributes), marked `...[truncated]` (Python cuts the middle, keeping the head and the tail around `…[N chars truncated]…`), and it is sent. Those records are counted under `truncated`, which is not a drop.
 
 With body capture on, start from **`batch_size = 100`, `max_batch_bytes = 4 MB`**. Worst-case records (about 145 KB) then go out about 28 per POST, well under the edge limit and cheap to retry; typical records with small bodies still fill the 100-record batch. Without bodies the defaults (200 records / 4 MB) rarely reach the byte cap.
 
@@ -126,12 +129,13 @@ Set `compress` to `false` only when CPU matters more than bandwidth, for example
 | Outcome | What the SDK does | Counted as |
 |---|---|---|
 | 2xx | Done. | `sent_batches`, `sent_records` |
-| 408, 429, 5xx, timeout, network or TLS error | Retried up to `max_retries` times (so `max_retries + 1` attempts). | `retries_exhausted` if every attempt fails |
+| 408, 429, 5xx, timeout, network or TLS error | Retried with backoff until `max_retry_seconds` (default 5 minutes) has passed since the batch first failed. Python puts the batch back at the front of its queue between attempts; TypeScript and Java retry one batch at a time while new records keep queueing. | `retries_exhausted` once the window has passed |
+| 2xx naming invalid records (partial accept) | The other records are stored; the refused ones are counted and not retried, since the same record would be refused again. | Python, Java: `invalid` (Java: `app_rejected` when the app or environment was refused); TypeScript: `server_rejected` |
 | Any other 4xx (400, 401, 403, 413, 422…) | Dropped at once, not retried. The response body is logged at most once per status every 5 minutes; a 401 logs a single message pointing at [Troubleshooting](/support/troubleshooting). | `non_retryable` |
 
 The wait between attempts is full-jitter exponential backoff: a random time between 0 and `retry_backoff_base × 2^attempt`, capped at `retry_backoff_max` (0.25 s and 5 s by default), so many workers do not retry in lockstep. A `Retry-After` header (seconds or an HTTP date) takes precedence, capped at 60 s.
 
-While one batch is retrying, new records keep queueing under the [queue limits](#queue-limits-and-the-memory-math). A long outage therefore shows up first as `retries_exhausted`, then as `queue_full` or `queue_bytes` once the queue fills. None of these ever raises into your application: SDK errors are caught and logged under the `apilens` logger.
+While one batch is retrying, new records keep queueing under the [queue limits](#queue-limits-and-the-memory-math). An outage shorter than the retry window loses nothing as long as the queue has room; a longer one shows up as `queue_full` or `queue_bytes` once the queue fills, then as `retries_exhausted`. Set `max_retries` (an attempt cap) only if you prefer to give up sooner. None of these ever raises into your application: SDK errors are caught and logged under the `apilens` logger.
 
 ## Shutdown
 
@@ -143,11 +147,11 @@ Whatever is still queued when a process exits is lost unless it is flushed first
 | Python, Django | `atexit`. Settings `APILENS_FLUSH_ON_SHUTDOWN`, `APILENS_SHUTDOWN_TIMEOUT`. | Nothing. |
 | Python, Flask / any WSGI app | `atexit`. | Nothing. |
 | Python, manual client | `with ApiLensClient(...) as client:` | Or call `client.shutdown(flush=True)`. |
-| TypeScript | Nothing automatic. | `await client.handleShutdown({ flush: true })` from your `SIGTERM` handler or the framework's close hook. |
+| TypeScript (Node, background mode) | `beforeExit`, `SIGTERM` and `SIGINT`. The signal is not swallowed: when your app has no listener for it, the SDK raises it again after the flush, so the process still exits. | Nothing. With your own signal handler, `await client.handleShutdown()` in it. |
 | Java, Spring Boot | The client bean's destroy method flushes and sends the final heartbeat. | Nothing. |
-| Java, plain | try-with-resources (`ApiLensClient` is `AutoCloseable`). | Or call `client.shutdown()`. |
+| Java, plain | A JVM shutdown hook (`registerShutdownHook`, on by default). | Or try-with-resources (`ApiLensClient` is `AutoCloseable`), or `client.shutdown()`. |
 
-In Python the hooks flush at most once per client and never take longer than `shutdown_timeout` (default **5 s**): if ingest is slow, the leftovers are dropped and the process exits on time. `flush_on_shutdown=False` (or `APILENS_FLUSH_ON_SHUTDOWN=false`, which wins over code) turns the hooks off. The TypeScript and Java shutdown calls have no deadline of their own; each remaining batch can take up to `(max_retries + 1) × timeout` plus backoff, so keep those low if your platform kills slow exits.
+The shutdown flush runs at most once per client and never takes longer than `shutdown_timeout` (`shutdownTimeoutMs`, `apilens.shutdown-timeout`; default **5 s**): retries stop at that deadline, the leftovers are dropped and counted as `shutdown`, and the process exits on time. Those counts ride on the final heartbeat. `flush_on_shutdown=False` (`flushOnShutdown: false`; `APILENS_FLUSH_ON_SHUTDOWN=false` wins over code in Python and TypeScript) turns the hooks off; in Java, `registerShutdownHook(false)` on the builder.
 
 **Give the flush time to run.** The orchestrator's grace period must cover the flush plus your app's own shutdown:
 
@@ -203,7 +207,7 @@ public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent ev
 - **TypeScript** `flushMode: "inline"` runs no timers. The Hono adapter sends each request's records, a due heartbeat and the metadata report at the end of the request through `c.executionCtx.waitUntil()` (pass `waitUntil` yourself on runtimes that expose it elsewhere). Elsewhere, `await client.flushInline()` at the end of each invocation.
 - **Java** always flushes from a background thread; call `client.flushAll()` before the invocation returns.
 
-An inline flush adds the ingest round trip to the invocation. Keep `timeout` and `max_retries` low so a slow ingest cannot stretch it, and keep `batch_size` at the default: one invocation rarely fills a batch.
+An inline flush adds the ingest round trip to the invocation. Keep `timeout` low (and, in TypeScript, `maxRetries`, 3 by default in inline mode) so a slow ingest cannot stretch it; a Python batch that still fails stays queued for the next invocation. Keep `batch_size` at the default: one invocation rarely fills a batch.
 
 ## Proxies and custom CAs
 
@@ -239,7 +243,7 @@ Each client keeps counters for its pipeline. `client.stats()` returns a cheap, t
 |---|---|---|---|
 | `queued_records` / `queued_bytes` | `queuedRecords` / `queuedBytes` | `queuedRecords` / `queuedBytes` | What is waiting now, and its estimated size. |
 | `sent_batches` / `sent_records` | `sentBatches` / `sentRecords` | `sentBatches` / `sentRecords` | Accepted by ingest since start. |
-| `failed_batches` | `failedBatches` | `failedBatches` | Batches dropped after a non-retryable 4xx or after `max_retries`. |
+| `failed_batches` | `failedBatches` | `failedBatches` | Batches dropped after a non-retryable 4xx or once the retry window passed. |
 | `drop_counts` | `dropCounts` | `dropCounts` | Records dropped, by reason (table below). |
 | `dropped` | `droppedCount` | `droppedCount` | Sum of `drop_counts` except `truncated`. |
 | `last_error` | `lastError` | `lastError` | The most recent ingest failure; empty until one happens. |
@@ -250,9 +254,14 @@ Each client keeps counters for its pipeline. `client.stats()` returns a cheap, t
 | `queue_full` | The count cap was reached; the oldest record was dropped. | Raise `max_queue_size`, or find why ingest is slow (`last_error`). |
 | `queue_bytes` | The byte cap was reached; the oldest record(s) were dropped. | Raise `max_queue_bytes` if memory allows, lower `max_payload_bytes`, or sample bodies. |
 | `non_retryable` | Ingest rejected the batch with a 4xx. | Read `last_error`: 401 is a bad key, 422 a batch over 1,000 records or a schema problem. |
-| `retries_exhausted` | Still failing after every retry. | Check egress, the proxy and the CA bundle; `last_error` names the failure. |
+| `retries_exhausted` | Still failing when `max_retry_seconds` (5 minutes by default) ran out. | Check egress, the proxy and the CA bundle; `last_error` names the failure. |
+| `invalid` (Python, Java), `server_rejected` (TypeScript) | Ingest stored the batch but refused these records (partial accept); they are not retried. | Ingest health counts them as **Rejected** with the reason; the SDK's WARNING log quotes ingest's reason. |
+| `app_rejected` (Java) | Ingest refused the records because of their app or environment (partial accept). | Check the app's limits in **Project settings → Apps**. |
+| `shutdown` | Still queued when the shutdown flush ran out of `shutdown_timeout`. | Give the shutdown more time, or check egress at shutdown. |
 | `truncated` | Not a drop: a record over `max_batch_bytes` was cut and still sent. | Raise `max_batch_bytes`, or lower `max_payload_bytes`. |
 
 Export them to your metrics system: Python takes an `on_stats` callback (run on the flush thread every `flush_interval`), TypeScript an `onStats` callback (after every flush), and Java registers a Micrometer binder (`apilens.queue.records`, `apilens.records.dropped{reason}` and so on) when Micrometer is on the classpath. The counters are cumulative; export them as gauges, or send the difference from the previous snapshot as a counter.
 
-**After a rollout**, confirm `last_success_at` advances and `sent_records` grows. Alert when `dropped` rises or `last_success_at` stops moving for a few flush intervals; `last_error` tells you why. In Python, new drops are also logged at INFO under the `apilens` logger, at most once a minute.
+**Drops are reported to APILens.** Each heartbeat carries the records dropped since the previous accepted heartbeat, per signal (requests, spans, logs) and reason, and **Project settings → Ingest health** shows them under [Dropped by the SDK](/ingest/ingest-health#dropped-by-the-sdk). Python and TypeScript leave out the records ingest refused itself (`invalid`, `server_rejected`), which ingest already counts as **Rejected**; `truncated` records were sent and are never reported.
+
+**After a rollout**, confirm `last_success_at` advances and `sent_records` grows. Alert when `dropped` rises or `last_success_at` stops moving for a few flush intervals; `last_error` tells you why. New drops are also logged at most once a minute: at INFO under the `apilens` logger in Python, through the client's logger in TypeScript, and at WARNING in Java.

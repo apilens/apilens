@@ -12,6 +12,11 @@
 .tb-home:hover { background: var(--surface-2); }
 .tb-home:focus-visible, .tb-scope:focus-visible, .tb-icon:focus-visible, .tb-search:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 .tb-crumbs { display: flex; align-items: center; min-width: 0; gap: 0; }
+.tb-crumb { display: flex; align-items: center; min-width: 0; }
+/* The page crumb and the open-incident count belong to the phone bar (#998); the rail has them on desktop. */
+.tb-crumb--view, .tb-incidents { display: none; }
+.tb-incidents { flex: none; align-items: center; height: 22px; padding: 0 8px; margin-left: 4px; border-radius: 11px; background: var(--warn-soft); color: var(--warn); font: 500 12px/1 var(--font-mono); text-decoration: none; }
+.tb-incidents:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-ink); }
 .tb-slash { width: 22px; height: 22px; flex: none; fill: none; stroke: var(--border-strong); stroke-width: 1.25; stroke-linecap: round; }
 .tb-scope { display: flex; align-items: center; gap: 8px; min-width: 0; height: 32px; padding: 0 6px 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: 500 13px/1 var(--font-sans); cursor: pointer; }
 .tb-scope:hover, .tb-scope.is-open { background: var(--surface-2); }
@@ -95,7 +100,11 @@
 /* ---------------------------------------------------------------- phones: drawer */
 @media (max-width: 860px) {
   .tb-menu { display: grid; }
-  .tb-home, .tb-crumbs > .tb-slash:first-child, .tb-badge, .tb-search span, .tb-search kbd { display: none; }
+  .tb-crumb--view, .tb-incidents { display: flex; }
+  /* Room for project / page: the project crumb stands for its organization, as v2's mobile bar did. */
+  .tb-crumbs:has(.tb-crumb--project) .tb-crumb--org, .tb-crumb--project > .tb-slash { display: none; }
+  .tb-crumb--view .tb-here { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; }
+  .tb-home, .tb-crumb--org > .tb-slash, .tb-badge, .tb-search span, .tb-search kbd { display: none; }
   .tb-search { min-width: 0; width: 30px; padding: 0; justify-content: center; border: 0; background: transparent; }
   .tb-name { max-width: 120px; }
   .shell-rail { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 288px; transform: translateX(-100%); transition: transform .15s ease-out; }

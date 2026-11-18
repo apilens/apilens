@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { badgeText } from "@/lib/alerts";
 import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
+import { sidebarHref } from "@/lib/nav-scope";
 import type { ContextProject } from "@/lib/scope";
 import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
@@ -41,10 +43,12 @@ export function useRailMode(): [RailMode, (m: RailMode) => void] {
 /**
  * The left rail, Supabase style: one icon per page in groups split by a rule (monitor, catalog,
  * configure), with the sidebar control at the foot. Labels show when expanded, while hovered in
- * "Expand on hover", and always in the mobile drawer.
+ * "Expand on hover", and always in the mobile drawer. The page links keep the current `range` and
+ * `env` (#992), so the scope travels. `openIncidents` (#610) is the Incidents count; 0 shows none.
  */
-export function Rail({ project, view, orgScope, mode, onMode, drawer }: { project?: ContextProject; view: string; orgScope: boolean; mode: RailMode; onMode: (m: RailMode) => void; drawer: boolean }) {
-  const open = badgeText(useOpenIncidents(project?.slug, view));
+export function Rail({ project, view, orgScope, openIncidents, mode, onMode, drawer }: { project?: ContextProject; view: string; orgScope: boolean; openIncidents: number; mode: RailMode; onMode: (m: RailMode) => void; drawer: boolean }) {
+  const search = useSearchParams();
+  const open = badgeText(openIncidents);
   const [control, setControl] = useState(false);
   const controlRef = useRef<HTMLButtonElement>(null);
   const tips = mode !== "expanded" && !drawer;
@@ -52,7 +56,7 @@ export function Rail({ project, view, orgScope, mode, onMode, drawer }: { projec
   const item = (p: ContextProject, slug: string, label: string, icon: RailIconName, badge?: string) => {
     const on = !orgScope && view === slug;
     return (
-      <Link key={slug} href={`/${p.slug}/${slug}`} className={`rl-item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} data-tip={tips && mode === "collapsed" ? label : undefined}>
+      <Link key={slug} href={sidebarHref(p.slug, slug, search)} className={`rl-item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} data-tip={tips && mode === "collapsed" ? label : undefined}>
         <span className="rl-ic">
           <RailIcon name={icon} />
           {badge ? <i className="rl-dot" aria-hidden="true" /> : null}
@@ -125,24 +129,4 @@ export function Rail({ project, view, orgScope, mode, onMode, drawer }: { projec
       </div>
     </aside>
   );
-}
-
-/**
- * How many of the project's incidents are open (#610), read from `GET /api/projects/{slug}/incidents`
- * when the project or the page changes; 0 until it answers and whenever it can't.
- */
-function useOpenIncidents(project: string | undefined, view: string): number {
-  const [open, setOpen] = useState(0);
-  useEffect(() => {
-    if (!project) return setOpen(0);
-    const ctrl = new AbortController();
-    fetch(`/api/projects/${encodeURIComponent(project)}/incidents`, { signal: ctrl.signal, cache: "no-store" })
-      .then((r) => r.json())
-      .then((b: { ok?: boolean; open?: number }) => setOpen(b?.ok === true && typeof b.open === "number" ? b.open : 0))
-      .catch(() => {
-        if (!ctrl.signal.aborted) setOpen(0);
-      });
-    return () => ctrl.abort();
-  }, [project, view]);
-  return open;
 }

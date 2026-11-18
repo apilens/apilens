@@ -59,11 +59,15 @@ The endpoint `GET /v1/orders/{order_id}` is auto-created on first sight — noth
 |---|---|---|
 | `200` | `{"accepted": n}` | Batch stored. |
 | `200` | `{"accepted": n, "rejected": [{"app_id", "app", "records", "error", "detail"}]}` | Stored, except the records of the listed apps (see below). |
+| `200` | `{"accepted": n, "invalid": m, "errors": [{"index", "reason"}]}` | Stored, except `m` invalid records (see below). |
+| `400` | `{"error": "invalid_body", "detail": ...}` | The body is not JSON of the expected shape; nothing is stored. |
 | `401` | `{"error": "authentication_error", "detail": ...}` | Missing/invalid `X-API-Key`. |
 | `403` | `{"error": "app_create_forbidden" \| "app_not_allowed" \| "environment_not_allowed", "detail": ...}` | Every record names an app the key cannot create, an app outside the key's app list, or an environment the key is not pinned to. |
 | `403` | `{"error": "project_deleted", "detail": ...}` | The key's project was deleted. Restoring the project within its grace period (7 days by default) makes the key work again. |
 | `409` | `{"error": "app_deleted", "detail": ...}` | Every record names an app deleted less than 30 days ago; restore it from **Apps**. |
-| `422` | `{"error": "validation_error" \| "app_limit" \| "app_rate_limit", "detail": ...}` | A record failed schema validation (nothing in the batch is stored), or every record names a new app over an app limit. |
+| `422` | `{"error": "validation_error" \| "app_limit" \| "app_rate_limit", "detail": ...}` | The batch is empty, holds more than 1,000 records or names another project, or every record names a new app over an app limit. |
+
+Each record is validated on its own. A record with a bad timestamp, an id that is not W3C hex, a missing `method`/`path` (requests) or `release` (deploys), or a field of the wrong type is left out; the rest of the batch is stored and the `200` carries `invalid` (how many records were left out) and `errors`, up to 20 `{"index": i, "reason": "..."}` entries where `i` is the record's position in the batch. **Ingest health** counts these records as rejected with reason `invalid`. Don't retry them: the same record is refused again.
 
 When only some records name an app that cannot be used, the others are stored and the answer is `200` with a `rejected` list: `error` is `app_create_forbidden` (the key cannot create apps), `app_not_allowed` (the key is limited to other apps), `app_deleted`, `app_limit` (`ingest.max_apps_per_project`), `app_rate_limit` (`ingest.max_new_apps_per_hour`), `invalid_app_name` or `unknown_app` (an app UUID that matches no app). Records of an environment a pinned key may not send for are rejected the same way, per record, with `error` `environment_not_allowed` and the record's `environment` in the entry; heartbeats and metadata reports for such an environment answer `403`.
 | `500` | `{"error": "internal_error", ...}` | Retry with backoff. |

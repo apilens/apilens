@@ -17,7 +17,7 @@
       },
       {
         "text": {
-          "text": ":white_check_mark: Error rate on storefront (production) is no longer &gt; 5% over the last 5 minutes.",
+          "text": ":white_check_mark: Error rate (4xx + 5xx) on storefront (production) is no longer &gt; 5% over the last 5 minutes.",
           "type": "mrkdwn"
         },
         "type": "section"
@@ -33,7 +33,7 @@
             "type": "mrkdwn"
           },
           {
-            "text": "*Metric*\nError rate",
+            "text": "*Metric*\nError rate (4xx + 5xx)",
             "type": "mrkdwn"
           },
           {
@@ -75,6 +75,6 @@
         "type": "actions"
       }
     ],
-    "text": "Resolved: Checkout &lt;5xx&gt; rate &amp; more — Error rate on storefront (production) is no longer &gt; 5% over the last 5 minutes."
+    "text": "Resolved: Checkout &lt;5xx&gt; rate &amp; more — Error rate (4xx + 5xx) on storefront (production) is no longer &gt; 5% over the last 5 minutes."
   }
 }

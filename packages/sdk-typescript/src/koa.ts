@@ -17,7 +17,9 @@
  * read as Koa writes them to `ctx.res`, and the request is recorded once the
  * response has been sent, grouped by the `@koa/router` route that matched
  * (`ctx._matchedRoute`, `:id` spelled `{id}`). An error thrown downstream is
- * kept for the 5xx error log and rethrown unchanged. Recording itself is the
+ * kept for the 5xx error log (as it leaves the middleware that raised it, so
+ * an app's try/catch error middleware does not hide it) and rethrown
+ * unchanged. Recording itself is the
  * shared capture core (`capture.ts`).
  */
 // Node builtins for the core (see runtime.ts); first, before the core runs.
@@ -25,7 +27,7 @@ import "./node.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { ApiLensClient } from "./client.js";
-import { CaptureCore, recordRequestError, requestError } from "./capture.js";
+import { CaptureCore, keepFirstRequestError, requestError } from "./capture.js";
 import { buildAppMetadata, packageVersion, type AppRoute } from "./metadata.js";
 import { expressPathToTemplate } from "./routes.js";
 import type { ApiLensConsumer, ApiLensExpressConfig } from "./types.js";
@@ -58,6 +60,7 @@ export type KoaContextLike = {
   request: { body?: unknown };
   response: unknown;
   _matchedRoute?: unknown;
+  app?: unknown;
 };
 
 export type KoaMiddleware = ((ctx: KoaContextLike, next: () => Promise<unknown>) => Promise<void>) & {
@@ -65,6 +68,57 @@ export type KoaMiddleware = ((ctx: KoaContextLike, next: () => Promise<unknown>)
 };
 
 const CONSUMER_KEY = "apilensConsumer";
+
+type KoaMiddlewareFn = (ctx: KoaContextLike, next: () => Promise<unknown>) => unknown;
+
+const wrappedMiddleware = new WeakSet<object>();
+const errorWrappedApps = new WeakSet<object>();
+
+/**
+ * Wrap every middleware the app mounted after `own` so an error is kept as
+ * it leaves the middleware that raised it, before an outer try/catch error
+ * middleware of the app turns it into a response. Koa composes
+ * `app.middleware` lazily (koa-compose reads it by index per request), so
+ * the entries are replaced in place, once per app, on its first request.
+ * Never throws: without it only errors that reach this middleware are kept.
+ */
+function wrapDownstreamMiddleware(app: unknown, own: unknown): void {
+  const target = app as { middleware?: unknown } | undefined;
+  if (!target || typeof target !== "object" || errorWrappedApps.has(target)) {
+    return;
+  }
+  errorWrappedApps.add(target);
+  try {
+    const stack = target.middleware;
+    if (!Array.isArray(stack)) {
+      return;
+    }
+    const start = stack.indexOf(own);
+    if (start === -1) {
+      return;
+    }
+    for (let i = start + 1; i < stack.length; i++) {
+      const fn = stack[i] as KoaMiddlewareFn;
+      if (typeof fn !== "function" || wrappedMiddleware.has(fn)) {
+        continue;
+      }
+      const wrapped: KoaMiddlewareFn = async (ctx, next) => {
+        try {
+          return await fn(ctx, next);
+        } catch (error) {
+          if (ctx?.req) {
+            keepFirstRequestError(ctx.req, error);
+          }
+          throw error;
+        }
+      };
+      wrappedMiddleware.add(wrapped);
+      stack[i] = wrapped;
+    }
+  } catch {
+    // Leave error capture to this middleware's own catch.
+  }
+}
 
 /** Attach a consumer to the request (`ctx.state`); it is sent with the request's record. */
 function setConsumer(
@@ -139,6 +193,7 @@ function apiLensKoa(config: ApiLensKoaConfig = {}): KoaMiddleware {
       await next();
       return;
     }
+    wrapDownstreamMiddleware(ctx.app, middleware);
 
     const res = ctx.res;
     const contentType = () => res.getHeader("content-type");
@@ -180,7 +235,7 @@ function apiLensKoa(config: ApiLensKoaConfig = {}): KoaMiddleware {
       await capture.run(() => next());
     } catch (error) {
       // Koa's error handler answers the request; the error goes in the 5xx log.
-      recordRequestError(ctx.req, error);
+      keepFirstRequestError(ctx.req, error);
       throw error;
     }
   }) as KoaMiddleware;

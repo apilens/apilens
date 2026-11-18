@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
@@ -30,9 +31,10 @@ func ClickHouseInserters(conn driver.Conn) Inserters {
 		},
 		Spans: func(ctx context.Context, rows []SpanRow) error {
 			return insertBatch(ctx, conn, insertSpans, rows, func(b driver.Batch, r SpanRow) error {
+				eventTimes, eventNames, eventAttrs := spanEventColumns(r.Events)
 				return b.Append(r.ProjectID, r.AppID, r.Environment, r.Timestamp, r.TraceID, r.SpanID, r.ParentSpanID,
 					r.Name, r.Kind, r.ServiceName, r.DurationMs, r.Status, r.StatusCode, nonNilMap(r.Attributes),
-					r.Release, r.Commit)
+					r.Release, r.Commit, r.StatusMessage, eventTimes, eventNames, eventAttrs, nonNilLinks(r.Links))
 			})
 		},
 		Deploys: func(ctx context.Context, rows []DeployRow) error {
@@ -52,7 +54,8 @@ const (
 		endpoint_method, endpoint_path, status_code, consumer_id, consumer_name, consumer_group, trace_id, span_id,
 		payload, attributes, release, commit)`
 	insertSpans = `INSERT INTO api_spans (project_id, app_id, environment, timestamp, trace_id, span_id,
-		parent_span_id, name, kind, service_name, duration_ms, status, status_code, attributes, release, commit)`
+		parent_span_id, name, kind, service_name, duration_ms, status, status_code, attributes, release, commit,
+		status_message, events.time, events.name, events.attributes, links)`
 	insertDeploys = `INSERT INTO api_deploys (project_id, app_id, environment, release, commit, url, deployed_at)`
 )
 
@@ -78,6 +81,25 @@ func nonNilMap(m map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	return m
+}
+
+// spanEventColumns splits span events into the parallel arrays of the
+// Nested column api_spans.events.
+func spanEventColumns(events []SpanEventRow) ([]time.Time, []string, []map[string]string) {
+	times := make([]time.Time, len(events))
+	names := make([]string, len(events))
+	attrs := make([]map[string]string, len(events))
+	for i, ev := range events {
+		times[i], names[i], attrs[i] = ev.Time, ev.Name, nonNilMap(ev.Attributes)
+	}
+	return times, names, attrs
+}
+
+func nonNilLinks(l []SpanLink) []SpanLink {
+	if l == nil {
+		return []SpanLink{}
+	}
+	return l
 }
 
 func boolUInt8(b bool) uint8 {

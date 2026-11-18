@@ -272,8 +272,31 @@ named `METHOD /route/template`), sent to `/traces`. An incoming W3C
   `currentSpanId()`, `currentTraceparent()`) inside a Spring MVC handler; on
   WebFlux use `ApiLensWebFilter.traceContext(exchange)` (also in the Reactor
   context under `TraceContext.class`).
-- **Propagating the trace.** Send `TraceContext.currentTraceparent()` as the
-  `traceparent` header on outbound calls so downstream services join the trace.
+- **Outbound HTTP calls.** Calls made during a captured request become child
+  spans (`kind=http`, named `METHOD url`, attributes `http.method` and
+  `http.url` with the query string and userinfo stripped, the response status,
+  `error` when the call threw or answered 5xx) and send a `traceparent` header
+  so downstream services join the trace. Spring Boot instruments every
+  `RestTemplateBuilder`, `RestClient.Builder` and `WebClient.Builder` and wraps
+  `java.net.http.HttpClient` beans. By hand: add
+  `new ApiLensClientHttpRequestInterceptor(ApiLensHttpTracing.of(client))` to a
+  `new RestTemplate()`, `new ApiLensExchangeFilterFunction(...)` to a
+  `WebClient`, or use `ApiLensHttpClient.wrap(httpClient, tracing)`. Child spans
+  are kept or dropped with the request's server span, and nothing is traced
+  when span capture is off.
+- **Database calls.** JDBC statements run during a captured request become
+  child spans (`kind=db`, attributes `db.system` from the JDBC URL,
+  `db.operation` and `db.statement`, `error` when the statement threw). The
+  statement is obfuscated before it leaves the process: string, number and hex
+  literals become `?`, comments are removed and it is cut to 2 KiB; bound
+  parameter values are never read. Spring Boot wraps every `DataSource` bean
+  (a subclass proxy, so `HikariDataSource` stays injectable). By hand:
+  `ApiLensDataSource.wrap(dataSource, ApiLensJdbcTracing.of(client))`.
+- **Span cap.** A request keeps at most 2,000 child spans (HTTP and database
+  together). Spans past it are not sent and are counted as `span_cap` drops,
+  reported in the heartbeat and shown in Ingest health.
+- **Propagating the trace by hand.** Send `TraceContext.currentTraceparent()`
+  as the `traceparent` header on other outbound calls.
 
 ### Automatic error capture
 
@@ -282,6 +305,25 @@ When a handler throws, or the response status is 5xx, the SDK sends one
 with the stack trace as payload, or `apilens.http` for a 5xx without an
 exception) and marks the span `error`. The exception is re-thrown unchanged.
 
+Exceptions your `@ExceptionHandler` / `@ControllerAdvice` turns into a response
+are shipped too, with their full stack, and the request is always kept: an
+`ERROR` log when the response is 5xx, a `WARN` log below (the span is `error`
+only for 5xx). On Spring MVC this is automatic (`ApiLensHandlerExceptionResolver`
+records the exception and changes nothing about how it is handled). WebFlux
+resolves `@ExceptionHandler` methods inside its `DispatcherHandler`, where no
+filter can see them, so record the exception from the handler:
+
+```java
+@ExceptionHandler(PaymentException.class)
+ResponseEntity<String> failed(PaymentException ex, ServerWebExchange exchange) {
+  ApiLensWebFilter.recordException(exchange, ex);
+  return ResponseEntity.status(502).body("payment failed");
+}
+```
+
+Exceptions that reach a WebFlux `WebExceptionHandler` are seen by the filter
+and need no call.
+
 ### Turning tracing on and off
 
 ```properties
@@ -289,7 +331,29 @@ apilens.capture-spans=false
 ```
 
 or `captureSpans(false)`, or env `APILENS_CAPTURE_SPANS=false`. Request records
-keep their `trace_id` either way.
+keep their `trace_id` either way, and errored requests still send their
+exception log: this turns spans off, never exceptions.
+
+### Logged exceptions
+
+A handler that catches an exception, logs it and answers normally never
+reaches the filter's error capture. In Spring Boot the SDK therefore attaches
+an appender to the root logger: `ApiLensLogbackAppender` when Logback is the
+logging system, `ApiLensLog4j2Appender` when Log4j2 is. Every event logged at
+`ERROR` with a throwable becomes an `apilens.exception` log with the full
+exception (qualified type, every `Caused by` and `Suppressed`, 64 KiB head and
+tail), linked to the current request's trace when it is logged inside a
+request. The logger name and the formatted message travel as the `log.logger`
+and `log.message` attributes. Events without a throwable, events below
+`ERROR` and the SDK's own `ai.apilens.*` loggers are ignored.
+
+```properties
+apilens.capture-logs=off
+```
+
+turns it off (`errors`, the default, turns it on). Outside Spring Boot call
+`ApiLensLogbackAppender.attach(client)` or `ApiLensLog4j2Appender.attach(client)`
+once at startup.
 
 ---
 
@@ -319,7 +383,10 @@ auto-configuration.
 | `timeout` | `Duration.ofSeconds(5)` | Per-request HTTP timeout. |
 | `maxQueueSize` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `maxQueueBytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `maxRetries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
+| `maxRetryDuration` | `Duration.ofSeconds(300)` | How long a batch that failed with 408, 429, 5xx or a network error keeps being retried (full-jitter exponential backoff, or the server's `Retry-After`) before it is dropped as `retries_exhausted`. |
+| `maxRetries` | `-1` (no cap) | Optional cap on retry attempts per batch; `-1` leaves only `maxRetryDuration`. |
+| `registerShutdownHook` | `true` | Register a JVM shutdown hook that flushes the queues (bounded by `shutdownTimeout`) when the process exits without `client.shutdown()`. The Spring Boot auto-configuration turns it off, since Spring closes the client itself. |
+| `shutdownTimeout` | `Duration.ofSeconds(5)` | Upper bound on the flush of `client.shutdown()` and the shutdown hook; records still unsent at the deadline are dropped and counted as `shutdown`. |
 | `compress` | `true` | gzip each batch (`Content-Encoding: gzip`) on the background flush thread. `false` sends plain JSON. |
 | `verifyTls` | `true` | Verify the ingest server's TLS certificate. |
 | `caBundlePath` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
@@ -388,16 +455,16 @@ fails at startup.
 | `maxPayloadBytes` | `65536` | Per-body capture cap; set `0` to disable body capture. |
 | `captureValidationErrors` | **not available** | Python only. 400/422 bodies are captured as ordinary response bodies. |
 | `captureContentTypes` | **not available** | Python only. The captured types are fixed: `application/json`, `*+json`, `text/*`, `application/x-www-form-urlencoded`; see [body capture](#body-capture-and-mask-callbacks). |
-| `captureSpans` | `true` | Emit a server span (and the automatic error log) per request. |
+| `captureSpans` | `true` | Emit a server span per request. The automatic error log is sent either way. |
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | — | Register an `ApiLensConsumerResolver` (MVC) or `ApiLensWebFluxConsumerResolver` (WebFlux) bean, or pass it to the filter constructor (see [consumer attribution](#consumer-attribution)). |
 | `maskRequestBody` / `maskResponseBody` | `null` | `BiFunction<RequestInfo/ResponseInfo, byte[], byte[]>` callbacks on the captured (truncated) raw body; see [body mask callbacks](#body-capture-and-mask-callbacks). |
-| `flushOnShutdown` | always | The Spring bean's destroy method (`client.shutdown()`) flushes the queue when the context closes; outside Spring call `client.shutdown()` yourself. |
-| `shutdownTimeout` | **not available** | Python only. The shutdown flush has no separate bound; each batch it sends is bounded by `timeout` and `maxRetries`. |
+| `flushOnShutdown` | always | The Spring bean's destroy method (`client.shutdown()`) flushes the queue when the context closes; outside Spring a JVM shutdown hook does it (`registerShutdownHook`). |
+| `shutdownTimeout` | `5s` | A client option (`ApiLensConfig.shutdownTimeout`, `apilens.shutdown-timeout`): the shutdown flush stops at this deadline. |
 | `excludePaths` | `[]` | Regexes for paths to skip entirely (no record, span or log), e.g. `^/health$`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex fails at startup. |
 | `excludeUserAgents` | `[]` | Regexes for `User-Agent` values to skip entirely, e.g. `^uptimerobot`. Case-insensitive search. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `defaultExclusions` | `true` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `excludePaths`). `false` turns them off; your own `excludePaths` / `excludeUserAgents` still apply. |
-| `sampleRate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, span, auto error log — is kept. See [sampling](#sampling). A value outside the range fails at startup. |
+| `sampleRate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, span — is kept. Errors are always kept. See [sampling](#sampling). A value outside the range fails at startup. |
 | `sampleOnRequest` | `null` | `RequestSampler` evaluated before the handler; overrides `sampleRate` per request. See [sampling](#sampling). |
 | `sampleOnResponse` | `null` | `ResponseSampler` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
 | `enabled` | `true` | `false` makes the filter pass every request through untouched. |
@@ -415,6 +482,11 @@ headers, bodies, its span and its automatic error log, and its record carries
 `sampled: false`. Its request body is never buffered. The trace context is
 still propagated to the handler and downstream services, so they can decide
 independently.
+
+Errors are never sampled. A request whose handler threw, or that answered 5xx,
+is always kept with its span and its exception log, whatever `sampleRate`, the
+callbacks or the remote sample rate say. The exception log is also sent when
+`captureSpans` is `false`. Only a remote `enabled=false` turns it off.
 
 `sampleRate` (`0.0`–`1.0`, default `1.0`) is the fraction of requests whose
 detail is kept. Two callbacks refine it, each returning a `SampleDecision`:
@@ -564,7 +636,9 @@ variable overrides `application.properties`.
 | `APILENS_MAX_QUEUE_BYTES` | `maxQueueBytes` | long | `67108864` |
 | `APILENS_MAX_BATCH_BYTES` | `maxBatchBytes` | int | `4194304` |
 | `APILENS_COMPRESS` | `compress` | bool | `true` |
-| `APILENS_MAX_RETRIES` | `maxRetries` | int | `3` |
+| `APILENS_MAX_RETRIES` | `maxRetries` | int | `-1` (no cap) |
+| `APILENS_MAX_RETRY_SECONDS` | `maxRetryDuration` | seconds | `300` |
+| `APILENS_SHUTDOWN_TIMEOUT` | `shutdownTimeout` | seconds | `5` |
 | `APILENS_SERVICE_NAME` | `serviceName` | string | app id |
 | `APILENS_SEND_HEARTBEAT` | `sendHeartbeat` | bool; `false` wins over code | `true` |
 | `APILENS_SEND_METADATA` | `sendMetadata` | bool; `false` wins over code | `true` |
@@ -601,7 +675,9 @@ description and default.
 | `apilens.max-queue-bytes` | `67108864` (64 MB) | Estimated bytes all three queues may hold together. |
 | `apilens.max-batch-bytes` | `4194304` (4 MB) | Upper bound on one ingest request body (min `1024`). |
 | `apilens.compress` | `true` | Gzip batch bodies. |
-| `apilens.max-retries` | `3` | Retries for 408, 429, 5xx and network errors. |
+| `apilens.max-retry-duration` | `300s` | How long a batch that failed with 408, 429, 5xx or a network error is retried before it is dropped. |
+| `apilens.max-retries` | `-1` (no cap) | Optional cap on retry attempts; `-1` leaves only `apilens.max-retry-duration`. |
+| `apilens.shutdown-timeout` | `5s` | Upper bound on the flush when the application context closes. |
 | `apilens.retry-backoff-base` / `apilens.retry-backoff-max` | `250ms` / `5s` | Full-jitter backoff bounds. |
 | `apilens.enabled` | `true` | Master switch: `false` sends nothing. |
 | `apilens.user-agent` | `apilens-java-sdk/<version>` | User-Agent of ingest requests. |
@@ -615,6 +691,7 @@ description and default.
 | `apilens.capture-payloads` | `true`* | Capture request/response bodies. |
 | `apilens.capture-headers` | `true`* | Capture request/response headers (redacted). |
 | `apilens.capture-spans` | `true` | Emit a server span per request. |
+| `apilens.capture-logs` | `errors` | Ship exceptions logged at `ERROR` through Logback or Log4j2; `off` attaches no appender. See [Logged exceptions](#logged-exceptions). |
 | `apilens.service-name` | app id | Service name on spans. |
 | `apilens.max-payload-bytes` | `65536`* | Body capture cap; `0` disables bodies. |
 | `apilens.redact-query-params` | empty | Extra query-param name regexes; built-ins always apply. |
@@ -663,8 +740,9 @@ try (var client = new ApiLensClient(ApiLensConfig.builder()
 ```
 
 `client.captureSpan(SpanRecord)` and `client.captureLog(LogRecord)` queue spans
-and logs the same way. try-with-resources flushes on exit; otherwise call
-`client.shutdown()` before your process ends. `client.droppedCount()` reports
+and logs the same way. try-with-resources flushes on exit; otherwise the
+client's JVM shutdown hook flushes when the process exits (at most
+`shutdownTimeout`, 5 s by default). `client.droppedCount()` reports
 records shed under backpressure and `client.dropCounts()` breaks that total
 down by reason (see [Reliability & performance](#reliability--performance)).
 
@@ -691,7 +769,11 @@ serverless and proxies are covered end to end in the
   | `queue_full` | The queue reached `maxQueueSize`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `maxQueueBytes`; the oldest record(s) were dropped. |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetries`. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetryDuration` (300 s). |
+  | `invalid` | Ingest answered 200 but refused this record as invalid (partial accept); the rest of the batch was stored. |
+  | `app_rejected` | Ingest answered 200 but refused this record because of its app or environment. |
+  | `shutdown` | Still queued or unsent when the shutdown flush reached `shutdownTimeout`. |
+  | `span_cap` | A kept request had more than 2,000 child spans (outbound HTTP and database); the extra spans were not sent. |
   | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads were cut before sending. Not counted in `droppedCount()`. |
 
 - **Size-bounded batches.** A POST is cut at `batchSize` records or
@@ -699,16 +781,23 @@ serverless and proxies are covered end to end in the
   comes first, so a backlog of large records goes out as several requests
   instead of one oversized body that ingest would reject whole. A single record
   over the cap is truncated (payloads first) rather than dropped.
-- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
-  `maxRetries` times with full-jitter exponential backoff (between
-  `retryBackoffBase` and `retryBackoffMax`), so many instances do not retry in
-  lockstep. A `Retry-After` header takes precedence, capped at 60 s. Any other
-  4xx drops the batch immediately; a 401 logs one clear message.
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors are
+  retried for up to `maxRetryDuration` (300 s) with full-jitter exponential
+  backoff (between `retryBackoffBase` and `retryBackoffMax`), so a short ingest
+  outage loses nothing and many instances do not retry in lockstep. A
+  `Retry-After` header takes precedence, capped at 60 s. Any other 4xx drops the
+  batch immediately; a 401 logs one clear message. A 200 that refuses some
+  records (partial accept) drops only those.
+- **No silent loss.** Every dropped record is counted by reason, logged at
+  `WARNING` (at most once a minute) and reported to ingest in the next
+  heartbeat (`dropped`, per signal and reason), where Ingest health shows it.
 - **Never throws into your app.** All SDK errors are caught and logged under
   the `java.util.logging` logger `apilens` — raise it to `FINE` while
   debugging.
 - **Graceful shutdown.** Under Spring Boot the client bean's destroy method
-  flushes the queue and sends the final heartbeat.
+  flushes the queue and sends the final heartbeat. Without Spring, a JVM
+  shutdown hook does the same when the process exits. Either way the flush
+  takes at most `shutdownTimeout` (5 s).
 
 ---
 

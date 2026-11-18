@@ -10,6 +10,8 @@ import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import type { HealthCheck, HealthCheckEvent, HealthCheckProbe, NamedApp } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -40,11 +42,9 @@ export function HealthChecks({ project, projectName, load, search = {} }: { proj
   const appName = (id: string) => apps?.find((a) => a.id === id)?.name ?? "Unknown app";
   return (
     <div className="page page--measure os cps hc">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Health checks</h1>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Health checks" className="os-head">
         <p className="hc-lede">{PROBE_POLICY} A failing check notifies every notification channel of the project.</p>
-      </header>
+      </PageHeader>
 
       <section className="os-card" aria-labelledby="hc-list">
         <div className="os-card__head">

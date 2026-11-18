@@ -11,8 +11,12 @@ import { LINKS, extLink } from "@/lib/links";
 import { formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
 import { radioKeyTarget } from "@/lib/radio-group";
+import { RELEASE_STEP_ID, integrationsHref, pickReleaseSdks } from "@/lib/release-setup";
 import { type AppSetupStatus, SDK_LANGUAGES, lastDataLine, reportedSdk, sdkDocs, setupSnippets } from "@/lib/sdk-setup";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { RecordDeploys } from "../changes/record-deploys";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "../onboarding/install.css";
@@ -35,11 +39,9 @@ export interface SdkSetupLoad {
 export function SdkSetup({ project, projectName, load }: { project: string; projectName: string; load: SdkSetupLoad }) {
   return (
     <div className="page page--measure os sdk">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">SDK setup</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="SDK setup" className="os-head" />
       <InstallCard project={project} ingestUrl={load.ingestUrl} />
+      <ReleaseCard project={project} apps={load.apps} />
       <StatusCard apps={load.apps} ingest={load.ingest} />
     </div>
   );
@@ -136,6 +138,33 @@ function InstallCard({ project, ingestUrl }: { project: string; ingestUrl: strin
             </p>
           ) : null}
         </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The "Release and commit" step (#997), at `#release` (Deploys links here): the SDK config that
+ * stamps each record with the deployed version and its commit, so each deploy shows up on Deploys
+ * with its before and after numbers. Tabs follow the SDKs the project's apps reported.
+ */
+function ReleaseCard({ project, apps }: { project: string; apps: AppSetupStatus[] | null }) {
+  const sdks = pickReleaseSdks((apps ?? []).flatMap((a) => (a.reports ?? []).map((r) => r.framework)));
+  return (
+    <section className="os-card sdk-release" id={RELEASE_STEP_ID} aria-labelledby="sdk-release">
+      <div className="os-card__head">
+        <h2 id="sdk-release">Release and commit</h2>
+        <p>Set the version you deploy and the commit it was built from, and each deploy shows up on Deploys with its before and after numbers.</p>
+      </div>
+      <div className="os-card__body">
+        <RecordDeploys sdks={sdks} />
+        <p className="sdk-note">
+          Commits open in your repository once it’s linked in{" "}
+          <a className="cp-link" href={integrationsHref(project)}>
+            Integrations
+          </a>
+          .
+        </p>
       </div>
     </section>
   );

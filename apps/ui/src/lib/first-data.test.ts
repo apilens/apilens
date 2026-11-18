@@ -40,7 +40,7 @@ const summary = (extra: Partial<TrafficSummary> = {}): TrafficSummary => ({
   ...extra,
 });
 
-const endpoint = (path: string) => ({ method: "GET", path, requests: 1, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 1, p95_ms: 1 });
+const endpoint = (path: string) => ({ app_id: "a1", method: "GET", path, requests: 1, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 1, p95_ms: 1 });
 
 describe("firstData", () => {
   it("combines the latest rows, the totals and the endpoint count", () => {

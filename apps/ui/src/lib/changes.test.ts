@@ -8,7 +8,6 @@ import {
   minuteOffsetText,
   p95LinePath,
   p95Scale,
-  formatRate,
   minutesSoFar,
   p95Delta,
   parseChangesFilter,
@@ -60,9 +59,6 @@ describe("p95Delta", () => {
 
 describe("formatting", () => {
   it("formats rates and sides", () => {
-    expect(formatRate(0)).toBe("0%");
-    expect(formatRate(0.0004)).toBe("<0.1%");
-    expect(formatRate(0.0237)).toBe("2.4%");
     expect(sideRate(side(0, 0, 0))).toBe("–");
     expect(sideRate(side(5, 0.2, 0))).toBe("20.0%");
     expect(sideP95(side(0, 0, 0))).toBe("–");

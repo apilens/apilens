@@ -16,7 +16,8 @@ import (
 //
 //   - rejected:<reason>: rejected records by reason, the quota limit
 //     (ReasonRecordsPerMinute, ReasonBytesPerDay), the catalog's app refusal
-//     (catalog.Rejection.Reason) or ReasonInvalid; they sum to rejected.
+//     (catalog.Rejection.Reason), ReasonInvalid or ReasonStorageUnavailable;
+//     they sum to rejected.
 //   - env:<name>: accepted records by environment; they sum to accepted.
 //
 // and, per project and UTC day (UsageKeyPrefix), the decompressed body bytes
@@ -28,9 +29,13 @@ const (
 	// UsageKeyPrefix prefixes the per project and day usage hash:
 	// UsageKeyPrefix + "<project id>:<YYYY-MM-DD>".
 	UsageKeyPrefix = "apilens:ingest:usage:"
-	// ReasonInvalid is the rejection reason of OTLP records dropped as
-	// invalid (missing ids, out-of-range timestamps).
+	// ReasonInvalid is the rejection reason of batch and OTLP records dropped as
+	// invalid (bad ids, out-of-range timestamps, malformed fields).
 	ReasonInvalid = "invalid"
+	// ReasonStorageUnavailable is the rejection reason of records answered
+	// 503 because the sink could not take or store them (queue full,
+	// shutting down, insert retries exhausted); the SDKs retry them.
+	ReasonStorageUnavailable = "storage_unavailable"
 
 	statRejectedPrefix = "rejected:"
 	statEnvPrefix      = "env:"

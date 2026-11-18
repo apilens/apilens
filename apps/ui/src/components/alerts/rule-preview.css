@@ -1,0 +1,9 @@
+/* The rule editor's preview strip (#982); bars, swatches, threshold and axis reuse alerts.css. */
+.rp { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); min-width: 0; }
+.rp-h { margin: 0 0 var(--space-2); font: 600 13px/20px var(--font-sans); color: var(--ink); }
+.rp-chart { margin: 0; min-width: 0; }
+.rp-count { margin: 0 0 var(--space-2); font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.rp-legend { margin-bottom: var(--space-4); }
+.rp-box { position: relative; }
+.rp-box svg { display: block; width: 100%; height: 80px; overflow: visible; }
+.rp-top { position: absolute; top: -18px; right: 0; font: 400 11px/14px var(--font-mono); color: var(--ink-muted); }

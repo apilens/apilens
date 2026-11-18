@@ -45,11 +45,11 @@ export default async function AccessPage({ params, searchParams }: { params: Pro
   return (
     <AppShell context={context} project={project} view={VIEW}>
       {!found ? (
-        <ActivityFrame projectName={ctx.projectName} nav={nav}>
+        <ActivityFrame project={ctx.project} projectName={ctx.projectName} nav={nav}>
           <ActivityNotAllowed />
         </ActivityFrame>
       ) : found.slug === "activity" ? (
-        <ActivityFrame projectName={ctx.projectName} nav={nav}>
+        <ActivityFrame project={ctx.project} projectName={ctx.projectName} nav={nav}>
           <Suspense key={JSON.stringify(ctx.search)} fallback={<ActivitySkeleton />}>
             <ActivityTab {...ctx} />
           </Suspense>
@@ -59,7 +59,7 @@ export default async function AccessPage({ params, searchParams }: { params: Pro
       ) : found.slug === "" ? (
         members.render(ctx, nav)
       ) : (
-        <NotBuiltAccessTab projectName={ctx.projectName} tab={found} nav={nav} />
+        <NotBuiltAccessTab project={ctx.project} projectName={ctx.projectName} tab={found} nav={nav} />
       )}
     </AppShell>
   );

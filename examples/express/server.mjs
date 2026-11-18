@@ -8,6 +8,10 @@
 //   POST /login           application/x-www-form-urlencoded body
 //   POST /upload          multipart/form-data (file + description)
 //   GET  /boom            unhandled error -> 500
+//   GET  /boom/chained    unhandled error with a 3-level cause chain -> 500
+//   GET  /boom/deep       unhandled error 60 frames deep -> 500
+//   GET  /boom/handled    error turned into a 500 by error middleware
+//   GET  /boom/logged     error caught and logged (console.error, captureException) -> 200
 //   GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
 //
 // Configuration is environment only:
@@ -60,11 +64,16 @@ const consumerFromToken = (req) => {
   return scheme?.toLowerCase() === "bearer" ? (USERS[(token ?? "").trim()] ?? null) : null;
 };
 
+// The JS SDK has no logging-library handler: an error the app catches and
+// logs is shipped with captureException (a no-op without the SDK).
+let captureException = () => {};
 if (posture !== "off") {
   const { useApiLens } = await import("apilens-js-sdk/express");
+  ({ captureException } = await import("apilens-js-sdk"));
   // apiKey, appId, baseUrl, environment and every capture option come from
-  // APILENS_* env vars; the posture picks the capture profile.
-  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromToken });
+  // APILENS_* env vars; the posture picks the capture profile. The stack
+  // trace limit keeps every frame of /boom/deep (the SDK default is 50).
+  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromToken, stackTraceLimit: 100 });
 }
 
 app.use(express.json());
@@ -127,6 +136,60 @@ app.get("/boom", () => {
   throw new Error("example failure: /boom always throws");
 });
 
+class HandledFailure extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "HandledFailure";
+  }
+}
+
+const readConfig = () => {
+  throw new Error("example failure: config key 'db_url' is missing");
+};
+const connect = () => {
+  try {
+    readConfig();
+  } catch (err) {
+    throw new Error("example failure: cannot connect to the database", { cause: err });
+  }
+};
+const loadOrder = () => {
+  try {
+    connect();
+  } catch (err) {
+    throw new Error("example failure: cannot load order 42", { cause: err });
+  }
+};
+const recurse = (depth) => {
+  if (depth <= 1) {
+    throw new RangeError("example failure: thrown 60 frames deep");
+  }
+  recurse(depth - 1);
+  return depth; // not a tail call, so every frame stays on the stack
+};
+
+app.get("/boom/chained", () => {
+  loadOrder();
+});
+
+app.get("/boom/deep", () => {
+  recurse(60);
+});
+
+app.get("/boom/handled", () => {
+  throw new HandledFailure("example failure: handled by error middleware");
+});
+
+app.get("/boom/logged", (_req, res) => {
+  try {
+    loadOrder();
+  } catch (err) {
+    console.error("example failure: /boom/logged caught and logged it", err);
+    captureException(err, { mechanism: "logged" });
+  }
+  res.json({ status: "ok", logged: true });
+});
+
 app.get("/outbound", async (_req, res) => {
   if (!outboundUrl) {
     res.status(503).json({ detail: "EXAMPLE_OUTBOUND_URL is not set" });
@@ -138,6 +201,16 @@ app.get("/outbound", async (_req, res) => {
   } catch (err) {
     res.status(502).json({ detail: `outbound call failed: ${err.message}` });
   }
+});
+
+// Error middleware: HandledFailure becomes a JSON 500; anything else falls
+// through to Express's default handler (the plain /boom 500).
+app.use((err, _req, res, next) => {
+  if (!(err instanceof HandledFailure)) {
+    next(err);
+    return;
+  }
+  res.status(500).json({ detail: err.message });
 });
 
 const server = app.listen(port, "0.0.0.0", () => {

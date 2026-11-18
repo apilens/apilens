@@ -377,22 +377,86 @@ code you get:
   `diagnostics_channel`), with the W3C `traceparent` header injected so
   downstream services join the same trace. Span names carry the URL without
   query string or credentials;
+- **database spans** (`kind: "db"`) for every `pg` and `mysql2` statement
+  (pools and `mysql2/promise` included), with `db.system`, `db.operation` and
+  `db.statement`. The statement is obfuscated before it leaves the process:
+  string, number and hex literals become `?`, comments are removed, and it is
+  cut to 2 KiB; bound parameters are never read. Prisma has no shared
+  prototype to patch, so use the client returned by `instrumentPrisma`:
+
+  ```ts
+  import { instrumentPrisma } from "apilens-js-sdk";
+  export const prisma = instrumentPrisma(new PrismaClient());
+  ```
+
+  `captureDbSpans: false` turns database spans off;
 - **cross-service stitching** — an inbound `traceparent` is continued, so a call
   chain across several of your services shows up as one waterfall in the dashboard.
 
 Spans are captured **entirely automatically** — there is no manual span API.
+A request keeps at most 2,000 child spans; the rest are dropped and counted as
+`span_cap` in the heartbeat's drop report, so Ingest health shows them.
 Calls made outside a request and the SDK's own uploads are never traced.
 
 ### Automatic error capture
 
-When a request **throws an unhandled error** or **returns a 5xx**, APILens
-records one ERROR log on that request's trace and marks the span as errored:
-the error message and stack when the handler threw (`logger_name`
-`apilens.exception`), else `HTTP 503 on GET /path` (`apilens.http`). It shows
-up under **Trace messages** in the dashboard, lined up with the span.
+When a request's **handler throws** or it **returns a 5xx**, APILens records
+one log on that request's trace: the error message and stack when the handler
+threw (`logger_name` `apilens.exception`), else `HTTP 503 on GET /path`
+(`apilens.http`). The level is ERROR for a 5xx (the span is marked errored)
+and WARN for a thrown error your app answered below 500 (a validation error
+mapped to 400, say). It shows up under **Trace messages** in the dashboard,
+lined up with the span.
+
+Errors are never sampled: a failed request keeps its detail, spans and error
+log whatever `sampleRate`, `sampleOnRequest`, `sampleOnResponse` or the remote
+sample rate say. The error log is sent with tracing off too (without a trace
+id). Only turning capture off (`enabled: false`, or remotely) drops it.
+
+The exception log carries the **full exception**: `name: message`, the stack,
+then each `Caused by:` from `error.cause` (up to 10 levels, cycle-safe) and
+each `AggregateError` member. A thrown non-`Error` value is sent as
+`String(value)` plus a JSON preview. The payload is capped at 64 KiB keeping
+the head and the tail (`…[N chars truncated]…` in the middle), so both the
+raised error and its root cause survive. The log also carries the attributes
+`exception.type`, `exception.message` and `exception.chain_depth` (the number
+of `cause` links). V8 keeps only 10 frames per stack, so the middleware raises
+`Error.stackTraceLimit` to 50 at init (`stackTraceLimit` option); a limit your
+app already set higher is left alone.
 
 Nothing to call — a clean request has no trace messages; a failing one does.
-This is the only thing written to `/v1/logs`; it is not a general logging API.
+Exception logs are the only thing written to `/v1/logs`; it is not a general
+logging API.
+
+### Errors outside a request and errors you catch
+
+On Node the client also listens for `uncaughtException` and
+`unhandledRejection` (`captureUnhandled`, default `true`; background flush
+mode). The error is shipped as an ERROR exception log (attribute
+`exception.mechanism` `uncaughtException` / `unhandledRejection`) and flushed
+before the process exits, within `shutdownTimeoutMs`. Node's exit behaviour is
+unchanged: an error that would have crashed the process still crashes it
+(printed to stderr, exit code 1) once the flush is done, the
+`--unhandled-rejections` mode is honoured, and when your app has its own
+listener it stays in charge and the process keeps running.
+
+For an error your code catches and handles, call `captureException`. Inside a
+request it carries that request's trace id (through `AsyncLocalStorage`), so
+it shows up under **Trace messages** next to the request:
+
+```js
+import { captureException } from "apilens-js-sdk";
+
+try {
+  await chargeCard(order);
+} catch (err) {
+  captureException(err, { level: "WARN" }); // ERROR by default
+  res.status(402).json({ error: "payment declined" });
+}
+```
+
+It sends the same full exception as above and is a no-op before the client
+is created or while capture is off.
 
 ### Propagating the trace
 
@@ -404,8 +468,8 @@ across a boundary the SDK doesn't patch (a message queue, a gRPC call).
 ### Turning tracing on and off
 
 Tracing is on by default (with or without an `appId`). Request analytics keep
-working with tracing off — you just stop emitting trace ids, spans, `traceparent`
-propagation and the error log.
+working with tracing off — you just stop emitting trace ids, spans and
+`traceparent` propagation. The error log is still sent.
 
 **Per integration** — pass `captureSpans: false`:
 
@@ -421,8 +485,9 @@ and it overrides any `captureSpans: true` in code:
 export APILENS_CAPTURE_SPANS=false
 ```
 
-Spans and the error log are request detail: a [sampled-out](#sampling) request
-keeps its trace ids and still propagates `traceparent`, but sends neither.
+Spans are request detail: a [sampled-out](#sampling) request keeps its trace
+ids and still propagates `traceparent`, but sends no spans. A failed request is
+never sampled out.
 
 ---
 
@@ -451,8 +516,9 @@ adapter (which builds the client for you).
 | `flushMode` | `"background"` | `"background"`: timers flush every `flushIntervalMs`. `"inline"`: no timers; `client.flushInline()` sends what is queued, and the Hono adapter calls it at the end of each request. Hono defaults to `"auto"` (inline on an edge runtime). See [serverless](#serverless). |
 | `timeoutMs` | `5000` | Per-request HTTP timeout, in milliseconds. |
 | `maxQueueSize` | `10_000` | Record cap per queue; oldest records drop once full. |
-| `maxQueueBytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `maxRetries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
+| `maxQueueBytes` | `64 * 1024 * 1024` | Memory cap of each of the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
+| `maxRetrySeconds` | `300` | How long a batch that failed with 408, 429, 5xx or a network error keeps being retried (full-jitter exponential backoff, or the server's `Retry-After`) before it is dropped as `retries_exhausted`. One batch retries at a time while the queues keep filling. |
+| `maxRetries` | no cap | Optional cap on retry attempts per batch, on top of `maxRetrySeconds` (`0` never retries). Inline flush mode defaults to `3`. |
 | `compress` | `true` | gzip each batch (level 5, `Content-Encoding: gzip`) off the request path; falls back to plain JSON if compression fails. `false` sends plain JSON. |
 | `verifyTls` | — | **Not in the JS SDK**: the runtime's `fetch` always verifies certificates. |
 | `caBundlePath` | — | **Not in the JS SDK**: on Node, set `NODE_EXTRA_CA_CERTS=/path/corp-root.pem`. See [network requirements](#network-requirements). |
@@ -530,17 +596,20 @@ options.
 | `requestLogging.logRequestBody` / `requestLogging.logResponseBody` | `true` | Toggle each body independently. |
 | `requestLogging.maxPayloadBytes` | `8192` | Per-body capture cap; set `0` to disable body capture. |
 | `captureValidationErrors` | — | **Not in the JS SDK**: validation responses are captured as ordinary bodies. |
+| `captureLocals` | — | **Not in the JS SDK**: frame locals are a Python-only option; JS stack traces carry no local variables. |
 | `captureContentTypes` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `captureSpans` | `true` | Emit trace ids, spans and the error log for this app. |
+| `captureDbSpans` | `true` | `pg`, `mysql2` and Prisma statements become `db` spans (needs `captureSpans`). |
+| `captureLogs` | — | **Not in the JS SDK**: there is no logging-library handler; use `captureException(err)` to ship an error the app caught. |
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | `undefined` | Optional resolver `(req, res) => consumer` (see [consumer attribution](#consumer-attribution)). |
 | `maskRequestBody` / `maskResponseBody` | `undefined` | `(info, body: Buffer) => Buffer \| string \| null` callbacks on the captured (truncated) raw body; see [body mask callbacks](#body-mask-callbacks). |
-| `flushOnShutdown` | — | **Not in the JS SDK**: call `client.handleShutdown({ flush: true })` from your shutdown handler (see [Deployment shapes](#deployment-shapes)). |
-| `shutdownTimeoutMs` | — | **Not in the JS SDK**: bound the `handleShutdown` promise yourself. |
+| `flushOnShutdown` | `true` | Flush the queues and send the final heartbeat on `beforeExit`, `SIGTERM` and `SIGINT` (Node, background flush mode); the signal is raised again afterwards unless your app has its own listener (see [Deployment shapes](#deployment-shapes)). `APILENS_FLUSH_ON_SHUTDOWN=false` (env var) disables it. |
+| `shutdownTimeoutMs` | `5000` | Upper bound, in milliseconds, on the shutdown flush (`handleShutdown` and the exit hooks). |
 | `excludePaths` | `undefined` | Regexes (strings or `RegExp`) for paths to skip entirely (no record, span or log), e.g. `["^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex throws at startup. |
 | `excludeUserAgents` | `undefined` | Regexes for `User-Agent` values to skip entirely, e.g. `["^uptimerobot"]`. Case-insensitive search. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `defaultExclusions` | `true` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `excludePaths`). `false` turns them off; your own `excludePaths` / `excludeUserAgents` still apply. |
-| `sampleRate` | `1` | Fraction (0–1) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range throws at startup. |
+| `sampleRate` | `1` | Fraction (0–1) of requests whose detail — headers, bodies, spans — is kept; failed requests are always kept. See [sampling](#sampling). A value outside the range throws at startup. |
 | `sampleOnRequest` | `undefined` | `(info) => boolean \| number \| undefined` evaluated before the handler; overrides `sampleRate` per request. See [sampling](#sampling). |
 | `sampleOnResponse` | `undefined` | `(info) => boolean \| number \| undefined` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
 | `routeResolver` | — | **Not in the JS SDK**: the template always comes from the framework route, else the heuristic. |
@@ -556,7 +625,12 @@ Sampling never changes metrics. Every request still sends its base record
 (method, path, status, latency, sizes, consumer, IP, user agent, trace id), so
 traffic counts, error rates and latency percentiles stay exact. With
 `sampleRate: 0.1`, about 90% of requests are sent with `sampled: false` and no
-headers, bodies, spans or error log. Their response bodies are never buffered.
+headers, bodies or spans. Their response bodies are never buffered.
+
+Errors are never sampled: a request whose handler threw, or that answered 5xx,
+is always sent with `sampled: true`, its spans and its error log, whatever the
+sample rate, the callbacks or the remote policy decided (its response body is
+missing when it was sampled out at request start, since it was not buffered).
 
 `1` (the default) keeps everything, and `0` sends the base record only. A
 sampled-out request still continues the caller's `traceparent` and propagates
@@ -678,6 +752,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_LOG_RESPONSE_BODY` | `requestLogging.logResponseBody` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `requestLogging.maxPayloadBytes` | int | `8192` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | — | not read by the JS SDK | — |
+| `APILENS_CAPTURE_LOCALS` | — | not read by the JS SDK (Python only) | — |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `captureContentTypes` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redactQueryParams` | list | none (built-ins always apply) |
 | `APILENS_REDACT_HEADERS` | `redactHeaders` | list | none (built-ins always apply) |
@@ -689,6 +764,8 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_CAPTURE_IP` | — | not read by the JS SDK (the client IP is always captured) | — |
 | `APILENS_ANONYMIZE_IP` | — | not read by the JS SDK | — |
 | `APILENS_CAPTURE_SPANS` | `captureSpans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | — | not read by the JS SDK; set `captureDbSpans` in code | — |
+| `APILENS_CAPTURE_LOGS` | — | not read by the JS SDK | — |
 | `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flushIntervalMs` | number, **seconds** | `3` (3000 ms) |
 | `APILENS_MODE` | — | not read by the JS SDK; set `flushMode` in code | — |
@@ -744,10 +821,11 @@ serverless and proxies are covered end to end in the
   request path. Ingest latency and outages never slow or fail your requests.
 - **Bounded memory.** Queued records are capped both by count
   (`maxQueueSize`, 10,000 per queue) and by size (`maxQueueBytes`, 64 MB
-  shared by the request, span and log queues). Whichever limit is hit first,
+  per queue for requests, spans and logs). Whichever limit is hit first,
   the oldest records are dropped rather than the queue growing without limit.
   A record's size is estimated as the length of its payload, header, path and
-  user-agent strings plus a fixed 512 B overhead.
+  user-agent strings (a span's or log's string fields and attributes) plus a
+  fixed 512 B overhead.
 - **Drop accounting.** `client.droppedCount` is the total; `client.dropCounts()`
   returns it by reason:
 
@@ -756,18 +834,28 @@ serverless and proxies are covered end to end in the
   | `queue_full` | The queue reached `maxQueueSize`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `maxQueueBytes`; the oldest record(s) were dropped. |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetries`. |
-  | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads (then headers) were cut before sending. Not counted in `droppedCount`. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetrySeconds` (or `maxRetries`, when set). |
+  | `shutdown` | Still queued when the shutdown flush reached `shutdownTimeoutMs`. |
+  | `server_rejected` | Ingest stored the batch but left these records out (invalid record, app not allowed); see the `invalid` / `rejected` fields of its answer. |
+  | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads (then headers) were cut before sending; a span or log has its `payload` and `message` cut (head and tail kept), then its attributes. Not counted in `droppedCount`. |
+
+  Every drop is also reported to APILens: the next heartbeat carries the drops
+  since the previous one, per signal (`requests`, `spans`, `logs`) and reason,
+  and **Ingest health** shows them as *Dropped by the SDK*. `server_rejected`
+  and `truncated` are left out (ingest counts its own rejects).
+  `client.signalDropCounts()` returns the per-signal counts.
 - **Size-bounded batches.** A POST is cut at `batchSize` records or
   `maxBatchBytes` (default 4 MB, measured on the uncompressed JSON), whichever
   comes first, so a backlog of large records goes out as several requests
   instead of one oversized body that ingest would reject whole. A single record
   over the cap is truncated rather than dropped. With body capture on,
   `batchSize: 100` / `maxBatchBytes: 4 * 1024 * 1024` is a good starting point.
-- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
-  `maxRetries` times with full-jitter exponential backoff (a random wait between
-  0 and `250 ms × 2^attempt`, capped at 5 s), so many workers do not retry in
-  lockstep. A `Retry-After` header takes precedence, capped at 60 s. Any other
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors are
+  retried for up to `maxRetrySeconds` (default 300 s) with full-jitter
+  exponential backoff (a random wait between 0 and `250 ms × 2^attempt`,
+  capped at 5 s), so a short ingest outage loses nothing and many workers do
+  not retry in lockstep. One batch retries at a time; the queues keep filling
+  (bounded) meanwhile. A `Retry-After` header takes precedence, capped at 60 s. Any other
   4xx drops the batch immediately and logs the response body at most once per
   status every 5 minutes; a 401 logs a single clear message.
 - **Never throws into your app.** All SDK errors are caught and logged to
@@ -785,7 +873,8 @@ is fine to call from a health or metrics endpoint.
 | `queuedRecords` | Records waiting in the request, span and log queues. |
 | `queuedBytes` | Estimated size of those records (bounded by `maxQueueBytes`). |
 | `sentBatches` / `sentRecords` | Batches and records ingest accepted (2xx), since start. |
-| `failedBatches` | Batches dropped after a non-retryable 4xx or after `maxRetries`. |
+| `queuedSpanBytes` / `queuedLogBytes` | Estimated size of the span and log queues (each bounded by `maxQueueBytes`). |
+| `failedBatches` | Batches dropped after a non-retryable 4xx or after the retry window. |
 | `dropCounts` | Records dropped, by reason (same keys as `client.dropCounts()`). |
 | `droppedCount` | Sum of `dropCounts`, excluding `truncated` (those were still sent). |
 | `lastError` | The most recent ingest failure; `null` until one happens. |
@@ -891,8 +980,13 @@ capture policy.
 ## Deployment shapes
 
 The SDK delivers from timers, so whatever is still queued when a process exits
-is lost unless it is flushed first. The SDK does not install signal handlers of
-its own (that would change how your process exits), so flush from yours:
+must be flushed first. On Node the client does this itself
+(`flushOnShutdown`, default on): on `beforeExit`, `SIGTERM` and `SIGINT` it
+flushes the queues and sends the final heartbeat, bounded by
+`shutdownTimeoutMs` (default 5 s). It never swallows the signal: when no other
+listener handles it, the signal is raised again after the flush and the
+process exits as it would have. When your app has its own handler, that
+handler decides when to exit, so flush from it before calling `process.exit`:
 
 ```js
 process.on("SIGTERM", async () => {
@@ -930,7 +1024,8 @@ metadata report.
   end of each invocation. It never throws for delivery failures (they are
   retried, then dropped and counted in `client.stats()`).
 
-Keep `timeoutMs` and `maxRetries` low there so a slow ingest cannot stretch an
+In inline mode `maxRetries` defaults to 3 rather than the 300 s retry window;
+keep `timeoutMs` and `maxRetries` low there so a slow ingest cannot stretch an
 invocation.
 
 **Scripts and jobs.** `await client.handleShutdown({ flush: true })` before exit.

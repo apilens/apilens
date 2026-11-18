@@ -113,6 +113,7 @@ type errorStatusesOutput struct {
 		To            time.Time           `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
 		BucketSeconds int                 `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
 		Summary       ErrorSplit          `json:"summary" doc:"Requests and errors of the whole range."`
+		Previous      *ErrorSplit         `json:"previous,omitempty" doc:"Requests and errors over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."`
 		Points        []errorStatusPoint  `json:"points" doc:"Requests, 4xx and 5xx errors per bucket of the range, zero-filled."`
 		Series        []errorStatusSeries `json:"series" doc:"Occurrences of each error status code per bucket, in statuses order."`
 		Statuses      []errorStatusRow    `json:"statuses" doc:"Error status codes (400 and above) by count, most frequent first; expected status codes of each endpoint left out."`
@@ -189,6 +190,9 @@ func (s *Service) errorStatuses(ctx context.Context, in *RangeInput) (*errorStat
 		b.Summary.ServerErrors += sp.ServerErrors
 	}
 	b.Summary.rates()
+	if b.Previous, err = s.previousErrorSplit(qctx, in, w.previous()); err != nil {
+		return nil, err
+	}
 
 	srows, err := s.ch.Query(qctx, `
 		SELECT status_code, count() AS n, uniq(method, path), uniqIf(consumer_id, consumer_id != ''), min(timestamp), max(timestamp)
@@ -215,6 +219,28 @@ func (s *Service) errorStatuses(ctx context.Context, in *RangeInput) (*errorStat
 		b.Series = append(b.Series, errorStatusSeries{StatusCode: r.StatusCode, Counts: counts})
 	}
 	return out, srows.Err()
+}
+
+// previousErrorSplit counts the requests and errors of pw, the window before
+// the range (#1000), scoped as the range is; nil when it has no requests.
+func (s *Service) previousErrorSplit(ctx context.Context, in *RangeInput, pw window) (*ErrorSplit, error) {
+	sc, err := s.errorScope(ctx, in, pw)
+	if err != nil {
+		return nil, err
+	}
+	var sp ErrorSplit
+	if err := s.ch.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(), countIf(status_code < 500 AND (%[1]s)), countIf(status_code >= 500 AND (%[1]s))
+		FROM api_requests WHERE %[2]s`, sc.isError, sc.where),
+		append(append(append([]any{}, sc.errArgs...), sc.errArgs...), sc.args...)...).
+		Scan(&sp.Requests, &sp.ClientErrors, &sp.ServerErrors); err != nil {
+		return nil, internalError("error status previous", err)
+	}
+	if sp.Requests == 0 {
+		return nil, nil
+	}
+	sp.rates()
+	return &sp, nil
 }
 
 // ---------------------------------------------------------------- detail

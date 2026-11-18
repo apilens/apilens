@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   checkSettings,
   checkSettingsDraft,
+  endpointExploreScope,
   endpointPageHref,
   endpointScopeText,
   formatBytes,
-  formatShare,
   isExpected,
   latencyBucketLabel,
   loadSettingsError,
@@ -24,6 +24,7 @@ import {
 import { endpointHref } from "./traffic";
 
 const EP = { method: "GET", path: "/orders/{id}" };
+const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
 
 describe("parseEndpointQuery", () => {
   it("defaults to the Requests tab over the last 24 hours, everything else all", () => {
@@ -31,14 +32,16 @@ describe("parseEndpointQuery", () => {
   });
 
   it("reads every part of the scope", () => {
-    expect(parseEndpointQuery({ tab: "latency", range: "7d", env: " production ", status: "5xx", consumer: "acme", app: "shop" })).toEqual({
+    expect(parseEndpointQuery({ tab: "latency", range: "7d", env: " production ", status: "5xx", consumer: "acme", app: BILLING })).toEqual({
       tab: "latency",
       range: "7d",
       env: "production",
       status: "5xx",
       consumer: "acme",
-      app: "shop",
+      app: BILLING,
     });
+    // The app is an app id (#976); a slug means all apps.
+    expect(parseEndpointQuery({ app: "shop" }).app).toBe("");
   });
 
   it("falls back on unknown or oversized values", () => {
@@ -73,7 +76,7 @@ describe("parseEndpointRef", () => {
 describe("endpointPageHref", () => {
   it("encodes method and path as one segment each and leaves defaults out", () => {
     expect(endpointPageHref("shop", EP, {})).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D");
-    expect(endpointPageHref("shop", EP, { tab: "requests", range: "24h", status: "all" })).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D");
+    expect(endpointPageHref("shop", EP, { tab: "requests", range: "24h", status: "all" })).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=24h");
   });
 
   it("keeps the scope", () => {
@@ -84,6 +87,18 @@ describe("endpointPageHref", () => {
 
   it("is where the Traffic table links", () => {
     expect(endpointPageHref("shop", EP, { range: "7d" })).toBe(endpointHref("shop", EP, { range: "7d" }));
+    expect(endpointPageHref("shop", EP, { range: "7d", app: BILLING })).toBe(endpointHref("shop", EP, { range: "7d", app: BILLING }));
+  });
+});
+
+describe("endpointExploreScope (#977)", () => {
+  const q = parseEndpointQuery({ range: "6h", env: "production", app: BILLING, consumer: "acme", status: "5xx" });
+  it("is the endpoint in the page's scope, with the consumer and status class", () => {
+    expect(endpointExploreScope(EP, q)).toEqual({ range: "6h", env: "production", app: BILLING, method: "GET", path: "/orders/{id}", consumer_id: "acme", status: "5xx" });
+  });
+  it("leaves the status out where the tab does not read it, or for all statuses", () => {
+    expect(endpointExploreScope(EP, { ...q, tab: "errors" }).status).toBe("");
+    expect(endpointExploreScope(EP, { ...q, status: "all" }).status).toBe("");
   });
 });
 
@@ -92,6 +107,11 @@ describe("endpointScopeText", () => {
   it("names the range, environment, status and consumer", () => {
     expect(endpointScopeText(q)).toBe("the last 24 hours");
     expect(endpointScopeText({ ...q, env: "production", status: "5xx", consumer: "c_1" }, "Acme")).toBe("the last 24 hours in production, 5xx responses, consumer Acme");
+  });
+
+  it("names the app in scope (#976)", () => {
+    expect(endpointScopeText({ ...q, env: "production", app: BILLING, appLabel: "Billing" })).toBe("the last 24 hours in production for Billing");
+    expect(endpointScopeText({ ...q, appLabel: "Billing" })).toBe("the last 24 hours");
   });
 
   it("leaves the status out on the Errors tab, which does not filter by it", () => {
@@ -117,10 +137,6 @@ describe("formatting", () => {
     expect(sizeBucketLabel({ from_bytes: 256, to_bytes: 1024 })).toBe("256 B–1 KB");
     expect(sizeBucketLabel({ from_bytes: 1024, to_bytes: 4096 })).toBe("1–4 KB");
     expect(sizeBucketLabel({ from_bytes: 4194304 })).toBe("≥4 MB");
-  });
-
-  it("formats a share", () => {
-    expect([0, 0.0004, 0.125, 2].map(formatShare)).toEqual(["0%", "<0.1%", "12.5%", "100.0%"]);
   });
 
   it("names the tab that failed to load", () => {

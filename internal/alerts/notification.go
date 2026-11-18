@@ -131,8 +131,12 @@ func IncidentURL(uiURL, projectSlug string, event uuid.UUID) string {
 // metricLabels are the metrics' display names.
 var metricLabels = map[Metric]string{
 	MetricTraffic:         "Traffic",
-	MetricErrors:          "Errors",
-	MetricErrorRate:       "Error rate",
+	MetricErrors:          "Errors (4xx + 5xx)",
+	MetricErrorRate:       "Error rate (4xx + 5xx)",
+	MetricServerErrors:    "Server errors (5xx)",
+	MetricServerErrorRate: "Server error rate (5xx)",
+	MetricClientErrors:    "Client errors (4xx)",
+	MetricClientErrorRate: "Client error rate (4xx)",
 	MetricP50:             "p50 response time",
 	MetricP75:             "p75 response time",
 	MetricP95:             "p95 response time",
@@ -163,7 +167,7 @@ func (c Condition) Symbol() string {
 	return string(c)
 }
 
-// FormatValue formats a value of metric m for people: error rate as a
+// FormatValue formats a value of metric m for people: error rates as a
 // percentage, response times in ms, Apdex with two decimals, counts as
 // integers. nil is "no data".
 func FormatValue(m Metric, v *float64) string {
@@ -171,12 +175,12 @@ func FormatValue(m Metric, v *float64) string {
 		return "no data"
 	}
 	x := *v
-	switch m {
-	case MetricErrorRate:
+	switch {
+	case m.IsRate():
 		return trimFloat(x*100, 2) + "%"
-	case MetricP50, MetricP75, MetricP95:
+	case m == MetricP50, m == MetricP75, m == MetricP95:
 		return trimFloat(x, 1) + " ms"
-	case MetricApdex:
+	case m == MetricApdex:
 		return strconv.FormatFloat(x, 'f', 2, 64)
 	default:
 		return trimFloat(x, 2)

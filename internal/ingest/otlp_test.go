@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -110,6 +111,125 @@ func TestOTLPLogs(t *testing.T) {
 	if l.Level != "ERROR" || l.Message != "payment failed" || l.LoggerName != "checkout.logger" ||
 		l.EndpointMethod != "POST" || l.EndpointPath != "/charge" || l.SpanID != "00f067aa0ba902b7" {
 		t.Fatalf("log row = %+v", l)
+	}
+}
+
+func TestOTLPSpanEventsLinksStatusAndExceptionLog(t *testing.T) {
+	sink := &fakeSink{}
+	h := newEdge(t, fakeVerifier{}, sink)
+	stack := "Traceback (most recent call last):\n" + strings.Repeat("  frame\n", 20_000) + "ValueError: root cause"
+	span := &tracepb.Span{
+		TraceId: traceID, SpanId: spanID, Name: "POST /charge", Kind: tracepb.Span_SPAN_KIND_SERVER,
+		StartTimeUnixNano: startNs, EndTimeUnixNano: startNs + 25_000_000,
+		Status: &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR, Message: "card declined"},
+		Attributes: []*commonpb.KeyValue{
+			num("http.response.status_code", 500), str("http.route", "/charge"), str("http.request.method", "post"),
+		},
+		Events: []*tracepb.Span_Event{
+			{TimeUnixNano: startNs + 5_000_000, Name: "exception", Attributes: []*commonpb.KeyValue{
+				str("exception.type", "ValueError"), str("exception.message", "card declined token=sk_live_1"),
+				str("exception.stacktrace", stack),
+				{Key: "exception.escaped", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: true}}},
+			}},
+			{Name: "retry", Attributes: []*commonpb.KeyValue{num("attempt", 2)}},
+		},
+		Links: []*tracepb.Span_Link{
+			{TraceId: traceID, SpanId: []byte{0x10, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb7}},
+			{TraceId: []byte{0x01}, SpanId: spanID},
+		},
+	}
+	req := &coltrace.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{
+		{Resource: resource("storefront"), ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{span}}}},
+	}}
+	if rec := otlpPost(t, h, "/otlp/v1/traces", req); rec.Code != 200 {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if len(sink.spans) != 1 {
+		t.Fatalf("stored %d spans", len(sink.spans))
+	}
+	s := sink.spans[0]
+	if s.StatusMessage != "card declined" {
+		t.Errorf("status_message = %q", s.StatusMessage)
+	}
+	if len(s.Events) != 2 || s.Events[0].Name != "exception" || s.Events[1].Name != "retry" {
+		t.Fatalf("events = %+v", s.Events)
+	}
+	ex := s.Events[0]
+	if !ex.Time.Equal(unixNano(startNs+5_000_000)) || ex.Attributes["exception.type"] != "ValueError" ||
+		ex.Attributes["exception.escaped"] != "true" || !strings.HasSuffix(ex.Attributes["exception.stacktrace"], "ValueError: root cause") {
+		t.Errorf("exception event = %+v", ex.Time)
+	}
+	if !s.Events[1].Time.Equal(s.Timestamp) || s.Events[1].Attributes["attempt"] != "2" {
+		t.Errorf("retry event = %+v", s.Events[1])
+	}
+	if len(s.Links) != 1 || s.Links[0].TraceID != s.TraceID || s.Links[0].SpanID != "10f067aa0ba902b7" {
+		t.Errorf("links = %+v", s.Links)
+	}
+
+	if len(sink.logs) != 1 {
+		t.Fatalf("exception logs = %d", len(sink.logs))
+	}
+	l := sink.logs[0]
+	if l.LoggerName != "apilens.exception" || l.Level != "ERROR" || l.TraceID != s.TraceID || l.SpanID != s.SpanID ||
+		l.Message != "ValueError: card declined token=[redacted]" || l.EndpointMethod != "POST" || l.EndpointPath != "/charge" ||
+		l.StatusCode != 500 || l.Environment != "staging" || l.Release != "1.4.0" || l.AppID != testApp ||
+		!l.Timestamp.Equal(ex.Time) {
+		t.Errorf("exception log = %+v", l)
+	}
+	if l.Attributes["exception.type"] != "ValueError" || l.Attributes["exception.escaped"] != "true" {
+		t.Errorf("exception log attributes = %v", l.Attributes)
+	}
+	if _, ok := l.Attributes["exception.stacktrace"]; ok {
+		t.Error("stack trace should be the payload, not an attribute")
+	}
+	if utf8.RuneCountInString(l.Payload) > maxLogPayloadChars || !strings.HasPrefix(l.Payload, "Traceback") ||
+		!strings.HasSuffix(l.Payload, "ValueError: root cause") || !strings.Contains(l.Payload, "chars truncated]") {
+		t.Errorf("payload not head+tail capped: %d chars", utf8.RuneCountInString(l.Payload))
+	}
+}
+
+func TestOTLPSpanWithoutExceptionWritesNoLog(t *testing.T) {
+	sink := &fakeSink{}
+	h := newEdge(t, fakeVerifier{}, sink)
+	span := &tracepb.Span{TraceId: traceID, SpanId: spanID, Name: "op", StartTimeUnixNano: startNs, EndTimeUnixNano: startNs + 1}
+	req := &coltrace.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{
+		{Resource: resource("storefront"), ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{span}}}},
+	}}
+	if rec := otlpPost(t, h, "/otlp/v1/traces", req); rec.Code != 200 {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if s := sink.spans[0]; s.StatusMessage != "" || s.Events != nil || s.Links != nil || len(sink.logs) != 0 {
+		t.Errorf("span = %+v logs = %d", s, len(sink.logs))
+	}
+}
+
+func TestOTLPLogStacktracePayloadAndRedaction(t *testing.T) {
+	sink := &fakeSink{}
+	h := newEdge(t, fakeVerifier{}, sink)
+	stack := "Traceback\n" + strings.Repeat("x", 100<<10) + "\nRootCause: boom"
+	req := &collogs.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
+		Resource: resource("storefront"),
+		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{
+			TimeUnixNano: startNs, SeverityText: "ERROR",
+			Body: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "charge failed: api_key=sk_live_1 amount=12"}},
+			Attributes: []*commonpb.KeyValue{
+				str("exception.type", "RootCause"), str("exception.stacktrace", stack),
+			},
+		}}}},
+	}}}
+	if rec := otlpPost(t, h, "/otlp/v1/logs", req); rec.Code != 200 || len(sink.logs) != 1 {
+		t.Fatalf("code = %d logs = %d", rec.Code, len(sink.logs))
+	}
+	l := sink.logs[0]
+	if l.Message != "charge failed: api_key=[redacted] amount=12" {
+		t.Errorf("message = %q", l.Message)
+	}
+	if utf8.RuneCountInString(l.Payload) > maxLogPayloadChars || !strings.HasPrefix(l.Payload, "Traceback") ||
+		!strings.HasSuffix(l.Payload, "RootCause: boom") || !strings.Contains(l.Payload, "chars truncated]") {
+		t.Errorf("payload not head+tail capped: %d chars", utf8.RuneCountInString(l.Payload))
+	}
+	if _, ok := l.Attributes["exception.stacktrace"]; ok || l.Attributes["exception.type"] != "RootCause" {
+		t.Errorf("attributes = %v", l.Attributes)
 	}
 }
 

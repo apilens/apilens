@@ -10,7 +10,7 @@
 
 /* Description: a textarea with its character count under it, the error on the left. */
 .pgen-textarea { display: block; width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); color: var(--ink); font: 400 14px/20px var(--font-sans); resize: vertical; }
-.pgen-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.pgen-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .pgen-textarea:disabled { background: var(--surface-2); color: var(--ink-muted); cursor: not-allowed; }
 .pgen-textarea.bad { border-color: var(--error); }
 .pgen-under { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }

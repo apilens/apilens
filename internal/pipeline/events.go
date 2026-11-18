@@ -86,7 +86,30 @@ func (r SpanRow) Event() *eventv1.SpanEvent {
 		Timestamp: timestamppb.New(r.Timestamp), TraceId: r.TraceID, SpanId: r.SpanID, ParentSpanId: r.ParentSpanID,
 		Name: r.Name, Kind: r.Kind, ServiceName: r.ServiceName, DurationMs: r.DurationMs, Status: r.Status,
 		StatusCode: uint32(r.StatusCode), Attributes: r.Attributes, Release: r.Release, Commit: r.Commit,
+		StatusMessage: r.StatusMessage, Events: spanEventEntries(r.Events), Links: spanLinkEvents(r.Links),
 	}
+}
+
+func spanEventEntries(in []SpanEventRow) []*eventv1.SpanEventEntry {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*eventv1.SpanEventEntry, len(in))
+	for i, ev := range in {
+		out[i] = &eventv1.SpanEventEntry{Time: timestamppb.New(ev.Time), Name: ev.Name, Attributes: ev.Attributes}
+	}
+	return out
+}
+
+func spanLinkEvents(in []SpanLink) []*eventv1.SpanLink {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*eventv1.SpanLink, len(in))
+	for i, l := range in {
+		out[i] = &eventv1.SpanLink{TraceId: l.TraceID, SpanId: l.SpanID}
+	}
+	return out
 }
 
 // Event converts a deploy row to its wire event. Project-wide deploys carry

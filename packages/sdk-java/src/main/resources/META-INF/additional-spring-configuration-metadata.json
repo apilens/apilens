@@ -1,5 +1,26 @@
 {
+  "properties": [
+    {
+      "name": "apilens.capture-logs",
+      "type": "java.lang.String",
+      "defaultValue": "errors",
+      "description": "Ship exceptions the application logs at ERROR (Logback or Log4j2) as apilens.exception logs tied to the request's trace: errors (default) or off."
+    }
+  ],
   "hints": [
+    {
+      "name": "apilens.capture-logs",
+      "values": [
+        {
+          "value": "errors",
+          "description": "Events logged at ERROR with a throwable become apilens.exception logs."
+        },
+        {
+          "value": "off",
+          "description": "No appender is attached."
+        }
+      ]
+    },
     {
       "name": "apilens.capture-profile",
       "values": [

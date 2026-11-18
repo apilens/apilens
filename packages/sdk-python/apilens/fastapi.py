@@ -6,6 +6,7 @@ from .client._sampling import SampleOnRequest, SampleOnResponse
 from .client import ApiLensClient, ApiLensConfig
 from .client._env import env_defaults
 from .client._profile import CaptureProfile
+from .client.log_handler import CaptureLogs
 from .client._routes import starlette_route_template
 from .client.middleware import ApiLensASGIMiddleware
 from .frameworks.fastapi import instrument_fastapi, set_consumer, track_consumer
@@ -53,6 +54,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         base_url: str = "https://ingest.apilens.ai/v1",
         env: str = "production",
         capture_profile: CaptureProfile | None = None,
+        capture_locals: bool = False,
         release: str = "",
         commit: str = "",
         verify_tls: bool = True,
@@ -62,6 +64,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         log_request_body: bool = True,
         log_response_body: bool = True,
         capture_spans: bool = True,
+        capture_db_spans: bool = True,
+        capture_logs: CaptureLogs = "errors",
         service_name: str = "",
         max_payload_bytes: int = 65536,
         redact_query_params: list[str] | None = None,
@@ -110,10 +114,13 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             app_id=app_id,
             environment=env,
             capture_profile=capture_profile,
+            capture_locals=capture_locals,
             enable_request_logging=enable_request_logging,
             log_request_body=log_request_body,
             log_response_body=log_response_body,
             capture_spans=capture_spans,
+            capture_db_spans=capture_db_spans,
+            capture_logs=capture_logs,
             service_name=service_name,
             max_payload_bytes=max_payload_bytes,
             redact_query_params=redact_query_params,
@@ -148,10 +155,12 @@ def instrument_app(
     app_id: str = "",
     environment: str | None = None,
     capture_profile: CaptureProfile | None = None,
+    capture_locals: bool = False,
     enable_request_logging: bool = True,
     log_request_body: bool = True,
     log_response_body: bool = True,
     capture_spans: bool = True,
+    capture_db_spans: bool = True,
     service_name: str = "",
     max_payload_bytes: int = 65536,
     exclude_paths: list[str] | None = None,
@@ -169,10 +178,12 @@ def instrument_app(
         app_id=app_id,
         environment=environment,
         capture_profile=capture_profile,
+        capture_locals=capture_locals,
         enable_request_logging=enable_request_logging,
         log_request_body=log_request_body,
         log_response_body=log_response_body,
         capture_spans=capture_spans,
+        capture_db_spans=capture_db_spans,
         service_name=service_name,
         max_payload_bytes=max_payload_bytes,
         exclude_paths=exclude_paths,

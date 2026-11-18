@@ -132,6 +132,11 @@ public final class HeartbeatStub implements AutoCloseable {
     return received.stream().filter(r -> r.path().endsWith("/metadata")).toList();
   }
 
+  /** Every request the stub received, in order. */
+  public synchronized List<Received> received() {
+    return List.copyOf(received);
+  }
+
   public synchronized List<Received> requests() {
     return received.stream().filter(r -> r.path().endsWith("/requests")).toList();
   }

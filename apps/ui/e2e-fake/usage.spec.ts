@@ -49,7 +49,7 @@ test.beforeEach(async () => {
 test("shows records per day, by app and environment, rejections by reason and the quota", async ({ page }) => {
   await seed(TRAFFIC);
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Usage" })).toBeVisible();
   await expect(page).toHaveTitle(/^Usage · Project settings/);
   await expect(card(page, "Accepted records")).toContainText("1,950 records stored and 5.1 MB received in the last 30 days.");
 
@@ -83,7 +83,7 @@ test("shows records per day, by app and environment, rejections by reason and th
   const quota = card(page, "Quota");
   const meter = quota.getByRole("meter", { name: "Bytes today" });
   await expect(meter).toHaveAttribute("aria-valuenow", "31");
-  await expect(meter).toHaveAttribute("aria-valuetext", "3.1 MB of 10 MB today (31%)");
+  await expect(meter).toHaveAttribute("aria-valuetext", "3.1 MB of 10 MB today (31.0%)");
   await expect(quota.getByRole("definition")).toHaveText(["1,000 records a minute", "10 MB", "60"]);
 });
 

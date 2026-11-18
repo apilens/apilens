@@ -40,7 +40,7 @@ func NewDirectSink(cfg config.SinkConfig, ins Inserters, logger *slog.Logger, m 
 		QueueSize:     cfg.QueueSize,
 		Workers:       2,
 		InsertTimeout: cfg.InsertTimeout,
-		MaxRetries:    cfg.MaxRetries,
+		RetryWindow:   cfg.RetryWindow,
 		WaitForFlush:  cfg.Ack == "flush",
 	}
 	small := opts

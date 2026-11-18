@@ -5,11 +5,12 @@ import { type ChangesLoad, ChangesView } from "@/components/changes/changes";
 import { getContext, getSession } from "@/lib/auth/server";
 import { CHANGES_PAGE_SIZES, CHANGES_RANGE, parseChangesFilter } from "@/lib/changes";
 import { type CallOptions, identity, isApiError } from "@/lib/identity";
+import { type ReleaseSdk, pickReleaseSdks } from "@/lib/release-setup";
 import { type SearchParams, clampPage, pageHref, pageOffset, parsePage } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
-export const metadata: Metadata = { title: "Changes" };
+export const metadata: Metadata = { title: "Deploys" };
 
 /** One read as the signed-in user: the answer, or null when the API could not answer. */
 async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string }) => Promise<T>): Promise<T | null> {
@@ -51,6 +52,10 @@ export default async function ChangesPage({ params, searchParams }: { params: Pr
     redirect(pageHref(pathname, sp, { page: clampPage(state.page, load.total, state.per) }, options));
   }
 
+  // No deploys at all (#997): the empty state's snippet tabs follow the SDKs the apps reported.
+  const sdks: ReleaseSdk[] =
+    load && load.total === 0 && filter.app === "" && filter.env === "" ? await releaseSdks(next, apps?.apps ?? []) : [];
+
   return (
     <AppShell context={context} project={project} view="changes">
       <ChangesView
@@ -63,7 +68,14 @@ export default async function ChangesPage({ params, searchParams }: { params: Pr
         apps={apps?.apps ?? (apps === null ? null : [])}
         environments={found.project.environments ?? []}
         commitUrlTemplate={repo?.commit_url_template ?? null}
+        sdks={sdks}
       />
     </AppShell>
   );
+}
+
+/** The SDKs `apps` run, from what each app's SDK reported; an app whose report cannot be read is skipped. */
+async function releaseSdks(next: string, apps: readonly { id: string }[]): Promise<ReleaseSdk[]> {
+  const reports = await Promise.all(apps.map((app) => read(next, (o) => identity().appReports(app.id, o))));
+  return pickReleaseSdks(reports.flatMap((r) => (r?.environments ?? []).map((e) => e.framework)));
 }

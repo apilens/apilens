@@ -9,6 +9,8 @@ import { type GeneralDraft, type GeneralErrors, PROJECT_DESCRIPTION_MAX, PROJECT
 import { CopyValue } from "../copy-value";
 import { ObIcon } from "../onboarding/ob";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { PROJECT_SETTINGS } from "@/lib/data";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./general.css";
@@ -28,10 +30,7 @@ export function ProjectGeneralSettings({ project, projectName, loaded }: { proje
   const edit = useCan("project.update").allowed;
   return (
     <div className="page page--measure os pgen">
-      <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">General</h1>
-      </header>
+      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="General" className="os-head" />
       {loaded === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s settings. Reload the page to try again.
@@ -237,7 +236,8 @@ function DetailsCard({ project, current, edit, onSaved }: { project: string; cur
 
 function IdentifiersCard({ detail, names }: { detail: ProjectDetail; names: Record<string, string> }) {
   const tz = useTimeZone();
-  const creator = detail.created_by === null ? "Not recorded" : (names[detail.created_by] ?? "A former member");
+  // The date always; who created it only when that was recorded (#999: not "Not recorded · Nov 6").
+  const creator = detail.created_by === null ? null : (names[detail.created_by] ?? "a former member");
   return (
     <section className="os-card" aria-labelledby="pgen-ids">
       <div className="os-card__head">
@@ -261,10 +261,10 @@ function IdentifiersCard({ detail, names }: { detail: ProjectDetail; names: Reco
           <div>
             <dt>Created</dt>
             <dd>
-              {creator} ·{" "}
               <time dateTime={detail.created_at} title={formatExact(detail.created_at, tz)}>
                 {formatDay(detail.created_at, tz)}
               </time>
+              {creator ? ` by ${creator}` : null}
             </dd>
           </div>
         </dl>
