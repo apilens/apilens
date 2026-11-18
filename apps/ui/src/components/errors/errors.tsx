@@ -12,15 +12,20 @@ import {
   type ErrorsState,
   ISSUES_LOAD_FAILED,
   STATUSES_LOAD_FAILED,
+  consumerIdentificationUrl,
+  errorRates,
   errorsHref,
   errorsScopeText,
   formatPerHour,
   hrefParams,
+  rateTop,
   reasonPhrase,
+  seenAgo,
   statusClass,
   TABLE_PAGING,
 } from "@/lib/errors";
 import type { ErrorGroup, ErrorStatusDetail, ErrorStatusRow, ErrorStatuses } from "@/lib/identity";
+import { LINKS, extLink } from "@/lib/links";
 import { type PageOptions, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
 import { TRAFFIC_RANGES } from "@/lib/traffic";
@@ -62,6 +67,7 @@ export function ErrorsView({
   tab,
   detail,
   tz,
+  now,
 }: {
   project: string;
   projectName: string;
@@ -71,6 +77,8 @@ export function ErrorsView({
   detail: DetailLoad | undefined;
   /** The user's time zone. */
   tz: string;
+  /** The time relative times count back from (#1002). */
+  now: number;
 }) {
   const href = (patch: Partial<ErrorsState>) => errorsHref(project, { ...q, code: null, ...patch });
   // Another tab, range or environment starts the table again at its first page.
@@ -105,7 +113,7 @@ export function ErrorsView({
         ))}
       </nav>
 
-      {tab.tab === "status" ? <StatusTab project={project} q={q} data={tab.data} tz={tz} /> : <IssuesTab project={project} q={q} data={tab.data} tz={tz} />}
+      {tab.tab === "status" ? <StatusTab project={project} q={q} data={tab.data} tz={tz} now={now} /> : <IssuesTab project={project} q={q} data={tab.data} tz={tz} now={now} />}
 
       {detail ? (
         <ErrorModal
@@ -113,7 +121,7 @@ export function ErrorsView({
           lead={`Responses with status ${detail.code} counted as errors in ${errorsScopeText(q)}.`}
           closeHref={href({})}
         >
-          <Detail project={project} q={q} load={detail} tz={tz} />
+          <Detail project={project} q={q} load={detail} tz={tz} now={now} />
         </ErrorModal>
       ) : null}
     </div>
@@ -134,14 +142,14 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
   );
 }
 
-function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string; compare?: Comparison | null }[] }) {
+function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string; compare?: Comparison | null; mono?: boolean }[] }) {
   return (
     <dl className="tr-tiles er-tiles">
       {tiles.map((t) => (
         <div key={t.label}>
           <dt>{t.label}</dt>
           <dd>
-            <span className="tr-tile__value">{t.value}</span>
+            <span className={`tr-tile__value${t.mono ? " er-tile-ep" : ""}`}>{t.value}</span>
             <span className="tr-tile__sub">{t.sub}</span>
             <CompareLine comparison={t.compare ?? null} />
           </dd>
@@ -174,7 +182,32 @@ const Empty = ({ children }: { children: ReactNode }) => (
   </p>
 );
 
-const When = ({ iso, tz }: { iso: string; tz: string }) => <time dateTime={iso}>{formatExact(iso, tz)}</time>;
+/** A time as how long ago it was, with the exact time in the user's zone in its title (#1002). */
+const When = ({ iso, tz, now }: { iso: string; tz: string; now: number }) => (
+  <time dateTime={iso} title={formatExact(iso, tz)}>
+    {seenAgo(iso, tz, now)}
+  </time>
+);
+
+/**
+ * No consumer identified (#1002): instead of a bare 0, a link to how the SDK identifies who calls.
+ * `children` is the link text.
+ */
+const IdentifyLink = ({ children }: { children: ReactNode }) => (
+  <a className="cp-link er-identify" {...extLink(consumerIdentificationUrl(LINKS.docs))}>
+    {children}
+  </a>
+);
+
+/** A consumer count; none identified links to consumer identification. */
+const Consumers = ({ n }: { n: number }) =>
+  n > 0 ? (
+    <>{formatCount(n)}</>
+  ) : (
+    <span className="er-none" title="No identified consumer. Set the consumer on each request in the SDK to see who is affected.">
+      <IdentifyLink>None identified</IdentifyLink>
+    </span>
+  );
 
 const Status = ({ code }: { code: number }) => <span className={`er-status er-status--${statusClass(code)}`}>{code}</span>;
 
@@ -186,7 +219,7 @@ const EndpointName = ({ method, path }: { method: string; path: string }) => (
 
 // Status codes ------------------------------------------------------------------------------
 
-function StatusTab({ project, q, data, tz }: { project: string; q: ErrorsState; data: ErrorStatuses | null; tz: string }) {
+function StatusTab({ project, q, data, tz, now }: { project: string; q: ErrorsState; data: ErrorStatuses | null; tz: string; now: number }) {
   if (data === null) return <LoadFailed text={STATUSES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const s = data.summary;
   const p = data.previous;
@@ -199,7 +232,10 @@ function StatusTab({ project, q, data, tz }: { project: string; q: ErrorsState; 
     );
   }
   const statuses = data.statuses ?? [];
-  const rows = (data.points ?? []).map((p) => ({ ts: p.ts, client: p.client_errors, server: p.server_errors }));
+  const points = data.points ?? [];
+  const rows = points.map((p) => ({ ts: p.ts, client: p.client_errors, server: p.server_errors }));
+  const rates = errorRates(points);
+  const peak = Math.max(0, ...rates);
   return (
     <>
       <Tiles
@@ -233,20 +269,21 @@ function StatusTab({ project, q, data, tz }: { project: string; q: ErrorsState; 
       <Card id="er-time" title="Errors over time">
         <CountBars
           label="Errors by status class"
-          summary={`${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx responses in ${errorsScopeText(q)}.`}
+          summary={`${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx responses in ${errorsScopeText(q)}; the error rate peaked at ${formatPercent(peak)}.`}
           rows={rows}
           series={[
             { key: "client", label: "4xx", className: "er-c-4xx" },
             { key: "server", label: "5xx", className: "er-c-5xx" },
           ]}
           range={q.range}
+          line={{ label: "Error rate", values: rates, top: rateTop(rates) }}
         />
       </Card>
       <Card id="er-statuses" title="Error status codes" table>
         {statuses.length === 0 ? (
           <Empty>No error responses in {errorsScopeText(q)}.</Empty>
         ) : (
-          <StatusTable project={project} q={q} statuses={statuses} points={data.points ?? []} series={data.series ?? []} tz={tz} />
+          <StatusTable project={project} q={q} statuses={statuses} points={points} series={data.series ?? []} tz={tz} now={now} />
         )}
       </Card>
     </>
@@ -260,6 +297,7 @@ function StatusTable({
   points,
   series,
   tz,
+  now,
 }: {
   project: string;
   q: ErrorsState;
@@ -267,6 +305,7 @@ function StatusTable({
   points: { ts: string }[];
   series: NonNullable<ErrorStatuses["series"]>;
   tz: string;
+  now: number;
 }) {
   const { rows, window } = slicePage(statuses, q);
   const counts = new Map(series.map((s) => [s.status_code, s.counts ?? []]));
@@ -291,6 +330,7 @@ function StatusTable({
             <th scope="col" className="er-trend-h">
               Over time
             </th>
+            <th scope="col">First seen</th>
             <th scope="col">Last seen</th>
           </tr>
         </thead>
@@ -315,17 +355,28 @@ function StatusTable({
               <td className="tr-num" data-label="Share of requests">
                 {formatPercent(r.share)}
               </td>
-              <td className="tr-num" data-label="Endpoints">
-                {formatCount(r.endpoints)}
-              </td>
+              {r.endpoint && r.endpoints === 1 ? (
+                <td className="er-one-ep" data-label="Endpoint">
+                  <span className="er-one-ep__name">
+                    <EndpointName method={r.endpoint.method} path={r.endpoint.path} />
+                  </span>
+                </td>
+              ) : (
+                <td className="tr-num" data-label="Endpoints">
+                  {formatCount(r.endpoints)}
+                </td>
+              )}
               <td className="tr-num" data-label="Consumers">
-                {formatCount(r.consumers)}
+                <Consumers n={r.consumers} />
               </td>
               <td className="er-trend" data-label="Over time">
                 <Trend code={r.status_code} counts={counts.get(r.status_code) ?? []} points={points} range={q.range} />
               </td>
+              <td data-label="First seen">
+                <When iso={r.first_seen} tz={tz} now={now} />
+              </td>
               <td data-label="Last seen">
-                <When iso={r.last_seen} tz={tz} />
+                <When iso={r.last_seen} tz={tz} now={now} />
               </td>
             </tr>
           ))}
@@ -344,7 +395,7 @@ function Trend({ code, counts, points, range }: { code: number; counts: number[]
 
 // Detail modal ------------------------------------------------------------------------------
 
-function Detail({ project, q, load, tz }: { project: string; q: ErrorsState; load: DetailLoad; tz: string }) {
+function Detail({ project, q, load, tz, now }: { project: string; q: ErrorsState; load: DetailLoad; tz: string; now: number }) {
   const here = errorsHref(project, { ...q, code: load.code });
   if (load.data === null) return <LoadFailed text={DETAIL_LOAD_FAILED} href={here} />;
   const d = load.data;
@@ -368,19 +419,21 @@ function Detail({ project, q, load, tz }: { project: string; q: ErrorsState; loa
             No {d.status_code} responses counted as errors in {errorsScopeText(q)}. Endpoints where {d.status_code} is expected are not counted.
           </Empty>
         ) : q.view === "consumers" ? (
-          <ConsumersView project={project} q={q} d={d} tz={tz} />
+          <ConsumersView project={project} q={q} d={d} tz={tz} now={now} />
         ) : q.view === "details" ? (
-          <DetailsView project={project} q={q} d={d} tz={tz} />
+          <DetailsView project={project} q={q} d={d} tz={tz} now={now} />
         ) : (
-          <SummaryView q={q} d={d} tz={tz} />
+          <SummaryView q={q} d={d} tz={tz} now={now} />
         )}
       </div>
     </>
   );
 }
 
-function SummaryView({ q, d, tz }: { q: ErrorsState; d: ErrorStatusDetail; tz: string }) {
+function SummaryView({ q, d, tz, now }: { q: ErrorsState; d: ErrorStatusDetail; tz: string; now: number }) {
   const identified = d.occurrences - d.anonymous;
+  // The only endpoint is named instead of counted as 1 (#1002).
+  const only = d.endpoints === 1 && d.endpoint_breakdown?.length === 1 ? d.endpoint_breakdown[0] : null;
   return (
     <>
       <Tiles
@@ -388,17 +441,19 @@ function SummaryView({ q, d, tz }: { q: ErrorsState; d: ErrorStatusDetail; tz: s
           { label: "Responses", value: formatCount(d.occurrences), sub: `${formatPercent(d.share)} of requests` },
           { label: "Frequency", value: `${formatPerHour(d.per_hour)}/h`, sub: `over ${RANGE_LABEL[q.range]}` },
           { label: "Affected consumers", value: formatCount(d.consumers), sub: `${formatCount(identified)} responses to identified consumers` },
-          { label: "Endpoints", value: formatCount(d.endpoints), sub: `answered with ${d.status_code}` },
+          only
+            ? { label: "Endpoint", value: `${only.method.toUpperCase()} ${only.path}`, sub: `the only one that answered with ${d.status_code}`, mono: true }
+            : { label: "Endpoints", value: formatCount(d.endpoints), sub: `answered with ${d.status_code}` },
         ]}
       />
       <dl className="er-seen">
         <div>
           <dt>First seen</dt>
-          <dd>{d.first_seen ? <When iso={d.first_seen} tz={tz} /> : "Not in this range"}</dd>
+          <dd>{d.first_seen ? <When iso={d.first_seen} tz={tz} now={now} /> : "Not in this range"}</dd>
         </div>
         <div>
           <dt>Last seen</dt>
-          <dd>{d.last_seen ? <When iso={d.last_seen} tz={tz} /> : "Not in this range"}</dd>
+          <dd>{d.last_seen ? <When iso={d.last_seen} tz={tz} now={now} /> : "Not in this range"}</dd>
         </div>
       </dl>
       <section className="er-freq" aria-labelledby="er-freq">
@@ -415,7 +470,7 @@ function SummaryView({ q, d, tz }: { q: ErrorsState; d: ErrorStatusDetail; tz: s
   );
 }
 
-function ConsumersView({ project, q, d, tz }: { project: string; q: ErrorsState; d: ErrorStatusDetail; tz: string }) {
+function ConsumersView({ project, q, d, tz, now }: { project: string; q: ErrorsState; d: ErrorStatusDetail; tz: string; now: number }) {
   const all = d.consumer_breakdown ?? [];
   const { rows: consumers, window } = slicePage(all, { page: q.dpage, per: q.dper });
   return (
@@ -426,7 +481,10 @@ function ConsumersView({ project, q, d, tz }: { project: string; q: ErrorsState;
         </p>
       ) : null}
       {consumers.length === 0 ? (
-        <Empty>No identified consumers got {d.status_code} responses.</Empty>
+        <Empty>
+          No identified consumers got {d.status_code} responses. Set the consumer on each request in the SDK to see who is affected.{" "}
+          <IdentifyLink>How to identify consumers</IdentifyLink>
+        </Empty>
       ) : (
         <>
           <table className="tr-table er-table" aria-label="Consumer breakdown">
@@ -456,7 +514,7 @@ function ConsumersView({ project, q, d, tz }: { project: string; q: ErrorsState;
                     {formatPercent(c.share)}
                   </td>
                   <td data-label="Last seen">
-                    <When iso={c.last_seen} tz={tz} />
+                    <When iso={c.last_seen} tz={tz} now={now} />
                   </td>
                 </tr>
               ))}
@@ -469,7 +527,7 @@ function ConsumersView({ project, q, d, tz }: { project: string; q: ErrorsState;
   );
 }
 
-function DetailsView({ project, q, d, tz }: { project: string; q: ErrorsState; d: ErrorStatusDetail; tz: string }) {
+function DetailsView({ project, q, d, tz, now }: { project: string; q: ErrorsState; d: ErrorStatusDetail; tz: string; now: number }) {
   const all = d.endpoint_breakdown ?? [];
   if (all.length === 0) return <Empty>No endpoints answered with {d.status_code} in {errorsScopeText(q)}.</Empty>;
   const { rows: endpoints, window } = slicePage(all, { page: q.dpage, per: q.dper });
@@ -487,7 +545,7 @@ function DetailsView({ project, q, d, tz }: { project: string; q: ErrorsState; d
               </a>
             </div>
             <p className="er-ep__facts">
-              {formatCount(e.count)} {e.count === 1 ? "response" : "responses"}, {formatCount(e.consumers)} {e.consumers === 1 ? "consumer" : "consumers"}, last <When iso={e.last_seen} tz={tz} />
+              {formatCount(e.count)} {e.count === 1 ? "response" : "responses"}, {formatCount(e.consumers)} {e.consumers === 1 ? "consumer" : "consumers"}, last seen <When iso={e.last_seen} tz={tz} now={now} />
             </p>
             <p className="er-ep__facts">
               {e.validation_errors ? `${formatCount(e.validation_errors)} with validation errors` : "No validation errors"}
@@ -505,7 +563,7 @@ function DetailsView({ project, q, d, tz }: { project: string; q: ErrorsState; d
 
 // Issues ------------------------------------------------------------------------------------
 
-function IssuesTab({ project, q, data, tz }: { project: string; q: ErrorsState; data: ErrorGroup[] | null; tz: string }) {
+function IssuesTab({ project, q, data, tz, now }: { project: string; q: ErrorsState; data: ErrorGroup[] | null; tz: string; now: number }) {
   if (data === null) return <LoadFailed text={ISSUES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const { rows, window } = slicePage(data, q);
   return (
@@ -543,10 +601,10 @@ function IssuesTab({ project, q, data, tz }: { project: string; q: ErrorsState; 
                     {formatCount(g.count)}
                   </td>
                   <td className="tr-num" data-label="Consumers">
-                    {formatCount(g.consumers)}
+                    <Consumers n={g.consumers} />
                   </td>
                   <td data-label="Last seen">
-                    <When iso={g.last_seen} tz={tz} />
+                    <When iso={g.last_seen} tz={tz} now={now} />
                   </td>
                 </tr>
               ))}

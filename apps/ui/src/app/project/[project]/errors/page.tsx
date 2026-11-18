@@ -67,7 +67,7 @@ export default async function ErrorsPage({ params, searchParams }: { params: Pro
   return (
     <AppShell context={context} project={project} view="errors">
       <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
-      <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} />
+      <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} now={Date.now()} />
     </AppShell>
   );
 }
