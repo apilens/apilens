@@ -15,10 +15,12 @@ const THEMES: { value: "dark" | "light"; label: string; icon: IconName }[] = [
 ];
 
 /**
- * Account, at the foot of the sidebar: you, account settings, appearance, sign out. Opens upward.
+ * Account: you, account settings, appearance, sign out. At the foot of the sidebar it opens upward;
+ * in the top bar (`placement="top"`) it is the avatar alone and opens down from the right edge.
  * `current`: the page is the account section (`/settings/*`).
  */
-export function UserMenu({ user, collapsed = false, current = false }: { user: Pick<User, "name" | "email">; collapsed?: boolean; current?: boolean }) {
+export function UserMenu({ user, collapsed = false, current = false, placement = "side" }: { user: Pick<User, "name" | "email">; collapsed?: boolean; current?: boolean; placement?: "side" | "top" }) {
+  const top = placement === "top";
   const me = userLabel(user);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -38,14 +40,22 @@ export function UserMenu({ user, collapsed = false, current = false }: { user: P
 
   return (
     <>
-      <button ref={trigger} type="button" className={`me-btn${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Account menu, ${me.name}`} data-tip={collapsed && !open ? me.name : undefined} onClick={() => setOpen((o) => !o)}>
+      <button ref={trigger} type="button" className={`me-btn${top ? " me-btn--top" : ""}${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Account menu, ${me.name}`} data-tip={(collapsed || top) && !open ? me.name : undefined} onClick={() => setOpen((o) => !o)}>
         <span className="cp-av">{me.initials}</span>
-        <span className="me-txt">
-          <b>{me.name}</b>
-          <small>{me.email}</small>
-        </span>
+        {top ? null : (
+          <span className="me-txt">
+            <b>{me.name}</b>
+            <small>{me.email}</small>
+          </span>
+        )}
       </button>
-      <PopMenu open={open} onClose={close} triggerRef={trigger} label="Account" align={collapsed ? "side-up" : "up"}>
+      <PopMenu open={open} onClose={close} triggerRef={trigger} label="Account" align={top ? "end" : collapsed ? "side-up" : "up"}>
+        {top ? (
+          <div className="me-who">
+            <b>{me.name}</b>
+            <small>{me.email}</small>
+          </div>
+        ) : null}
         <Link href="/settings" role="menuitem" className={`cp-sitem${current ? " on" : ""}`} aria-current={current ? "page" : undefined} onClick={close}>
           <span className="sl">
             <Icon name="settings" />
