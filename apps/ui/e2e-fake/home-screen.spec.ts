@@ -63,5 +63,8 @@ test("a project with no ingested data opens SDK setup", async ({ page }) => {
   await signIn(page, PAGE);
   await page.goto("/");
   await page.waitForURL((url) => url.pathname === "/project/shop/settings/sdk");
-  await expect(page.getByRole("heading", { level: 1, name: "SDK setup" })).toBeVisible();
+  // One PageHeader (#992, D7): the page title is the nav label, the section its subheading.
+  const header = page.locator("header.ph");
+  await expect(header.getByRole("heading", { level: 1, name: "Project settings" })).toBeVisible();
+  await expect(header.getByRole("heading", { level: 2, name: "SDK setup" })).toBeVisible();
 });

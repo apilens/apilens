@@ -58,8 +58,10 @@ export function envParam(env: string): string {
 /**
  * `params` with the scope defaults filled in, ready for the page's own parser: `range` from
  * {@link chooseRange} when missing (`firstAt` is only read then), `env` from {@link defaultEnv} when
- * missing, and `env=all` turned into "" (all environments). `envExplicit` says whether the URL
- * named the environment (a choice to remember) or the default was used (one to restore over).
+ * missing, and `env=all` turned into "" (all environments). `urlParams` are the same defaults in
+ * URL form (`env=all` kept): what links and forms built from the page's params must carry, since
+ * an empty `env` in a URL reads the default environment again (#1040). `envExplicit` says whether
+ * the URL named the environment (a choice to remember) or the default was used (one to restore over).
  */
 export async function withScopeDefaults(
   params: SearchParams,
@@ -72,7 +74,7 @@ export async function withScopeDefaults(
     fallbackRange: QueryRange;
     now?: number;
   },
-): Promise<{ params: SearchParams; envExplicit: boolean }> {
+): Promise<{ params: SearchParams; urlParams: SearchParams; envExplicit: boolean }> {
   const out: SearchParams = { ...params };
   if (opts.firstAt && !hasRange(params)) {
     let at: string | null | undefined = null;
@@ -84,10 +86,10 @@ export async function withScopeDefaults(
     out.range = chooseRange(at, opts.now ?? Date.now(), opts.ranges, opts.fallbackRange);
   }
   const envExplicit = hasEnv(params);
-  if (!opts.environments) return { params: out, envExplicit };
+  if (!opts.environments) return { params: out, urlParams: { ...out }, envExplicit };
   if (!envExplicit) out.env = defaultEnv(opts.environments);
   else if ((first(params.env) ?? "").trim() === ENV_ALL) out.env = "";
-  return { params: out, envExplicit };
+  return { params: out, urlParams: { ...out, env: envParam(first(out.env) ?? "") }, envExplicit };
 }
 
 // The remembered environment, per project, in this browser. Storage can be missing or throw

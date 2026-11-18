@@ -127,6 +127,9 @@ test("Traffic: a status-chart bar opens its bucket's requests in Explore, by cli
   if (!r) throw new Error("no chart");
   // The last of four buckets: as wide as the one before it.
   await page.mouse.move(r.x + r.width * 0.9, r.y + r.height / 2);
+  // The page is rendered again after Back: click once hovering shows the bucket's tooltip, so the
+  // click lands on a chart that handles it (a click before then went nowhere, #1040).
+  await expect(box.locator(".ct-tip")).toContainText("Click to see these requests in Explore");
   await page.mouse.click(r.x + r.width * 0.9, r.y + r.height / 2);
   await page.waitForURL(/\/shop\/explore\?/);
   expect(paramsOf(page.url())).toEqual({ range: "24h", env: "production", from: "2026-11-05T10:45:00Z", to: "2026-11-05T11:00:00Z" });

@@ -1,6 +1,6 @@
 // Project settings section nav (#800) against the fake identity (e2e-fake/fake-identity.ts): the
-// sections in order, keyboard movement, `aria-current`, the page title, the "Nothing here yet"
-// state, the select on narrow screens and the 404 for unknown sections. No email is sent.
+// sections in order, keyboard movement, `aria-current`, the page title, the select on narrow
+// screens and the 404 for unknown sections. No email is sent.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
@@ -58,10 +58,12 @@ test("moves through the sections with the keyboard", async ({ page }) => {
   await expect(nav.getByRole("link", { name: "Environments" })).toHaveAttribute("aria-current", "page");
 });
 
-test("a section not built yet says so instead of a blank page", async ({ page }) => {
+// Every listed section has content now (Retention was the last placeholder, #1040), so the
+// "Nothing here yet" fallback is no longer reachable from the nav; the frame still names the section.
+test("a section names itself in the header, the nav and the tab title", async ({ page }) => {
   await signIn(page, "/project/shop/settings/retention");
   await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Retention" })).toBeVisible();
-  await expect(page.getByText("Nothing here yet.")).toBeVisible();
+  await expect(page.getByText("Nothing here yet.")).toHaveCount(0);
   await expect(sectionNav(page).getByRole("link", { name: "Retention" })).toHaveAttribute("aria-current", "page");
   await expect(page).toHaveTitle(/^Retention · Project settings/);
 });

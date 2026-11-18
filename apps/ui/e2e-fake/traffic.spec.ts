@@ -417,7 +417,8 @@ test("collapses routes declared without traffic into one group under the table (
   await summary.click();
   await expect(list.getByRole("link")).toHaveText(["GET /health", "DELETE /orders/{id}"]);
   await expect(group).toContainText("Your apps declared these routes, but none was called in the last 24 hours.");
-  await expect(list.getByRole("link", { name: "GET /health" })).toHaveAttribute("href", "/project/shop/endpoints/GET/%2Fhealth");
+  // The drill-down keeps the page's scope (D4 of #963): range and "All environments" travel along.
+  await expect(list.getByRole("link", { name: "GET /health" })).toHaveAttribute("href", "/project/shop/endpoints/GET/%2Fhealth?range=24h&env=all");
 
   const a11y = await new AxeBuilder({ page }).include(".tr-card--table").analyze();
   expect(a11y.violations).toEqual([]);
@@ -434,7 +435,7 @@ test("searches the endpoints table by path, in the URL, keeping the scope and so
   const search = page.getByRole("searchbox", { name: "Search endpoint paths" });
   await search.fill("ORDERS");
   await search.press("Enter");
-  await page.waitForURL((url) => url.searchParams.get("q") === "ORDERS" && url.searchParams.get("range") === "6h" && url.searchParams.get("sort") === "p95");
+  await page.waitForURL((url) => url.searchParams.get("q") === "ORDERS" && url.searchParams.get("range") === "6h" && url.searchParams.get("sort") === "p95" && url.searchParams.get("env") === "all");
   await expect(search).toHaveValue("ORDERS");
   await expect(paths()).toHaveText(["/orders/{id}"]);
   // The declared routes are searched too, and their group opens to show the matches.
@@ -446,12 +447,12 @@ test("searches the endpoints table by path, in the URL, keeping the scope and so
   await search.fill("/nothing");
   const form = page.getByRole("search", { name: "Endpoints" });
   await form.getByRole("button", { name: "Search" }).click();
-  await page.waitForURL((url) => url.searchParams.get("q") === "/nothing");
+  await page.waitForURL((url) => url.searchParams.get("q") === "/nothing" && url.searchParams.get("env") === "all");
   await expect(page.getByRole("status").filter({ hasText: "No endpoints with requests match “/nothing” in the last 6 hours." })).toBeVisible();
   await expect(endpointsTable(page)).toHaveCount(0);
   await expect(group).toHaveCount(0);
   await form.getByRole("link", { name: "Clear" }).click();
-  await page.waitForURL((url) => !url.searchParams.has("q") && url.searchParams.get("sort") === "p95");
+  await page.waitForURL((url) => !url.searchParams.has("q") && url.searchParams.get("sort") === "p95" && url.searchParams.get("env") === "all");
   await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users"]);
 
   const a11y = await new AxeBuilder({ page }).include(".tr-card--table").analyze();

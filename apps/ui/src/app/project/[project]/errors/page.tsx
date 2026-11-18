@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { EnvMemory } from "@/components/env-memory";
+import { SetupReminder } from "@/components/onboarding/setup-reminder";
 import { type DetailLoad, ErrorsView, type TabLoad } from "@/components/errors/errors";
 import { getContext, getSession } from "@/lib/auth/server";
 import { type ErrorsState, errorsHref, parseErrorsQuery } from "@/lib/errors";
 import { type CallOptions, identity, isApiError } from "@/lib/identity";
+import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
 import { findProject } from "@/lib/scope";
 import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -67,6 +69,8 @@ export default async function ErrorsPage({ params, searchParams }: { params: Pro
   return (
     <AppShell context={context} project={project} view="errors">
       <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
+      {/* "I’ll do this later" on the onboarding install step (#333) lands on the home view (#994), which can be this one. */}
+      {raw[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
       <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} now={Date.now()} />
     </AppShell>
   );

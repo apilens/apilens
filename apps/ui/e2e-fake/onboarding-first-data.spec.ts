@@ -96,7 +96,8 @@ test("first data: open project finishes onboarding on the project's home view", 
   test.setTimeout(60_000);
   await toFirstData(page, "Pennypacker", "Vandelay Imports", "vandelay-imports");
   await page.getByRole("button", { name: "Open project" }).click();
-  await page.waitForURL((url) => url.pathname === "/project/vandelay-imports/incidents" && !url.searchParams.has("setup"));
+  // The about step keeps the default home screen, "Slow or failing endpoints", which opens Traffic (#994).
+  await page.waitForURL((url) => url.pathname === "/project/vandelay-imports/traffic" && !url.searchParams.has("setup"));
   // Onboarding is finished: its pages now send the user to a project.
   await page.goto("/onboarding/first-data");
   await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));

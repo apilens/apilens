@@ -81,7 +81,7 @@ export default async function EndpointPage({ params, searchParams }: { params: P
   const found = findProject(context, project);
   if (!found) notFound();
   // No range or env in the URL (#993): the range that covers the project's first data, production.
-  const { params: sp, envExplicit } = await withScopeDefaults(raw, {
+  const { params: sp, urlParams, envExplicit } = await withScopeDefaults(raw, {
     environments: found.project.environments ?? [],
     firstAt: async () => (await read(next, (o) => identity().ingestStatus(project, o)))?.first_at,
     ranges: TRAFFIC_RANGES,
@@ -102,7 +102,8 @@ export default async function EndpointPage({ params, searchParams }: { params: P
         query={q}
         tab={tab}
         settings={settings}
-        params={sp}
+        // Links and forms keep the URL form of the scope (`env=all` stays all environments).
+        params={urlParams}
         tz={resolveTimeZone(context.user.preferences)}
       />
     </AppShell>

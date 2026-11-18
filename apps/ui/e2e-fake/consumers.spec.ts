@@ -156,6 +156,9 @@ test("charts unique users new vs returning, with exact numbers on hover, and lis
   await expect(page.getByRole("button", { name: /Create group|Rename|Delete|Save/ })).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "Group" })).toHaveCount(0);
 
+  // The open tooltip fades in over 80 ms (charts.css `ct-in`); axe reading it mid-fade measures a
+  // blended, lighter text colour. Reduced motion drops the fade, so axe checks the colours as shown.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const a11y = await new AxeBuilder({ page }).include(".cs").analyze();
   expect(a11y.violations).toEqual([]);
 });

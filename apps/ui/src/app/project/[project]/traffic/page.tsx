@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { EnvMemory } from "@/components/env-memory";
+import { SetupReminder } from "@/components/onboarding/setup-reminder";
 import { TrafficView } from "@/components/traffic/traffic";
 import { getContext, getSession } from "@/lib/auth/server";
 import { visibleEnvironments } from "@/lib/environments";
@@ -15,6 +16,7 @@ import {
   identity,
   isApiError,
 } from "@/lib/identity";
+import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
 import { findProject } from "@/lib/scope";
 import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -46,7 +48,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
   const found = findProject(context, project);
   if (!found) notFound();
   // No range or env in the URL (#993): the range that covers the project's first data, production.
-  const { params: sp, envExplicit } = await withScopeDefaults(raw, {
+  const { params: sp, urlParams, envExplicit } = await withScopeDefaults(raw, {
     environments: found.project.environments ?? [],
     firstAt: async () => (await read(next, (o) => identity().ingestStatus(project, o)))?.first_at,
     ranges: TRAFFIC_RANGES,
@@ -70,6 +72,8 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
   return (
     <AppShell context={context} project={project} view="traffic">
       <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
+      {/* "I’ll do this later" on the onboarding install step (#333) lands on the home view (#994), which can be this one. */}
+      {raw[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
       <TrafficView
         project={project}
         projectName={found.project.name}
@@ -79,7 +83,8 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
         points={series === null ? null : (series.points ?? [])}
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
         apps={apps?.apps ?? null}
-        params={sp}
+        // Links and forms keep the URL form of the scope (`env=all` stays all environments).
+        params={urlParams}
       />
     </AppShell>
   );

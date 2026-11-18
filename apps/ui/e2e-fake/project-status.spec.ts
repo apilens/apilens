@@ -72,7 +72,7 @@ test("a paused project shows the banner on every page and Resume clears it", asy
 test("pausing from the Danger zone shows the banner without a reload", async ({ page }) => {
   await signIn(page, "/project/shop/settings/danger");
   await expect(banner(page)).toHaveCount(0);
-  const card = page.getByRole("region", { name: "Danger zone actions" });
+  const card = page.getByRole("region", { name: "Pause, rename or delete" });
   await card.getByRole("button", { name: "Pause data collection" }).click();
   const d = page.getByRole("dialog", { name: "Pause data collection for Shop?" });
   await d.getByRole("textbox").fill("Shop");

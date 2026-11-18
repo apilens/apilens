@@ -116,7 +116,8 @@ test("invite: chips per address with a role each, invalid ones blocked, per-addr
   await expect(page.getByRole("listitem")).toContainText("New invitation sent");
 
   await page.getByRole("button", { name: "Open project" }).click();
-  await page.waitForURL((url) => url.pathname === "/project/hooli-search/incidents");
+  // The about step keeps the default home screen, "Slow or failing endpoints", which opens Traffic (#994).
+  await page.waitForURL((url) => url.pathname === "/project/hooli-search/traffic");
   // Onboarding is finished: its pages now send the user to a project.
   await page.goto("/onboarding/invite");
   await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));
@@ -126,7 +127,8 @@ test("invite: skip for now finishes onboarding on the project", async ({ page })
   test.setTimeout(60_000);
   await toInvite(page, "Raviga", "Raviga Capital");
   await page.getByRole("button", { name: "Skip for now" }).click();
-  await page.waitForURL((url) => url.pathname === "/project/raviga-capital/incidents");
+  // The about step keeps the default home screen, "Slow or failing endpoints", which opens Traffic (#994).
+  await page.waitForURL((url) => url.pathname === "/project/raviga-capital/traffic");
 });
 
 test("invite: a failed send keeps the addresses and says why", async ({ page }) => {
@@ -149,6 +151,16 @@ test("invite passes axe in light and dark at 1440 and 390 px", async ({ page }) 
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      // Buttons ease their colours over 120 ms (`.ah-btn`); axe reading one mid-change measures a
+      // blend. Wait for the running finite transitions to end (the spinner's loop never does).
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY)
+            .map((a) => a.finished.catch(() => undefined)),
+        ),
+      );
       const { violations } = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
         .analyze();
