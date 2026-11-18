@@ -104,6 +104,15 @@ type errorStatusRow struct {
 	Consumers  uint64    `json:"consumers" doc:"Distinct consumers that got it."`
 	FirstSeen  time.Time `json:"first_seen" doc:"First occurrence in the range."`
 	LastSeen   time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
+	// Endpoint names the endpoint when it is the only one (#1002), so the
+	// table can say which instead of "1".
+	Endpoint *errorStatusOnlyEndpoint `json:"endpoint,omitempty" doc:"The endpoint that answered with it when it is the only one; left out when several did."`
+}
+
+// errorStatusOnlyEndpoint is the one endpoint of a status code row.
+type errorStatusOnlyEndpoint struct {
+	Method string `json:"method" doc:"HTTP method."`
+	Path   string `json:"path" doc:"Route template."`
 }
 
 type errorStatusesOutput struct {
@@ -195,7 +204,8 @@ func (s *Service) errorStatuses(ctx context.Context, in *RangeInput) (*errorStat
 	}
 
 	srows, err := s.ch.Query(qctx, `
-		SELECT status_code, count() AS n, uniq(method, path), uniqIf(consumer_id, consumer_id != ''), min(timestamp), max(timestamp)
+		SELECT status_code, count() AS n, uniq(method, path), uniqIf(consumer_id, consumer_id != ''), min(timestamp), max(timestamp),
+			uniqExact(method, path) = 1, any(method), any(path)
 		FROM api_requests WHERE `+sc.where+` AND `+sc.isError+`
 		GROUP BY status_code ORDER BY n DESC, status_code`, append(append([]any{}, sc.args...), sc.errArgs...)...)
 	if err != nil {
@@ -204,9 +214,16 @@ func (s *Service) errorStatuses(ctx context.Context, in *RangeInput) (*errorStat
 	defer func() { _ = srows.Close() }()
 	b.Statuses, b.Series = []errorStatusRow{}, []errorStatusSeries{}
 	for srows.Next() {
-		var r errorStatusRow
-		if err := srows.Scan(&r.StatusCode, &r.Count, &r.Endpoints, &r.Consumers, &r.FirstSeen, &r.LastSeen); err != nil {
+		var (
+			r            errorStatusRow
+			only         uint8
+			method, path string
+		)
+		if err := srows.Scan(&r.StatusCode, &r.Count, &r.Endpoints, &r.Consumers, &r.FirstSeen, &r.LastSeen, &only, &method, &path); err != nil {
 			return nil, internalError("error statuses", err)
+		}
+		if only == 1 {
+			r.Endpoint = &errorStatusOnlyEndpoint{Method: method, Path: path}
 		}
 		if b.Summary.Requests > 0 {
 			r.Share = float64(r.Count) / float64(b.Summary.Requests)

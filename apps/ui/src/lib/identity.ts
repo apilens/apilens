@@ -2425,6 +2425,8 @@ export interface ErrorStatusRow {
   consumers: number;
   first_seen: string;
   last_seen: string;
+  /** The endpoint that answered with it when it is the only one (#1002); absent when several did. */
+  endpoint?: { method: string; path: string };
 }
 
 /** `GET /errors/status`. */

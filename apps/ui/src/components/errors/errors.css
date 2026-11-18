@@ -10,6 +10,24 @@
 
 /* Bar charts with the shared hover (components/charts): the plot box is the hover target. */
 .er-bars { cursor: crosshair; }
+/* The error-rate line over the counts (#1002) and its own scale, named in the legend. */
+.er-scale { color: var(--ink-muted); font: 400 11px/18px var(--font-mono); }
+
+/* Status table (#1002): the only endpoint named in its cell, and the consumer-identification link;
+   both sit above the row link's overlay, so they can be selected and followed. */
+.tr-table td.er-one-ep { position: relative; z-index: 1; max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
+/* One flex item when the table stacks at phone width, so the route wraps beside its label. */
+.er-one-ep__name { min-width: 0; flex: 1 1 0; }
+@media (max-width: 760px) { .tr-table td.er-one-ep { max-width: none; } }
+/* Relative times stay on one line (`5 min ago`), and so does a status code. */
+.er .tr-table time, .er-status { white-space: nowrap; }
+.er-one-ep b { font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.er-one-ep code { font: 400 12px/18px var(--font-mono); }
+.er-none { position: relative; z-index: 1; }
+.er-identify { white-space: nowrap; font-size: 12px; }
+.er-identify:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+/* The modal's Endpoint tile when one endpoint answered: its route, not a count. */
+.tr-tile__value.er-tile-ep { font: 500 14px/22px var(--font-mono); overflow-wrap: anywhere; }
 
 /* The status table's per-code sparkline sits above the row link's overlay, so it can be hovered. */
 .er-trend-h { width: 128px; }

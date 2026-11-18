@@ -9,6 +9,7 @@ import { DEFAULT_PER, type PageOptions, parsePage } from "./pagination";
 import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES } from "./traffic";
 import { projectHref } from "./routes";
+import { zoned } from "./time-zone";
 
 export const ERRORS_TABS = [
   { slug: "status", label: "Status codes" },
@@ -165,6 +166,56 @@ export function formatPerHour(n: number): string {
   if (n < 0.1) return "<0.1";
   if (n < 100) return n.toFixed(1).replace(/\.0$/, "");
   return new Intl.NumberFormat("en-US").format(Math.round(n));
+}
+
+// Since when and for whom (#1002) ----------------------------------------------------------
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const SEEN_DAY: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
+
+/**
+ * When an error was seen, relative to `now`: `just now`, `5 min ago`, `3 h ago`, `2 days ago`,
+ * then, from 30 days back, the day in `tz` (`Oct 2, 2026`). The exact time goes in its title
+ * ({@link formatExact}). Empty for an unreadable time.
+ */
+export function seenAgo(iso: string, tz: string, now: number): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const ago = Math.max(0, now - t);
+  if (ago < MINUTE_MS) return "just now";
+  if (ago < HOUR_MS) return `${Math.floor(ago / MINUTE_MS)} min ago`;
+  if (ago < DAY_MS) return `${Math.floor(ago / HOUR_MS)} h ago`;
+  const d = Math.floor(ago / DAY_MS);
+  if (d < 30) return `${d} ${d === 1 ? "day" : "days"} ago`;
+  return zoned("en-US", SEEN_DAY, tz).format(t);
+}
+
+/**
+ * The error rate of each bucket: its 4xx and 5xx responses over its requests, 0 for a bucket
+ * without requests. Drawn as a line over the error counts.
+ */
+export function errorRates(points: readonly { requests: number; client_errors: number; server_errors: number }[]): number[] {
+  return points.map((p) => (p.requests > 0 ? (p.client_errors + p.server_errors) / p.requests : 0));
+}
+
+const RATE_STEPS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1];
+
+/** A round top for the error-rate line's own scale: the smallest step at or above the highest rate (1% at least, 100% at most). */
+export function rateTop(rates: readonly number[]): number {
+  const max = Math.max(0, ...rates.filter(Number.isFinite));
+  return RATE_STEPS.find((s) => s >= max) ?? 1;
+}
+
+/** `5%`, `0.5%`: a round scale top, without the trailing `.0` formatPercent keeps. */
+export function formatRateTop(top: number): string {
+  return `${Number((top * 100).toFixed(1))}%`;
+}
+
+/** The docs page on telling APILens who calls (the SDK's `set_consumer`), under the docs root `docs`. */
+export function consumerIdentificationUrl(docs: string): string {
+  return `${docs.replace(/\/+$/, "")}/sdk-reference/consumers`;
 }
 
 // Mark as expected -------------------------------------------------------------------------

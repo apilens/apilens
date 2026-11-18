@@ -46,6 +46,10 @@ type errorStatuses struct {
 		Consumers  uint64    `json:"consumers"`
 		FirstSeen  time.Time `json:"first_seen"`
 		LastSeen   time.Time `json:"last_seen"`
+		Endpoint   *struct {
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		} `json:"endpoint"`
 	} `json:"statuses"`
 }
 
@@ -268,6 +272,12 @@ func TestErrorStatus(t *testing.T) {
 	if s := out.Statuses[0]; s.Count != 5 || s.Endpoints != 2 || s.Consumers != 3 || s.Share != 5.0/11 ||
 		s.FirstSeen.IsZero() || s.FirstSeen.After(s.LastSeen) {
 		t.Fatalf("settings: 404 = %+v", s)
+	}
+	// The only endpoint of a status code is named (#1002); several are not.
+	for _, s := range out.Statuses {
+		if (s.Endpoints == 1) != (s.Endpoint != nil) || (s.Endpoint != nil && (s.Endpoint.Method == "" || s.Endpoint.Path == "")) {
+			t.Fatalf("settings: %d endpoint = %+v", s.StatusCode, s)
+		}
 	}
 
 	// Detail of 404.
