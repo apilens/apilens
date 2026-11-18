@@ -250,11 +250,11 @@ describe("small readers", () => {
   });
 
   it("moves between tabs with arrows, Home and End", () => {
-    expect(moveTab("ArrowRight", "overview")).toBe("headers");
-    expect(moveTab("ArrowLeft", "overview")).toBe("logs");
-    expect(moveTab("End", "headers")).toBe("logs");
-    expect(moveTab("Home", "logs")).toBe("overview");
-    expect(moveTab("Enter", "logs")).toBeNull();
+    expect(moveTab("ArrowRight", "overview")).toBe("timeline");
+    expect(moveTab("ArrowLeft", "overview")).toBe("raw");
+    expect(moveTab("End", "timeline")).toBe("raw");
+    expect(moveTab("Home", "raw")).toBe("overview");
+    expect(moveTab("Enter", "raw")).toBeNull();
   });
 
   it("encodes the Route Handler path", () => {

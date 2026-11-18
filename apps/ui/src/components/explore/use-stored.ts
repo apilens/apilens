@@ -47,3 +47,5 @@ export function useStored<T>(key: string, initial: T, check: (v: unknown) => v i
 
 export const isBool = (v: unknown): v is boolean => typeof v === "boolean";
 export const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+export const isOpenMap = (v: unknown): v is Record<string, boolean> => typeof v === "object" && v !== null && Object.values(v).every(isBool);

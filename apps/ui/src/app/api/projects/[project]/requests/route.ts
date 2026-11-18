@@ -2,7 +2,8 @@
 // (#585), newest first, from `GET /requests` as the signed-in user, narrowed by Explore's
 // conditions (`?filter=field:op:value`, #1052) and window. Answers `{ok: true, requests,
 // next_cursor}` (next_cursor "" on the last page) or `{ok: false, code}` (`session_expired` with
-// 401). The table calls it for the next page as it scrolls, and Live for the newest rows.
+// 401). The table calls it for the next page as it scrolls, Live for the newest rows, and Export
+// (`limit` up to 200) for every page up to its row limit.
 import { type NextRequest, NextResponse } from "next/server";
 import { isProjectSlug } from "@/lib/api-keys";
 import { InputError, ROUTE_ERROR_CODES, checkRequest, fromError } from "@/lib/auth-routes";
@@ -21,8 +22,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
       const sp = req.nextUrl.searchParams;
       const cursor = sp.get("cursor") ?? "";
       if (cursor && !CURSOR_RE.test(cursor)) throw new InputError(422, ROUTE_ERROR_CODES.validation, "invalid cursor");
+      // Export (#1053) reads the largest pages the API serves.
+      const limit = Math.min(200, Math.max(1, Number(sp.get("limit")) || PAGE_SIZE));
       const q = readExploreUrl(paramsRecord(sp));
-      const page = await session.call((o) => identity().listRequests(project, { ...apiQuery(q, Date.now()), limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) }, o));
+      const page = await session.call((o) => identity().listRequests(project, { ...apiQuery(q, Date.now()), limit, ...(cursor ? { cursor } : {}) }, o));
       return NextResponse.json({ ok: true, requests: page.requests ?? [], next_cursor: page.next_cursor ?? "" }, { headers: { "Cache-Control": "no-store" } });
     } catch (err) {
       if (isSessionExpired(err)) throw err;

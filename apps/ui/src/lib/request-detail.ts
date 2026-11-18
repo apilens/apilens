@@ -8,12 +8,9 @@ import { zoneLabel, zoned } from "./time-zone";
 /** The drawer's tabs, in order. */
 export const DRAWER_TABS = [
   { slug: "overview", label: "Overview" },
-  { slug: "headers", label: "Headers" },
-  { slug: "request", label: "Request body" },
-  { slug: "response", label: "Response body" },
-  { slug: "validation", label: "Validation" },
-  { slug: "trace", label: "Trace" },
-  { slug: "logs", label: "Logs" },
+  { slug: "timeline", label: "Timeline" },
+  { slug: "consumer", label: "Consumer" },
+  { slug: "raw", label: "Raw" },
 ] as const;
 export type DrawerTab = (typeof DRAWER_TABS)[number]["slug"];
 
