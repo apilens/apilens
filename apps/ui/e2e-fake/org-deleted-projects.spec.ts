@@ -5,8 +5,8 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const SETTINGS = "/orgs/acme/settings";
-const DANGER = "/shop/settings/danger";
+const SETTINGS = "/org/acme/general";
+const DANGER = "/project/shop/settings/danger";
 
 async function seedProject(body: Record<string, unknown> = {}) {
   await fetch(`${IDENTITY}/__fake/project`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -48,20 +48,20 @@ test("lists a deleted project with relative and exact dates, and restores it wit
   const c = card(page);
   await expect(c).toBeVisible();
   const row = c.getByRole("listitem").filter({ hasText: "Legacy checkout" });
-  await expect(row).toContainText("/legacy-checkout");
+  await expect(row).toContainText("/project/legacy-checkout");
   await expect(row).toContainText(/Deleted 2 days ago \([A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M UTC\)/);
   await expect(row).toContainText(/Removed for good in 4 days \([A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M UTC\)/);
 
   await row.getByRole("button", { name: "Restore Legacy checkout" }).click();
   await expect(restoredStatus(page)).toContainText("Legacy checkout is restored.");
-  await expect(c.getByRole("link", { name: "Open Legacy checkout" })).toHaveAttribute("href", "/legacy-checkout/incidents");
+  await expect(c.getByRole("link", { name: "Open Legacy checkout" })).toHaveAttribute("href", "/project/legacy-checkout/incidents");
   await expect(c.getByRole("listitem")).toHaveCount(0);
   await expect(c).toContainText("No other deleted projects.");
 });
 
 test("delete a project, restore it, and it is back in the switcher", async ({ page }) => {
   await signIn(page, DANGER);
-  await page.getByRole("region", { name: "Danger zone actions" }).getByRole("button", { name: "Delete project" }).click();
+  await page.getByRole("button", { name: "Delete project" }).click();
   const d = page.getByRole("dialog", { name: "Delete Shop?" });
   await d.getByRole("textbox").fill("shop");
   await d.getByRole("button", { name: "Delete Shop" }).click();
@@ -79,7 +79,7 @@ test("delete a project, restore it, and it is back in the switcher", async ({ pa
   await expect.poll(() => projectsInOrgMenu(page)).toContain("1 project");
 
   await c.getByRole("link", { name: "Open Shop" }).click();
-  await page.waitForURL((url) => url.pathname === "/shop/incidents");
+  await page.waitForURL((url) => url.pathname === "/project/shop/incidents");
 });
 
 test("a stale sign-in confirms who it is before the restore goes through", async ({ page }) => {

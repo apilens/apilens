@@ -24,7 +24,7 @@ async function sessionCookie(page: Page) {
 
 test("sign-in: an enforced domain replaces the email code with the org's SSO and signs in", async ({ page }) => {
   const emailStarts = countEmailStarts(page);
-  await page.goto("/sign-in?next=%2Facme%2Frequests");
+  await page.goto("/sign-in?next=%2Fproject%2Facme%2Frequests");
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
   await page.getByLabel("Work email").fill("ada@acme.example.com");
 
@@ -39,7 +39,7 @@ test("sign-in: an enforced domain replaces the email code with the org's SSO and
   const href = new URL((await link.getAttribute("href")) ?? "");
   expect(href.origin + href.pathname).toBe(`${IDENTITY}/api/v1/auth/sso/acme/start`);
   expect(Object.fromEntries(href.searchParams)).toEqual({
-    next: "/acme/requests",
+    next: "/project/acme/requests",
     remember: "true",
     login_hint: "ada@acme.example.com",
   });
@@ -49,7 +49,7 @@ test("sign-in: an enforced domain replaces the email code with the org's SSO and
   await expect(page.locator("#login-hint")).toHaveText("ada@acme.example.com");
   await page.getByRole("link", { name: "Sign in" }).click();
 
-  await page.waitForURL((url) => url.pathname === "/acme/requests");
+  await page.waitForURL((url) => url.pathname === "/project/acme/requests");
   expect((await sessionCookie(page))?.httpOnly).toBe(true);
   expect(emailStarts).toHaveLength(0);
 });
@@ -80,7 +80,7 @@ test("sign-in: SSO that is not enforced is a secondary button under Continue", a
 
 test("sign-in: a failed lookup still never sends a code; sso_required shows the banner and the SSO", async ({ page }) => {
   await page.route("**/api/auth/sso/lookup", (route) => route.abort());
-  await page.goto("/sign-in?next=%2Facme%2Fendpoints");
+  await page.goto("/sign-in?next=%2Fproject%2Facme%2Fendpoints");
   await page.getByLabel("Work email").fill("ada@acme.example.com");
   await page.getByRole("button", { name: "Continue" }).click();
 
@@ -89,7 +89,7 @@ test("sign-in: a failed lookup still never sends a code; sso_required shows the 
   await expect(link).toBeVisible();
   const href = new URL((await link.getAttribute("href")) ?? "");
   expect(href.origin + href.pathname).toBe(`${IDENTITY}/api/v1/auth/sso/acme/start`);
-  expect(href.searchParams.get("next")).toBe("/acme/endpoints");
+  expect(href.searchParams.get("next")).toBe("/project/acme/endpoints");
   expect(href.searchParams.get("login_hint")).toBe("ada@acme.example.com");
   await expect(page).toHaveURL(/\/sign-in/);
 });

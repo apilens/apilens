@@ -11,6 +11,7 @@ import { identity, isApiError } from "@/lib/identity";
 import { INSTALL_KEY_NAME, INSTALL_KEY_SCOPES, LATER_PARAM, LATER_VALUE, installKeyError } from "@/lib/install";
 import { homeView } from "@/lib/landing";
 import { withActionSession } from "@/lib/server-session";
+import { projectHref } from "@/lib/routes";
 
 export interface InstallKey {
   id: string;
@@ -51,7 +52,7 @@ export async function finishInstallLater(project: string): Promise<{ ok: false; 
       const ctx = await session.call((o) => identity().context(o));
       if (!ctx.orgs.some((org) => org.projects.some((p) => p.slug === project))) return { ok: false as const, error: installKeyError("not_found") };
       await session.call((o) => identity().updateOnboarding({ completed: true }, o));
-      return `/${project}/${homeView(ctx)}?${LATER_PARAM}=${LATER_VALUE}`;
+      return `${projectHref(project, homeView(ctx))}?${LATER_PARAM}=${LATER_VALUE}`;
     } catch (err) {
       if (!isApiError(err)) throw err;
       return { ok: false as const, error: "We couldn’t finish setup. Try again in a moment." };

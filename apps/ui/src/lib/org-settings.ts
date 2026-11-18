@@ -1,10 +1,11 @@
-// Organization settings (#347): the rules the `/orgs/<org>/settings` form checks before it calls
+// Organization settings (#347): the rules the `/org/<org>/general` form checks before it calls
 // `PATCH /orgs/{slug}` or `DELETE /orgs/{slug}`, and the sentences it shows for the server's
 // error codes. The server stays the authority (public email domains answer `domain_not_allowed`
 // and only it knows that list); these checks only spare a round trip. Pure; safe in Client
 // Components and Server Actions alike.
 import { confirmMatches } from "./confirm";
 import type { OrgRole } from "./identity";
+import { type OrgSection, orgHref } from "./routes";
 
 /** Longest organization name the API accepts (`maxLength` of `name`). */
 export const MAX_ORG_NAME = 100;
@@ -124,29 +125,27 @@ export function orgSettingsError(code: string): string {
   }
 }
 
-/** A page of the organization settings, shown as a tab under the title. */
+/** A page of the organization settings, listed in the settings menu beside it (Supabase's). */
 export interface OrgSettingsSection {
-  /** URL segment under `/orgs/<org>/settings`; empty for General. */
-  slug: string;
+  /** URL segment under `/org/<org>`. */
+  slug: Exclude<OrgSection, "" | "team">;
   label: string;
   /** Shown only to the roles this allows; every role sees a section without it. */
   visible?: (role: OrgRole) => boolean;
 }
 
 export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
-  { slug: "", label: "General" },
-  { slug: "members", label: "Members" },
-  { slug: "invitations", label: "Invitations" },
-  { slug: "sso", label: "Single sign-on" },
+  { slug: "general", label: "General" },
+  { slug: "sso", label: "SSO" },
   { slug: "audit", label: "Audit log", visible: canReadOrgAudit },
 ];
 
-/** The sections someone with `role` sees as tabs. */
+/** The sections someone with `role` sees in the menu. */
 export function orgSettingsSections(role: OrgRole): OrgSettingsSection[] {
   return ORG_SETTINGS_SECTIONS.filter((s) => !s.visible || s.visible(role));
 }
 
-/** `/orgs/<org>/settings` or `/orgs/<org>/settings/<slug>`. */
+/** `/org/<org>/<section>`. */
 export function orgSettingsHref(org: string, section: Pick<OrgSettingsSection, "slug">): string {
-  return section.slug ? `/orgs/${org}/settings/${section.slug}` : `/orgs/${org}/settings`;
+  return orgHref(org, section.slug);
 }

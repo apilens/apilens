@@ -85,7 +85,7 @@ test("Traffic: 4xx, 5xx and p95 cells open the row's requests in Explore, in the
     { method: "POST", path: "/charge", app_id: BILLING_APP, requests: 1000, client_errors: 10, server_errors: 0, error_rate: 0.01, p50_ms: 400, p95_ms: 1820, apdex: 0.6 },
   ];
   await post("/__fake/traffic", { project: "shop", envs: { production: { summary, points, endpoints } } });
-  await signIn(page, "/shop/traffic?range=6h&env=production");
+  await signIn(page, "/project/shop/traffic?range=6h&env=production");
 
   const table = page.getByRole("table", { name: "Endpoints" });
   const orders = table.locator("tbody tr").filter({ hasText: "/orders/{id}" });
@@ -110,7 +110,7 @@ test("Traffic: a status-chart bar opens its bucket's requests in Explore, by cli
   const points = [0, 1, 2, 3].map((i) => ({ ts: bucket(i), requests: 1000, client_errors: 10, server_errors: 2, p95_ms: 300 }));
   const summary = { from: "", to: "", requests: 4000, client_errors: 40, server_errors: 8, error_rate: 0.012, p50_ms: 30, p95_ms: 300, p99_ms: 900, requests_per_minute: 2.7, apdex: 0.95 };
   await post("/__fake/traffic", { project: "shop", envs: { production: { summary, points, endpoints: [] } } });
-  await signIn(page, "/shop/traffic?range=24h&env=production");
+  await signIn(page, "/project/shop/traffic?range=24h&env=production");
 
   const chart = page.getByRole("group", { name: /Requests by status.*Press Enter to see a bucket’s requests in Explore/ });
   await chart.focus();
@@ -140,7 +140,7 @@ test("Endpoint detail: View requests opens the endpoint in Explore with its scop
     path: "/orders/{id}",
     tabs: { requests: { summary: { requests: 20, successful: 16, client_errors: 4, server_errors: 0, requests_per_minute: 0.1 }, points, consumers: [] } },
   });
-  await signIn(page, "/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=6h&env=production&status=4xx&consumer=c_acme");
+  await signIn(page, "/project/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=6h&env=production&status=4xx&consumer=c_acme");
 
   const view = page.getByRole("link", { name: "View requests" });
   expect(paramsOf((await view.getAttribute("href")) ?? "")).toEqual({ range: "6h", env: "production", method: "GET", status: "4xx", path: "/orders/{id}", consumer_id: "c_acme" });
@@ -163,7 +163,7 @@ test("Errors: a status code's responses open in Explore", async ({ page }) => {
       { method: "GET", path: "/orders/{id}", status_code: 503, bucket: 1, count: 3 },
     ],
   });
-  await signIn(page, "/shop/errors?range=24h&env=all");
+  await signIn(page, "/project/shop/errors?range=24h&env=all");
 
   const statuses = page.getByRole("table", { name: "Error status codes" });
   const link = statuses.getByRole("link", { name: "12 404 responses in Explore" });
@@ -181,7 +181,7 @@ test("Performance: the p95 tile opens the requests at p95 or slower", async ({ p
   };
   await post("/__fake/apps", { apps: [{ id: SHOP_APP, slug: "shop", name: "Shop" }, { id: BILLING_APP, slug: "billing", name: "Billing" }] });
   await post("/__fake/performance", { project: "shop", latency, samples_ms: [100], endpoints: [], slowest: [] });
-  await signIn(page, `/shop/performance?range=7d&env=production&app=${SHOP_APP}`);
+  await signIn(page, `/project/shop/performance?range=7d&env=production&app=${SHOP_APP}`);
 
   const p95 = page.getByRole("link", { name: /^p95 413 ms: requests at p95 or slower in Explore$/ });
   expect(paramsOf((await p95.getAttribute("href")) ?? "")).toEqual({ range: "7d", env: "production", app: SHOP_APP, latency_min: "412" });

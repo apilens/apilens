@@ -5,7 +5,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const CAPTURE = "/shop/settings/capture";
+const CAPTURE = "/project/shop/settings/capture";
 const ADMIN = ["project.read", "project.update", "capture.manage"];
 const SHOP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const WORKER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";

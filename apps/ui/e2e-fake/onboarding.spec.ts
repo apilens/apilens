@@ -79,7 +79,7 @@ test("join: several organizations, the chosen one with a project opens it and fi
   await page.getByRole("radio", { name: /Pied Piper/ }).click();
   await expect(page.getByRole("radio", { name: /Pied Piper/ })).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Join Pied Piper" }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/middle-out/"));
+  await page.waitForURL((url) => url.pathname.startsWith("/project/middle-out/"));
 
   // Onboarding is finished: its pages send the user to their project now.
   await page.goto("/onboarding/join");
@@ -101,12 +101,12 @@ test("signed out → sign-up, then onboarding starts at the saved step", async (
   await page.waitForURL((url) => url.pathname === "/onboarding/about");
 
   // Back/forward between onboarding and another page still works.
-  await page.goto("/acme/requests");
+  await page.goto("/project/acme/requests");
   await page.goBack();
   await page.waitForURL((url) => url.pathname === "/onboarding/about");
   await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
   await page.goForward();
-  await page.waitForURL((url) => url.pathname === "/acme/requests");
+  await page.waitForURL((url) => url.pathname === "/project/acme/requests");
 });
 
 // #328: Continue on "What should you see first?" saves the pick as the home preference, so it is

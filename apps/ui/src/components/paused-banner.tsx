@@ -2,12 +2,13 @@
 
 import { usePathname } from "next/navigation";
 import { type ReactNode, createContext, useContext, useEffect, useState, useTransition } from "react";
-import { resumeProjectIngest } from "@/app/[project]/settings/general-actions";
+import { resumeProjectIngest } from "@/app/project/[project]/settings/general-actions";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "./onboarding/ob";
 import "./paused-banner.css";
+import { projectHref } from "@/lib/routes";
 
-/** The project a `/<project>/...` page is under and whether its ingest is paused (#823). */
+/** The project a `/project/<project>/...` page is under and whether its ingest is paused (#823). */
 export type ProjectStatus = { slug: string; paused: boolean };
 
 const ProjectStatusContext = createContext<ProjectStatus | null>(null);
@@ -35,7 +36,7 @@ export function PausedBanner({ project }: { project: string }) {
     if (paused) setResumed(false);
   }, [paused]);
 
-  if (!status || status.slug !== project || pathname === `/${project}/settings`) return null;
+  if (!status || status.slug !== project || pathname === projectHref(project, "settings")) return null;
   if (!status.paused || resumed) {
     return resumed ? (
       <p className="pb-sr" role="status">

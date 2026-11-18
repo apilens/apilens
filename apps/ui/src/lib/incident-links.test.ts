@@ -34,7 +34,7 @@ describe("incidentLinks", () => {
   it("opens Explore on the failing requests of the rule's scope from the incident's start", () => {
     const l = incidentLinks("shop", rule({ filters: { endpoint: "POST /checkout", consumer: "alice", group: "Acme" } }), APPS, "2026-11-16T11:20:30.500Z", NOW);
     expect(l.requests.label).toBe("See failing requests");
-    expect(l.requests.href.startsWith("/shop/explore?")).toBe(true);
+    expect(l.requests.href.startsWith("/project/shop/explore?")).toBe(true);
     const state = parseExploreQuery(query(l.requests.href));
     expect(state.range).toBe("1h");
     expect(state.from).toBe("2026-11-16T11:20:30Z");
@@ -51,18 +51,18 @@ describe("incidentLinks", () => {
   it("picks the smallest range that holds the incident's start", () => {
     const l = incidentLinks("shop", rule(), APPS, "2026-11-15T20:00:00Z", NOW);
     expect(query(l.requests.href).range).toBe("24h");
-    expect(l.errors.href).toBe("/shop/errors?range=24h&env=production");
+    expect(l.errors.href).toBe("/project/shop/errors?range=24h&env=production");
   });
 
   it("links the endpoint only when the rule names a method and route", () => {
     const withEp = incidentLinks("shop", rule({ filters: { endpoint: "GET /orders/{id}" } }), APPS, "2026-11-16T11:30:00Z", NOW);
-    expect(withEp.endpoint?.href).toBe(`/shop/endpoints/GET/${encodeURIComponent("/orders/{id}")}?range=1h&env=production&app=${APP}`);
+    expect(withEp.endpoint?.href).toBe(`/project/shop/endpoints/GET/${encodeURIComponent("/orders/{id}")}?range=1h&env=production&app=${APP}`);
     expect(incidentLinks("shop", rule({ filters: { endpoint: "/orders" } }), APPS, undefined, NOW).endpoint).toBeNull();
     expect(incidentLinks("shop", rule(), APPS, undefined, NOW).endpoint).toBeNull();
   });
 
   it("links the app by its slug, and not at all when the app is unknown", () => {
-    expect(incidentLinks("shop", rule(), APPS, undefined, NOW).app).toBe("/shop/apps/shop");
+    expect(incidentLinks("shop", rule(), APPS, undefined, NOW).app).toBe("/project/shop/apps/shop");
     expect(incidentLinks("shop", rule(), [], undefined, NOW).app).toBeNull();
   });
 });

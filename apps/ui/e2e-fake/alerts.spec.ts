@@ -47,7 +47,7 @@ test.afterEach(async () => {
 });
 
 test("create a channel and a rule, then see its incident open and resolve", async ({ page }) => {
-  await signIn(page, "/shop/settings/alerts");
+  await signIn(page, "/project/shop/settings/alerts");
   await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Alert channels" })).toBeVisible();
 
   // Channels: add, send a test (accepted and refused), the config is never shown again.
@@ -64,7 +64,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await expect(page.getByText("oncall@example.com")).toHaveCount(0);
 
   // No incidents yet: no badge.
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await expect(page.getByRole("status").filter({ hasText: "No open incidents." })).toBeVisible();
   await expect(badge(page)).toHaveCount(0);
 
@@ -138,7 +138,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
 
   // Resolved: it moves to Resolved and the badge goes away.
   await fake({ resolve: "Checkout error rate" });
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await expect(page.getByRole("table", { name: "Open incidents" })).toHaveCount(0);
   const resolved = page.getByRole("table", { name: "Resolved incidents" });
   await expect(resolved.locator("tbody tr")).toHaveCount(1);
@@ -147,7 +147,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
 });
 
 test("edit a rule, then delete it", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   await form.getByLabel("Name").fill("Slow checkout");
   await form.getByLabel("Metric").selectOption({ label: "p95 response time" });
@@ -169,7 +169,7 @@ test("edit a rule, then delete it", async ({ page }) => {
   await edit.getByRole("button", { name: "Save rule" }).click();
   await expect(edit.getByRole("status")).toHaveText("Saved Slow checkout.");
 
-  await page.goto("/shop/incidents/rules");
+  await page.goto("/project/shop/incidents/rules");
   await expect(row).toContainText("p95 response time > 1 s over 5 min");
   await expect(row).toContainText("Disabled");
 
@@ -181,7 +181,7 @@ test("edit a rule, then delete it", async ({ page }) => {
 });
 
 test("the rule editor alerts on server errors (5xx) apart from client errors (4xx)", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   const metric = form.getByLabel("Metric");
   await expect(metric.locator("option")).toContainText([
@@ -203,18 +203,18 @@ test("the rule editor alerts on server errors (5xx) apart from client errors (4x
 });
 
 test("members see alerts read-only", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new", "member");
+  await signIn(page, "/project/shop/incidents/rules/new", "member");
   await expect(page.getByText("You can see alerts. Only project admins can change rules and channels.")).toBeVisible();
   await expect(page.getByRole("form", { name: "New alert rule" }).getByLabel("Name")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Create rule" })).toHaveCount(0);
-  await page.goto("/shop/incidents/rules");
+  await page.goto("/project/shop/incidents/rules");
   await expect(page.getByRole("link", { name: "New rule" })).toHaveCount(0);
-  await page.goto("/shop/settings/alerts");
+  await page.goto("/project/shop/settings/alerts");
   await expect(page.getByRole("form", { name: "Add a channel" })).toHaveCount(0);
 });
 
 test("says so when the alerts API cannot answer, with a way to try again", async ({ page }) => {
-  await signIn(page, "/shop/incidents");
+  await signIn(page, "/project/shop/incidents");
   await queryDown(true);
   await page.reload();
   const alert = page.getByRole("alert").filter({ hasText: "We couldn’t load incidents just now." });
@@ -225,7 +225,7 @@ test("says so when the alerts API cannot answer, with a way to try again", async
 });
 
 test("a rule's timeline pages its incidents with Newer and Older, and charts their values", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   await page.getByLabel("Name").fill("Busy rule");
   await page.getByRole("button", { name: "Create rule" }).click();
   await page.waitForURL("**/shop/incidents/rules");
@@ -234,7 +234,7 @@ test("a rule's timeline pages its incidents with Newer and Older, and charts the
     await fake({ trigger: { rule: "Busy rule", value: 0.1 + k / 100, minutes_ago: k * 10 + 1 } });
     if (k > 0) await fake({ resolve: "Busy rule" });
   }
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await page.getByRole("link", { name: "Busy rule" }).click();
   const events = page.getByRole("list", { name: "Incidents of this rule" }).locator(":scope > li");
   await expect(events).toHaveCount(25);
@@ -259,12 +259,12 @@ test("a rule's timeline pages its incidents with Newer and Older, and charts the
 
 test("stacks incidents at phone width without sideways scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   await page.getByLabel("Name").fill("Errors");
   await page.getByRole("button", { name: "Create rule" }).click();
   await page.waitForURL("**/shop/incidents/rules");
   await fake({ trigger: { rule: "Errors", value: 0.2 } });
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await expect(page.getByRole("table", { name: "Open incidents" }).locator("tbody tr")).toHaveCount(1);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -297,7 +297,7 @@ async function seedGroups(groups: string[]) {
 test("a rule filters by an SDK consumer group, picked from those seen or typed", async ({ page }) => {
   await seedGroups(["Initech", "Acme Corp"]);
   try {
-    await signIn(page, "/shop/incidents/rules/new");
+    await signIn(page, "/project/shop/incidents/rules/new");
     const form = page.getByRole("form", { name: "New alert rule" });
     const group = form.getByLabel("Consumer group");
     // The groups the SDK reported lately are suggested, by name.
@@ -325,7 +325,7 @@ test("a rule filters by an SDK consumer group, picked from those seen or typed",
 
     // The incident's details name the group.
     await fake({ trigger: { rule: "Acme errors", value: 0.2 } });
-    await page.goto("/shop/incidents");
+    await page.goto("/project/shop/incidents");
     await page.getByRole("table", { name: "Open incidents" }).getByRole("link", { name: "Acme errors" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Acme errors" })).toBeVisible();
     await expect(page.locator(".al-summary")).toContainText("Shop · production · group Globex");
@@ -335,11 +335,11 @@ test("a rule filters by an SDK consumer group, picked from those seen or typed",
 });
 
 test("says nobody is notified while the project has no channel, and links to add one", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   // The rule editor's empty channel state links to add one.
   const form = page.getByRole("form", { name: "New alert rule" });
   await expect(form.getByText("No alert channels yet.", { exact: false })).toBeVisible();
-  await expect(form.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/shop/settings/alerts");
+  await expect(form.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/project/shop/settings/alerts");
   await form.getByLabel("Name").fill("Silent rule");
   await form.getByRole("button", { name: "Create rule" }).click();
   await page.waitForURL("**/shop/incidents/rules");
@@ -352,10 +352,10 @@ test("says nobody is notified while the project has no channel, and links to add
 
   // Incidents: a banner and the row both say nobody is notified.
   await fake({ trigger: { rule: "Silent rule", value: 0.2, minutes_ago: 3 } });
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   const banner = page.getByRole("note").filter({ hasText: "Nobody is notified: this project has no alert channels." });
   await expect(banner).toBeVisible();
-  await expect(banner.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/shop/settings/alerts");
+  await expect(banner.getByRole("link", { name: "Add a channel" })).toHaveAttribute("href", "/project/shop/settings/alerts");
   const incident = page.getByRole("table", { name: "Open incidents" }).locator("tbody tr").first();
   await expect(incident.getByRole("cell").nth(4)).toHaveText("No channel, nobody notified");
   await expect(incident).not.toContainText("Not yet");
@@ -366,7 +366,7 @@ test("says nobody is notified while the project has no channel, and links to add
   await banner.getByRole("link", { name: "Add a channel" }).click();
   await page.waitForURL("**/shop/settings/alerts");
   await addChannel(page, "On-call", "Email", { "Email addresses": "oncall@example.com" });
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await expect(page.getByRole("table", { name: "Open incidents" })).toBeVisible();
   await expect(page.getByText("Nobody is notified")).toHaveCount(0);
 });
@@ -389,7 +389,7 @@ function spikyPoints() {
 test("the rule editor previews the threshold against the last 24 hours and counts breaches", async ({ page }) => {
   await seedApps([{ id: "app-preview", slug: "shop", name: "Shop", traffic: { points: spikyPoints() } }]);
   try {
-    await signIn(page, "/shop/incidents/rules/new");
+    await signIn(page, "/project/shop/incidents/rules/new");
     const form = page.getByRole("form", { name: "New alert rule" });
     const preview = form.getByRole("region", { name: "Preview" });
     // Error rate > 5%: two spikes.
@@ -411,7 +411,7 @@ test("the rule editor previews the threshold against the last 24 hours and count
 });
 
 test("picking a metric brings its default threshold until one is typed, and the name follows", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   const metric = form.getByLabel("Metric");
   await metric.selectOption({ label: "p95 response time" });
@@ -432,7 +432,7 @@ test("picking a metric brings its default threshold until one is typed, and the 
 });
 
 test("an environment no traffic was seen from warns without blocking", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   await form.getByLabel("Environment").fill("prodution");
   await expect(form.getByText("No traffic seen from prodution; did you mean production?")).toBeVisible();

@@ -5,7 +5,7 @@
 // would have breached. The series loads (debounced) when the app or environment changes; the
 // threshold, condition and window recompute it in place.
 import { type ReactNode, useEffect, useState } from "react";
-import { loadRulePreview } from "@/app/[project]/incidents/rules/preview-actions";
+import { loadRulePreview } from "@/app/project/[project]/incidents/rules/preview-actions";
 import { conditionText, formatMetric, metricLabel } from "@/lib/alerts";
 import { niceMax } from "@/lib/consumers";
 import type { AlertCondition, AlertMetric, TrafficPoint } from "@/lib/identity";

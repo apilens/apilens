@@ -5,13 +5,14 @@
 // round trip. Pure; safe in Client Components and Server Actions alike.
 import type { PrivacyPolicy, PutPrivacyPolicyRequest } from "./identity";
 import { BUILT_IN_DEFAULTS, type PatternLists, type Redactor, type RedactorDefaults } from "./privacy-redact";
+import { projectHref } from "./routes";
 
 /** The section of project settings that edits the deny list. */
 export const PRIVACY_SECTION = "privacy";
 
-/** `/<project>/settings/privacy`. */
+/** `/project/<project>/settings/privacy`. */
 export function privacyPath(project: string): string {
-  return `/${project}/settings/${PRIVACY_SECTION}`;
+  return projectHref(project, "settings", PRIVACY_SECTION);
 }
 
 /** Most patterns per list (`maxItems`, `privacy.MaxPatterns`). */

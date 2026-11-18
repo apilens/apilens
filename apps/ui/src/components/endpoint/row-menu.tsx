@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useId, useRef, useState, useTransition } from "react";
-import { loadEndpointSettings, saveEndpointSettings } from "@/app/[project]/endpoints/[method]/[path]/actions";
+import { loadEndpointSettings, saveEndpointSettings } from "@/app/project/[project]/endpoints/[method]/[path]/actions";
 import { QUICK_EXPECTED, isExpected, settingsBody, settingsError, thresholdText, toggleExpected, withThreshold } from "@/lib/endpoint-detail";
 import type { EndpointSettings, NamedApp, PutEndpointSettingsRequest } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";

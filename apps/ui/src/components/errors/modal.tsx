@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type ReactNode, createContext, useContext, useEffect, useId, useRef, useState, useTransition } from "react";
-import { markStatusExpected } from "@/app/[project]/errors/actions";
+import { markStatusExpected } from "@/app/project/[project]/errors/actions";
 import { useCan } from "@/lib/permissions";
 
 /** Lets an action inside the modal report its outcome above the modal's content. */

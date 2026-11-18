@@ -2,6 +2,7 @@
 // `range` and `env` of the page being read, so moving from Traffic to Errors keeps the last 7 days
 // in production. Pure; safe in Client Components.
 import { ENV_ALL } from "./scope-defaults";
+import { projectHref } from "./routes";
 
 /** The search params that travel with the sidebar's links, in this order. */
 export const SCOPE_PARAMS = ["range", "env"] as const;
@@ -32,7 +33,7 @@ export function withScope(href: string, current: Readable, opts: { keepEnvAll?: 
   return s ? `${path}?${s}` : path;
 }
 
-/** A sidebar link to one of the project's pages (`/<project>/<view>`), keeping the scope. */
+/** A sidebar link to one of the project's pages (`/project/<project>/<view>`), keeping the scope. */
 export function sidebarHref(project: string, view: string, current: Readable): string {
-  return withScope(`/${project}/${view}`, current, { keepEnvAll: ENV_ALL_VIEWS.has(view) });
+  return withScope(projectHref(project, view), current, { keepEnvAll: ENV_ALL_VIEWS.has(view) });
 }

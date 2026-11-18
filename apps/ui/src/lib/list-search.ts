@@ -3,7 +3,7 @@
 // browser, with the search (`?q=`) and the page (`?page=&per=`, lib/pagination) in the URL so a
 // reload, the back button and a shared link land on the same rows. Unit-tested in
 // list-search.test.ts. Pure; safe in Client and Server Components alike.
-import { PAGE_PARAM, type PageOptions, type PageWindow, type ParamsInput, pageHref, withoutPage } from "./pagination";
+import { PAGE_PARAM, type PageOptions, type PageWindow, type ParamsInput, pageHref, pageKeys, withoutPage } from "./pagination";
 
 /** The search parameter. */
 export const SEARCH_PARAM = "q";
@@ -13,9 +13,18 @@ const MAX_QUERY = 200;
 
 const first = (v: string | string[] | null | undefined) => (Array.isArray(v) ? v[0] : (v ?? undefined));
 
-/** `?q=` as typed (trimmed, at most 200 characters); empty when there is none. */
-export function parseQuery(params: ParamsInput): string {
-  const raw = params instanceof URLSearchParams ? params.get(SEARCH_PARAM) : first(params[SEARCH_PARAM]);
+/**
+ * The URL keys one list reads and writes: its search and its paging. A second list on the same page
+ * (Team: members, then invitations) uses its own, so the two never share a search or a page.
+ */
+export interface ListKeys {
+  search?: string;
+  page?: PageOptions;
+}
+
+/** `?q=` (or the list's own search key) as typed (trimmed, at most 200 characters); empty when there is none. */
+export function parseQuery(params: ParamsInput, key: string = SEARCH_PARAM): string {
+  const raw = params instanceof URLSearchParams ? params.get(key) : first(params[key]);
   return (raw ?? "").trim().slice(0, MAX_QUERY);
 }
 
@@ -42,12 +51,20 @@ export function searchRows<T>(rows: readonly T[], query: string, of: (row: T) =>
  * The params with the search set to `query` (removed when empty). A changed search goes back to
  * page 1; the same search keeps the page. Returns a fresh URLSearchParams.
  */
-export function withQuery(params: ParamsInput, query: string): URLSearchParams {
-  const current = parseQuery(params);
+export function withQuery(params: ParamsInput, query: string, keys: ListKeys = {}): URLSearchParams {
+  const key = keys.search ?? SEARCH_PARAM;
+  const pageKey = pageKeys(keys.page).page;
+  const current = parseQuery(params, key);
   const q = query.trim();
-  const p = q === current ? toSearch(params) : withoutPage(params);
-  if (q) p.set(SEARCH_PARAM, q);
-  else p.delete(SEARCH_PARAM);
+  let p: URLSearchParams;
+  if (q === current) p = toSearch(params);
+  else if (pageKey === PAGE_PARAM) p = withoutPage(params);
+  else {
+    p = toSearch(params);
+    p.delete(pageKey);
+  }
+  if (q) p.set(key, q);
+  else p.delete(key);
   return p;
 }
 
@@ -57,7 +74,8 @@ export function withQuery(params: ParamsInput, query: string): URLSearchParams {
  * `?page=` is past the end. Null when the URL already matches what is shown.
  */
 export function canonicalPageHref(pathname: string, params: ParamsInput, shown: Pick<PageWindow, "page">, options?: PageOptions): string | null {
-  const raw = params instanceof URLSearchParams ? params.get(PAGE_PARAM) : first(params[PAGE_PARAM]);
+  const key = pageKeys(options).page;
+  const raw = params instanceof URLSearchParams ? params.get(key) : first(params[key]);
   // Page 1 has no `page` in the URL (pageHref leaves it out); any other page names itself exactly.
   const canonical = shown.page === 1 ? raw === undefined || raw === null : raw === String(shown.page);
   if (canonical) return null;

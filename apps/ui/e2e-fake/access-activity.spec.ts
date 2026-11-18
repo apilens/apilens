@@ -9,7 +9,7 @@ const ADMIN = ["project.read", "project.update", "api_keys.create", "api_keys.re
 const VIEWER = ["project.read"];
 const ADA = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
 const PRIYA = "5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b";
-const PATH = "/shop/access/activity";
+const PATH = "/project/shop/access/activity";
 
 async function seedAudit(body: Record<string, unknown> = {}) {
   const res = await fetch(`${IDENTITY}/__fake/audit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -163,7 +163,7 @@ test("empty and error states", async ({ page }) => {
 });
 
 test("without audit.read the tab is hidden and a direct link shows the not-allowed state", async ({ page }) => {
-  await signIn(page, "/shop/access", VIEWER);
+  await signIn(page, "/project/shop/access", VIEWER);
   await expect(page.getByRole("navigation", { name: "Access", exact: true }).getByRole("link")).toHaveText(["Members", "API keys"]);
   const res = await page.goto(PATH);
   expect(res?.status()).toBe(200);

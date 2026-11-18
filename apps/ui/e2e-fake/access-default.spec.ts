@@ -18,11 +18,11 @@ async function signIn(page: Page, capabilities: string[] = ADMIN, stale = false)
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next: "/shop/access", capabilities, stale }),
+    body: JSON.stringify({ next: "/project/shop/access", capabilities, stale }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
-  await page.waitForURL((url) => url.pathname === "/shop/access");
+  await page.waitForURL((url) => url.pathname === "/project/shop/access");
 }
 
 const card = (page: Page) => page.getByRole("region", { name: "Default access" });
@@ -229,14 +229,14 @@ test("screenshots", async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme as "light" | "dark" });
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
-      await page.goto("/shop/access");
+      await page.goto("/project/shop/access");
       await expect(card(page)).toBeVisible();
       await page.screenshot({ path: `${dir}/access-default-${theme}-${width}.png`, fullPage: true });
       await page.screenshot({ path: `${dir}/access-default-${theme}-${width}-first-screen.png` });
     }
   }
   await seed({ default_access: "org_role" });
-  await page.goto("/shop/access");
+  await page.goto("/project/shop/access");
   await pick(page, RESTRICTED);
   await expect(page.getByRole("dialog", { name: "Restrict shop?" })).toBeVisible();
   await page.screenshot({ path: `${dir}/access-default-confirm.png` });

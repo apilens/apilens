@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_VIEW } from "./data";
 import { ApiError, type ContextOrg, type UserContext } from "./identity";
-import { HOME_SCREEN_VIEW, homeView, landingFor, onboardingPath, projectHasData, sdkSetupPath } from "./landing";
+import { HOME_SCREEN_VIEW, homeView, landingFor, onboardingPath, orgLanding, projectHasData, sdkSetupPath } from "./landing";
 
 class Redirect extends Error {
   constructor(readonly location: string) {
@@ -71,7 +71,7 @@ describe("landingFor", () => {
   });
 
   it("opens the last project on the default view", () => {
-    expect(landingFor(ctx())).toBe(`/billing/${HOME_VIEW}`);
+    expect(landingFor(ctx())).toBe(`/project/billing/${HOME_VIEW}`);
   });
 
   it.each([
@@ -81,20 +81,20 @@ describe("landingFor", () => {
   ] as const)("home screen %s opens %s", (home, view) => {
     expect(HOME_SCREEN_VIEW[home]).toBe(view);
     expect(homeView(ctx({}, { home }))).toBe(view);
-    expect(landingFor(ctx({}, { home }))).toBe(`/billing/${view}`);
-    expect(landingFor(ctx({}, { home }), true)).toBe(`/billing/${view}`);
+    expect(landingFor(ctx({}, { home }))).toBe(`/project/billing/${view}`);
+    expect(landingFor(ctx({}, { home }), true)).toBe(`/project/billing/${view}`);
   });
 
   it("an unknown home preference opens the default view", () => {
-    expect(landingFor(ctx({}, { home: "explore" as never }))).toBe(`/billing/${HOME_VIEW}`);
-    expect(landingFor(ctx({}, { home: "dashboard" as never }))).toBe(`/billing/${HOME_VIEW}`);
+    expect(landingFor(ctx({}, { home: "explore" as never }))).toBe(`/project/billing/${HOME_VIEW}`);
+    expect(landingFor(ctx({}, { home: "dashboard" as never }))).toBe(`/project/billing/${HOME_VIEW}`);
   });
 
   it("a project with no ingested data opens Settings > SDK setup, whatever the home screen", () => {
-    expect(sdkSetupPath("billing")).toBe("/billing/settings/sdk");
-    expect(landingFor(ctx(), false)).toBe("/billing/settings/sdk");
-    expect(landingFor(ctx({}, { home: "exceptions" }), false)).toBe("/billing/settings/sdk");
-    expect(landingFor(ctx({ last_project_slug: null }), false)).toBe("/shop/settings/sdk");
+    expect(sdkSetupPath("billing")).toBe("/project/billing/settings/sdk");
+    expect(landingFor(ctx(), false)).toBe("/project/billing/settings/sdk");
+    expect(landingFor(ctx({}, { home: "exceptions" }), false)).toBe("/project/billing/settings/sdk");
+    expect(landingFor(ctx({ last_project_slug: null }), false)).toBe("/project/shop/settings/sdk");
     // The rule never overrides onboarding.
     expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }), false)).toBe(
       "/onboarding/join",
@@ -102,16 +102,34 @@ describe("landingFor", () => {
   });
 
   it("falls back to the first visible project without a (visible) last project", () => {
-    expect(landingFor(ctx({ last_project_slug: null }))).toBe(`/shop/${HOME_VIEW}`);
-    expect(landingFor(ctx({ last_project_slug: "gone" }))).toBe(`/shop/${HOME_VIEW}`);
+    expect(landingFor(ctx({ last_project_slug: null }))).toBe(`/project/shop/${HOME_VIEW}`);
+    expect(landingFor(ctx({ last_project_slug: "gone" }))).toBe(`/project/shop/${HOME_VIEW}`);
   });
 
-  it("an organization without projects resumes onboarding, or opens its settings once onboarded", () => {
+  it("an organization without projects resumes onboarding, or opens its projects page once onboarded", () => {
     const empty = { ...ACME, projects: [] };
     expect(landingFor(ctx({ orgs: [empty], last_project_slug: null, onboarding: { step: "create", completed: false } }))).toBe(
       "/onboarding/create",
     );
-    expect(landingFor(ctx({ orgs: [empty], last_project_slug: null }))).toBe("/orgs/acme/settings");
+    expect(landingFor(ctx({ orgs: [empty], last_project_slug: null }))).toBe("/org/acme");
+  });
+});
+
+describe("orgLanding (/org)", () => {
+  const BETA = { ...ACME, id: "o2", slug: "beta", name: "Beta", projects: [{ ...ACME.projects[0], id: "p3", slug: "web" }] };
+
+  it("opens the last project's organization", () => {
+    expect(orgLanding(ctx({ orgs: [ACME, BETA], last_project_slug: "web" }))).toBe("/org/beta");
+    expect(orgLanding(ctx({ orgs: [ACME, BETA], last_project_slug: "billing" }))).toBe("/org/acme");
+  });
+
+  it("falls back to the first organization", () => {
+    expect(orgLanding(ctx({ orgs: [BETA, ACME], last_project_slug: null }))).toBe("/org/beta");
+    expect(orgLanding(ctx({ orgs: [BETA, ACME], last_project_slug: "gone" }))).toBe("/org/beta");
+  });
+
+  it("sends a user without an organization to onboarding", () => {
+    expect(orgLanding(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }))).toBe("/onboarding/join");
   });
 });
 
@@ -162,19 +180,19 @@ describe("/ (app/page.tsx)", () => {
 
   it("signed in with projects → last project on the home view", async () => {
     getContext.mockResolvedValue(ctx({}, { home: "requests" }));
-    await expect(Home()).rejects.toEqual(new Redirect("/billing/explore"));
+    await expect(Home()).rejects.toEqual(new Redirect("/project/billing/explore"));
     expect(listManagedApps).toHaveBeenCalledWith("billing", { accessToken: "a" });
   });
 
   it("signed in on a project with no ingested data → its SDK setup", async () => {
     getContext.mockResolvedValue(ctx({}, { home: "exceptions" }));
     listManagedApps.mockResolvedValue({ apps: [{ first_seen_at: null, last_seen_at: null }] });
-    await expect(Home()).rejects.toEqual(new Redirect("/billing/settings/sdk"));
+    await expect(Home()).rejects.toEqual(new Redirect("/project/billing/settings/sdk"));
   });
 
   it("the data check failing falls back to the home view", async () => {
     getContext.mockResolvedValue(ctx({}, { home: "exceptions" }));
     listManagedApps.mockRejectedValue(new ApiError({ status: 403, code: "forbidden" }));
-    await expect(Home()).rejects.toEqual(new Redirect("/billing/errors"));
+    await expect(Home()).rejects.toEqual(new Redirect("/project/billing/errors"));
   });
 });

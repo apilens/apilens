@@ -88,7 +88,7 @@ describe("checkLists", () => {
 
 describe("helpers", () => {
   it("privacyPath", () => {
-    expect(privacyPath("shop")).toBe("/shop/settings/privacy");
+    expect(privacyPath("shop")).toBe("/project/shop/settings/privacy");
   });
 
   it("validLists keeps only usable patterns, for the tester", () => {

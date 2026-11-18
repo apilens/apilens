@@ -4,10 +4,15 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { REFRESH_HEADER, decide } from "./lib/auth-gate";
 import { PATH_HEADER } from "./lib/project-redirect";
+import { legacyRedirect } from "./lib/routes";
 import { SESSION_COOKIE_NAME, open } from "./lib/session-edge";
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  // The old URL scheme (`/<slug>/...`, `/orgs/<slug>/settings/...`) moved for good (lib/routes.ts).
+  const moved = legacyRedirect(pathname, search);
+  if (moved) return NextResponse.redirect(new URL(moved, request.url), 308);
+
   const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = cookie ? await open(cookie) : null;
 

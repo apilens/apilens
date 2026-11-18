@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
-import { createApiKey, revokeApiKey, rotateApiKey, updateApiKeyAccess } from "@/app/[project]/settings/actions";
+import { createApiKey, revokeApiKey, rotateApiKey, updateApiKeyAccess } from "@/app/project/[project]/settings/actions";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useReauth } from "@/components/reauth-dialog";
 import {
@@ -76,7 +76,7 @@ interface AppsInfo {
 }
 
 /**
- * Access › API keys, `/<project>/access/keys` (#350, moved in #801, columns in #810): the project's
+ * Access › API keys, `/project/<project>/access/keys` (#350, moved in #801, columns in #810): the project's
  * API keys, newest first, with their name, prefix, what they can do (ingest, create apps, read,
  * and their app and environment limits in words), who created them and when, last use (relative,
  * with the SDK and version, the exact time on hover), expiry and state (Active, Expires in 5 days,

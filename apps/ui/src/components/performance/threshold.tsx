@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useId, useRef, useState, useTransition } from "react";
-import { loadAppThreshold, saveAppThreshold } from "@/app/[project]/performance/actions";
+import { loadAppThreshold, saveAppThreshold } from "@/app/project/[project]/performance/actions";
 import type { AppSettings, NamedApp } from "@/lib/identity";
 import { DEFAULT_THRESHOLD_MS, checkThresholdDraft, thresholdDraft } from "@/lib/performance";
 import { useCan } from "@/lib/permissions";

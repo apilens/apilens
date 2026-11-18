@@ -4,6 +4,7 @@
 // Pure; safe in Client Components; unit-tested in release-setup.test.ts.
 import { type ConsumerSdk, pickConsumerSdks } from "./consumer-setup";
 import type { Snippet } from "./install";
+import { projectHref } from "./routes";
 
 export type ReleaseSdk = ConsumerSdk;
 
@@ -77,10 +78,10 @@ export const RELEASE_STEP_ID = "release";
 
 /** Settings › SDK setup, at its "Release and commit" step. */
 export function sdkSetupReleaseHref(project: string): string {
-  return `/${encodeURIComponent(project)}/settings/sdk#${RELEASE_STEP_ID}`;
+  return `${projectHref(project, "settings", "sdk")}#${RELEASE_STEP_ID}`;
 }
 
 /** Settings › Integrations, where the repository link turns commits into links. */
 export function integrationsHref(project: string): string {
-  return `/${encodeURIComponent(project)}/settings/integrations`;
+  return projectHref(project, "settings", "integrations");
 }

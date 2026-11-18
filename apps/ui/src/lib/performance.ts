@@ -8,6 +8,7 @@ import { NO_FILTERS } from "./explore-filters";
 import type { AppSettings, EndpointTraffic, QueryRange, RequestRow } from "./identity";
 import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES, endpointHref, formatLatency, parseAppParam } from "./traffic";
+import { projectHref } from "./routes";
 
 /** The Apdex threshold T when neither the endpoint nor its app sets one, in ms. */
 export const DEFAULT_THRESHOLD_MS = 500;
@@ -53,7 +54,7 @@ export function performanceHref(project: string, q: Partial<PerformanceState>): 
   if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.app) p.set("app", q.app);
   const s = p.toString();
-  return `/${encodeURIComponent(project)}/performance${s ? `?${s}` : ""}`;
+  return `${projectHref(project, "performance")}${s ? `?${s}` : ""}`;
 }
 
 /** An endpoint's Response times tab, keeping the range and environment, scoped to the row's app (#976). */

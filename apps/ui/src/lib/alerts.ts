@@ -16,13 +16,14 @@ import type {
 import type { PageOptions } from "./pagination";
 import { formatAgo } from "./first-data";
 import { formatPercent } from "./format";
+import { projectHref } from "./routes";
 
 // ---------------------------------------------------------------- routes
 
 /** The project settings section that holds the notification channels. */
 export const CHANNELS_SECTION = "alerts";
 
-const base = (project: string) => `/${encodeURIComponent(project)}`;
+const base = (project: string) => projectHref(project);
 export const incidentsHref = (project: string, range?: IncidentsRange) =>
   `${base(project)}/incidents${range && range !== INCIDENTS_RANGE ? `?range=${range}` : ""}`;
 export const incidentHref = (project: string, ruleId: string) => `${base(project)}/incidents/${encodeURIComponent(ruleId)}`;

@@ -26,7 +26,7 @@ async function signIn(page: Page, next: string, role?: string) {
 
 /** Creates a rule as an admin and opens one incident of it 20 minutes ago. */
 async function ruleWithIncident(page: Page, name: string, metric: string, endpoint?: string) {
-  await page.goto("/shop/incidents/rules/new");
+  await page.goto("/project/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   await form.getByLabel("Name").fill(name);
   await form.getByLabel("Metric").selectOption({ label: metric });
@@ -45,9 +45,9 @@ test.beforeEach(async () => {
 });
 
 test("an incident links to its failing requests, Errors, the endpoint and the app", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   await ruleWithIncident(page, "Checkout 5xx", "Server error rate (5xx)", "POST /checkout");
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await page.getByRole("link", { name: "Checkout 5xx" }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: "Checkout 5xx" })).toBeVisible();
   const incident = page.url();
@@ -77,7 +77,7 @@ test("an incident links to its failing requests, Errors, the endpoint and the ap
   await page.goto(incident);
   await actions(page).getByRole("link", { name: "Endpoint" }).click();
   await page.waitForURL("**/shop/endpoints/POST/**");
-  expect(new URL(page.url()).pathname).toBe(`/shop/endpoints/POST/${encodeURIComponent("/checkout")}`);
+  expect(new URL(page.url()).pathname).toBe(`/project/shop/endpoints/POST/${encodeURIComponent("/checkout")}`);
   expect(params(page)).toMatchObject({ range: "1h", env: "production", app: SHOP_APP });
 
   // The Scope's app name opens the app.
@@ -87,9 +87,9 @@ test("an incident links to its failing requests, Errors, the endpoint and the ap
 });
 
 test("a client error rule reads 4xx, and a rule without an endpoint has no Endpoint link", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   await ruleWithIncident(page, "Bad requests", "Client errors (4xx)");
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await page.getByRole("link", { name: "Bad requests" }).first().click();
   await expect(actions(page).getByRole("link", { name: "Endpoint" })).toHaveCount(0);
   await actions(page).getByRole("link", { name: "See failing requests" }).click();
@@ -101,9 +101,9 @@ test("a client error rule reads 4xx, and a rule without an endpoint has no Endpo
 });
 
 test("admins disable and enable the rule from its incident; members do not see it", async ({ page }) => {
-  await signIn(page, "/shop/incidents/rules/new");
+  await signIn(page, "/project/shop/incidents/rules/new");
   await ruleWithIncident(page, "Checkout 5xx", "Server error rate (5xx)");
-  await page.goto("/shop/incidents");
+  await page.goto("/project/shop/incidents");
   await page.getByRole("link", { name: "Checkout 5xx" }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: "Checkout 5xx" })).toBeVisible();
   const incident = page.url();

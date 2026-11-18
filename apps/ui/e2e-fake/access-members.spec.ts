@@ -36,7 +36,7 @@ test.afterAll(async () => {
 });
 
 test("lists everyone with their effective role and where it comes from", async ({ page }) => {
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await expect(page.getByText("9 people have access: 4 Admins, 3 Editors, 2 Viewers.")).toBeVisible();
   await expect(page.getByText("Default access: organization members can edit and organization viewers can view.")).toBeVisible();
   await expect(rows(page)).toHaveCount(9);
@@ -59,7 +59,7 @@ test("lists everyone with their effective role and where it comes from", async (
 });
 
 test("search by name or email keeps the query in the URL", async ({ page }) => {
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await page.getByRole("searchbox", { name: "Search people" }).fill("kovac");
   await page.waitForURL((url) => url.searchParams.get("q") === "kovac");
   await expect(rows(page)).toHaveCount(1);
@@ -79,7 +79,7 @@ test("search by name or email keeps the query in the URL", async ({ page }) => {
 });
 
 test("filters by role and by source, in the URL", async ({ page }) => {
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await page.getByLabel("Role", { exact: true }).selectOption("editor");
   await page.waitForURL((url) => url.searchParams.get("role") === "editor");
   await expect(rows(page)).toHaveCount(3);
@@ -89,7 +89,7 @@ test("filters by role and by source, in the URL", async ({ page }) => {
   await page.waitForURL((url) => url.searchParams.get("source") === "direct" && url.searchParams.get("role") === "editor");
   await expect(rows(page).locator("th")).toHaveText([/Lena Kovač/, /Tom Becker/]);
 
-  await page.goto("/shop/access?source=org_role");
+  await page.goto("/project/shop/access?source=org_role");
   await expect(rows(page)).toHaveCount(3);
   await expect(page.getByLabel("Source", { exact: true })).toHaveValue("org_role");
 });
@@ -105,7 +105,7 @@ test("pages through a long list with the page in the URL", async ({ page }) => {
     last_active_at: "2026-11-01T10:00:00Z",
   }));
   await seed({ members });
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await expect(page.getByText("30 people have access: 1 Admin, 29 Editors.")).toBeVisible();
   await expect(rows(page)).toHaveCount(25);
   const pages = page.getByRole("navigation", { name: "Members pages" });
@@ -128,7 +128,7 @@ test("a restricted project nobody was added to says so", async ({ page }) => {
       { user_id: "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f", name: "Max Member", email: "max@example.com", org_role: "member", direct_role: null, added_at: "2026-10-01T10:00:00Z", last_active_at: null },
     ],
   });
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await expect(page.getByText(/^Nobody has been added to shop$/i)).toBeVisible();
   await expect(page.getByText("Default access: only organization owners and admins, and people added directly.")).toBeVisible();
   await expect(rows(page)).toHaveCount(1);
@@ -136,13 +136,13 @@ test("a restricted project nobody was added to says so", async ({ page }) => {
 
 test("an API failure says so instead of an empty list", async ({ page }) => {
   await seed({ down: true });
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await expect(page.getByRole("alert").filter({ hasText: "Couldn’t load" })).toHaveText(/^Couldn’t load the people with access to shop\. Reload the page to try again\.$/i);
   await expect(table(page)).toHaveCount(0);
 });
 
 test("a viewer sees the same list, read-only", async ({ page }) => {
-  await signIn(page, "/shop/access", VIEWER);
+  await signIn(page, "/project/shop/access", VIEWER);
   await expect(page.getByText("9 people have access: 4 Admins, 3 Editors, 2 Viewers.")).toBeVisible();
   await expect(rows(page)).toHaveCount(9);
   // Changing access (#807) is there, disabled with the reason.
@@ -153,7 +153,7 @@ test("a viewer sees the same list, read-only", async ({ page }) => {
 
 test("at 390 px each person is a card of labelled lines", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   await expect(table(page).locator("thead")).toBeHidden();
   const tom = row(page, "Tom Becker");
   for (const label of ["Role", "Source", "Last active", "Added by"]) await expect(tom.locator(`td[data-label="${label}"]`)).toBeVisible();
@@ -165,13 +165,13 @@ test("at 390 px each person is a card of labelled lines", async ({ page }) => {
 test("screenshots", async ({ page }) => {
   const dir = process.env.ACCESS_SHOTS;
   test.skip(!dir, "set ACCESS_SHOTS to a directory to capture screenshots");
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   for (const theme of ["light", "dark"]) {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);
     await page.emulateMedia({ colorScheme: theme as "light" | "dark" });
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
-      await page.goto("/shop/access");
+      await page.goto("/project/shop/access");
       await expect(rows(page).first()).toBeVisible();
       await page.screenshot({ path: `${dir}/access-members-${theme}-${width}.png`, fullPage: true });
     }

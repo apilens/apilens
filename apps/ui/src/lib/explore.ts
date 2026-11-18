@@ -7,6 +7,7 @@ import { type ExploreWindow, chartWindow, instantText, isoSecond, logWindow, par
 import type { QueryRange, RequestRow } from "./identity";
 import { TRAIL_PARAM, trailHrefs } from "./pagination";
 import { sameDay, zonedParts } from "./time-zone";
+import { projectHref } from "./routes";
 
 export const EXPLORE_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "1h";
@@ -58,7 +59,7 @@ function exploreSearch(q: Partial<ExploreState>, withRange: boolean, w: ExploreW
 
 /** The page URL for `q`, leaving defaults out. */
 export function exploreHref(project: string, q: Partial<ExploreState>): string {
-  return `/${encodeURIComponent(project)}/explore${exploreSearch(q, false, q)}`;
+  return `${projectHref(project, "explore")}${exploreSearch(q, false, q)}`;
 }
 
 /**
@@ -99,7 +100,7 @@ export function exploreHrefFor(project: string, s: ExploreScope): string {
     latency_min: lat !== null && lat !== undefined && Number.isFinite(lat) && lat >= 0 ? Math.floor(lat) : null,
   };
   const w: ExploreWindow = s.from && s.to ? { from: s.from, to: s.to } : {};
-  return `/${encodeURIComponent(project)}/explore${exploreSearch({ range: s.range, filters }, true, w)}`;
+  return `${projectHref(project, "explore")}${exploreSearch({ range: s.range, filters }, true, w)}`;
 }
 
 /**

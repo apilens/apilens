@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState, useTransition } from "react";
-import { deleteProjectNow, pauseProjectIngest, renameProjectSlug } from "@/app/[project]/settings/danger-actions";
-import { resumeProjectIngest } from "@/app/[project]/settings/general-actions";
+import { deleteProjectNow, pauseProjectIngest, renameProjectSlug } from "@/app/project/[project]/settings/danger-actions";
+import { resumeProjectIngest } from "@/app/project/[project]/settings/general-actions";
 import type { ProjectDetail } from "@/lib/identity";
 import { PROJECT_SLUG_CHECK_PATH, type SlugStatus, checkableSlug, createSlugChecker } from "@/lib/org-slug";
 import { formatDay, formatExact } from "@/lib/passkey-settings";
@@ -18,6 +18,7 @@ import { PROJECT_SETTINGS } from "@/lib/data";
 import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "./danger.css";
+import { orgHref, projectHref } from "@/lib/routes";
 
 /** The project as `GET /projects/{slug}` answers it; null when the API could not answer. */
 export type DangerLoad = ProjectDetail | null;
@@ -28,13 +29,13 @@ type Dialog = "pause" | "rename" | "delete" | null;
 /** Why the actions are disabled for those without `project.delete`. */
 const ADMINS_ONLY = "Only project admins can pause, rename or delete this project. Ask a project admin.";
 
-/** Where a deleted project's admin lands: the organization's projects, with a status message. */
+/** Where a deleted project's admin lands: Organization settings > General, with a status message. */
 export function deletedHref(org: string, slug: string): string {
-  return `/orgs/${encodeURIComponent(org)}/settings?${new URLSearchParams({ deleted: slug })}`;
+  return `${orgHref(org, "general")}?${new URLSearchParams({ deleted: slug })}`;
 }
 
 /**
- * `/<project>/settings/danger` (#821): pause data collection (typed project name; resume needs no
+ * `/project/<project>/settings/danger` (#821): pause data collection (typed project name; resume needs no
  * confirmation), change the project slug (availability checked as in onboarding; old links
  * redirect) and delete the project (typed slug; restorable for 7 days). Gated by
  * `project.delete`: everyone else sees the rows with the actions disabled and the reason.
@@ -73,7 +74,7 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
   const [current, setCurrent] = useState(initial);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
-  const [status, setStatus] = useState<Status>(renamedFrom ? { tone: "ok", text: `Slug changed. Links to /${renamedFrom} now redirect here.` } : null);
+  const [status, setStatus] = useState<Status>(renamedFrom ? { tone: "ok", text: `Slug changed. Links to /project/${renamedFrom} now redirect here.` } : null);
   const [pending, start] = useTransition();
   const [slug, setSlug] = useState("");
   const [slugError, setSlugError] = useState<string | null>(null);
@@ -156,7 +157,7 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
       const result = await withReauth(() => renameProjectSlug(project, wanted));
       if (result.ok) {
         // The URL carries the slug: go to the same section under the new one.
-        router.replace(`/${result.project.slug}/settings/danger?${new URLSearchParams({ renamed: current.slug })}`);
+        router.replace(`${projectHref(result.project.slug, "settings", "danger")}?${new URLSearchParams({ renamed: current.slug })}`);
       } else if (result.code !== REAUTH_CANCELLED) setDialogError(result.error);
     });
   };
@@ -215,7 +216,7 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
             <div className="os-danger">
               <p className="t">
                 <b id="pdz-rename-t">Change project slug</b>
-                Links to /{current.slug} redirect to the new slug, and /{current.slug} stays reserved for 30 days. SDKs use API keys, so they keep working unchanged.
+                Links to /project/{current.slug} redirect to the new slug, and the slug {current.slug} stays reserved for 30 days. SDKs use API keys, so they keep working unchanged.
               </p>
             </div>
             <div className="pdz-slug">
@@ -307,7 +308,7 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
         onCancel={close}
       >
         <p>
-          The project moves to /{wanted}. Links to /{current.slug} redirect there, and /{current.slug} stays reserved for this project for 30 days. SDKs use API keys,
+          The project moves to /project/{wanted}. Links to /project/{current.slug} redirect there, and the slug {current.slug} stays reserved for this project for 30 days. SDKs use API keys,
           so they keep working unchanged.
         </p>
       </ConfirmDialog>

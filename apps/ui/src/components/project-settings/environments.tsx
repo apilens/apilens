@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useState, useTransition } from "react";
-import { type EnvironmentsResult, addEnvironment, removeEnvironment, reorderEnvironments, updateEnvironment } from "@/app/[project]/settings/environments-actions";
+import { type EnvironmentsResult, addEnvironment, removeEnvironment, reorderEnvironments, updateEnvironment } from "@/app/project/[project]/settings/environments-actions";
 import {
   ENVIRONMENT_COLORS,
   ENVIRONMENT_COLOR_LABELS,
@@ -31,7 +31,7 @@ type Status = { tone: "ok" | "err"; text: string } | null;
 type Pending = { name: string; kind: "confirm" } | { name: string; kind: "refused"; text: string } | null;
 
 /**
- * `/<project>/settings/environments` (#816, #753 D11): the project's environments in order, each
+ * `/project/<project>/settings/environments` (#816, #753 D11): the project's environments in order, each
  * with its colour, production label, where it came from, when data last arrived and the keys
  * limited to it. Holders of `project.update` (project admins and editors) add, reorder, colour,
  * mark as production, hide and remove; an environment with data can only be hidden. Hidden ones

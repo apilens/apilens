@@ -1,0 +1,19 @@
+/* Organization scope lists (`/org/<org>` projects, `/organizations`): cards in a grid, Supabase's
+   project cards. Tokens from tokens.css only. */
+.org-count { margin: 0 0 var(--space-3); font: 500 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.org-card { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: var(--space-3); row-gap: var(--space-4); height: 100%; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); color: var(--ink); text-decoration: none; transition: border-color .12s ease, background-color .12s ease; }
+.org-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.org-card:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.org-card__mark { width: 32px; height: 32px; border-radius: 8px; font-size: 14px; }
+.org-card__t { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.org-card__t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px/20px var(--font-sans); }
+.org-card__t code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+.org-card__meta { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+.org-badge { flex: none; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/14px var(--font-sans); color: var(--ink-muted); }
+
+.org-empty { padding: var(--space-12) var(--space-6); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); text-align: center; }
+.org-empty__t { margin: 0; font: 500 14px/20px var(--font-sans); color: var(--ink); }
+.org-empty__p { margin: 4px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }

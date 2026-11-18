@@ -5,7 +5,7 @@
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const DANGER = "/shop/settings/danger";
+const DANGER = "/project/shop/settings/danger";
 const ADMIN = ["project.read", "project.update", "project.delete"];
 const EDITOR = ["project.read", "project.update"];
 
@@ -42,7 +42,7 @@ test("shows the three actions with what each one does", async ({ page }) => {
   await expect(page).toHaveTitle(/^Danger zone · Project settings/);
   const c = card(page);
   await expect(c).toContainText("Pause data collection");
-  await expect(c).toContainText("Links to /shop redirect to the new slug");
+  await expect(c).toContainText("Links to /project/shop redirect to the new slug");
   await expect(c).toContainText("Its data is removed after 7 days; until then an organization admin can restore it.");
   await expect(c.getByRole("button", { name: "Pause data collection" })).toBeEnabled();
   await expect(c.getByRole("button", { name: "Delete project" })).toBeEnabled();
@@ -84,14 +84,14 @@ test("renames the slug after the availability check; the old URL redirects", asy
   await expect(c.getByText("Available")).toBeVisible();
   await c.getByRole("button", { name: "Change slug" }).click();
   const d = dialog(page, "Change the slug to shop-api?");
-  await expect(d).toContainText("Links to /shop redirect there");
+  await expect(d).toContainText("Links to /project/shop redirect there");
   await d.getByRole("button", { name: "Change slug" }).click();
 
-  await page.waitForURL((url) => url.pathname === "/shop-api/settings/danger");
-  await expect(card(page).getByRole("status")).toHaveText("Slug changed. Links to /shop now redirect here.");
+  await page.waitForURL((url) => url.pathname === "/project/shop-api/settings/danger");
+  await expect(card(page).getByRole("status")).toHaveText("Slug changed. Links to /project/shop now redirect here.");
 
-  await page.goto("/shop/settings/danger");
-  await page.waitForURL((url) => url.pathname === "/shop-api/settings/danger");
+  await page.goto("/project/shop/settings/danger");
+  await page.waitForURL((url) => url.pathname === "/project/shop-api/settings/danger");
   await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Danger zone" })).toBeVisible();
 });
 
@@ -111,7 +111,7 @@ test("delete needs the exact slug; then the project is gone from the switcher wi
   await field.fill("shop");
   await confirm.click();
 
-  await page.waitForURL((url) => url.pathname === "/orgs/acme/settings");
+  await page.waitForURL((url) => url.pathname === "/org/acme/general");
   await expect(page.getByRole("status").filter({ hasText: "Project shop was deleted." })).toContainText("an organization admin can restore it");
   await expect(page.getByRole("button", { name: /^Project Shop\. Switch project/ })).toHaveCount(0);
   await page.getByRole("button", { name: /Organization menu$/ }).click();
@@ -134,7 +134,7 @@ test("a stale sign-in confirms who it is before the delete goes through", async 
   await r.getByRole("button", { name: "Email me a code" }).click();
   await r.getByRole("textbox", { name: "Code from the email we sent you" }).fill("123456");
   await r.getByRole("button", { name: "Confirm" }).click();
-  await page.waitForURL((url) => url.pathname === "/orgs/acme/settings");
+  await page.waitForURL((url) => url.pathname === "/org/acme/general");
 });
 
 test("without project.delete the actions are disabled with the reason", async ({ page }) => {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useId, useState, useTransition } from "react";
-import { createAlertRule, deleteAlertRule, updateAlertRule } from "@/app/[project]/incidents/actions";
+import { createAlertRule, deleteAlertRule, updateAlertRule } from "@/app/project/[project]/incidents/actions";
 import {
   CONDITIONS,
   METRICS,
@@ -34,7 +34,7 @@ import { RulePreview } from "./rule-preview";
 type Status = { tone: "ok" | "err"; text: string } | null;
 
 /**
- * `/<project>/incidents/rules/new` and `/<project>/incidents/rules/<id>` (#610): the alert rule
+ * `/project/<project>/incidents/rules/new` and `/project/<project>/incidents/rules/<id>` (#610): the alert rule
  * editor. What to watch (app, environment and the optional consumer, consumer group and endpoint
  * filters), the condition (metric, comparison, threshold, window), the timing (a fixed frequency
  * or a cron schedule, and how long a breach must hold before it notifies or clear before it

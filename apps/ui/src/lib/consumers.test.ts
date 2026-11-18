@@ -41,19 +41,19 @@ describe("parseConsumersQuery", () => {
 
 describe("consumersHref", () => {
   it("leaves defaults out but always carries the range (#993) and encodes the consumer", () => {
-    expect(consumersHref("shop", {})).toBe("/shop/consumers");
-    expect(consumersHref("shop", DEFAULTS as never)).toBe("/shop/consumers?range=24h");
-    expect(consumersHref("shop", { range: "7d", consumer: "acme/eu 1", tab: "errors" })).toBe("/shop/consumers?range=7d&consumer=acme%2Feu+1&tab=errors");
-    expect(consumersHref("shop", { group: "Acme Corp", q: "priya", sort: "errors" })).toBe("/shop/consumers?group=Acme+Corp&q=priya&sort=errors");
-    expect(groupHref("shop", "Umbrella Health", "1h")).toBe("/shop/consumers?range=1h&group=Umbrella+Health");
+    expect(consumersHref("shop", {})).toBe("/project/shop/consumers");
+    expect(consumersHref("shop", DEFAULTS as never)).toBe("/project/shop/consumers?range=24h");
+    expect(consumersHref("shop", { range: "7d", consumer: "acme/eu 1", tab: "errors" })).toBe("/project/shop/consumers?range=7d&consumer=acme%2Feu+1&tab=errors");
+    expect(consumersHref("shop", { group: "Acme Corp", q: "priya", sort: "errors" })).toBe("/project/shop/consumers?group=Acme+Corp&q=priya&sort=errors");
+    expect(groupHref("shop", "Umbrella Health", "1h")).toBe("/project/shop/consumers?range=1h&group=Umbrella+Health");
   });
 
   it("drops what does not apply, and never carries a page", () => {
-    expect(consumersHref("shop", { by: "groups", group: "Initech", sort: "consumers" })).toBe("/shop/consumers?by=groups&sort=consumers");
-    expect(consumersHref("shop", { sort: "consumers" })).toBe("/shop/consumers");
-    expect(consumersHref("shop", { tab: "errors" })).toBe("/shop/consumers");
-    expect(consumersHref("shop", { consumer: "u1", q: "x", group: "G", sort: "errors" })).toBe("/shop/consumers?consumer=u1");
-    expect(consumersHref("shop", { page: 3 } as never)).toBe("/shop/consumers");
+    expect(consumersHref("shop", { by: "groups", group: "Initech", sort: "consumers" })).toBe("/project/shop/consumers?by=groups&sort=consumers");
+    expect(consumersHref("shop", { sort: "consumers" })).toBe("/project/shop/consumers");
+    expect(consumersHref("shop", { tab: "errors" })).toBe("/project/shop/consumers");
+    expect(consumersHref("shop", { consumer: "u1", q: "x", group: "G", sort: "errors" })).toBe("/project/shop/consumers?consumer=u1");
+    expect(consumersHref("shop", { page: 3 } as never)).toBe("/project/shop/consumers");
   });
 });
 

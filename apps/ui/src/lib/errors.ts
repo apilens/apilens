@@ -8,6 +8,7 @@ import type { EndpointSettings, PutEndpointSettingsRequest, QueryRange } from ".
 import { DEFAULT_PER, type PageOptions, parsePage } from "./pagination";
 import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES } from "./traffic";
+import { projectHref } from "./routes";
 
 export const ERRORS_TABS = [
   { slug: "status", label: "Status codes" },
@@ -102,7 +103,7 @@ export function errorsHref(project: string, q: Partial<ErrorsState>): string {
     if (q.dper && q.dper !== DETAIL_PER) p.set("dper", String(q.dper));
   }
   const s = p.toString();
-  return `/${encodeURIComponent(project)}/errors${s ? `?${s}` : ""}`;
+  return `${projectHref(project, "errors")}${s ? `?${s}` : ""}`;
 }
 
 /** The scope in words: `the last 24 hours in production`. */

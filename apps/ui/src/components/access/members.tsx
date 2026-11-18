@@ -32,6 +32,7 @@ import { type OrgRef, PendingInvitations } from "./invite";
 import { type Announce, AddPeople, MemberRowMenu } from "./manage";
 import { useTimeZone } from "@/lib/time-zone-context";
 import "./members.css";
+import { projectHref } from "@/lib/routes";
 
 /** The Members tab's header (Access, then the tabs), around the list (or its skeleton while it loads). */
 export function MembersFrame({ project, projectName, nav, badge, children }: { project: string; projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
@@ -66,7 +67,7 @@ export function AccessMembersLoading() {
 }
 
 /**
- * `/<project>/access` (#806): everyone who can reach the project, their effective role, where it
+ * `/project/<project>/access` (#806): everyone who can reach the project, their effective role, where it
  * comes from (one line per source), when they were last active and who added them. Searched by name
  * or email, filtered by role and source, and paged, with `?q=&role=&source=&page=&per=` in the URL.
  * Everyone who sees the project sees the same list; holders of `access.manage` add people and
@@ -103,7 +104,7 @@ export function AccessMembers({
   const tz = useTimeZone();
   const [status, setStatus] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const announce: Announce = setStatus;
-  const pathname = `/${project}/access`;
+  const pathname = projectHref(project, "access");
   const list = useListSearch(pathname, params);
   const filters = parseMemberFilters(list.params);
   const members = data?.members ?? [];

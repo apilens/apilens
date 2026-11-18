@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useId, useState, useTransition } from "react";
-import { createChannel, deleteChannel, testChannel, updateChannel } from "@/app/[project]/incidents/actions";
+import { createChannel, deleteChannel, testChannel, updateChannel } from "@/app/project/[project]/incidents/actions";
 import {
   CHANNELS_LOAD_FAILED,
   CHANNEL_TYPES,
@@ -31,7 +31,7 @@ import "./alerts.css";
 type Note = { tone: "ok" | "err"; text: string } | null;
 
 /**
- * `/<project>/settings/alerts` (#610): where the project's alert notifications go. Each channel
+ * `/project/<project>/settings/alerts` (#610): where the project's alert notifications go. Each channel
  * (email, Slack, Microsoft Teams or a signed webhook) with Send test, Edit and Delete; a form adds
  * one. A channel's config (addresses, webhook URLs, the signing secret) is write-only: the API
  * never returns it, so editing shows blank fields that keep the saved config unless filled in.

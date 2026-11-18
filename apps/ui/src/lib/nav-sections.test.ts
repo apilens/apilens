@@ -23,8 +23,9 @@ describe("viewLabel", () => {
     expect(viewLabel("settings", project)).toBe("Project settings");
   });
 
-  it("names the org and account settings scopes", () => {
-    expect(viewLabel("settings", { orgScope: true, account: false })).toBe("Organization settings");
+  it("names the account scope, and nothing after the org crumb in org scope", () => {
+    expect(viewLabel("general", { orgScope: true, account: false })).toBe("");
+    expect(viewLabel("projects", { orgScope: true, account: false })).toBe("");
     expect(viewLabel("settings", { orgScope: true, account: true })).toBe("Account settings");
   });
 

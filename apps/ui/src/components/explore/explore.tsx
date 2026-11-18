@@ -9,7 +9,7 @@ import { SavedViews, ViewSwitcher } from "./saved-views";
 import "./explore.css";
 
 /**
- * `/<project>/explore` (#585). The request log: every request the SDK reported, newest first.
+ * `/project/<project>/explore` (#585). The request log: every request the SDK reported, newest first.
  * `rows` (and `timeline`, #587) is null when the API could not answer; so is `views`, the saved
  * views (#589) the header's switcher lists, beside Export (#590), and so is `apps`, the project's
  * apps (#975) the App filter offers and the App column names. `me` is the signed-in user's id.

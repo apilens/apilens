@@ -5,6 +5,7 @@
 import type { AppIngestStats, AppSdkStats, IngestCounts } from "./identity";
 import { LINKS } from "./links";
 import { formatPercent } from "./format";
+import { projectHref } from "./routes";
 
 /** The section of project settings that shows an app's ingest health. */
 export const INGEST_SECTION = "ingest";
@@ -12,9 +13,9 @@ export const INGEST_SECTION = "ingest";
 /** UTC days the panel covers, today included (`days` of `GET /apps/{id}/ingest-stats`). */
 export const INGEST_DAYS = 7;
 
-/** `/<project>/settings/ingest`, on `app` when given. */
+/** `/project/<project>/settings/ingest`, on `app` when given. */
 export function ingestPath(project: string, app?: string): string {
-  const base = `/${project}/settings/${INGEST_SECTION}`;
+  const base = projectHref(project, "settings", INGEST_SECTION);
   return app ? `${base}?app=${encodeURIComponent(app)}` : base;
 }
 

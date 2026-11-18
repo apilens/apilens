@@ -34,7 +34,7 @@ async function finishAsInvited(page: Page) {
   await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
   await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Account");
   await page.getByRole("button", { name: "Continue to Globex" }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/storefront/"));
+  await page.waitForURL((url) => url.pathname.startsWith("/project/storefront/"));
 
   // Onboarding is finished: its pages send the user to their project now.
   await page.goto("/onboarding/join");

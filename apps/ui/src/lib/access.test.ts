@@ -9,7 +9,7 @@ describe("ACCESS_TABS", () => {
 
 describe("accessHref", () => {
   it("opens Members at /access and the others under it", () => {
-    expect(ACCESS_TABS.map((t) => accessHref("shop", t))).toEqual(["/shop/access", "/shop/access/keys", "/shop/access/activity"]);
+    expect(ACCESS_TABS.map((t) => accessHref("shop", t))).toEqual(["/project/shop/access", "/project/shop/access/keys", "/project/shop/access/activity"]);
   });
 });
 
@@ -49,8 +49,8 @@ describe("accessTitle", () => {
 
 describe("movedKeysHref", () => {
   it("keeps the query of the old keys path", () => {
-    expect(movedKeysHref("/shop/access/keys", {})).toBe("/shop/access/keys");
-    expect(movedKeysHref("/shop/access/keys", { page: "2", per: "50", x: undefined })).toBe("/shop/access/keys?page=2&per=50");
-    expect(movedKeysHref("/shop/access/keys", { a: ["1", "2"] })).toBe("/shop/access/keys?a=1&a=2");
+    expect(movedKeysHref("/project/shop/access/keys", {})).toBe("/project/shop/access/keys");
+    expect(movedKeysHref("/project/shop/access/keys", { page: "2", per: "50", x: undefined })).toBe("/project/shop/access/keys?page=2&per=50");
+    expect(movedKeysHref("/project/shop/access/keys", { a: ["1", "2"] })).toBe("/project/shop/access/keys?a=1&a=2");
   });
 });

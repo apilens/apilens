@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useId, useRef, useState, useTransition } from "react";
-import { loadEndpointSettings, saveEndpointSettings } from "@/app/[project]/endpoints/[method]/[path]/actions";
+import { loadEndpointSettings, saveEndpointSettings } from "@/app/project/[project]/endpoints/[method]/[path]/actions";
 import { type EndpointRef, type SettingsDraft, type SettingsErrors, checkSettingsDraft, settingsDraft } from "@/lib/endpoint-detail";
 import type { EndpointSettings, NamedApp } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";

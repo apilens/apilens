@@ -82,7 +82,7 @@ test("explains why the only owner of an organization can't delete the account", 
   await confirm.click();
   const alert = page.locator(".acct-main").getByRole("alert");
   await expect(alert).toContainText("Your account wasn’t deleted.");
-  await expect(alert.getByRole("link", { name: "Acme" })).toHaveAttribute("href", "/orgs/acme/settings");
+  await expect(alert.getByRole("link", { name: "Acme" })).toHaveAttribute("href", "/org/acme/general");
 });
 
 test("deletes the account and lands signed out", async ({ page }) => {

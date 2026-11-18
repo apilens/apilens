@@ -76,11 +76,11 @@ describe("formatting", () => {
   it("links to Explore over one side of the deploy, in its environment", () => {
     const d = { deployed_at: "2026-11-05T10:37:20Z", environment: "production" };
     const now = Date.parse("2026-11-05T12:00:00Z");
-    expect(exploreHref("shop", d, now)).toBe("/shop/explore?range=6h&from=2026-11-05T10%3A38%3A00Z&to=2026-11-05T11%3A38%3A00Z&env=production");
-    expect(exploreHref("shop", d, now, "before")).toBe("/shop/explore?range=6h&from=2026-11-05T09%3A37%3A00Z&to=2026-11-05T10%3A37%3A00Z&env=production");
+    expect(exploreHref("shop", d, now)).toBe("/project/shop/explore?range=6h&from=2026-11-05T10%3A38%3A00Z&to=2026-11-05T11%3A38%3A00Z&env=production");
+    expect(exploreHref("shop", d, now, "before")).toBe("/project/shop/explore?range=6h&from=2026-11-05T09%3A37%3A00Z&to=2026-11-05T10%3A37%3A00Z&env=production");
     // An open after window ends with the current minute.
     const soon = Date.parse("2026-11-05T10:50:30Z");
-    expect(exploreHref("shop", { ...d, environment: "" }, soon)).toBe("/shop/explore?range=1h&from=2026-11-05T10%3A38%3A00Z&to=2026-11-05T10%3A51%3A00Z");
+    expect(exploreHref("shop", { ...d, environment: "" }, soon)).toBe("/project/shop/explore?range=1h&from=2026-11-05T10%3A38%3A00Z&to=2026-11-05T10%3A51%3A00Z");
   });
 
   it("picks the smallest range that reaches back far enough", () => {
@@ -93,7 +93,7 @@ describe("formatting", () => {
   });
 
   it("links to the deploy page", () => {
-    expect(deployHref("shop", "9f3a1b2c")).toBe("/shop/changes/9f3a1b2c");
+    expect(deployHref("shop", "9f3a1b2c")).toBe("/project/shop/changes/9f3a1b2c");
   });
 
   it("formats the deploy time and how late the report came", () => {

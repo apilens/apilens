@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { HOME_VIEW } from "@/lib/data";
-import { type ContextOrg, type ContextProject, orgHome, orgMark, plural, roleLabel } from "@/lib/scope";
+import { type ContextOrg, type ContextProject, orgMark, plural, roleLabel } from "@/lib/scope";
 import { Icon } from "./icons";
 import { PopMenu } from "./pop-menu";
+import { orgHref, projectHref } from "@/lib/routes";
 
 
 
@@ -27,7 +28,7 @@ export function OrgHeader({ orgs, org, orgScope, collapsed }: { orgs: ContextOrg
       <PopMenu open={open} onClose={close} triggerRef={ref} label="Organization" align={collapsed ? "side" : "start"}>
         <p className="menu-label">Organizations</p>
         {orgs.map((o) => (
-          <Link key={o.slug} role="menuitemradio" aria-checked={o.slug === org.slug} href={orgScope ? `/orgs/${o.slug}/settings` : orgHome(o, HOME_VIEW)} className={`cp-org cp-org--row${o.slug === org.slug ? " on" : ""}`} onClick={close}>
+          <Link key={o.slug} role="menuitemradio" aria-checked={o.slug === org.slug} href={orgHref(o.slug)} className={`cp-org cp-org--row${o.slug === org.slug ? " on" : ""}`} onClick={close}>
             <span className="st-mark">{orgMark(o)}</span>
             <span className="t">
               <b>{o.name}</b>
@@ -43,7 +44,7 @@ export function OrgHeader({ orgs, org, orgScope, collapsed }: { orgs: ContextOrg
           </Link>
         ))}
         <hr />
-        <Link href={`/orgs/${org.slug}/settings`} role="menuitem" className="cp-sitem" onClick={close}>
+        <Link href={orgHref(org.slug, "general")} role="menuitem" className="cp-sitem" onClick={close}>
           <span className="sl">
             <Icon name="settings" />
           </span>
@@ -80,7 +81,7 @@ export function ProjectRow({ org, project, view, collapsed = false }: { org: Con
         <p className="menu-label">Projects</p>
         {org.projects.map((p) => {
           return (
-            <Link key={p.slug} role="menuitemradio" aria-checked={p.slug === project.slug} href={`/${p.slug}/${view || HOME_VIEW}`} className={`cp-org cp-org--row${p.slug === project.slug ? " on" : ""}`} onClick={() => setOpen(false)}>
+            <Link key={p.slug} role="menuitemradio" aria-checked={p.slug === project.slug} href={projectHref(p.slug, view || HOME_VIEW)} className={`cp-org cp-org--row${p.slug === project.slug ? " on" : ""}`} onClick={() => setOpen(false)}>
               <span className="st-mark st-mark--project">{p.name[0].toUpperCase()}</span>
               <span className="t">
                 <b>{p.name}</b>
@@ -97,7 +98,7 @@ export function ProjectRow({ org, project, view, collapsed = false }: { org: Con
           );
         })}
         <hr />
-        <Link href={`/${project.slug}/settings`} role="menuitem" className="cp-sitem" onClick={() => setOpen(false)}>
+        <Link href={projectHref(project.slug, "settings")} role="menuitem" className="cp-sitem" onClick={() => setOpen(false)}>
           <span className="sl"><Icon name="settings" /></span>
           <span className="lb">Project settings</span>
         </Link>

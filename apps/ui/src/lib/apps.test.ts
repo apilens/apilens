@@ -21,8 +21,8 @@ const sdk = (versions: string[] | null, latest: string, outdated: number) => ({ 
 
 describe("appHref", () => {
   it("encodes the project and the app", () => {
-    expect(appHref("shop", "checkout-api")).toBe("/shop/apps/checkout-api");
-    expect(appHref("a b", "c/d")).toBe("/a%20b/apps/c%2Fd");
+    expect(appHref("shop", "checkout-api")).toBe("/project/shop/apps/checkout-api");
+    expect(appHref("a b", "c/d")).toBe("/project/a%20b/apps/c%2Fd");
   });
 });
 

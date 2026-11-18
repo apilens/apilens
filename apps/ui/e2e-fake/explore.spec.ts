@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const PAGE = "/shop/explore";
+const PAGE = "/project/shop/explore";
 
 type Row = Record<string, unknown>;
 

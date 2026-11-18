@@ -9,7 +9,7 @@
 // Results go to the page's status line, never a toast.
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, type RefObject, useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
-import { addProjectMembers, changeProjectRole, removeProjectMember } from "@/app/[project]/access/actions";
+import { addProjectMembers, changeProjectRole, removeProjectMember } from "@/app/project/[project]/access/actions";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Gated } from "@/components/org-settings/controls";
 import { PopMenu } from "@/components/pop-menu";

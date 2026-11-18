@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SERVICES, type Health } from "@/lib/data";
 import { type ContextOrg, plural, roleLabel } from "@/lib/scope";
+import { projectHref } from "@/lib/routes";
 
 type Level = 0 | 1 | 2;
 interface Row {
@@ -72,10 +73,10 @@ export function ScopeSwitcher({ orgs: allOrgs, open, onClose, orgSlug, projectSl
       setCur({ level: 1, i: 0 });
     } else if (level === 1) {
       onClose();
-      router.push(`/${row.key}/incidents`);
+      router.push(projectHref(row.key, "incidents"));
     } else {
       onClose();
-      router.push(`/${project}/apis`);
+      router.push(projectHref(project, "apis"));
     }
   };
 

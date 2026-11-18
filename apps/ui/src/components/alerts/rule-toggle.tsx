@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { updateAlertRule } from "@/app/[project]/incidents/actions";
+import { updateAlertRule } from "@/app/project/[project]/incidents/actions";
 import { ruleDraftOf } from "@/lib/alerts";
 import type { AlertRule } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";

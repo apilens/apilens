@@ -41,19 +41,19 @@ async function signIn(page: Page, next: string) {
 const TABS: readonly { name: string; path: string; ready: (page: Page) => Promise<void>; labels: string }[] = [
   {
     name: "Members",
-    path: "/shop/access",
+    path: "/project/shop/access",
     ready: (page) => expect(page.getByRole("table", { name: "People with access to Shop" }).locator("tbody tr").first()).toBeVisible(),
     labels: ".am-role",
   },
   {
     name: "API keys",
-    path: "/shop/access/keys?inactive=1",
+    path: "/project/shop/access/keys?inactive=1",
     ready: (page) => expect(page.getByRole("region", { name: "API keys" }).locator("tbody tr.pk-row")).toHaveCount(5),
     labels: ".ak-status",
   },
   {
     name: "Activity",
-    path: "/shop/access/activity",
+    path: "/project/shop/access/activity",
     ready: (page) => expect(page.getByRole("region", { name: "Activity log", exact: true }).locator("tbody tr.acl-row").first()).toBeVisible(),
     labels: "",
   },
@@ -173,7 +173,7 @@ for (const tab of TABS) {
 }
 
 test("Members by keyboard: the tabs, Add people opens a dialog that Escape closes back onto its button", async ({ page }) => {
-  await signIn(page, "/shop/access");
+  await signIn(page, "/project/shop/access");
   const nav = page.getByRole("navigation", { name: "Access", exact: true });
   await nav.getByRole("link", { name: "Members" }).focus();
   await page.keyboard.press("Tab");
@@ -192,7 +192,7 @@ test("Members by keyboard: the tabs, Add people opens a dialog that Escape close
 });
 
 test("API keys by keyboard: Revoke opens on Cancel, Escape returns focus to the row's button", async ({ page }) => {
-  await signIn(page, "/shop/access/keys");
+  await signIn(page, "/project/shop/access/keys");
   const revoke = page.getByRole("button", { name: "Revoke Staging worker" });
   await revoke.focus();
   await page.keyboard.press("Enter");
@@ -206,7 +206,7 @@ test("API keys by keyboard: Revoke opens on Cancel, Escape returns focus to the 
 });
 
 test("Activity by keyboard: an event opens its detail panel and Escape returns focus to the row", async ({ page }) => {
-  await signIn(page, "/shop/access/activity");
+  await signIn(page, "/project/shop/access/activity");
   const open = page.getByRole("region", { name: "Activity log", exact: true }).locator("tbody tr.acl-row").first().getByRole("button");
   await open.focus();
   await page.keyboard.press("Enter");

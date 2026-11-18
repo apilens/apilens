@@ -115,7 +115,7 @@ test("waiting: open the project anyway", async ({ page }) => {
   await expect(page.locator(".wt-trouble")).toContainText("localhost:8080");
 
   await page.getByRole("button", { name: "Open the project anyway" }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/costanza-bets/") && url.searchParams.get("setup") === "later");
+  await page.waitForURL((url) => url.pathname.startsWith("/project/costanza-bets/") && url.searchParams.get("setup") === "later");
 });
 
 // #334: visual check in light and dark at 1440 and 390 px with the troubleshooting open, axe

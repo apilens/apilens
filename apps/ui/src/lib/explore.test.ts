@@ -28,13 +28,13 @@ import { NO_FILTERS } from "./explore-filters";
 describe("parseExploreQuery / exploreHref", () => {
   it("defaults to the last hour and leaves the default out of the URL", () => {
     expect(parseExploreQuery({})).toEqual({ range: "1h", filters: NO_FILTERS });
-    expect(exploreHref("shop", { range: "1h" })).toBe("/shop/explore");
+    expect(exploreHref("shop", { range: "1h" })).toBe("/project/shop/explore");
   });
   it("keeps a known range and drops an unknown one", () => {
     expect(parseExploreQuery({ range: "7d" })).toEqual({ range: "7d", filters: NO_FILTERS });
     expect(parseExploreQuery({ range: ["6h", "7d"] })).toEqual({ range: "6h", filters: NO_FILTERS });
     expect(parseExploreQuery({ range: "30d" })).toEqual({ range: "1h", filters: NO_FILTERS });
-    expect(exploreHref("my shop", { range: "24h" })).toBe("/my%20shop/explore?range=24h");
+    expect(exploreHref("my shop", { range: "24h" })).toBe("/project/my%20shop/explore?range=24h");
   });
   it("polls the project's Route Handler with the range", () => {
     expect(requestsPath("shop", { range: "6h" })).toBe("/api/projects/shop/requests?range=6h");
@@ -127,12 +127,12 @@ describe("older pages", () => {
     const first = logPages("shop", q, [], "c1");
     expect(first.page).toBe(1);
     expect(first.newerHref).toBeNull();
-    expect(first.olderHref).toBe("/shop/explore?range=6h&status=5xx&cursor=c1");
+    expect(first.olderHref).toBe("/project/shop/explore?range=6h&status=5xx&cursor=c1");
     const second = logPages("shop", q, ["c1"], "c2");
     expect(second.page).toBe(2);
-    expect(second.olderHref).toBe("/shop/explore?range=6h&status=5xx&cursor=c1.c2");
-    expect(second.newerHref).toBe("/shop/explore?range=6h&status=5xx");
-    expect(second.newestHref).toBe("/shop/explore?range=6h&status=5xx");
+    expect(second.olderHref).toBe("/project/shop/explore?range=6h&status=5xx&cursor=c1.c2");
+    expect(second.newerHref).toBe("/project/shop/explore?range=6h&status=5xx");
+    expect(second.newestHref).toBe("/project/shop/explore?range=6h&status=5xx");
     expect(logPages("shop", q, ["c1"], "").olderHref).toBeNull();
   });
   it("never carries the cursor into a range or filter link", () => {
@@ -186,37 +186,37 @@ describe("statusQuickHref", () => {
   it("narrows to a status class, keeping the other filters and the range", () => {
     const r = statusQuickHref("demo", q, "5xx");
     expect(r.active).toBe(false);
-    expect(r.href).toBe("/demo/explore?range=6h&method=POST&status=5xx");
+    expect(r.href).toBe("/project/demo/explore?range=6h&method=POST&status=5xx");
   });
   it("clears the status filter when that class is already on", () => {
     const r = statusQuickHref("demo", { ...q, filters: { ...q.filters, status: "5xx" } }, "5xx");
     expect(r.active).toBe(true);
-    expect(r.href).toBe("/demo/explore?range=6h&method=POST");
+    expect(r.href).toBe("/project/demo/explore?range=6h&method=POST");
   });
 });
 
 describe("exploreHrefFor (#977)", () => {
   const APP = "0b9c2c4e-8a3f-4d1e-9f2a-1c2d3e4f5a6b";
   it("always carries the range, then the environment and app", () => {
-    expect(exploreHrefFor("shop", { range: "1h" })).toBe("/shop/explore?range=1h");
-    expect(exploreHrefFor("shop", { range: "24h", env: "production", app: APP })).toBe(`/shop/explore?range=24h&env=production&app=${APP}`);
-    expect(exploreHrefFor("shop", { range: "24h", env: "", app: "" })).toBe("/shop/explore?range=24h");
+    expect(exploreHrefFor("shop", { range: "1h" })).toBe("/project/shop/explore?range=1h");
+    expect(exploreHrefFor("shop", { range: "24h", env: "production", app: APP })).toBe(`/project/shop/explore?range=24h&env=production&app=${APP}`);
+    expect(exploreHrefFor("shop", { range: "24h", env: "", app: "" })).toBe("/project/shop/explore?range=24h");
   });
   it("narrows to an endpoint by its route template, a status and a latency bound", () => {
     const href = exploreHrefFor("shop", { range: "6h", env: "production", method: "get", path: "/orders/{id}", status: "5XX", latency_min: 412.6 });
-    expect(href).toBe("/shop/explore?range=6h&env=production&method=GET&status=5xx&path=%2Forders%2F%7Bid%7D&latency_min=412");
+    expect(href).toBe("/project/shop/explore?range=6h&env=production&method=GET&status=5xx&path=%2Forders%2F%7Bid%7D&latency_min=412");
     // What Explore reads back: the same filters, the template kept as is.
     const q = parseExploreQuery(Object.fromEntries(new URL(href, "http://x").searchParams));
     expect(q.range).toBe("6h");
     expect(q.filters).toEqual({ ...NO_FILTERS, env: "production", method: "GET", status: "5xx", path: "/orders/{id}", latency_min: 412 });
   });
   it("drops a status or latency Explore would refuse", () => {
-    expect(exploreHrefFor("shop", { range: "1h", status: "teapot", latency_min: Number.NaN })).toBe("/shop/explore?range=1h");
-    expect(exploreHrefFor("shop", { range: "1h", latency_min: -1 })).toBe("/shop/explore?range=1h");
+    expect(exploreHrefFor("shop", { range: "1h", status: "teapot", latency_min: Number.NaN })).toBe("/project/shop/explore?range=1h");
+    expect(exploreHrefFor("shop", { range: "1h", latency_min: -1 })).toBe("/project/shop/explore?range=1h");
   });
   it("carries a consumer and a time window", () => {
     expect(exploreHrefFor("shop", { range: "24h", consumer_id: "acme", from: "2026-11-05T10:00:00Z", to: "2026-11-05T10:15:00Z" })).toBe(
-      "/shop/explore?range=24h&from=2026-11-05T10%3A00%3A00Z&to=2026-11-05T10%3A15%3A00Z&consumer_id=acme",
+      "/project/shop/explore?range=24h&from=2026-11-05T10%3A00%3A00Z&to=2026-11-05T10%3A15%3A00Z&consumer_id=acme",
     );
   });
 });
@@ -236,8 +236,8 @@ describe("bucketHrefs (#977)", () => {
     ]);
   });
   it("keeps the whole range when a bucket's width is unknown", () => {
-    expect(bucketHrefs("shop", { range: "1h" }, [{ ts: ts(0) }])).toEqual(["/shop/explore?range=1h"]);
-    expect(bucketHrefs("shop", { range: "1h" }, [{ ts: "nope" }, { ts: ts(5) }])[0]).toBe("/shop/explore?range=1h");
+    expect(bucketHrefs("shop", { range: "1h" }, [{ ts: ts(0) }])).toEqual(["/project/shop/explore?range=1h"]);
+    expect(bucketHrefs("shop", { range: "1h" }, [{ ts: "nope" }, { ts: ts(5) }])[0]).toBe("/project/shop/explore?range=1h");
     expect(bucketHrefs("shop", { range: "1h" }, [])).toEqual([]);
   });
 });

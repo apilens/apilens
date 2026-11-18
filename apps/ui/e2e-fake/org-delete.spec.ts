@@ -18,7 +18,7 @@ async function signIn(page: Page, path: string, orgs: { slug: string; name: stri
 
 test("an owner deletes an organization with the keyboard alone", async ({ page }) => {
   const slug = `gone-${randomUUID().slice(0, 8)}`;
-  const path = `/orgs/${slug}/settings`;
+  const path = `/org/${slug}/general`;
   await signIn(page, path, [{ slug, name: "Gone Co" }]);
 
   const opener = page.getByRole("button", { name: "Delete organization" });
@@ -55,12 +55,12 @@ test("an owner deletes an organization with the keyboard alone", async ({ page }
   await expect(action).toBeEnabled();
   await page.keyboard.press("Enter");
 
-  await page.waitForURL((url) => !url.pathname.startsWith(`/orgs/${slug}`));
+  await page.waitForURL((url) => !url.pathname.startsWith(`/org/${slug}`));
 });
 
 test("a failed deletion keeps the dialog open with the reason", async ({ page }) => {
   // The fake refuses to delete the seeded acme organization.
-  await signIn(page, "/orgs/acme/settings");
+  await signIn(page, "/org/acme/general");
   await page.getByRole("button", { name: "Delete organization" }).click();
   const dialog = page.getByRole("dialog", { name: "Delete Acme?" });
   const field = dialog.getByLabel("To confirm, type acme below.");

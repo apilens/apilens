@@ -1,30 +1,31 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { resendInvitation, revokeInvitation } from "@/app/orgs/[org]/settings/invitations/actions";
-import type { Invitation, OrgRole } from "@/lib/identity";
+import { resendInvitation, revokeInvitation } from "@/app/org/[org]/team/invitation-actions";
+import type { Invitation } from "@/lib/identity";
 import { formatDay, formatWait, inviterName, isExpired, resendWait } from "@/lib/invitations";
+import { orgHref } from "@/lib/routes";
 import { roleLabel } from "@/lib/scope";
 import { ListSearch, useCanonicalPage, useListSearch } from "@/components/list-search/list-search";
 import { Pagination } from "@/components/pagination/pagination";
 import { countLine, searchRows } from "@/lib/list-search";
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { DialogError, Gated, Modal, type OrgRef, type Status, statusOf } from "./controls";
-import { InviteDialog } from "./invite-dialog";
-import { OrgSettingsNav } from "./nav";
 import { useTimeZone } from "@/lib/time-zone-context";
 import "./org-settings.css";
 import "./members.css";
 import "./invitations.css";
 
-const NO_ACCESS = "Only owners and admins can invite people.";
 const COOLDOWN = "An invitation can be emailed once every 5 minutes.";
 
+/** The Team page lists members first, so invitations search and page under keys of their own. */
+const INVITATION_KEYS = { search: "iq", page: { keys: { page: "ipage", per: "iper" } } } as const;
+
 /**
- * `/orgs/<org>/settings/invitations` (#346): the organization's pending invitations (email,
+ * Team › Invitations (`/org/<org>/team`, #346): the organization's pending invitations (email,
  * role, who sent it, when the link expires), newest first. Owners and admins resend one (at most
- * once every 5 minutes; the button counts down) or revoke it, and invite more people with the
- * shared invite dialog. Others see why the list is hidden. The rows come from the server: after
+ * once every 5 minutes; the button counts down) or revoke it (inviting is Members' button, above
+ * this list on the Team page). Others see why the list is hidden. The rows come from the server: after
  * an action the page is revalidated and re-rendered with the new list. `now` is the server's
  * clock at render, so the first paint matches; the countdown then follows the browser's.
  * The API returns every pending invitation, so the list is searched (email, role, who sent it) and
@@ -32,30 +33,26 @@ const COOLDOWN = "An invitation can be emailed once every 5 minutes.";
  */
 export function OrgInvitationsSettings({
   org,
-  role,
   invitations: all,
   manage,
   now: renderedAt,
   search = {},
 }: {
   org: OrgRef;
-  /** The signed-in user's role in the organization (which settings tabs they see). */
-  role: OrgRole;
   invitations: Invitation[];
   manage: boolean;
   now: number;
   /** The page's searchParams: the list is searched (`?q=`) and paged (`?page=&per=`) here. */
   search?: SearchParams;
 }) {
-  const pathname = `/orgs/${org.slug}/settings/invitations`;
+  const pathname = orgHref(org.slug, "team");
   const tz = useTimeZone();
-  const list = useListSearch(pathname, search);
+  const list = useListSearch(pathname, search, INVITATION_KEYS);
   const matched = searchRows(all, list.query, (inv) => [inv.email, roleLabel(inv.role), inviterName(inv)]);
-  const { rows: invitations, window } = slicePage(matched, parsePage(list.params));
-  useCanonicalPage(pathname, search, list.settled ? window : null);
+  const { rows: invitations, window } = slicePage(matched, parsePage(list.params, INVITATION_KEYS.page));
+  useCanonicalPage(pathname, search, list.settled ? window : null, INVITATION_KEYS.page);
   const [status, setStatus] = useState<Status>(null);
   const [revoking, setRevoking] = useState<Invitation | null>(null);
-  const [inviting, setInviting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   /** Waits the server asked for (`rate_limited`), by invitation id: resend allowed again at. */
   const [retryAt, setRetryAt] = useState<Record<string, number>>({});
@@ -89,15 +86,11 @@ export function OrgInvitationsSettings({
     });
   };
 
-  const gate = manage ? ({ allowed: true } as const) : ({ allowed: false, reason: NO_ACCESS } as const);
-
   return (
-    <div className="page os om">
-      <header className="os-head">
-        <p className="cp-h">Organization</p>
-        <h1 className="cp-lede">Invitations</h1>
-        <OrgSettingsNav org={org.slug} current="invitations" role={role} />
-      </header>
+    <section className="om-sec" aria-labelledby="om-invitations-title">
+      <h2 id="om-invitations-title" className="om-sec__title">
+        Invitations
+      </h2>
 
       <div className="om-bar">
         <p className="om-count">{!manage ? "Pending invitations" : countLine(matched.length, all.length, "pending invitation", "pending invitations", list.query)}</p>
@@ -107,13 +100,6 @@ export function OrgInvitationsSettings({
         <span className={`om-status${status ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
           {status?.text ?? ""}
         </span>
-        <Gated gate={gate}>
-          {(describedBy, disabled) => (
-            <button type="button" className="ah-btn ah-btn--primary ah-btn--sm" onClick={() => setInviting(true)} disabled={disabled || pending} aria-describedby={describedBy}>
-              Invite people
-            </button>
-          )}
-        </Gated>
       </div>
 
       {!manage ? (
@@ -124,10 +110,7 @@ export function OrgInvitationsSettings({
       ) : all.length === 0 ? (
         <div className="om-wrap oi-empty">
           <p className="oi-empty__t">No pending invitations</p>
-          <p className="oi-empty__p">People you invite show up here until they accept. You can resend or revoke an invitation from this list.</p>
-          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm oi-empty__btn" onClick={() => setInviting(true)} disabled={pending}>
-            Invite people
-          </button>
+          <p className="oi-empty__p">People you invite from Members show up here until they accept. You can resend or revoke an invitation from this list.</p>
         </div>
       ) : matched.length === 0 ? (
         <div className="om-wrap ls-none" id="oi-list">
@@ -202,17 +185,12 @@ export function OrgInvitationsSettings({
               })}
             </tbody>
           </table>
-          <Pagination pathname={pathname} params={list.params} total={window.total} label="Invitations pages" className="ls-pages" />
+          <Pagination pathname={pathname} params={list.params} total={window.total} label="Invitations pages" className="ls-pages" keys={INVITATION_KEYS.page.keys} />
         </div>
       )}
 
-      {manage ? (
-        <>
-          <RevokeDialog org={org} invitation={revoking} onClose={() => setRevoking(null)} onDone={setStatus} />
-          <InviteDialog org={org} open={inviting} onClose={() => setInviting(false)} onDone={setStatus} />
-        </>
-      ) : null}
-    </div>
+      {manage ? <RevokeDialog org={org} invitation={revoking} onClose={() => setRevoking(null)} onDone={setStatus} /> : null}
+    </section>
   );
 }
 

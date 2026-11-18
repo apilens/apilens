@@ -1,5 +1,5 @@
 // Pending invitations (#346): the resend cooldown, expiry and the sentences
-// `/orgs/<org>/settings/invitations` shows. The rules mirror internal/controlplane/orgs/invitations.go
+// `/org/<org>/team` shows. The rules mirror internal/controlplane/orgs/invitations.go
 // (an invitation is emailed at most once every 5 minutes, counted from `resent_at`, else
 // `created_at`) so the Resend button counts down instead of failing; the server stays the
 // authority and answers `rate_limited` with `retry_after`. Pure; safe in Client Components and
@@ -11,6 +11,7 @@ import type { ContextOrg, ContextProject, Invitation, InvitationAccepted, Invita
 import { homeView } from "./landing";
 import { orgHome } from "./scope";
 import { zoned } from "./time-zone";
+import { projectHref } from "./routes";
 
 /** The least time between two emails of one invitation (`orgs.ResendCooldown`). */
 export const RESEND_COOLDOWN_MS = 5 * 60_000;
@@ -134,7 +135,7 @@ export function invitedLanding(ctx: UserContext, org: ContextOrg): string {
   const answers = ctx.onboarding?.answers ?? ctx.user.onboarding?.answers;
   const slug = answers && typeof answers.project_slug === "string" ? answers.project_slug : "";
   const project = slug ? org.projects.find((p) => p.slug === slug) : undefined;
-  return project ? `/${project.slug}/${homeView(ctx)}` : orgHome(org, homeView(ctx));
+  return project ? projectHref(project.slug, homeView(ctx)) : orgHome(org, homeView(ctx));
 }
 
 /** The project of `org` named `name` (an invitation's preview names its projects, #809). */
@@ -174,7 +175,7 @@ export async function acceptInvitation(deps: AcceptDeps): Promise<string> {
     return INVITED_ONBOARDING_PATH;
   }
   if (!joined) return "/";
-  return project ? `/${project.slug}/${homeView(ctx)}` : invitedLanding(ctx, joined);
+  return project ? projectHref(project.slug, homeView(ctx)) : invitedLanding(ctx, joined);
 }
 
 const HOUR_MS = 60 * 60 * 1000;

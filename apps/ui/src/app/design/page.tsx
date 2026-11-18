@@ -15,7 +15,7 @@ export default function Design() {
         <div>
           <Logo height={44} />
           <h1 className="cp-lede" style={{ marginTop: "var(--space-6)" }}>Design system</h1>
-          <p className="cp-sub">Tokens and components, rendered from design/tokens.json and bundle.css. <Link className="cp-link" href="/platform/incidents">Open the app</Link></p>
+          <p className="cp-sub">Tokens and components, rendered from design/tokens.json and bundle.css. <Link className="cp-link" href="/">Open the app</Link></p>
         </div>
       </header>
 

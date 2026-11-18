@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { HOME_VIEW } from "@/lib/data";
 import "./page-header.css";
+import { projectHref } from "@/lib/routes";
 
 /**
  * The one page header (#992, decision D7 of #963): an eyebrow linking the project, the title (the
@@ -37,7 +38,7 @@ export function PageHeader({
       <div className="ph-row">
         <div className="ph-text">
           <p className="cp-h ph-eyebrow">
-            <Link href={`/${encodeURIComponent(project)}/${HOME_VIEW}`}>{projectName}</Link>
+            <Link href={projectHref(project, HOME_VIEW)}>{projectName}</Link>
             {badge}
           </p>
           <h1 className="cp-lede">{title}</h1>

@@ -3,13 +3,26 @@
 .os-head { margin-bottom: var(--space-8); }
 .os-head .cp-lede { margin-top: 2px; }
 
-/* Section tabs under the title (General, Members). */
+/* Section tabs under a title (a project's Access › Members, API keys, Activity). */
 .os-tabs { display: flex; gap: var(--space-1); margin-top: var(--space-4); border-bottom: 1px solid var(--border); overflow-x: auto; }
 .os-tab { position: relative; padding: 8px 10px 10px; font: 500 13px/18px var(--font-sans); color: var(--ink-muted); text-decoration: none; white-space: nowrap; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
 .os-tab:hover { color: var(--ink); }
 .os-tab.on { color: var(--ink); }
 .os-tab.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
 .os-tab:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+
+/* Settings menu beside the section (General, SSO, Audit log), the account settings' layout. */
+.osf-label { margin: 0 0 var(--space-2); padding: 0 8px; font: 500 12px/18px var(--font-sans); color: var(--ink-muted); }
+.osf-title { margin: 0 0 var(--space-6); }
+.osf-measure > * { max-width: var(--page-measure); }
+@media (max-width: 860px) {
+  .osf-label { display: none; }
+}
+
+/* A page's own header (Projects, Team, Organizations): eyebrow, title, then the actions. */
+.os-pagehead { display: flex; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-6); }
+.os-pagehead > div { flex: 1; min-width: 0; }
+.os-pagehead .cp-lede { margin-top: 2px; }
 .os-note { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--space-6); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .os-note > .ob-ic { margin-top: 2px; color: var(--info); }
 

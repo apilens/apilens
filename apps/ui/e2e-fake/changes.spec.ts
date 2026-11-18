@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const CHANGES = "/shop/changes";
+const CHANGES = "/project/shop/changes";
 
 async function seed(deploys: Record<string, unknown>[]) {
   const res = await fetch(`${IDENTITY}/__fake/deploys`, {
@@ -114,10 +114,10 @@ test("lists deploys with before → after error rate and p95, colored by the cha
   await expect(staging.getByRole("cell").nth(2)).toContainText("No traffic to compare");
 
   // Explore over the hour after the deploy, in its environment (Explore has no release filter).
-  await expect(recent.getByRole("link", { name: "Explore requests after v2.5.0" })).toHaveAttribute("href", /^\/shop\/explore\?range=1h&from=[^&]+&to=[^&]+&env=production$/);
+  await expect(recent.getByRole("link", { name: "Explore requests after v2.5.0" })).toHaveAttribute("href", /^\/project\/shop\/explore\?range=1h&from=[^&]+&to=[^&]+&env=production$/);
   await expect(staging.getByRole("link", { name: "Explore requests after v2.4.0-rc.1" })).toHaveAttribute("href", /&env=staging$/);
   // The release is the row's link to the deploy's own page.
-  await expect(recent.getByRole("link", { name: "v2.5.0", exact: true })).toHaveAttribute("href", /^\/shop\/changes\/[0-9a-f]+$/);
+  await expect(recent.getByRole("link", { name: "v2.5.0", exact: true })).toHaveAttribute("href", /^\/project\/shop\/changes\/[0-9a-f]+$/);
 
   const a11y = await new AxeBuilder({ page }).include(".ch").analyze();
   expect(a11y.violations).toEqual([]);
@@ -171,8 +171,8 @@ test("no deploys: the release and commit snippets for the project's SDKs, with l
     await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
     await expect(panel).toContainText('release=os.environ.get("GIT_SHA", "")');
 
-    await expect(record.getByRole("link", { name: "Release and commit in SDK setup" })).toHaveAttribute("href", "/shop/settings/sdk#release");
-    await expect(record.getByRole("link", { name: "Link your repository in Integrations" })).toHaveAttribute("href", "/shop/settings/integrations");
+    await expect(record.getByRole("link", { name: "Release and commit in SDK setup" })).toHaveAttribute("href", "/project/shop/settings/sdk#release");
+    await expect(record.getByRole("link", { name: "Link your repository in Integrations" })).toHaveAttribute("href", "/project/shop/settings/integrations");
 
     const a11y = await new AxeBuilder({ page }).include(".ch").analyze();
     expect(a11y.violations).toEqual([]);

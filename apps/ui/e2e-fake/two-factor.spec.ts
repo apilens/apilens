@@ -71,8 +71,8 @@ const backupInput = (page: Page) => page.getByLabel("Backup code");
 const problem = (page: Page) => page.locator("#tf-problem");
 
 test("signs in with the authenticator code after a wrong one", async ({ page }) => {
-  const key = await toTwoFactor(page, "/acme/requests");
-  expect(new URL(page.url()).searchParams.get("next")).toBe("/acme/requests");
+  const key = await toTwoFactor(page, "/project/acme/requests");
+  expect(new URL(page.url()).searchParams.get("next")).toBe("/project/acme/requests");
   // The pre-auth token is httpOnly and only sent to the exchange route.
   const pre = await cookie(page, PRE_AUTH_COOKIE);
   expect(pre?.httpOnly).toBe(true);
@@ -84,13 +84,13 @@ test("signs in with the authenticator code after a wrong one", async ({ page }) 
   await expect(codeInput(page)).toHaveValue("");
 
   await codeInput(page).fill(totp(key));
-  await page.waitForURL((url) => url.pathname === "/acme/requests");
+  await page.waitForURL((url) => url.pathname === "/project/acme/requests");
   expect((await cookie(page, SESSION_COOKIE))?.httpOnly).toBe(true);
   expect(await cookie(page, PRE_AUTH_COOKIE)).toBeUndefined();
 });
 
 test("signs in with a backup code after a wrong one", async ({ page }) => {
-  await toTwoFactor(page, "/acme/endpoints", ["abcd-2345"]);
+  await toTwoFactor(page, "/project/acme/endpoints", ["abcd-2345"]);
   await page.getByRole("button", { name: "Use a backup code" }).click();
   await expect(backupInput(page)).toBeFocused();
   const verify = page.getByRole("button", { name: "Verify" });
@@ -104,21 +104,21 @@ test("signs in with a backup code after a wrong one", async ({ page }) => {
   await backupInput(page).fill("ABCD 2345");
   await expect(backupInput(page)).toHaveValue("abcd-2345");
   await verify.click();
-  await page.waitForURL((url) => url.pathname === "/acme/endpoints");
+  await page.waitForURL((url) => url.pathname === "/project/acme/endpoints");
   expect(await cookie(page, SESSION_COOKIE)).toBeTruthy();
 });
 
 test("switches back to the authenticator code", async ({ page }) => {
-  const key = await toTwoFactor(page, "/acme/requests");
+  const key = await toTwoFactor(page, "/project/acme/requests");
   await page.getByRole("button", { name: "Use a backup code" }).click();
   await page.getByRole("button", { name: "Use your authenticator app" }).click();
   await expect(codeInput(page)).toBeFocused();
   await codeInput(page).fill(totp(key));
-  await page.waitForURL((url) => url.pathname === "/acme/requests");
+  await page.waitForURL((url) => url.pathname === "/project/acme/requests");
 });
 
 test("the fifth wrong code goes back to sign-in with a notice, keeping next", async ({ page }) => {
-  const key = await toTwoFactor(page, "/acme/requests");
+  const key = await toTwoFactor(page, "/project/acme/requests");
   const bad = wrongCode(key);
   for (let left = 4; left >= 1; left--) {
     await codeInput(page).fill(bad);
@@ -129,7 +129,7 @@ test("the fifth wrong code goes back to sign-in with a notice, keeping next", as
     (url) =>
       url.pathname === "/sign-in" &&
       url.searchParams.get("reason") === "2fa_locked" &&
-      url.searchParams.get("next") === "/acme/requests",
+      url.searchParams.get("next") === "/project/acme/requests",
   );
   await expect(page.getByText("Too many wrong two-factor codes.", { exact: false })).toBeVisible();
   expect(await cookie(page, SESSION_COOKIE)).toBeUndefined();

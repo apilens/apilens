@@ -1,11 +1,12 @@
-// The project Access page (`/<project>/access/*`, #801): its tabs, in order, and who sees each.
+// The project Access page (`/project/<project>/access/*`, #801): its tabs, in order, and who sees each.
 // Members is the default tab (`/access`), API keys answer at `/access/keys` and Activity at
 // `/access/activity` for those allowed to read the activity log. Pure; safe in Client Components.
 
 import { type Action, type Capabilities, can } from "./capabilities";
+import { projectHref } from "./routes";
 
 export interface AccessTab {
-  /** URL segment under `/<project>/access`; empty for Members, which `/access` itself opens. */
+  /** URL segment under `/project/<project>/access`; empty for Members, which `/access` itself opens. */
   slug: string;
   label: string;
   /** The action that makes the tab visible; absent means everyone who sees the project. */
@@ -18,9 +19,9 @@ export const ACCESS_TABS: readonly AccessTab[] = [
   { slug: "activity", label: "Activity", capability: "audit.read" },
 ];
 
-/** `/<project>/access` or `/<project>/access/<slug>`. */
+/** `/project/<project>/access` or `/project/<project>/access/<slug>`. */
 export function accessHref(project: string, tab: Pick<AccessTab, "slug">): string {
-  return tab.slug ? `/${project}/access/${tab.slug}` : `/${project}/access`;
+  return tab.slug ? projectHref(project, "access", tab.slug) : projectHref(project, "access");
 }
 
 /** The tabs the user may see on `project`, in order. */
@@ -29,7 +30,7 @@ export function visibleAccessTabs(capabilities: Capabilities | null | undefined,
 }
 
 /**
- * The tab a `/<project>/access/[[...tab]]` route points at among `visible`; undefined means 404
+ * The tab a `/project/<project>/access/[[...tab]]` route points at among `visible`; undefined means 404
  * (an unknown tab, a deeper path, or a tab the user may not see).
  */
 export function accessTab(tab: string[] | undefined, visible: readonly AccessTab[] = ACCESS_TABS): AccessTab | undefined {
@@ -44,7 +45,7 @@ export function accessTitle(projectName: string): string {
 }
 
 /**
- * Where the old `/<project>/settings/keys` sends a reader: `keysPath` with the same query (the
+ * Where the old `/project/<project>/settings/keys` sends a reader: `keysPath` with the same query (the
  * page they were on, its size), so a bookmark keeps its place.
  */
 export function movedKeysHref(keysPath: string, search: Record<string, string | string[] | undefined>): string {

@@ -11,7 +11,7 @@ import { Pagination } from "../pagination/pagination";
 import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
 
 /**
- * `/<project>/incidents/rules` (#610): the project's alert rules by name, each with its scope
+ * `/project/<project>/incidents/rules` (#610): the project's alert rules by name, each with its scope
  * (app, environment, filters), what breaches it, how often it is checked, the channels it
  * notifies and where it stands now. Project admins (`alerts.manage`) create and edit rules;
  * everyone else sees them read-only. `rules` is null when the API could not answer; `apps` and

@@ -8,7 +8,7 @@ export default function NotFound() {
         <h1 className="cp-lede" style={{ margin: "0 auto" }}>That page doesn’t exist.</h1>
         <p className="cp-sub">It may have moved, or the project was renamed.</p>
         <p style={{ marginTop: "var(--space-6)" }}>
-          <Link className="ah-btn ah-btn--primary" href="/platform/incidents">Go to platform</Link>
+          <Link className="ah-btn ah-btn--primary" href="/">Go to your projects</Link>
         </p>
       </div>
     </div>

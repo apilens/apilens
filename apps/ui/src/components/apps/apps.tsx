@@ -60,7 +60,7 @@ export interface AppsViewProps {
 }
 
 /**
- * `/<project>/apps` (#591). One card per active app of the project, paged in the URL: requests per
+ * `/project/<project>/apps` (#591). One card per active app of the project, paged in the URL: requests per
  * minute, 5xx rate and p95 over the last 24 hours (cards sorted worst first) with a requests sparkline and a health line
  * (both hoverable for the exact numbers), whether its SDKs are reporting and their version, where
  * the app came from (apps come from the SDK: an unknown app name creates the app) and an actions

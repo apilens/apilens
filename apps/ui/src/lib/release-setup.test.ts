@@ -33,7 +33,7 @@ describe("releaseSnippets", () => {
 
 describe("settings links", () => {
   it("points at SDK setup's release step and Integrations", () => {
-    expect(sdkSetupReleaseHref("my api")).toBe("/my%20api/settings/sdk#release");
-    expect(integrationsHref("shop")).toBe("/shop/settings/integrations");
+    expect(sdkSetupReleaseHref("my api")).toBe("/project/my%20api/settings/sdk#release");
+    expect(integrationsHref("shop")).toBe("/project/shop/settings/integrations");
   });
 });

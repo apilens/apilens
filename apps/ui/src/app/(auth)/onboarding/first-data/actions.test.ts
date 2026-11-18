@@ -35,14 +35,14 @@ describe("openProject", () => {
     updateOnboarding.mockResolvedValue({});
     await expect(openProject("checkout")).rejects.toThrow("NEXT_REDIRECT");
     expect(updateOnboarding.mock.calls[0][0]).toEqual({ completed: true });
-    expect(redirect).toHaveBeenCalledWith("/checkout/incidents");
+    expect(redirect).toHaveBeenCalledWith("/project/checkout/incidents");
   });
 
   it("opens the view the user picked as home", async () => {
     context.mockResolvedValue(ctx("requests"));
     updateOnboarding.mockResolvedValue({});
     await expect(openProject("checkout")).rejects.toThrow("NEXT_REDIRECT");
-    expect(redirect).toHaveBeenCalledWith("/checkout/explore");
+    expect(redirect).toHaveBeenCalledWith("/project/checkout/explore");
   });
 
   it("refuses a project the user is not in", async () => {

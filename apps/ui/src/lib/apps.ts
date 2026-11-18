@@ -3,18 +3,19 @@
 // are reporting and the SDK version against the latest release. Pure helpers, unit-tested in
 // apps.test.ts.
 import type { AppInstance, AppReporting, AppSdk, AppStatus, QueryRange, TrafficSummary } from "./identity";
+import { projectHref } from "./routes";
 
 /** The range every card covers. */
 export const APPS_RANGE: QueryRange = "24h";
 
-/** An app's page (`/<project>/apps/<app>`). */
+/** An app's page (`/project/<project>/apps/<app>`). */
 export function appHref(project: string, app: string): string {
-  return `/${encodeURIComponent(project)}/apps/${encodeURIComponent(app)}`;
+  return projectHref(project, "apps", encodeURIComponent(app));
 }
 
 /** The overview's own URL. */
 export function appsHref(project: string): string {
-  return `/${encodeURIComponent(project)}/apps`;
+  return projectHref(project, "apps");
 }
 
 export const REPORTING_LABEL: Record<AppReporting, string> = {

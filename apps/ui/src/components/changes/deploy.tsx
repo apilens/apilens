@@ -27,12 +27,13 @@ import { ObIcon } from "../onboarding/ob";
 import { MetricPair } from "./changes";
 import { DeployChart } from "./deploy-chart";
 import "./changes.css";
+import { projectHref } from "@/lib/routes";
 
 /** What the deploy page could read: the deploy, or why not. */
 export type DeployLoad = { state: "ok"; detail: DeployDetail } | { state: "not-found" } | { state: "error" };
 
 /**
- * `/<project>/changes/<id>`: one deploy and what changed with it. The header says what was deployed
+ * `/project/<project>/changes/<id>`: one deploy and what changed with it. The header says what was deployed
  * where and when; the verdict line whether error rate and p95 got better or worse (or that there is
  * not enough traffic to say); the chart shows requests, errors and p95 per minute around it; the
  * endpoint table what moved per endpoint, worst first; and the new error codes, exceptions and the
@@ -64,7 +65,7 @@ export function DeployView({
   /** The user's time zone. */
   tz: string;
 }) {
-  const changes = `/${encodeURIComponent(project)}/changes`;
+  const changes = projectHref(project, "changes");
   const crumb = (
     <p className="cp-h">
       {projectName} ·{" "}

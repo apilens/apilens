@@ -1,9 +1,9 @@
-// Organization settings → Single sign-on (#348) against the fake identity (e2e-fake/fake-identity.ts).
+// Organization settings → SSO (#348, `/org/acme/sso`) against the fake identity (e2e-fake/fake-identity.ts).
 // Each fake sign-in gets its own acme organization and SSO connection (none unless seeded).
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
-const PAGE = "/orgs/acme/settings/sso";
+const PAGE = "/org/acme/sso";
 
 async function signIn(page: Page, role: "owner" | "admin" | "member" | "viewer", sso?: Record<string, unknown>) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
@@ -14,7 +14,8 @@ async function signIn(page: Page, role: "owner" | "admin" | "member" | "viewer",
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
   await page.waitForURL((url) => url.pathname === PAGE);
-  await expect(page.getByRole("link", { name: "Single sign-on" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Organization settings" }).getByRole("link", { name: "SSO" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { level: 1, name: "Single sign-on" })).toBeVisible();
 }
 
 const enforce = (page: Page) => page.getByRole("switch", { name: /Require SSO/ });

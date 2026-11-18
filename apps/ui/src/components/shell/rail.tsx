@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { badgeText } from "@/lib/alerts";
 import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
 import { sidebarHref } from "@/lib/nav-scope";
-import type { ContextProject } from "@/lib/scope";
+import { ORG_NAV, type OrgNavItem, orgHref, orgNavActive } from "@/lib/routes";
+import type { ContextOrg, ContextProject } from "@/lib/scope";
 import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
 import { RailIcon, type RailIconName } from "./rail-icons";
@@ -40,23 +41,46 @@ export function useRailMode(): [RailMode, (m: RailMode) => void] {
   return [mode, set];
 }
 
+/** The org rail's icon for each item. */
+const ORG_ICONS: Record<OrgNavItem, RailIconName> = { projects: "boxes", team: "users", settings: "settings" };
+
 /**
- * The left rail, Supabase style: one icon per page in groups split by a rule (monitor, catalog,
- * configure), with the sidebar control at the foot. Labels show when expanded, while hovered in
- * "Expand on hover", and always in the mobile drawer. The page links keep the current `range` and
- * `env` (#992), so the scope travels. `openIncidents` (#610) is the Incidents count; 0 shows none.
+ * The left rail, Supabase style. In project scope: one icon per page in groups split by a rule
+ * (monitor, catalog, configure); the page links keep the current `range` and `env` (#992), so the
+ * scope travels, and `openIncidents` (#610) is the Incidents count (0 shows none). In organization
+ * and account scope (no `project`): the organization's pages, Projects, Team and Organization
+ * settings, with `orgSection` (the org page's section; null in account scope) naming the one on.
+ * The sidebar control sits at the foot. Labels show when expanded, while hovered in "Expand on
+ * hover", and always in the mobile drawer.
  */
-export function Rail({ project, view, orgScope, openIncidents, mode, onMode, drawer }: { project?: ContextProject; view: string; orgScope: boolean; openIncidents: number; mode: RailMode; onMode: (m: RailMode) => void; drawer: boolean }) {
+export function Rail({
+  project,
+  org,
+  view,
+  orgSection = null,
+  openIncidents,
+  mode,
+  onMode,
+  drawer,
+}: {
+  project?: ContextProject;
+  org?: ContextOrg;
+  view: string;
+  orgSection?: string | null;
+  openIncidents: number;
+  mode: RailMode;
+  onMode: (m: RailMode) => void;
+  drawer: boolean;
+}) {
   const search = useSearchParams();
   const open = badgeText(openIncidents);
   const [control, setControl] = useState(false);
   const controlRef = useRef<HTMLButtonElement>(null);
   const tips = mode !== "expanded" && !drawer;
 
-  const item = (p: ContextProject, slug: string, label: string, icon: RailIconName, badge?: string) => {
-    const on = !orgScope && view === slug;
+  const link = (key: string, href: string, on: boolean, label: string, icon: RailIconName, badge?: string) => {
     return (
-      <Link key={slug} href={sidebarHref(p.slug, slug, search)} className={`rl-item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} data-tip={tips && mode === "collapsed" ? label : undefined}>
+      <Link key={key} href={href} className={`rl-item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} data-tip={tips && mode === "collapsed" ? label : undefined}>
         <span className="rl-ic">
           <RailIcon name={icon} />
           {badge ? <i className="rl-dot" aria-hidden="true" /> : null}
@@ -71,10 +95,14 @@ export function Rail({ project, view, orgScope, openIncidents, mode, onMode, dra
     );
   };
 
+  const item = (p: ContextProject, slug: string, label: string, icon: RailIconName, badge?: string) => link(slug, sidebarHref(p.slug, slug, search), view === slug, label, icon, badge);
+
   const group = (section: string) =>
     project
       ? VIEWS.filter((v) => v.section === section).map((v) => item(project, v.slug, v.label, v.slug as RailIconName, v.slug === "incidents" && open ? open : undefined))
       : null;
+
+  const orgOn = orgSection === null ? null : orgNavActive(orgSection);
 
   return (
     <aside className={`rl rl--${drawer ? "drawer" : mode}`} aria-label="Sidebar">
@@ -91,6 +119,8 @@ export function Rail({ project, view, orgScope, openIncidents, mode, onMode, dra
                 {item(project, PROJECT_SETTINGS.slug, PROJECT_SETTINGS.label, "settings")}
               </div>
             </>
+          ) : org ? (
+            <div className="rl-group">{ORG_NAV.map((n) => link(n.item, orgHref(org.slug, n.section), orgOn === n.item, n.label, ORG_ICONS[n.item]))}</div>
           ) : null}
         </nav>
         {drawer ? null : (
