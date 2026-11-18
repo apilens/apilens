@@ -1,6 +1,6 @@
 /* App chrome, Supabase style: 48px top bar with scope crumbs over a 48px icon rail that
-   expands to 216px (always, never, or while hovered). Tokens from tokens.css only. */
-.shell { --tb-h: 48px; --rl-w: 48px; --rl-open: 216px; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
+   expands to 208px (always, never, or while hovered). Tokens from tokens.css only. */
+.shell { --tb-h: 48px; --rl-w: 48px; --rl-open: 208px; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
 .shell-body { flex: 1; min-height: 0; display: flex; }
 .shell .app-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 .shell-scrim { display: none; }
@@ -66,23 +66,28 @@
 .rl-nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .rl--collapsed .rl-nav { overflow: visible; }
 .rl-group { display: flex; flex-direction: column; gap: 2px; }
-.rl-group + .rl-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+/* Group rule: inset like Supabase's separator (w-[calc(100%-1rem)] mx-auto) within the 32px rows. */
+.rl-group + .rl-group { position: relative; margin-top: 9px; padding-top: 9px; }
+.rl-group + .rl-group::before { content: ""; position: absolute; top: 0; left: 4px; right: 4px; height: 1px; background: var(--border); }
 .rl-group:empty { display: none; }
 
-.rl-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink-muted); font: 400 13px/1 var(--font-sans); text-decoration: none; white-space: nowrap; cursor: pointer; }
-.rl-item:hover, .rl-control.is-open { background: var(--surface-2); color: var(--ink); }
+/* Rows, Supabase's sidebar: 32px tall, 6px radius, 6px inset so the 20px icon sits centred in the
+   48px rail; labels 14px. Muted at rest, brighter on hover, full ink plus a fill when current. */
+.rl-item { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-muted); font: 400 14px/20px var(--font-sans); text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color .1s, color .1s; }
+.rl-item:hover, .rl-control.is-open { background: color-mix(in srgb, var(--surface-2) 60%, transparent); color: var(--ink); }
 .rl-item.on { background: var(--surface-2); color: var(--ink); font-weight: 500; }
 .rl-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-ink); }
-.rl-ic { position: relative; flex: none; display: grid; place-items: center; width: 31px; height: 32px; }
-.rl-ic .nav-ic, .rl-ic .cp-ic { width: 17px; height: 17px; }
-.rl-dot { position: absolute; top: 7px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn, var(--error)); box-shadow: 0 0 0 2px var(--bg); }
+.rl-ic { position: relative; flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+.rl-svg { width: 20px; height: 20px; flex: none; }
+.rl-dot { position: absolute; top: -1px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
 .rl-lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .1s; }
-.rl-ct { margin-right: 8px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); font: 500 11px/16px var(--font-mono); color: var(--ink); opacity: 0; }
+.rl-ct { padding: 0 6px; border-radius: 999px; background: var(--surface-2); font: 500 11px/18px var(--font-mono); color: var(--ink); opacity: 0; }
+.rl-item.on .rl-ct { background: var(--bg); }
 .rl--expanded .rl-lb, .rl--expanded .rl-ct, .rl--drawer .rl-lb, .rl--drawer .rl-ct,
 .rl--hover .rl-panel:hover .rl-lb, .rl--hover .rl-panel:hover .rl-ct,
 .rl--hover .rl-panel:focus-within .rl-lb, .rl--hover .rl-panel:focus-within .rl-ct { opacity: 1; }
 .rl--expanded .rl-dot, .rl--drawer .rl-dot, .rl--hover .rl-panel:hover .rl-dot, .rl--hover .rl-panel:focus-within .rl-dot { display: none; }
-.rl-foot { flex: none; padding-top: 8px; border-top: 1px solid var(--border); }
+.rl-foot { flex: none; padding-top: 8px; }
 
 /* ---------------------------------------------------------------- phones: drawer */
 @media (max-width: 860px) {

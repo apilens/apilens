@@ -6,8 +6,8 @@ import { badgeText } from "@/lib/alerts";
 import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
 import type { ContextProject } from "@/lib/scope";
 import { Icon } from "../icons";
-import { NavIcon, type NavIconName } from "../nav-icons";
 import { PopMenu } from "../pop-menu";
+import { RailIcon, type RailIconName } from "./rail-icons";
 
 /** Supabase's sidebar behaviours: always open, icons only, or icons that open while hovered. */
 export type RailMode = "expanded" | "collapsed" | "hover";
@@ -49,12 +49,12 @@ export function Rail({ project, view, orgScope, mode, onMode, drawer }: { projec
   const controlRef = useRef<HTMLButtonElement>(null);
   const tips = mode !== "expanded" && !drawer;
 
-  const item = (p: ContextProject, slug: string, label: string, icon: NavIconName, badge?: string) => {
+  const item = (p: ContextProject, slug: string, label: string, icon: RailIconName, badge?: string) => {
     const on = !orgScope && view === slug;
     return (
       <Link key={slug} href={`/${p.slug}/${slug}`} className={`rl-item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} data-tip={tips && mode === "collapsed" ? label : undefined}>
         <span className="rl-ic">
-          <NavIcon name={icon} active={on} />
+          <RailIcon name={icon} />
           {badge ? <i className="rl-dot" aria-hidden="true" /> : null}
         </span>
         <span className="rl-lb">{label}</span>
@@ -69,7 +69,7 @@ export function Rail({ project, view, orgScope, mode, onMode, drawer }: { projec
 
   const group = (section: string) =>
     project
-      ? VIEWS.filter((v) => v.section === section).map((v) => item(project, v.slug, v.label, v.slug as NavIconName, v.slug === "incidents" && open ? open : undefined))
+      ? VIEWS.filter((v) => v.section === section).map((v) => item(project, v.slug, v.label, v.slug as RailIconName, v.slug === "incidents" && open ? open : undefined))
       : null;
 
   return (
@@ -91,7 +91,7 @@ export function Rail({ project, view, orgScope, mode, onMode, drawer }: { projec
           <div className="rl-foot">
             <button ref={controlRef} type="button" className={`rl-item rl-control${control ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={control} aria-label="Sidebar control" data-tip={tips && mode === "collapsed" && !control ? "Sidebar control" : undefined} onClick={() => setControl((c) => !c)}>
               <span className="rl-ic">
-                <Icon name={mode === "expanded" ? "panelClose" : "panelOpen"} />
+                <RailIcon name="panel" />
               </span>
               <span className="rl-lb">Sidebar control</span>
             </button>
