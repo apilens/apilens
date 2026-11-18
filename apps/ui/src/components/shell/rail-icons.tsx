@@ -90,10 +90,14 @@ const PATHS = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </>
   ),
+  // Lucide `panel-left-dashed`, Supabase's sidebar control (Sidebar.tsx:120).
   panel: (
     <>
       <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M9 3v18" />
+      <path d="M9 14v1" />
+      <path d="M9 19v2" />
+      <path d="M9 3v2" />
+      <path d="M9 9v1" />
     </>
   ),
 } satisfies Record<string, ReactNode>;

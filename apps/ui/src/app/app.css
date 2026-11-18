@@ -203,11 +203,8 @@ button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
 .ob-pick:active { background: var(--border); }
 .ob-row:hover { border-color: var(--border-strong); }
 
-/* buttons: secondary also lifts its fill; primary and ghost get a pressed state */
-.ah-btn--secondary:hover { background: var(--border); }
-.ah-btn--secondary:active { background: var(--border); border-color: var(--border-strong); }
-.ah-btn--primary:active { filter: brightness(.94); }
-.ah-btn--ghost:active { background: var(--border); }
+/* Button hover and press states follow Supabase's Button (bundle.css, #1061 B4): the press is a
+   0.97 scale, not a colour change. */
 /* A disabled primary button goes neutral (#999): an indigo fill at any opacity still reads as
    "press me". Loading buttons are disabled too but keep their fill and spinner. */
 .ah-btn.ah-btn--primary:disabled:not(.is-loading), .ah-btn.ah-btn--primary[aria-disabled="true"] {

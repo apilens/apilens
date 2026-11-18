@@ -50,9 +50,9 @@
 .os-danger { display: flex; align-items: center; gap: var(--space-4); }
 .os-danger .t { flex: 1; min-width: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .os-danger .t b { display: block; font: 500 13px/18px var(--font-sans); color: var(--ink); }
-.os-btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
-.os-btn-danger:hover { filter: brightness(1.08); }
-.os-btn-danger:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+.os-btn-danger { background: var(--error); border-color: var(--error); color: var(--on-accent); } /* Supabase danger, Button.tsx:80-88 */
+.os-btn-danger:hover { background: color-mix(in srgb, var(--error) 88%, var(--ink)); }
+.os-btn-danger:disabled { opacity: .5; cursor: not-allowed; filter: none; }
 .os-btn-outline-danger { background: transparent; border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--error); }
 .os-btn-outline-danger:hover { background: var(--error-soft); }
 .os-confirm { margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); }

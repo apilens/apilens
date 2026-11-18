@@ -12,11 +12,11 @@ import { Logo } from "../logo";
 import { UserMenu } from "../user-menu";
 import { OrgSelector, ProjectSelector } from "./scope-selectors";
 
-/** Supabase's breadcrumb divider: a thin forward slash. */
+/** Supabase's breadcrumb divider (LayoutHeaderDivider.tsx): a 16px slash, stroke 1, before each crumb. */
 function Slash() {
   return (
-    <svg className="tb-slash" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M16 3.5 8 20.5" />
+    <svg className="tb-slash" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" shapeRendering="geometricPrecision">
+      <path d="M16 3.549L7.12 20.600" />
     </svg>
   );
 }
@@ -105,7 +105,7 @@ export function TopBar({
       <div className="tb-right">
         <button type="button" className="tb-search" onClick={onSearch} aria-keyshortcuts="Meta+K Control+K">
           <Icon name="search" />
-          <span>Jump to…</span>
+          <span>Search...</span>
           <kbd>⌘K</kbd>
         </button>
         <a className="tb-icon" href={LINKS.docs} target="_blank" rel="noreferrer" aria-label="Documentation" data-tip="Docs">
