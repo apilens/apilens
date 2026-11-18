@@ -28,8 +28,12 @@ export function useListSearch(pathname: string, params: ParamsInput, keys: ListK
   const [query, setQuery] = useState(urlQuery);
   /** The search this hook last wrote to the URL: its echo must not reset what is typed since. */
   const pushed = useRef<string | null>(null);
+  /** The URL's search as last seen: only a change of it resets the box, not the first render. */
+  const seen = useRef(urlQuery);
 
   useEffect(() => {
+    if (seen.current === urlQuery) return;
+    seen.current = urlQuery;
     if (pushed.current === urlQuery) return;
     pushed.current = null;
     setQuery(urlQuery);
@@ -72,6 +76,17 @@ export function useCanonicalPage(pathname: string, params: ParamsInput, shown: P
 /** A labelled search box for a list. `label` is read out ("Search members"); the placeholder shows the fields. */
 export function ListSearch({ value, onChange, label, placeholder, controls }: { value: string; onChange: (q: string) => void; label: string; placeholder: string; controls?: string }) {
   const id = useId();
+  const input = useRef<HTMLInputElement>(null);
+  // Text typed before hydration stays in the box (React keeps the DOM value while hydrating) but
+  // never reached `value`, so the rows were filtered by the old search under the new text (#1040).
+  // Adopt it once on mount.
+  const adopt = useRef(onChange);
+  useEffect(() => {
+    const typed = input.current?.value;
+    if (typed !== undefined && typed !== value) adopt.current(typed);
+    // Mount only: later differences are the reader's own edits, already sent by onChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="ls" role="search">
       <label htmlFor={id} className="ls-label">
@@ -83,6 +98,7 @@ export function ListSearch({ value, onChange, label, placeholder, controls }: { 
           <path d="m10.5 10.5 3 3" />
         </svg>
         <input
+          ref={input}
           id={id}
           type="search"
           value={value}
