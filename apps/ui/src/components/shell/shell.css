@@ -57,18 +57,20 @@
 .shell-rail { position: relative; z-index: 30; flex: none; width: var(--rl-w); }
 .shell-rail:has(.rl--expanded) { width: var(--rl-open); }
 .rl { height: 100%; }
-.rl-panel { position: absolute; inset: 0 auto 0 0; width: var(--rl-w); display: flex; flex-direction: column; padding: 8px; border-right: 1px solid var(--border); background: var(--bg); overflow: hidden; transition: width .15s ease-out, box-shadow .15s; }
+/* Values from Supabase Studio's sidebar (packages/ui shadcn sidebar.tsx + studio Sidebar.tsx):
+   groups p-2, menu gap-1, rows h-8 px-1.5 gap-2 rounded-md text-sm, svg size-5 stroke 1.5,
+   separators 1px at calc(100% - 1rem), footer p-2. */
+.rl-panel { position: absolute; inset: 0 auto 0 0; width: var(--rl-w); display: flex; flex-direction: column; padding: 0; box-shadow: inset -1px 0 0 var(--border); background: var(--bg); overflow: hidden; transition: width .15s ease-out, box-shadow .15s; }
 .rl--expanded .rl-panel { width: var(--rl-open); }
 /* Expand on hover: opens over the page after a short dwell, like Supabase. */
-.rl--hover .rl-panel:hover, .rl--hover .rl-panel:focus-within { width: var(--rl-open); box-shadow: var(--shadow-frame); transition-delay: .1s; }
+/* The rule is an inset shadow, not a border, so the 48px holds a full 32px row (Supabase's size-8). */
+.rl--hover .rl-panel:hover, .rl--hover .rl-panel:focus-within { width: var(--rl-open); box-shadow: inset -1px 0 0 var(--border), var(--shadow-frame); transition-delay: .1s; }
 .rl--collapsed .rl-panel { overflow: visible; }
 
 .rl-nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .rl--collapsed .rl-nav { overflow: visible; }
-.rl-group { display: flex; flex-direction: column; gap: 2px; }
-/* Group rule: inset like Supabase's separator (w-[calc(100%-1rem)] mx-auto) within the 32px rows. */
-.rl-group + .rl-group { position: relative; margin-top: 9px; padding-top: 9px; }
-.rl-group + .rl-group::before { content: ""; position: absolute; top: 0; left: 4px; right: 4px; height: 1px; background: var(--border); }
+.rl-group { display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.rl-sep { flex: none; width: calc(100% - 16px); height: 1px; margin: 0 auto; border: 0; background: var(--border); }
 .rl-group:empty { display: none; }
 
 /* Rows, Supabase's sidebar: 32px tall, 6px radius, 6px inset so the 20px icon sits centred in the
@@ -79,7 +81,8 @@
 .rl-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-ink); }
 .rl-ic { position: relative; flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
 .rl-svg { width: 20px; height: 20px; flex: none; }
-.rl-dot { position: absolute; top: -1px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
+/* Supabase's ActiveDot: 8px at top-2 left-4.5 of the row, i.e. 2px/12px into the icon box. */
+.rl-dot { position: absolute; top: 2px; left: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 .rl-lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .1s; }
 .rl-ct { padding: 0 6px; border-radius: 999px; background: var(--surface-2); font: 500 11px/18px var(--font-mono); color: var(--ink); opacity: 0; }
 .rl-item.on .rl-ct { background: var(--bg); }
@@ -87,7 +90,7 @@
 .rl--hover .rl-panel:hover .rl-lb, .rl--hover .rl-panel:hover .rl-ct,
 .rl--hover .rl-panel:focus-within .rl-lb, .rl--hover .rl-panel:focus-within .rl-ct { opacity: 1; }
 .rl--expanded .rl-dot, .rl--drawer .rl-dot, .rl--hover .rl-panel:hover .rl-dot, .rl--hover .rl-panel:focus-within .rl-dot { display: none; }
-.rl-foot { flex: none; padding-top: 8px; }
+.rl-foot { flex: none; padding: 8px; }
 
 /* ---------------------------------------------------------------- phones: drawer */
 @media (max-width: 860px) {
@@ -95,9 +98,9 @@
   .tb-home, .tb-crumbs > .tb-slash:first-child, .tb-badge, .tb-search span, .tb-search kbd { display: none; }
   .tb-search { min-width: 0; width: 30px; padding: 0; justify-content: center; border: 0; background: transparent; }
   .tb-name { max-width: 120px; }
-  .shell-rail { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 260px; transform: translateX(-100%); transition: transform .15s ease-out; }
+  .shell-rail { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 288px; transform: translateX(-100%); transition: transform .15s ease-out; }
   .shell.is-open .shell-rail { transform: none; }
-  .shell-rail .rl-panel { width: 260px; box-shadow: var(--shadow-frame); }
+  .shell-rail .rl-panel { width: 288px; box-shadow: inset -1px 0 0 var(--border), var(--shadow-frame); }
   .shell.is-open .shell-scrim { display: block; position: fixed; inset: var(--tb-h) 0 0 0; z-index: 44; background: color-mix(in srgb, var(--bg) 72%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) {

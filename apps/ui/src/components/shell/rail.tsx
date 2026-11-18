@@ -79,7 +79,9 @@ export function Rail({ project, view, orgScope, mode, onMode, drawer }: { projec
           {project ? (
             <>
               <div className="rl-group">{group("Monitor")}</div>
+              <hr className="rl-sep" />
               <div className="rl-group">{group("Catalog")}</div>
+              <hr className="rl-sep" />
               <div className="rl-group">
                 {group("Configure")}
                 {item(project, PROJECT_SETTINGS.slug, PROJECT_SETTINGS.label, "settings")}
