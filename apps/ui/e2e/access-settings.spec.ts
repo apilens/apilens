@@ -193,6 +193,7 @@ test("restricting the project takes it from the teammate; adding them as Viewer 
   // Restrict.
   await page.goto(`/${SLUG}/access`);
   const card = page.getByRole("region", { name: "Default access" });
+  await card.getByRole("button", { name: "Change default access" }).click();
   await card.getByRole("radio", { name: /^Restricted: only people added here/ }).check();
   await card.getByRole("button", { name: "Save default access" }).click();
   const restrict = page.getByRole("dialog", { name: `Restrict ${PROJECT}?` });

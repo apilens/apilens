@@ -35,6 +35,7 @@ class ApiLensPlugin:
     environment: str | None = None
     capture_profile: CaptureProfile | None = None
     capture_spans: bool = True
+    capture_db_spans: bool = True
     service_name: str = ""
     exclude_paths: list[str] | None = None
     exclude_user_agents: list[str] | None = None
@@ -61,6 +62,7 @@ class ApiLensPlugin:
                 environment=self.environment,
                 capture_profile=self.capture_profile,
                 capture_spans=self.capture_spans,
+                capture_db_spans=self.capture_db_spans,
                 service_name=self.service_name,
                 exclude_paths=self.exclude_paths,
                 exclude_user_agents=self.exclude_user_agents,
@@ -85,6 +87,7 @@ def instrument_app(
     environment: str | None = None,
     capture_profile: CaptureProfile | None = None,
     capture_spans: bool = True,
+    capture_db_spans: bool = True,
     service_name: str = "",
     exclude_paths: list[str] | None = None,
     exclude_user_agents: list[str] | None = None,
@@ -102,6 +105,7 @@ def instrument_app(
         environment=environment,
         capture_profile=capture_profile,
         capture_spans=capture_spans,
+        capture_db_spans=capture_db_spans,
         service_name=service_name,
         exclude_paths=exclude_paths,
         exclude_user_agents=exclude_user_agents,

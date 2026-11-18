@@ -6,6 +6,10 @@ counts and error rates are derived from those records. A request that is
 sampled *out* only loses its detail — headers, bodies, spans and the auto
 error-trace log — and carries ``sampled=False`` on the wire.
 
+Errors are never sampled: the middlewares keep a request whose handler raised
+or that answered 5xx whatever these samplers decide (only a remote
+``enabled=false`` policy turns capture off).
+
 Trace context is still resolved and propagated downstream for sampled-out
 requests, so child services decide independently.
 

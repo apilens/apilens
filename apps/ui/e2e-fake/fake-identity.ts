@@ -132,7 +132,7 @@
 //   GET  /api/v1/endpoints/{method}/{path}/{requests|errors|latency|transfer}?project=
 //                                                  one endpoint's detail reads (#593) as seeded, else empty;
 //                                                  every read is logged with its query
-//   POST /__fake/endpoint {project, method, path, tabs: {requests?, errors?, latency?, transfer?}}
+//   POST /__fake/endpoint {project, method, path, tabs: {requests?, errors?, latency?, transfer?}, apps?: {<app id>: tabs}}
 //                                                  test hook: what those answer; clears the log and that endpoint's settings
 //   GET  /__fake/endpoint-reads                    test hook: the logged reads [{tab, method, path, query}]
 //   GET|PUT /api/v1/apps/{id}/endpoints/{method}/{path}/settings
@@ -141,7 +141,7 @@
 //   GET  /api/v1/errors/status?project=            the errors dashboard (#594), computed from the rows
 //   GET  /api/v1/errors/status/{code}?project=     `/__fake/errors` seeded: a status code an endpoint's
 //   GET  /api/v1/errors?project=                   saved settings (any app) mark as expected is no error
-//   POST /__fake/errors {project, buckets, requests, rows, down?}
+//   POST /__fake/errors {project, buckets, requests, rows, down?, previous?}
 //                                                  test hook: bucket starts, requests per bucket and error
 //                                                  rows [{method, path, status_code, bucket, count, consumer_id?,
 //                                                  consumer_name?, validation_errors?, exceptions?}]; forgets
@@ -149,10 +149,15 @@
 //   GET  /api/v1/traffic/latency?project=&env=     the Performance page's report (#595) as seeded, its Apdex
 //                                                  scored over the seed's response times against shop's
 //                                                  first app threshold (else 500 ms); empty without a seed
-//   POST /__fake/performance {project, latency?, samples_ms?, endpoints?, down?}
+//   GET  /api/v1/requests/slowest?project=&env=&app=&limit=
+//                                                  the Performance page's slowest requests (#1001): the seed's
+//                                                  `slowest` rows, slowest first; none without a seed
+//   POST /__fake/performance {project, latency?, samples_ms?, endpoints?, slowest?, down?, slowest_down?}
 //                                                  test hook: what that answers, and what the Performance
-//                                                  page's `/traffic/endpoints?limit=500` read answers
-//                                                  (`down`: both answer 503); clears the app thresholds
+//                                                  page's `/traffic/endpoints?limit=500` and
+//                                                  `/requests/slowest` reads answer (`down`: all answer
+//                                                  503; `slowest_down`: only the slowest requests);
+//                                                  clears the app thresholds
 //   GET|PUT /api/v1/apps/{id}/settings             an app's response time threshold (#595): null until
 //                                                  saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
@@ -161,15 +166,19 @@
 //                                                  each with its seeded SDK consumer_group; `group` filters by it
 //   GET  /api/v1/consumers/{consumer_id}?project=  detail as seeded, recent lists paged by limit/offset
 //   GET  /api/v1/consumer-groups?project=          the seeded consumers rolled up by consumer_group
+//   GET  /api/v1/anonymous-callers?project=&limit= requests without a consumer and their top callers (#989), as
+//                                                  seeded by /__fake/consumers {anonymous}; zero when not seeded
 //   GET|POST /api/v1/projects/shop/views?surface=  shop's saved views (#578, #589): shared ones and the caller's
 //   GET|PUT|DELETE /api/v1/projects/shop/views/{id} own; the creator edits, capture.manage edits shared ones (else
 //                                                  403); a name the creator uses on the surface answers 409
 //   POST /__fake/views {views?, down?}             test hook: replaces shop's saved views; `down`: writes answer 503
-//   POST /__fake/consumers {project, summary, points, consumers, details}
+//   POST /__fake/consumers {project, summary, points, consumers, details, anonymous?}
 //                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
-//                                                  `project` (narrowed by method, path and status,
-//                                                  #586) instead of what the edge stored (#585); rows null forgets it
+//                                                  `project` (narrowed by method, path, consumer_id,
+//                                                  status and app, #586, #983, #975) instead of what the
+//                                                  edge stored (#585); rows null forgets it;
+//                                                  `environments` sets shop's in the context (#975)
 //   GET  /api/v1/requests/{id}?project=            one request (#588): the seeded row with that `id`, merged with
 //                                                  its `detail` ({request?, spans?, logs?}); 404 for any other id
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
@@ -192,7 +201,8 @@
 //                                                  alert writes answer 403 without alerts.manage
 //   POST /__fake/alerts {trigger?: {rule, value}, resolve?: rule, reset?}
 //                                                  test hook: the evaluator's part: open an event for the rule
-//                                                  named `rule`, resolve its open one, or forget every rule,
+//                                                  named `rule` (notified only when it has a channel),
+//                                                  resolve its open one, or forget every rule,
 //                                                  channel and event
 //   GET  /api/v1/apps/{id}/ingest-stats?project=shop&days=
 //                                                  the app's ingest-edge counters per UTC day (#602):
@@ -202,13 +212,17 @@
 //                                                  `status` (#591) overrides any field of the read
 //   GET  /api/v1/traffic/{summary|timeseries}?app= one app's traffic (#591): its `traffic` seed
 //                                                  ({summary, points}), else none
-//   GET  /api/v1/projects/shop/usage?days=         project usage (#819): the seeded ingest days summed over
+//   GET  /api/v1/traffic/endpoints?app=            one app's endpoints (#995) when its `traffic` seed has
+//                                                  `endpoints`; else as below
+//   GET  /api/v1/deploys/changes?app=              one app's deploys (#995) when it was seeded `deploys`;
+//                                                  else as below
+//   GET  /api/v1/projects/shop/usage?days=       project usage (#819): the seeded ingest days summed over
 //                                                  shop's apps (a day may add rejected_by, environments,
 //                                                  bytes); 503 when an app's ingest is "off", 500 when
 //                                                  seeded usage: "error"; quota from /__fake/apps {quota}
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
-//                                                  traffic?, managed?}], their policies, reports, health
+//                                                  traffic?, deploys?, managed?}], their policies, reports, health
 //                                                  counters, SDK status, traffic and lifecycle (managed:
 //                                                  any ManagedApp field), plus {rejections?}
 //   POST /__fake/ingested {project?, last_at}      test hook (#817): when the edge last stored data for a
@@ -658,7 +672,10 @@ const endpointReads: { tab: string; method: string; path: string; query: Record<
 /** "<app id> <METHOD> <path>" → the saved settings of that endpoint (#593). */
 const endpointSettings = new Map<string, Record<string, unknown>>();
 /** Project slug → the response-time report and raw response times of `/traffic/latency` (#595). */
-const performanceSeed = new Map<string, { latency: Record<string, unknown>; samples: number[]; endpoints?: unknown[]; down: boolean }>();
+const performanceSeed = new Map<
+  string,
+  { latency: Record<string, unknown>; samples: number[]; endpoints?: unknown[]; slowest?: unknown[]; down: boolean; slowestDown?: boolean }
+>();
 /** App id → its saved response time threshold in ms (#595); absent means the default. */
 const appThresholds = new Map<string, number>();
 /** An error row the errors dashboard reads count (#594): `count` responses in bucket `bucket`. */
@@ -674,7 +691,7 @@ type ErrorRow = {
   exceptions?: number;
 };
 /** Project slug → what the errors dashboard reads count (#594), as seeded by `/__fake/errors`. */
-const errorsSeed = new Map<string, { buckets: string[]; requests: number[]; rows: ErrorRow[]; down: boolean }>();
+const errorsSeed = new Map<string, { buckets: string[]; requests: number[]; rows: ErrorRow[]; down: boolean; previous?: unknown }>();
 
 /** Forgets the saved settings of one endpoint in every app. */
 function forgetSettings(method: string, path: string) {
@@ -695,7 +712,14 @@ function expectedFor(method: string, path: string, code: number): boolean {
 /** Project slug → what the consumers reads answer (#596), as seeded by `/__fake/consumers`. */
 const consumersSeed = new Map<
   string,
-  { summary: unknown; points: unknown[]; consumers: Record<string, unknown>[]; details: Record<string, Record<string, unknown>> }
+  {
+    summary: unknown;
+    points: unknown[];
+    consumers: Record<string, unknown>[];
+    details: Record<string, Record<string, unknown>>;
+    /** `GET /anonymous-callers` (#989): {totals, callers}. */
+    anonymous?: { totals: Record<string, number>; callers: unknown[] };
+  }
 >();
 /** shop's saved views (#578, #589): shared ones for everyone, private ones for their creator. */
 interface FakeView {
@@ -722,6 +746,8 @@ interface FakeApp {
   managed?: Record<string, unknown>;
 }
 let shopApps: FakeApp[] = [DEFAULT_APP];
+/** shop's environments as the context lists them, set by `/__fake/requests` {environments} (#975). */
+let shopEnvironments: string[] = ["production"];
 /** Records the ingest edge rejected for app names (`GET /projects/shop/app-rejections`), seeded by `/__fake/apps`. */
 let appRejectionSeed: Record<string, unknown>[] = [];
 
@@ -758,7 +784,9 @@ const appIngest = new Map<string, Record<string, unknown>[] | "off">();
 const appSdkStats = new Map<string, Record<string, unknown>>();
 /** The Apps overview (#591): each app's SDK status and its traffic ({summary, points}), by app id. */
 const appStatuses = new Map<string, Record<string, unknown>>();
-const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[] }>();
+const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[]; endpoints?: unknown[] }>();
+/** App id → the deploys `GET /deploys/changes?app=` answers (#995), seeded by `/__fake/apps` {deploys}. */
+const appDeploys = new Map<string, Record<string, unknown>[]>();
 /** Project usage (#819): the install's ingest quota, seeded by `/__fake/apps` {quota}; `usage: "error"` answers 500. */
 let usageQuota = { records_per_minute: 0, bytes_per_day: 0 };
 let usageError = false;
@@ -1071,7 +1099,7 @@ function shopContextName(): string {
 function shopInContext(id: string) {
   const p = projectState.project;
   if (p.deleted_at !== null) return [];
-  return [{ id: "prj_fake", slug: p.slug, name: shopContextName(), environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }];
+  return [{ id: "prj_fake", slug: p.slug, name: shopContextName(), environments: shopEnvironments, app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }];
 }
 
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
@@ -1961,14 +1989,27 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const days = Number(url.searchParams.get("days") ?? 7);
       const zero = { accepted: 0, rejected: 0, truncated: 0, masked: 0 };
       const keys = Object.keys(zero) as (keyof typeof zero)[];
+      // A seeded day may carry `sdk_dropped` ([{signal, reason, records}], #927): the day gets their
+      // sum, the app the list summed over the days, most records first.
+      type Drop = { signal: string; reason: string; records: number };
+      const dropped = new Map<string, Drop>();
       const daily = Array.from({ length: days }, (_, i) => {
         const date = new Date(Date.now() - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10);
         const fromEnd = days - 1 - i;
-        const day = seeded[seeded.length - 1 - fromEnd];
-        return { date, ...zero, ...(day ?? {}) };
+        const { sdk_dropped: drops, ...day } = (seeded[seeded.length - 1 - fromEnd] ?? {}) as Record<string, unknown>;
+        let sum = 0;
+        for (const d of (Array.isArray(drops) ? drops : []) as Drop[]) {
+          const k = `${d.signal}|${d.reason}`;
+          const cur = dropped.get(k) ?? { signal: d.signal, reason: d.reason, records: 0 };
+          cur.records += d.records;
+          dropped.set(k, cur);
+          sum += d.records;
+        }
+        return { date, ...zero, ...day, sdk_dropped: sum };
       });
       const totals = Object.fromEntries(keys.map((k) => [k, daily.reduce((n, d) => n + Number(d[k]), 0)]));
-      return send(res, 200, { app_id: app.id, app: app.slug, days, totals, daily });
+      const sdk_dropped = [...dropped.values()].sort((a, b) => b.records - a.records);
+      return send(res, 200, { app_id: app.id, app: app.slug, days, totals, daily, sdk_dropped });
     }
     if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
     const stats = appSdkStats.get(app.id);
@@ -2006,6 +2047,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     appSdkStats.clear();
     appStatuses.clear();
     appTraffic.clear();
+    appDeploys.clear();
     shopApps = list.length
       ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug), managed: typeof a.managed === "object" && a.managed !== null ? (a.managed as Record<string, unknown>) : undefined }))
       : [DEFAULT_APP];
@@ -2016,19 +2058,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (a.ingest === "off" || Array.isArray(a.ingest)) appIngest.set(id, a.ingest as Record<string, unknown>[] | "off");
       if (typeof a.sdk_stats === "object" && a.sdk_stats !== null) appSdkStats.set(id, a.sdk_stats as Record<string, unknown>);
       if (typeof a.status === "object" && a.status !== null) appStatuses.set(id, a.status as Record<string, unknown>);
-      if (typeof a.traffic === "object" && a.traffic !== null) appTraffic.set(id, a.traffic as { summary?: Record<string, unknown>; points?: unknown[] });
+      if (typeof a.traffic === "object" && a.traffic !== null) appTraffic.set(id, a.traffic as { summary?: Record<string, unknown>; points?: unknown[]; endpoints?: unknown[] });
+      if (Array.isArray(a.deploys)) appDeploys.set(id, a.deploys as Record<string, unknown>[]);
     });
     return send(res, 204);
   }
-  // One app's traffic for the Apps overview (#591); same access rules as below.
-  const appScoped = (path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app");
+  // One app's traffic for the Apps overview (#591) and the app's page (#995); same access rules as below.
+  const appParam = url.searchParams.get("app") ?? "";
+  const appEndpoints = path === "/api/v1/traffic/endpoints" && Array.isArray(appTraffic.get(appParam)?.endpoints);
+  const appScoped = ((path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app")) || appEndpoints;
   if (req.method === "GET" && appScoped) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
     if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
     const range = url.searchParams.get("range") ?? "24h";
-    const seed = appTraffic.get(url.searchParams.get("app") ?? "");
+    const seed = appTraffic.get(appParam);
+    if (appEndpoints) return send(res, 200, { endpoints: (seed?.endpoints ?? []).slice(0, Number(url.searchParams.get("limit") ?? 100) || 100) });
     if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 1800, points: seed?.points ?? [] });
     const none = { requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, p99_ms: 0, requests_per_minute: 0, apdex: null };
     return send(res, 200, { range, from: "", to: "", ...none, ...seed?.summary });
@@ -2041,7 +2087,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const user = signedInUser(req);
     if (endpoints && user && slug === PROJECT) {
       if (queryDown.has(slug) || performanceSeed.get(slug)?.down) return problem(res, 503, "unavailable");
-      return send(res, 200, { endpoints });
+      // `?app=` (#976) keeps that app's rows only.
+      const app = url.searchParams.get("app");
+      return send(res, 200, { endpoints: app ? (endpoints as Record<string, unknown>[]).filter((e) => e.app_id === app) : endpoints });
     }
   }
   // The traffic reads as seeded (#592), by environment; same access rules as below.
@@ -2060,7 +2108,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (path === "/api/v1/traffic/endpoints") {
         // Endpoints excluded from metrics (#600) leave the list, as the query role does.
         const excluded = (e: Record<string, unknown>) => shopApps.some((a) => endpointSettings.get(`${a.id} ${String(e.method).toUpperCase()} ${String(e.path)}`)?.excluded === true);
-        return send(res, 200, { endpoints: ((seed?.endpoints ?? []) as Record<string, unknown>[]).filter((e) => !excluded(e)) });
+        // `?app=` (#976) keeps that app's rows only.
+        const app = url.searchParams.get("app");
+        return send(res, 200, { endpoints: ((seed?.endpoints ?? []) as Record<string, unknown>[]).filter((e) => !excluded(e) && (!app || e.app_id === app)) });
       }
       return send(res, 200, { ...seed?.summary, range });
     }
@@ -2070,6 +2120,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const b = await readBody(req);
     if (Array.isArray(b.rows)) requestsSeed.set(String(b.project), b.rows as Record<string, unknown>[]);
     else requestsSeed.delete(String(b.project));
+    shopEnvironments = Array.isArray(b.environments) ? b.environments.map(String) : ["production"];
     return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/traffic") {
@@ -2094,7 +2145,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     endpointReads.push({ tab, method, path: route, query: Object.fromEntries([...url.searchParams].filter(([k]) => k !== "project")) });
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     const range = url.searchParams.get("range") ?? "24h";
-    const seeded = endpointSeed.get(`${slug} ${method} ${route}`)?.[tab];
+    // `?app=` (#976) answers that app's seed when there is one.
+    const app = url.searchParams.get("app");
+    const seeded = (app ? endpointSeed.get(`${slug} ${method} ${route} ${app}`)?.[tab] : undefined) ?? endpointSeed.get(`${slug} ${method} ${route}`)?.[tab];
     const empty: Record<string, unknown> = {
       requests: { summary: { requests: 0, successful: 0, client_errors: 0, server_errors: 0, requests_per_minute: 0 }, points: [], consumers: [] },
       errors: { summary: { requests: 0, client_errors: 0, server_errors: 0, client_error_rate: 0, server_error_rate: 0 }, points: [], statuses: [], validation_errors: [], exceptions: [] },
@@ -2110,6 +2163,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const tabs = (b.tabs as Record<string, unknown> | undefined) ?? {};
     if (Object.keys(tabs).length) endpointSeed.set(key, tabs);
     else endpointSeed.delete(key);
+    // Per app (#976): `apps: {<app id>: tabs}` answers the reads with that `?app=`.
+    for (const k of [...endpointSeed.keys()]) if (k.startsWith(`${key} `)) endpointSeed.delete(k);
+    for (const [appId, appTabs] of Object.entries((b.apps as Record<string, Record<string, unknown>> | undefined) ?? {})) endpointSeed.set(`${key} ${appId}`, appTabs);
     endpointReads.length = 0;
     // Only this endpoint's settings: spec files run in parallel and others keep theirs (#594).
     forgetSettings(String(b.method).toUpperCase(), String(b.path));
@@ -2185,12 +2241,14 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const step = steps.find((s) => (hi - lo) / 1000 <= s * 100) ?? 86400;
     const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
     const method = (url.searchParams.get("method") ?? "").toUpperCase();
+    const app = url.searchParams.get("app") ?? "";
     const rows = (requestsSeed.get(slug) ?? []).filter((r) => {
       const t = Date.parse(String(r.timestamp));
       return (
         t >= lo &&
         t < hi &&
         (!method || r.method === method) &&
+        (!app || r.app_id === app) &&
         (!status.length || status.some((s) => (/^[1-5]xx$/.test(s) ? String(r.status_code)[0] === s[0] : String(r.status_code) === s)))
       );
     });
@@ -2210,6 +2268,24 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       });
     }
     return send(res, 200, { from: new Date(lo).toISOString(), to: new Date(hi).toISOString(), bucket_seconds: step, buckets });
+  }
+  // The Performance page's slowest requests (#1001): the `/__fake/performance` seed's `slowest`
+  // rows, slowest first, narrowed by env and app and capped by limit; none without a seed.
+  if (req.method === "GET" && path === "/api/v1/requests/slowest") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    const seed = performanceSeed.get(slug);
+    if (queryDown.has(slug) || seed?.down || seed?.slowestDown) return problem(res, 503, "unavailable");
+    const env = url.searchParams.get("env");
+    const app = url.searchParams.get("app");
+    const limit = Number(url.searchParams.get("limit") ?? 10);
+    const rows = ((seed?.slowest ?? []) as Record<string, unknown>[])
+      .filter((r) => (!env || r.environment === env) && (!app || r.app_id === app))
+      .sort((a, b) => Number(b.response_time_ms) - Number(a.response_time_ms))
+      .slice(0, limit);
+    return send(res, 200, { requests: rows });
   }
   // One request of the log (#588), as `GET /requests/{id}` answers it: the seeded row with that id
   // plus what its `detail` seeds (headers, bodies, validation errors, spans and logs).
@@ -2299,6 +2375,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         points: seed.buckets.map((ts, i) => ({ ts, ...split(seed.requests[i] ?? 0, rows.filter((r) => r.bucket === i)) })),
         series: statuses.map((st) => ({ status_code: st.status_code, counts: seed.buckets.map((_, i) => sum(rows.filter((r) => r.bucket === i && r.status_code === st.status_code))) })),
         statuses,
+        ...(seed.previous ? { previous: seed.previous } : {}),
       });
     }
     const code = Number(errorsStatus?.[1]);
@@ -2353,6 +2430,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       requests: (b.requests as number[] | undefined) ?? [],
       rows: (b.rows as ErrorRow[] | undefined) ?? [],
       down: b.down === true,
+      // The previous window's split (#1000), answered as `previous` as seeded.
+      previous: b.previous ?? undefined,
     });
     for (const r of (b.rows as ErrorRow[] | undefined) ?? []) forgetSettings(r.method, r.path);
     return send(res, 204);
@@ -2370,7 +2449,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const range = url.searchParams.get("range") ?? "24h";
     const empty = { requests: 0, avg_ms: 0, max_ms: 0, p50_ms: 0, p75_ms: 0, p90_ms: 0, p95_ms: 0, p99_ms: 0, apdex: null };
     const latency = seed?.latency ?? { summary: empty, points: [], histogram: [] };
-    const t = appThresholds.get(shopApps[0]?.id ?? "") ?? 500;
+    // `?app=` (#976) scores against that app's threshold.
+    const t = appThresholds.get(url.searchParams.get("app") ?? shopApps[0]?.id ?? "") ?? 500;
     const samples = seed?.samples ?? [];
     const satisfied = samples.filter((ms) => ms <= t).length;
     const tolerating = samples.filter((ms) => ms > t && ms <= 4 * t).length;
@@ -2386,7 +2466,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         latency: b.latency as Record<string, unknown>,
         samples: Array.isArray(b.samples_ms) ? (b.samples_ms as number[]) : [],
         endpoints: Array.isArray(b.endpoints) ? b.endpoints : undefined,
+        slowest: Array.isArray(b.slowest) ? b.slowest : undefined,
         down: b.down === true,
+        slowestDown: b.slowest_down === true,
       });
     } else performanceSeed.delete(String(b.project));
     appThresholds.clear();
@@ -2431,7 +2513,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         // The Explore filters (#586): method, path and status (codes and classes) narrow the seed.
         const method = (url.searchParams.get("method") ?? "").toUpperCase();
         const route = url.searchParams.get("path") ?? "";
+        // As internal/query (#983): a path that is not a route template also matches the raw URLs
+        // containing it; a consumer filter matches the consumer's id or name.
+        const template = /[{<]|\/:/.test(route);
+        const consumer = url.searchParams.get("consumer_id") ?? "";
         const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
+        const app = url.searchParams.get("app") ?? "";
         // The timeline's zoom and jump point (#587): from (inclusive) and to (exclusive).
         const from = Date.parse(url.searchParams.get("from") ?? "");
         const to = Date.parse(url.searchParams.get("to") ?? "");
@@ -2439,7 +2526,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (Number.isNaN(from) || Date.parse(String(r.timestamp)) >= from) &&
           (Number.isNaN(to) || Date.parse(String(r.timestamp)) < to) &&
           (!method || r.method === method) &&
-          (!route || r.path === route) &&
+          (!route || r.path === route || (!template && String(r.raw_path ?? "").toLowerCase().includes(route.toLowerCase()))) &&
+          (!consumer || r.consumer_id === consumer || r.consumer_name === consumer) &&
+          (!app || r.app_id === app) &&
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);
@@ -2495,10 +2584,29 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const slug = url.searchParams.get("project") ?? "";
     if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
-    const all = (deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
+    // An app seeded with its own deploys (#995) answers those for `?app=`.
+    const own = slug === PROJECT ? appDeploys.get(url.searchParams.get("app") ?? "") : undefined;
+    const all = (own ?? deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
     const offset = Number(url.searchParams.get("offset") ?? 0) || 0;
     const limit = Number(url.searchParams.get("limit") ?? 25) || 25;
     return send(res, 200, { window_minutes: 60, total: all.length, deploys: all.slice(offset, offset + limit) });
+  }
+  // Requests without a consumer and their top callers (#989), as seeded; same access rules as above.
+  if (req.method === "GET" && path === "/api/v1/anonymous-callers") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    const seeded = consumersSeed.get(slug)?.anonymous;
+    const limit = Number(url.searchParams.get("limit") ?? 10) || 10;
+    return send(res, 200, {
+      range: url.searchParams.get("range") ?? "24h",
+      from: "2026-11-05T10:00:00Z",
+      to: "",
+      totals: seeded?.totals ?? { requests: 0, successful: 0, client_errors: 0, server_errors: 0 },
+      callers: (seeded?.callers ?? []).slice(0, limit),
+    });
   }
   // Consumers (#596), as seeded, each with the SDK group it was seeded with (consumer_group); same
   // access rules as above. The list and the group roll-up search, sort and page like the API.
@@ -2566,6 +2674,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       points: Array.isArray(b.points) ? b.points : [],
       consumers: Array.isArray(b.consumers) ? (b.consumers as Record<string, unknown>[]) : [],
       details: (b.details as Record<string, Record<string, unknown>>) ?? {},
+      anonymous: typeof b.anonymous === "object" && b.anonymous !== null ? (b.anonymous as { totals: Record<string, number>; callers: unknown[] }) : undefined,
     });
     return send(res, 204);
   }
@@ -3188,7 +3297,21 @@ let alertRules: FakeRule[] = [];
 let alertChannels: FakeChannel[] = [];
 let alertEvents: FakeEvent[] = [];
 
-const ALERT_METRICS = new Set(["traffic", "errors", "error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"]);
+const ALERT_RATE_METRICS = new Set(["error_rate", "server_error_rate", "client_error_rate"]);
+const ALERT_METRICS = new Set([
+  "traffic",
+  "errors",
+  "error_rate",
+  "server_errors",
+  "server_error_rate",
+  "client_errors",
+  "client_error_rate",
+  "p50",
+  "p75",
+  "p95",
+  "apdex",
+  "unique_consumers",
+]);
 const ALERT_CONDITIONS = new Set(["gt", "gte", "lt", "lte"]);
 
 function eventOut(e: FakeEvent) {
@@ -3213,7 +3336,7 @@ function checkRule(b: Record<string, unknown>, create: boolean): { ok: true; rul
   const every = b.every_s === undefined || b.every_s === null ? null : Number(b.every_s);
   const cron = typeof b.cron === "string" && b.cron ? b.cron : null;
   if (!name || name.length > 128 || !env || !ALERT_METRICS.has(String(b.metric)) || !ALERT_CONDITIONS.has(String(b.condition))) return { ok: false, status: 422, code: "validation_failed" };
-  if (!Number.isFinite(threshold) || threshold < 0 || ((b.metric === "error_rate" || b.metric === "apdex") && threshold > 1)) return { ok: false, status: 422, code: "validation_failed" };
+  if (!Number.isFinite(threshold) || threshold < 0 || ((ALERT_RATE_METRICS.has(String(b.metric)) || b.metric === "apdex") && threshold > 1)) return { ok: false, status: 422, code: "validation_failed" };
   if ((every === null) === (cron === null)) return { ok: false, status: 422, code: "validation_failed" };
   if (create && !shopApps.some((a) => a.id === b.app_id)) return { ok: false, status: 422, code: "validation_failed" };
   const channels = Array.isArray(b.channel_ids) ? b.channel_ids.map(String) : [];
@@ -3253,7 +3376,8 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
       const r = alertRules.find((x) => x.name === trigger.rule);
       if (!r) return problem(res, 404, "not_found"), true;
       const at = new Date(Date.now() - (trigger.minutes_ago ?? 0) * 60_000).toISOString();
-      alertEvents.unshift({ id: randomUUID(), rule_id: r.id, state: "triggered", value: Number(trigger.value ?? 0), started_at: at, ended_at: null, notified_at: at });
+      // A rule with no channel notifies nobody (#978).
+      alertEvents.unshift({ id: randomUUID(), rule_id: r.id, state: "triggered", value: Number(trigger.value ?? 0), started_at: at, ended_at: null, notified_at: ((r.channel_ids as string[]) ?? []).length ? at : null });
     }
     if (typeof b.resolve === "string") {
       const r = alertRules.find((x) => x.name === b.resolve);
@@ -3822,8 +3946,8 @@ function measuredDeletedProjects(): Record<string, unknown>[] {
 function measuredRetention(): Record<string, unknown>[] {
   return [
     { key: "requests", label: "Requests", period_days: 90, configurable: true, covers: "Individual requests: the request log, request detail with headers and bodies, consumers and exports." },
-    { key: "logs", label: "Logs", period_days: 30, configurable: true, covers: "Application log records sent by the SDK, shown with a request's trace." },
-    { key: "spans", label: "Spans", period_days: 30, configurable: true, covers: "Trace spans: the waterfall in request detail." },
+    { key: "logs", label: "Logs", period_days: 90, configurable: true, covers: "Application log records sent by the SDK, shown with a request's trace." },
+    { key: "spans", label: "Spans", period_days: 90, configurable: true, covers: "Trace spans: the waterfall in request detail." },
     { key: "rollups_1m", label: "Per-minute metrics", period_days: 30, configurable: true, covers: "Per-minute traffic, error and latency aggregates behind short-range charts." },
     { key: "rollups_1h", label: "Hourly metrics", period_days: 400, configurable: true, covers: "Hourly traffic, error and latency aggregates behind long-range charts." },
     { key: "deploys", label: "Deploys", period_days: 400, configurable: false, covers: "Deploy markers on charts and the deploy comparison." },

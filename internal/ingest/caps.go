@@ -30,7 +30,7 @@ const (
 	FieldResponseHeaders = "response_headers"
 )
 
-var truncatedFields = []string{FieldRequestPayload, FieldResponsePayload, FieldRequestHeaders, FieldResponseHeaders}
+var truncatedFields = []string{FieldRequestPayload, FieldResponsePayload, FieldRequestHeaders, FieldResponseHeaders, FieldSpanEvents}
 
 // CaptureSource returns the capture policy of an app; *capture.Resolver
 // satisfies it.

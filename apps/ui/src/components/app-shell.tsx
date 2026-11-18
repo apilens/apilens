@@ -3,10 +3,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { CapabilitiesProvider } from "@/lib/permissions";
 import { type UserContext, findOrg, findProject } from "@/lib/scope";
+import { viewLabel } from "@/lib/nav-sections";
 import { resolveTimeZone } from "@/lib/time-zone";
 import { TimeZoneProvider } from "@/lib/time-zone-context";
 import { PausedBanner } from "./paused-banner";
 import { ScopeSwitcher } from "./scope-switcher";
+import { useOpenIncidents } from "./sidebar";
 import { Rail, useRailMode } from "./shell/rail";
 import { TopBar } from "./shell/top-bar";
 import "./shell/shell.css";
@@ -15,7 +17,8 @@ import "./shell/shell.css";
  * Supabase-style chrome: a top bar with home / organization / project as switchable crumbs, the
  * scope search and your account; under it an icon rail of the project's pages and the page.
  * The rail is expanded, collapsed or expands on hover (the sidebar control at its foot, remembered;
- * `[` flips expanded and collapsed). Below 860px the rail is a drawer opened from the top bar.
+ * `[` flips expanded and collapsed). Below 860px the rail is a drawer opened from the top bar, and
+ * the bar also names the page and the open incidents (#998).
  * ⌘K opens the scope switcher. `context` is the signed-in user's `GET /users/me/context`; the page
  * has already checked that `project` or `org` is in it. `account` is the account scope
  * (`/settings/*`): no project, the first organization in the crumbs. The page renders inside
@@ -32,6 +35,7 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
   const [mode, setMode] = useRailMode();
   const [drawer, setDrawer] = useState(false);
   const [switcher, setSwitcher] = useState(false);
+  const openIncidents = useOpenIncidents(navProject?.slug, view);
 
   useEffect(() => setDrawer(false), [navProject?.slug, view]);
 
@@ -52,10 +56,10 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
   return (
     <TimeZoneProvider timeZone={resolveTimeZone(context.user.preferences)}>
       <div className={`ah shell${drawer ? " is-open" : ""}`}>
-        <TopBar user={context.user} orgs={context.orgs} org={org} project={navProject} view={view} orgScope={!project} account={account} onMenu={() => setDrawer(true)} onSearch={() => setSwitcher(true)} />
+        <TopBar user={context.user} orgs={context.orgs} org={org} project={navProject} view={view} orgScope={!project} account={account} label={viewLabel(view, { orgScope: !project, account })} openIncidents={openIncidents} onMenu={() => setDrawer(true)} onSearch={() => setSwitcher(true)} />
         <div className="shell-body">
           <div className="shell-rail">
-            <Rail project={navProject} view={project ? view : ""} orgScope={!project} mode={mode} onMode={setMode} drawer={drawer} />
+            <Rail project={navProject} view={project ? view : ""} orgScope={!project} openIncidents={openIncidents} mode={mode} onMode={setMode} drawer={drawer} />
           </div>
           <div className="shell-scrim" onClick={() => setDrawer(false)} />
           <main className="app-main">

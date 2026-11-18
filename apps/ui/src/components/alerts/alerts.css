@@ -5,22 +5,25 @@
 .al-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .al-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); }
 .al-head .os-tabs { flex: 1 1 100%; }
+/* An incident's drill-downs and rule actions (#979): they wrap under the title at phone width. */
+.al-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .al > .pagehead { margin-bottom: var(--space-6); }
 .al > .pagehead + .al-bar { margin-top: 0; }
 .al-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-6) 0 var(--space-4); }
 .al-bar h2 { margin: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); }
 .al-bar h2 span { margin-left: 6px; font: 400 13px/22px var(--font-mono); color: var(--ink-muted); }
-.al-range { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
-.al-range a { padding: 4px 10px; border-radius: var(--radius-sm); font: 500 12px/18px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
-.al-range a:hover { color: var(--ink); }
-.al-range a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
-.al-range a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+/* "Resolved in" and the shared range picker, on the Resolved bar: the range narrows resolved incidents only (#981). */
+.al-range-group { display: inline-flex; align-items: center; gap: var(--space-2); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
 .al-notice { display: flex; gap: 10px; align-items: flex-start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
 .al-notice p { margin: 0; }
 .al-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
 .al-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
 .al-notice--error svg { color: var(--error); }
+.al-notice--warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); background: var(--warn-soft); }
+.al-notice--warn svg { color: var(--warn); }
+/* The "nobody is notified" banner between the header and the Open bar (#978). */
+.al > .pagehead + .al-nobody { margin-bottom: var(--space-6); }
 .al-notice + .al-card, .al-card + .al-notice { margin-top: var(--space-4); }
 
 .al-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
@@ -69,6 +72,13 @@ a.al-name:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 
 .al-base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .al-axis { display: flex; justify-content: space-between; gap: var(--space-4); margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
 .al-axis span:last-child { text-align: right; }
+/* The metric chart (#980): the rule's metric as a line, incidents as shaded bands. */
+.al-metric .al-chart__box svg { height: 140px; }
+.al-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.al-band { fill: var(--error-soft); background: var(--error-soft); }
+.al-swatch-line { display: inline-block; width: 14px; height: 2px; border-radius: 1px; background: var(--accent); }
+.ct-tip__swatch.al-sw-line { background: var(--accent); }
+.al-metric-note { margin: 0; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .al-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: 0 0 0 var(--space-4); border-top: 1px solid var(--border); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .al-pager .pg { padding-right: var(--space-4); }
 
@@ -79,7 +89,7 @@ a.al-name:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 
 .al-form .ob-f { margin-top: var(--space-4); min-width: 0; }
 .al-form .ob-in { height: 40px; font-size: 14px; }
 .al-form textarea { width: 100%; min-height: 72px; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); color: var(--ink); font: 400 14px/20px var(--font-sans); resize: vertical; }
-.al-form textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.al-form textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .al-form textarea:disabled { background: var(--surface-2); color: var(--ink-muted); }
 .al-form .om-select { width: 100%; height: 40px; font-size: 14px; }
 .al-unit { flex: none; font: 400 13px/1 var(--font-sans); color: var(--ink-muted); }

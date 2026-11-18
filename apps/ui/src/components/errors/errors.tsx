@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
-import { RANGE_LABEL, consumerLabel, formatCount, formatRate } from "@/lib/consumers";
-import { endpointPageHref, formatPercent, formatShare } from "@/lib/endpoint-detail";
+import { type Comparison, compare } from "@/lib/compare";
+import { formatPercent, ratio } from "@/lib/format";
+import { RANGE_LABEL, consumerLabel, formatCount } from "@/lib/consumers";
+import { endpointPageHref } from "@/lib/endpoint-detail";
+import { exploreHrefFor } from "@/lib/explore";
 import {
   DETAIL_LOAD_FAILED,
   DETAIL_PAGING,
@@ -23,8 +26,11 @@ import { formatExact } from "@/lib/passkey-settings";
 import { TRAFFIC_RANGES } from "@/lib/traffic";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
+import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
+import { CompareLine } from "../traffic/compare";
 import { CountBars } from "./charts";
 import { ErrorModal, MarkExpected } from "./modal";
 import "../traffic/traffic.css";
@@ -72,21 +78,16 @@ export function ErrorsView({
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
   return (
     <div className="page tr er">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Errors</p>
-        <h1 className="cp-lede">Errors</h1>
-        <p className="tr-lead">Client and server error responses of your API by status code. Status codes you mark as expected for an endpoint stop counting as errors.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Errors"
+        lead="Client and server error responses of your API by status code. Status codes you mark as expected for an endpoint stop counting as errors."
+        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => scopeHref({ range: r })} />}
+      />
 
       <div className="tr-bar">
         <div className="tr-bar__scope">
-          <nav className="tr-seg" aria-label="Time range">
-            {TRAFFIC_RANGES.map((r) => (
-              <a key={r} href={scopeHref({ range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
-                {r}
-              </a>
-            ))}
-          </nav>
           <ScopeSelect
             label="Environment"
             value={q.env}
@@ -132,7 +133,7 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
   );
 }
 
-function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string }[] }) {
+function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string; compare?: Comparison | null }[] }) {
   return (
     <dl className="tr-tiles er-tiles">
       {tiles.map((t) => (
@@ -141,6 +142,7 @@ function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string }
           <dd>
             <span className="tr-tile__value">{t.value}</span>
             <span className="tr-tile__sub">{t.sub}</span>
+            <CompareLine comparison={t.compare ?? null} />
           </dd>
         </div>
       ))}
@@ -186,6 +188,7 @@ const EndpointName = ({ method, path }: { method: string; path: string }) => (
 function StatusTab({ project, q, data, tz }: { project: string; q: ErrorsState; data: ErrorStatuses | null; tz: string }) {
   if (data === null) return <LoadFailed text={STATUSES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const s = data.summary;
+  const p = data.previous;
   if (s.requests === 0) {
     return (
       <div className="tr-notice" role="status">
@@ -200,10 +203,30 @@ function StatusTab({ project, q, data, tz }: { project: string; q: ErrorsState; 
     <>
       <Tiles
         tiles={[
-          { label: "Requests", value: formatCount(s.requests), sub: `in ${errorsScopeText(q)}` },
-          { label: "Error rate", value: formatRate(s.client_errors + s.server_errors, s.requests), sub: `${formatCount(s.client_errors + s.server_errors)} errors` },
-          { label: "Client errors (4xx)", value: formatCount(s.client_errors), sub: `${formatPercent(s.client_error_rate * 100)} of requests` },
-          { label: "Server errors (5xx)", value: formatCount(s.server_errors), sub: `${formatPercent(s.server_error_rate * 100)} of requests` },
+          {
+            label: "Requests",
+            value: formatCount(s.requests),
+            sub: `in ${errorsScopeText(q)}`,
+            compare: compare(s.requests, p?.requests, { kind: "relative", better: "neither", range: q.range }),
+          },
+          {
+            label: "Error rate",
+            value: formatPercent(ratio(s.client_errors + s.server_errors, s.requests)),
+            sub: `${formatCount(s.client_errors + s.server_errors)} errors`,
+            compare: p ? compare(ratio(s.client_errors + s.server_errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range: q.range }) : null,
+          },
+          {
+            label: "Client errors (4xx)",
+            value: formatCount(s.client_errors),
+            sub: `${formatPercent(s.client_error_rate)} of requests`,
+            compare: compare(s.client_error_rate, p?.client_error_rate, { kind: "rate", better: "down", range: q.range }),
+          },
+          {
+            label: "Server errors (5xx)",
+            value: formatCount(s.server_errors),
+            sub: `${formatPercent(s.server_error_rate)} of requests`,
+            compare: compare(s.server_error_rate, p?.server_error_rate, { kind: "rate", better: "down", range: q.range }),
+          },
         ]}
       />
       <Card id="er-time" title="Errors over time">
@@ -279,10 +302,17 @@ function StatusTable({
                 </a>
               </td>
               <td className="tr-num" data-label="Responses">
-                {formatCount(r.count)}
+                <a
+                  className="tr-drill"
+                  href={exploreHrefFor(project, { range: q.range, env: q.env, status: String(r.status_code) })}
+                  title={`See the ${r.status_code} responses in Explore`}
+                  aria-label={`${formatCount(r.count)} ${r.status_code} responses in Explore`}
+                >
+                  {formatCount(r.count)}
+                </a>
               </td>
               <td className="tr-num" data-label="Share of requests">
-                {formatShare(r.share)}
+                {formatPercent(r.share)}
               </td>
               <td className="tr-num" data-label="Endpoints">
                 {formatCount(r.endpoints)}
@@ -354,7 +384,7 @@ function SummaryView({ q, d, tz }: { q: ErrorsState; d: ErrorStatusDetail; tz: s
     <>
       <Tiles
         tiles={[
-          { label: "Responses", value: formatCount(d.occurrences), sub: `${formatShare(d.share)} of requests` },
+          { label: "Responses", value: formatCount(d.occurrences), sub: `${formatPercent(d.share)} of requests` },
           { label: "Frequency", value: `${formatPerHour(d.per_hour)}/h`, sub: `over ${RANGE_LABEL[q.range]}` },
           { label: "Affected consumers", value: formatCount(d.consumers), sub: `${formatCount(identified)} responses to identified consumers` },
           { label: "Endpoints", value: formatCount(d.endpoints), sub: `answered with ${d.status_code}` },
@@ -422,7 +452,7 @@ function ConsumersView({ project, q, d, tz }: { project: string; q: ErrorsState;
                     <span className="er-meter" aria-hidden="true">
                       <span className={`er-c-${statusClass(d.status_code)}`} style={{ width: `${Math.min(100, Math.max(0, c.share * 100))}%` }} />
                     </span>
-                    {formatShare(c.share)}
+                    {formatPercent(c.share)}
                   </td>
                   <td data-label="Last seen">
                     <When iso={c.last_seen} tz={tz} />

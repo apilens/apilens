@@ -1,8 +1,8 @@
 "use client";
 
 import { HEALTH_LABEL, type AppHealth } from "@/lib/apps";
+import { formatPercent, ratio } from "@/lib/format";
 import { tooltipText } from "@/lib/chart-hover";
-import { formatRate } from "@/lib/consumers";
 import { formatCount } from "@/lib/first-data";
 import type { TrafficSummary } from "@/lib/identity";
 import { ChartAnnounce, ChartTooltip } from "../charts/chart-tooltip";
@@ -21,7 +21,7 @@ export function AppHealthLine({ health, summary, range }: { health: AppHealth; s
     { label: "Requests", value: formatCount(summary.requests) },
     { label: "4xx", value: formatCount(summary.client_errors) },
     { label: "5xx", value: formatCount(summary.server_errors) },
-    { label: "5xx share", value: formatRate(summary.server_errors, summary.requests) },
+    { label: "5xx share", value: formatPercent(ratio(summary.server_errors, summary.requests)) },
   ];
   return (
     <>

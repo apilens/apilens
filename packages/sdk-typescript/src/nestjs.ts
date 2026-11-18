@@ -16,23 +16,27 @@
  * `@nestjs/platform-express` it mounts the Express middleware, on
  * `@nestjs/platform-fastify` it attaches the Fastify hooks. Route templates
  * come from those adapters (Nest routes are ordinary Express / Fastify
- * routes). `ApiLensInterceptor`, installed globally by the module, keeps the
- * error a handler throws so the error log of a 5xx carries its stack (Nest's
- * exception filter answers before Express / Fastify see the error).
+ * routes). Nest's exception filters answer before Express / Fastify see an
+ * error, so the module wraps Nest's HTTP exception layer to keep every error
+ * (handler, guard, pipe, Nest middleware) before the app's filters run, and
+ * installs `ApiLensInterceptor` globally as well; the error log of a 5xx
+ * carries the raised error's stack whatever filter answered.
  */
 // Node builtins for the core (see runtime.ts); first, before the core runs.
 import "./node.js";
 import type {
+  ArgumentsHost,
   CallHandler,
   DynamicModule,
   ExecutionContext,
   NestInterceptor,
 } from "@nestjs/common";
 import { APP_INTERCEPTOR, HttpAdapterHost } from "@nestjs/core";
+import { ExceptionsHandler } from "@nestjs/core/exceptions/exceptions-handler.js";
 import { tap, type Observable } from "rxjs";
 
 import type { ApiLensClient } from "./client.js";
-import { recordRequestError } from "./capture.js";
+import { keepFirstRequestError } from "./capture.js";
 import { createMiddleware } from "./express.js";
 import { attachFastify } from "./fastify.js";
 import { packageVersion, type FrameworkInfo } from "./metadata.js";
@@ -74,6 +78,46 @@ function instrumentHttpAdapter(adapter: HttpAdapterLike, config: ApiLensNestConf
   throw new Error(`API Lens: unsupported NestJS HTTP platform "${type}" (express or fastify)`);
 }
 
+const PATCHED = Symbol.for("apilens.nestjs.exceptionsHandlerPatched");
+
+/** The request (raw Node request on Fastify) an HTTP exception host is about. */
+function rawRequestOf(host: unknown): object | undefined {
+  try {
+    const request = (host as ArgumentsHost).switchToHttp().getRequest<{ raw?: object } | undefined>();
+    const raw = request?.raw ?? request;
+    return raw && typeof raw === "object" ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Wrap Nest's HTTP exception layer (`ExceptionsHandler#next`), which every
+ * exception of an HTTP request goes through before the app's exception
+ * filters run: from handlers, guards, pipes, interceptors and Nest
+ * middleware. The error is kept for the request's error log, then the
+ * filters answer as before. Done once per process; never throws.
+ */
+function wrapExceptionsHandler(): void {
+  try {
+    const proto = ExceptionsHandler.prototype as unknown as Record<string | symbol, unknown>;
+    const original = proto.next;
+    if (proto[PATCHED] || typeof original !== "function") {
+      return;
+    }
+    proto[PATCHED] = true;
+    proto.next = function (this: unknown, exception: unknown, host: unknown, ...rest: unknown[]) {
+      const raw = rawRequestOf(host);
+      if (raw) {
+        keepFirstRequestError(raw, exception);
+      }
+      return original.call(this, exception, host, ...rest);
+    };
+  } catch {
+    // Leave error capture to the interceptor.
+  }
+}
+
 /**
  * Keeps the error a route handler throws for the request's error log. Bound
  * globally by `ApiLensModule`; HTTP requests only.
@@ -90,7 +134,7 @@ export class ApiLensInterceptor implements NestInterceptor {
       tap({
         error: (error: unknown) => {
           if (raw) {
-            recordRequestError(raw, error);
+            keepFirstRequestError(raw, error);
           }
         },
       }),
@@ -112,6 +156,7 @@ export class ApiLensModule {
             if (!adapter) {
               throw new Error("API Lens: ApiLensModule needs an HTTP application (NestFactory.create)");
             }
+            wrapExceptionsHandler();
             return instrumentHttpAdapter(adapter, config);
           },
           inject: [HttpAdapterHost],

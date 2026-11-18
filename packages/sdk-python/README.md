@@ -423,7 +423,38 @@ async def get_order(order_id: str):
 ```
 
 Nothing to call — a clean request has no trace messages; a failing one does.
-This is the only thing written to `/v1/logs`; it is not a general logging API.
+
+### Logged exceptions
+
+Exceptions your code handles and logs never reach the middleware, so the
+middleware also installs `apilens.logging.ApiLensHandler` on the root logger at
+level `ERROR`. `logger.exception(...)` (any record with `exc_info`) becomes an
+`apilens.exception` log with the full exception, on the current request's
+trace; other `ERROR`/`CRITICAL` records become plain error logs. Records logged
+outside a request are shipped too, without a trace id. The SDK's own `apilens`
+loggers are ignored, and an exception the middleware already reports is not
+sent twice.
+
+```python
+try:
+    charge(order)
+except PaymentError:
+    logger.exception("charge failed")   # full stack on this request's trace
+```
+
+Turn it off with `capture_logs="off"` (Django: `APILENS_CAPTURE_LOGS = "off"`,
+env: `APILENS_CAPTURE_LOGS=off`).
+
+### Database spans
+
+While spans are on, every SQL statement run during a request becomes a child
+`db` span with `db.system`, `db.operation` and `db.statement`, its duration and,
+when it raised, `error.type`. Covered: SQLAlchemy (engine events), the Django
+ORM (`connection.execute_wrapper`), psycopg 3 and asyncpg. The statement is
+obfuscated before it leaves the app: every literal (strings, numbers,
+comments) becomes `?` and it is capped at 2 KiB; bound parameters are never
+read. Turn them off with `capture_db_spans=False` (Django:
+`APILENS_CAPTURE_DB_SPANS = False`, env: `APILENS_CAPTURE_DB_SPANS=false`).
 
 ### Propagating the trace
 
@@ -436,7 +467,8 @@ doesn't patch (a message queue, a gRPC call, a manually built client).
 
 Tracing is on by default (with or without an `app_id`). Request analytics keep
 working with tracing off — you just stop emitting spans (and the outbound-HTTP
-auto-instrumentation).
+auto-instrumentation). Exceptions are still captured: a failing request still
+sends its exception log, carrying the trace id but no span id.
 
 **Per integration** — pass `capture_spans=False`:
 
@@ -484,7 +516,8 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `timeout` | `5.0` | Per-request HTTP timeout, in seconds. |
 | `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `max_retries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
+| `max_retry_seconds` | `300.0` | How long a batch that failed with 408, 429, 5xx or a network error keeps being retried (it goes back to the front of its queue; full-jitter exponential backoff, or the server's `Retry-After`) before it is dropped as `retries_exhausted`. |
+| `max_retries` | `None` | Deprecated alias of `max_retry_seconds`: when set, the window is the longest wait that many backoff retries used to take (`0` never retries). |
 | `compress` | `True` | gzip each batch (level 5, `Content-Encoding: gzip`) on the background flush thread; falls back to plain JSON if compression fails. `False` sends plain JSON. |
 | `verify_tls` | `True` | Verify the ingest server's TLS certificate. |
 | `ca_bundle_path` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
@@ -555,8 +588,11 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `log_request_body` / `log_response_body` | `True` | Toggle each body independently. |
 | `max_payload_bytes` | `65536` | Per-body capture cap; set `0` to disable body capture. |
 | `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
+| `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. |
 | `capture_content_types` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `capture_spans` | `True` | Emit trace spans for this app. |
+| `capture_db_spans` | `True` | Database statements become `db` spans (needs `capture_spans`). |
+| `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. |
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
 | `mask_request_body` / `mask_response_body` | `None` | `(info, body: bytes) -> bytes \| None` callbacks on the captured (truncated) raw body; see [body mask callbacks](#security--privacy). |
@@ -565,9 +601,9 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
 | `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely, e.g. `[r"^uptimerobot"]`. Case-insensitive `re.search`. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `default_exclusions` | `True` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `exclude_paths`). `False` turns them off; your own `exclude_paths` / `exclude_user_agents` still apply. |
-| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range raises at startup. |
+| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. Failed requests (exception or 5xx) are always kept. See [sampling](#sampling). A value outside the range raises at startup. |
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. See [sampling](#sampling). |
-| `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
+| `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one, and never drops a failed request. See [sampling](#sampling). |
 | `route_resolver` | `None` | `(scope_or_environ) -> str \| None` returning the route template for a request; overrides the framework template. See [endpoint grouping](#endpoint-grouping-path-templating). |
 | `parametrize_paths` | `True` | Heuristic templating fallback (`/orders/123` → `/orders/{id}`) when no framework template is known. `APILENS_PARAMETRIZE_PATHS=false` (env var) disables it. |
 
@@ -577,7 +613,14 @@ Sampling never changes metrics. Every request still sends its base record
 (method, path, status, latency, sizes, consumer, IP, user agent, trace id), so
 traffic counts, error rates and latency percentiles stay exact. With
 `sample_rate=0.1`, about 90% of requests are sent with `sampled=false` and no
-headers, bodies, spans or error log. Their bodies are never buffered.
+headers, bodies, spans or error log. Their request bodies are never buffered.
+
+Errors are never sampled. A request whose handler raised, or that answered
+5xx, is always kept with its spans and exception log, whatever `sample_rate`,
+`sample_on_request` or `sample_on_response` decided. If it had been sampled out
+at request start it is sent with the headers and response body your settings
+allow (its request body was not buffered). Only a remote `enabled=false`
+policy turns this off.
 
 `1.0` (the default) sends exactly what earlier SDK versions sent, and `0.0`
 sends the base record only. A sampled-out request still continues the
@@ -629,6 +672,8 @@ request-stage decision. It cannot bring back a request that was sampled out at
 request stage (its headers and bodies were never captured): for those it still
 runs, with `sampled=False`, but the request stays out. Exceptions are logged
 once and treated as `None`. Child spans of a request are held until it answers.
+It is not consulted for failed requests (an exception or a 5xx): those are
+always kept.
 
 Keep the detail of failed requests only:
 
@@ -717,6 +762,7 @@ parsed values as a dict.
 | `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | `capture_validation_errors` | bool | `true` |
+| `APILENS_CAPTURE_LOCALS` | `capture_locals` | bool | `false` |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
 | `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |
@@ -728,6 +774,8 @@ parsed values as a dict.
 | `APILENS_CAPTURE_IP` | `capture_ip` | bool; `false` wins over code | `true` |
 | `APILENS_ANONYMIZE_IP` | `anonymize_ip` | bool; `true` wins over code | `false` |
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | `capture_db_spans` | bool | `true` |
+| `APILENS_CAPTURE_LOGS` | `capture_logs` | `errors` or `off` | `errors` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
 | `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
@@ -758,9 +806,11 @@ the setting wins when both are set.
 | `APILENS_CAPTURE_PAYLOADS` | `True` | Capture request/response bodies. |
 | `APILENS_LOG_REQUEST_BODY` / `APILENS_LOG_RESPONSE_BODY` | `True` | Toggle each body independently. |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | `True` | Parse Django Ninja 422 responses into `validation_errors`. |
+| `APILENS_CAPTURE_LOCALS` | `False` | Frame locals in exception traces (masked, capped). Ignored under the `metadata` and `redacted` profiles. |
 | `APILENS_REDACT_QUERY_PARAMS` / `APILENS_REDACT_HEADERS` / `APILENS_REDACT_BODY_FIELDS` | `[]` | Redaction regexes (list, or comma-separated in the env var). |
 | `APILENS_CAPTURE_IP` / `APILENS_ANONYMIZE_IP` | `True` / `False` | Client IP privacy. |
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |
+| `APILENS_CAPTURE_LOGS` | `"errors"` | Ship `ERROR` log records to the trace; `"off"` disables. |
 | `APILENS_SERVICE_NAME` | `APILENS_APP_ID` | Service name on spans. |
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
 | `APILENS_MASK_REQUEST_BODY` / `APILENS_MASK_RESPONSE_BODY` | `None` | Body mask callbacks (callable or dotted path). An unimportable path raises at startup. |
@@ -839,8 +889,14 @@ serverless and proxies are covered end to end in the
   | `queue_full` | The queue reached `max_queue_size`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `max_queue_bytes`; the oldest record(s) were dropped (or a single record larger than the whole budget was shed). |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `max_retries`. |
-  | `truncated` | Not a drop: one record was larger than `max_batch_bytes` on its own, so its payloads (then headers, message, attributes) were cut and marked `...[truncated]` before sending. Not counted in `dropped_count`. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) `max_retry_seconds` after its first failed attempt. |
+  | `invalid` | Ingest accepted the batch but refused these records (partial accept); they are not retried. |
+  | `shutdown` | Still queued when the client shut down. |
+  | `truncated` | Not a drop: one record was larger than `max_batch_bytes` on its own, so its payloads (then headers, message, attributes) were cut in the middle, keeping the head and the tail around `…[N chars truncated]…`, before sending. Not counted in `dropped_count`. |
+
+  Every drop except `truncated` and `invalid` (which ingest already counts) is
+  reported to ingest in the next heartbeat, per signal and reason, and shows as
+  **Dropped by the SDK** in Ingest health.
 - **Size-bounded batches.** A POST is cut at `batch_size` records or
   `max_batch_bytes` (default 4 MB, measured on the uncompressed JSON, which is
   what the ingest edge limits to 16 MB), whichever comes first, so a backlog of
@@ -852,8 +908,9 @@ serverless and proxies are covered end to end in the
   request, well under the edge limit and cheap to retry; typical records with
   small bodies still fill the 100-record batch. Without bodies the defaults
   (200 records / 4 MB) rarely reach the byte cap.
-- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
-  `max_retries` times with full-jitter exponential backoff (a random wait between
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors put the
+  batch back at the front of its queue and retry it for up to
+  `max_retry_seconds` (default 300) with full-jitter exponential backoff (a random wait between
   0 and `0.25s × 2^attempt`, capped at 5s), so many workers do not retry in
   lockstep. A `Retry-After` header (seconds or HTTP date) takes precedence, capped
   at 60s. Any other 4xx drops the batch immediately and logs the response body at
@@ -878,7 +935,7 @@ so it is fine to call from a health or metrics endpoint.
 | `queued_records` | Records waiting in the request, span and log queues. |
 | `queued_bytes` | Estimated size of those records (bounded by `max_queue_bytes`). |
 | `sent_batches` / `sent_records` | Batches and records ingest accepted (2xx), since start. |
-| `failed_batches` | Batches dropped after a non-retryable 4xx or after `max_retries`. |
+| `failed_batches` | Batches dropped after a non-retryable 4xx or after `max_retry_seconds`. |
 | `drop_counts` | Records dropped, by reason (same keys as `client.drop_counts()`). |
 | `dropped` | Sum of `drop_counts`, excluding `truncated` (those were still sent). |
 | `last_error` | The most recent ingest failure (including retried attempts); empty until one happens. |
@@ -965,7 +1022,7 @@ show the SDK config the app actually runs with.
     "exclude_user_agents": ["...built-ins"],
     "sample_rate": 1.0, "parametrize_paths": true,
     "batch_size": 200, "flush_interval": 3.0, "max_queue_size": 10000,
-    "max_queue_bytes": 67108864, "max_batch_bytes": 4194304, "max_retries": 3,
+    "max_queue_bytes": 67108864, "max_batch_bytes": 4194304, "max_retry_seconds": 300.0,
     "compress": true, "proxy": false, "custom_ca": false, "verify_tls": true,
     "callbacks": {"mask_request_body": true, "mask_response_body": false,
                   "mask_log_record": false, "get_consumer": false, "on_stats": false}
@@ -1096,7 +1153,7 @@ handler = Mangum(app, lifespan="off")
 Mangum hands the response to Lambda when the ASGI app returns, so on Lambda the
 flush adds the ingest round-trip to the invocation: that is the last point at
 which the runtime is guaranteed to run it. Keep `timeout` (per-POST HTTP
-timeout) and `max_retries` low so a slow ingest cannot stretch an invocation.
+timeout) low so a slow ingest cannot stretch an invocation.
 The Django middleware does not flush inline: call `client.flush()` yourself, for
 example from a `request_finished` signal.
 

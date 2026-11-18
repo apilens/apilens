@@ -7,6 +7,8 @@ import { formatBytes } from "./explore";
 /** The filters of the request log. Text filters are "" when off, ranges null at an open end. */
 export interface ExploreFilters {
   env: string;
+  /** An app's id (#975): only the requests that app served. */
+  app: string;
   method: string;
   status: string;
   path: string;
@@ -29,6 +31,7 @@ export type FilterKey = keyof ExploreFilters;
 /** The URL (and API) order of the filters; a link always lists them in this order. */
 export const FILTER_KEYS: readonly FilterKey[] = [
   "env",
+  "app",
   "method",
   "status",
   "path",
@@ -48,6 +51,7 @@ export const FILTER_KEYS: readonly FilterKey[] = [
 
 export const NO_FILTERS: ExploreFilters = {
   env: "",
+  app: "",
   method: "",
   status: "",
   path: "",
@@ -83,6 +87,13 @@ const NUMBER_KEYS: readonly NumberKey[] = ["request_size_min", "request_size_max
 const isNumberKey = (k: FilterKey): k is NumberKey => (NUMBER_KEYS as readonly string[]).includes(k);
 /** Sizes are whole bytes; latency may be fractional milliseconds. */
 const isWhole = (k: NumberKey) => k !== "latency_min" && k !== "latency_max";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An app filter as the API takes it: an app id (a UUID), lower case; "" for none or one that is not an id. */
+const parseApp = (input: string): string => {
+  const s = input.trim().toLowerCase();
+  return UUID_RE.test(s) ? s : "";
+};
 
 /** The methods offered in the picker; a link may name another, which stays selectable. */
 export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
@@ -139,6 +150,7 @@ export function parseFilters(params: SearchParams): ExploreFilters {
     const v = (first(params[k]) ?? "").trim();
     if (v.length <= TEXT_MAX[k]) f[k] = v;
   }
+  f.app = parseApp(first(params.app) ?? "");
   const method = (first(params.method) ?? "").trim();
   if (METHOD_RE.test(method)) f.method = method.toUpperCase();
   f.status = normalizeStatus(first(params.status) ?? "") ?? "";
@@ -183,19 +195,29 @@ function rangeLabel(name: string, lo: number | null, hi: number | null, fmt: (n:
   return null;
 }
 
-/** The chips for the filters that are on, in URL order. */
-export function filterChips(f: ExploreFilters): FilterChip[] {
+/**
+ * The chips for the filters that are on, in URL order. A consumer filter reads as the consumer's
+ * name, as the log shows it, when `consumers` knows the id (#983). `appName` names an app by its
+ * id (#975); an app it does not know (archived, or the apps could not be read) shows the start of
+ * its id.
+ */
+export function filterChips(
+  f: ExploreFilters,
+  consumers: readonly { id: string; name: string }[] = [],
+  appName?: (id: string) => string | null,
+): FilterChip[] {
   const chips: FilterChip[] = [];
   const text = (k: FilterKey, label: string) => {
     if (f[k] !== "") chips.push({ id: k, label, keys: [k] });
   };
   text("env", `Environment ${f.env}`);
+  if (f.app !== "") text("app", `App ${appName?.(f.app) ?? f.app.slice(0, 8)}`);
   text("method", `Method ${f.method}`);
   text("status", `Status ${f.status.split(",").join(", ")}`);
   text("path", `Path ${f.path}`);
   text("url_contains", `URL contains “${f.url_contains}”`);
   text("payload_contains", `Payload contains “${f.payload_contains}”`);
-  text("consumer_id", `Consumer ${f.consumer_id}`);
+  text("consumer_id", `Consumer ${consumers.find((c) => c.id === f.consumer_id)?.name.trim() || f.consumer_id}`);
   text("consumer_group", `Group ${f.consumer_group}`);
   text("ip", `IP ${f.ip}`);
   const range = (id: string, name: string, lo: NumberKey, hi: NumberKey, fmt: (n: number) => string) => {
@@ -240,6 +262,9 @@ export function fromDraft(d: FilterDraft): { ok: true; filters: ExploreFilters }
     if (v.length > TEXT_MAX[k]) errors[k] = `At most ${TEXT_MAX[k]} characters.`;
     else f[k] = v;
   }
+  const app = d.app.trim();
+  if (app !== "" && parseApp(app) === "") errors.app = "Pick an app from the list.";
+  else f.app = parseApp(app);
   const method = d.method.trim();
   if (method !== "" && !METHOD_RE.test(method)) errors.method = "A method is letters only, like GET.";
   else f.method = method.toUpperCase();
@@ -272,3 +297,105 @@ export const sameFilters = (a: ExploreFilters, b: ExploreFilters) => FILTER_KEYS
 
 /** How long the bar waits after the last keystroke before it applies typed filters. */
 export const FILTER_DEBOUNCE_MS = 400;
+
+/**
+ * What the Path and Consumer fields suggest (#983), so a filter matches what the log shows: the
+ * project's endpoints (method and route template) and its consumers (name and id). Read with the
+ * page; empty when that read failed.
+ */
+export interface FilterSuggestions {
+  endpoints: readonly EndpointSuggestion[];
+  consumers: readonly ConsumerSuggestion[];
+}
+
+export interface EndpointSuggestion {
+  method: string;
+  path: string;
+}
+
+export interface ConsumerSuggestion {
+  id: string;
+  name: string;
+}
+
+export const NO_SUGGESTIONS: FilterSuggestions = { endpoints: [], consumers: [] };
+
+/** At most this many suggestions show under a field. */
+export const MAX_SUGGESTIONS = 8;
+
+/**
+ * The endpoints, one per method and route however many apps serve it, in the order given (the
+ * API lists the busiest first).
+ */
+export function uniqueEndpoints(list: readonly EndpointSuggestion[]): EndpointSuggestion[] {
+  const seen = new Set<string>();
+  const out: EndpointSuggestion[] = [];
+  for (const e of list) {
+    const method = e.method.toUpperCase();
+    const key = `${method} ${e.path}`;
+    if (!e.path || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ method, path: e.path });
+  }
+  return out;
+}
+
+/**
+ * The endpoints a typed path suggests: those whose `METHOD /route` contains the text, ignoring
+ * case (all of them for no text); only the picked method's when one is picked.
+ */
+export function endpointSuggestions(list: readonly EndpointSuggestion[], typed: string, method = ""): EndpointSuggestion[] {
+  const t = typed.trim().toLowerCase();
+  const m = method.toUpperCase();
+  return list.filter((e) => (!m || e.method === m) && (!t || `${e.method} ${e.path}`.toLowerCase().includes(t))).slice(0, MAX_SUGGESTIONS);
+}
+
+/** The consumers a typed text suggests: those whose name or id contains it, ignoring case. */
+export function consumerSuggestions(list: readonly ConsumerSuggestion[], typed: string): ConsumerSuggestion[] {
+  const t = typed.trim().toLowerCase();
+  return list.filter((c) => c.id && (!t || c.id.toLowerCase().includes(t) || c.name.toLowerCase().includes(t))).slice(0, MAX_SUGGESTIONS);
+}
+
+/** One suggestion of the search field (#985): an endpoint (sets method and path) or a consumer. */
+export type SearchSuggestion = ({ kind: "endpoint" } & EndpointSuggestion) | ({ kind: "consumer" } & ConsumerSuggestion);
+
+/**
+ * What the search field suggests for typed text (#985): the matching endpoints, then the matching
+ * consumers, at most MAX_SUGGESTIONS in all. Consumers keep at least a few places when both match.
+ */
+export function searchSuggestions(s: FilterSuggestions, typed: string, method = ""): SearchSuggestion[] {
+  const consumers = consumerSuggestions(s.consumers, typed);
+  const endpoints = endpointSuggestions(s.endpoints, typed, method).slice(0, MAX_SUGGESTIONS - Math.min(consumers.length, 3));
+  return [
+    ...endpoints.map((e) => ({ kind: "endpoint" as const, ...e })),
+    ...consumers.slice(0, MAX_SUGGESTIONS - endpoints.length).map((c) => ({ kind: "consumer" as const, ...c })),
+  ];
+}
+
+/**
+ * The Status segments of the filter bar (#985): every status, errors (4xx and 5xx), client errors
+ * or server errors. Each is a status filter value; any other status filter (codes, ranges) is set
+ * under More filters and leaves no segment on.
+ */
+export const STATUS_SEGMENTS: readonly { label: string; value: string }[] = [
+  { label: "All", value: "" },
+  { label: "Errors", value: "4xx,5xx" },
+  { label: "4xx", value: "4xx" },
+  { label: "5xx", value: "5xx" },
+];
+
+/** The segment a status filter is, or null when it is something else (a code, a range). */
+export function statusSegment(status: string): string | null {
+  return STATUS_SEGMENTS.some((s) => s.value === status) ? status : null;
+}
+
+/**
+ * How many filters are on that the bar's always-visible row does not show (#985): the row shows
+ * search (the path), Status (when it is a segment), Environment and App; the rest sit under More
+ * filters. A min/max pair counts once.
+ */
+export function moreCount(f: ExploreFilters): number {
+  const shown = new Set<FilterKey>(["env", "app", "path"]);
+  if (statusSegment(f.status) !== null) shown.add("status");
+  return filterChips(f).filter((c) => !c.keys.every((k) => shown.has(k))).length;
+}

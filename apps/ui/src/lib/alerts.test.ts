@@ -5,14 +5,17 @@ import {
   checkChannelDraft,
   checkRuleDraft,
   conditionText,
+  currentText,
   eventDuration,
   filterParts,
   formatMetric,
   formatSpan,
+  incidentCount,
   incidentsHref,
   incidentsRange,
   isCron,
   isHookUrl,
+  METRICS,
   newChannelDraft,
   newRuleDraft,
   openCount,
@@ -21,6 +24,9 @@ import {
   scheduleText,
   splitAddresses,
   testError,
+  thresholdUnit,
+  triggeredText,
+  unnotifiedText,
 } from "./alerts";
 import type { AlertRule } from "./identity";
 
@@ -84,12 +90,36 @@ describe("metrics", () => {
     expect(formatMetric("apdex", 0.8)).toBe("0.80");
     expect(formatMetric("traffic", 12045)).toBe("12,045");
     expect(formatMetric("traffic", null)).toBe("–");
+    expect(formatMetric("server_error_rate", 0.034)).toBe("3.4%");
+    expect(formatMetric("client_error_rate", 0.0025)).toBe("0.25%");
+    expect(formatMetric("server_errors", 1204)).toBe("1,204");
+    expect(formatMetric("client_errors", 7)).toBe("7");
+  });
+
+  it("lists server and client errors apart from the combined metrics", () => {
+    const label = (v: string) => METRICS.find((m) => m.value === v)?.label;
+    expect(label("errors")).toBe("Errors (4xx + 5xx)");
+    expect(label("error_rate")).toBe("Error rate (4xx + 5xx)");
+    expect(label("server_errors")).toBe("Server errors (5xx)");
+    expect(label("server_error_rate")).toBe("Server error rate (5xx)");
+    expect(label("client_errors")).toBe("Client errors (4xx)");
+    expect(label("client_error_rate")).toBe("Client error rate (4xx)");
+    expect(thresholdUnit("server_error_rate")).toBe("%");
+    expect(thresholdUnit("client_errors")).toBe("errors");
+    expect(thresholdUnit("traffic")).toBe("requests");
+    expect(thresholdUnit("unique_consumers")).toBe("consumers");
+  });
+
+  it("checks rate thresholds of the split metrics in percent", () => {
+    const ok = checkRuleDraft({ ...newRuleDraft("app1", "production"), name: "5xx", metric: "server_error_rate", threshold: "1" });
+    expect(ok.ok && ok.body.threshold).toBe(0.01);
+    expect(checkRuleDraft({ ...newRuleDraft("app1", "production"), name: "4xx", metric: "client_error_rate", threshold: "150" }).ok).toBe(false);
   });
 
   it("summarizes rules", () => {
-    expect(conditionText("error_rate", "gt", 0.02)).toBe("> 2%");
+    expect(conditionText("error_rate", "gt", 0.02)).toBe("> 2.0%");
     expect(conditionText("apdex", "lt", 0.85)).toBe("< 0.85");
-    expect(ruleSummary(RULE)).toBe("Error rate > 2.5% over 5 min");
+    expect(ruleSummary(RULE)).toBe("Error rate (4xx + 5xx) > 2.5% over 5 min");
     expect(scheduleText(RULE)).toBe("every 1 min");
     expect(scheduleText({ every_s: null, cron: "*/5 * * * *" })).toBe("cron */5 * * * * (UTC)");
   });
@@ -215,6 +245,32 @@ describe("channel form", () => {
     expect(isHookUrl("https://example.com/hook#x")).toBe(false);
     expect(isHookUrl("not a url")).toBe(false);
     expect(splitAddresses("a@example.com;b@example.com\nc@example.com")).toHaveLength(3);
+  });
+});
+
+describe("incident copy", () => {
+  const now = Date.parse("2026-11-05T10:12:00Z");
+
+  it("counts a list for screen readers", () => {
+    expect(incidentCount(1)).toBe("1 incident");
+    expect(incidentCount(4)).toBe("4 incidents");
+    expect(incidentCount(0)).toBe("0 incidents");
+  });
+
+  it("says which value triggered, apart from the value now", () => {
+    expect(triggeredText("traffic", 28)).toBe("Triggered at 28");
+    expect(triggeredText("error_rate", 0.034)).toBe("Triggered at 3.4%");
+    const state = { status: "triggered" as const, since: "2026-11-05T10:00:00Z", evaluated_at: "2026-11-05T10:11:20Z", value: 20, breached: true };
+    expect(currentText({ metric: "traffic", state }, now)).toBe("Now 20 · checked 40s ago");
+    expect(currentText({ metric: "traffic", state: { ...state, evaluated_at: "" } }, now)).toBe("Now 20");
+    expect(currentText({ metric: "traffic", state: undefined }, now)).toBe("Not evaluated yet");
+  });
+
+  it("says whether anyone was notified", () => {
+    expect(unnotifiedText({ ended_at: null, notified_at: "2026-11-05T10:01:00Z" }, false)).toBeNull();
+    expect(unnotifiedText({ ended_at: null, notified_at: null }, false)).toBe("Not yet");
+    expect(unnotifiedText({ ended_at: "2026-11-05T10:05:00Z", notified_at: null }, false)).toBe("No notification sent");
+    expect(unnotifiedText({ ended_at: null, notified_at: null }, true)).toBe("No channel, nobody notified");
   });
 });
 

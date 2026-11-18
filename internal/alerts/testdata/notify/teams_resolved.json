@@ -27,7 +27,7 @@
               "wrap": true
             },
             {
-              "text": "Error rate on storefront (production) is no longer > 5% over the last 5 minutes.",
+              "text": "Error rate (4xx + 5xx) on storefront (production) is no longer > 5% over the last 5 minutes.",
               "type": "TextBlock",
               "wrap": true
             },
@@ -43,7 +43,7 @@
                 },
                 {
                   "title": "Metric",
-                  "value": "Error rate"
+                  "value": "Error rate (4xx + 5xx)"
                 },
                 {
                   "title": "Latest value",

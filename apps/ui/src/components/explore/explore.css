@@ -15,6 +15,8 @@
 .ex-tools > .ex-filters { display: contents; }
 .ex-tools .ex-filters__bar { flex: 1 1 260px; min-width: 0; }
 .ex-tools .ex-form { flex-basis: 100%; order: 99; margin-top: 0; }
+.ex-tools .ex-filters__error { flex-basis: 100%; order: 97; }
+.ex-tools .ex-filters__chips { flex-basis: 100%; order: 98; }
 .ex-tools__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-left: auto; }
 .ex-tools .ex-views { margin-top: 0; }
 .ex-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
@@ -22,6 +24,11 @@
 .ex-seg a:hover { color: var(--ink); }
 .ex-seg a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
 .ex-seg a:focus-visible, .ex .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+/* The filter bar's Status segments (#985): buttons, pressed like the range picker's current link. */
+.ex-seg__btn { padding: 4px 12px; border: 0; border-radius: 7px; background: transparent; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); cursor: pointer; }
+.ex-seg__btn:hover { color: var(--ink); }
+.ex-seg__btn[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); }
+.ex-seg__btn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 
 .ex-live { display: inline-flex; align-items: center; gap: var(--space-2); }
 .ex-live__state { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/16px var(--font-mono); color: var(--ink); }
@@ -44,19 +51,24 @@
 .ex-spacer { position: relative; }
 .ex-row {
   display: grid;
-  grid-template-columns: 128px 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px;
+  /* Time, App, Method, Path, Status, Latency, Consumer, Size; .has-env adds Env after App (#975). */
+  grid-template-columns: 128px minmax(0, 120px) 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px;
   align-items: center;
   height: 32px;
   border-bottom: 1px solid var(--border);
   box-sizing: border-box;
 }
+.ex-grid.has-env .ex-row { grid-template-columns: 128px minmax(0, 120px) minmax(0, 104px) 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px; }
 .ex-spacer > .ex-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; }
 .ex-spacer > .ex-row:hover { background: var(--surface-2); }
 .ex-spacer > .ex-row:focus { outline: none; }
 .ex-spacer > .ex-row:focus-visible { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
-/* Errors read apart while scanning: an edge in the status color (the chip still says the code). */
-.ex-spacer > .ex-row.is-4xx { box-shadow: inset 2px 0 0 var(--warn); }
-.ex-spacer > .ex-row.is-5xx { box-shadow: inset 2px 0 0 var(--error); }
+/* Errors read apart while scanning: an edge in the status color (the chip still says the code), and
+   server errors (5xx) a faint --error-tint wash over the whole row (#985). */
+.ex-spacer > .ex-row.is-4xx { box-shadow: inset 3px 0 0 var(--warn); }
+.ex-spacer > .ex-row.is-5xx { box-shadow: inset 3px 0 0 var(--error); background: var(--error-tint); }
+.ex-spacer > .ex-row.is-5xx:hover { background: var(--error-soft); }
+.ex-spacer > .ex-row.is-4xx:focus-visible, .ex-spacer > .ex-row.is-5xx:focus-visible { box-shadow: inset 3px 0 0 var(--accent-ink); }
 .ex-row--head { background: var(--surface-2); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ex-cell { min-width: 0; padding: 0 var(--space-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ex-cell--status, .ex-cell--latency, .ex-cell--size { text-align: right; font-variant-numeric: tabular-nums; }
@@ -85,6 +97,8 @@
 /* Filter bar (#586): the Filters button, the active filters as removable chips, and the form. */
 .ex-filters { margin-bottom: var(--space-4); }
 .ex-filters__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.ex-search { flex: 1 1 220px; min-width: 160px; max-width: 360px; }
+.ex-input--pick { width: auto; min-width: 0; max-width: 200px; }
 .ex-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; list-style: none; }
 .ex-chips > li { display: inline-flex; }
 .ex-chip { align-items: center; max-width: 100%; min-height: 30px; padding: 0 2px 0 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-1); font: 400 13px/20px var(--font-sans); color: var(--ink); }
@@ -103,13 +117,24 @@
 .ex-input { box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 400 13px/1 var(--font-sans); }
 .ex-input--mono { font-family: var(--font-mono); }
 .ex-input::placeholder { color: var(--ink-muted); opacity: .8; }
-.ex-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ex-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ex-input[aria-invalid="true"] { border-color: var(--error); }
 select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; }
 /* A legend is not a flex item, so the fieldset's gap skips it: space it like a label. */
 .ex-range > .ex-label { margin-bottom: 6px; }
 .ex-range__inputs { display: flex; align-items: center; gap: var(--space-2); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ex-input--num { min-width: 0; flex: 1; font-variant-numeric: tabular-nums; }
+
+/* Path and Consumer suggestions (#983): a listbox under the field, over the fields below it. */
+.ex-combo { position: relative; min-width: 0; }
+.ex-combo__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: 264px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
+.ex-combo__list[hidden] { display: none; }
+.ex-combo__opt { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 6px 8px; border-radius: 5px; font: 400 13px/18px var(--font-sans); color: var(--ink); cursor: pointer; }
+.ex-combo__opt.is-active { background: var(--surface-2); }
+.ex-combo__lead { flex: none; min-width: 52px; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.ex-combo__text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ex-input--mono + .ex-combo__list .ex-combo__text { font-family: var(--font-mono); }
+.ex-combo__detail { flex: none; max-width: 45%; margin-left: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
 
 /* Request drawer (#588): a modal side panel from the right edge. Markers the SDK left in place of
    values read apart from real data: [redacted] and [masked] on --warn-soft, ...[truncated] on
@@ -160,8 +185,8 @@ select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:im
 .rd-table thead th { font: 500 12px/16px var(--font-sans); color: var(--ink-muted); background: var(--surface-2); }
 .rd-table--kv th { width: 34%; font: 400 12px/20px var(--font-mono); color: var(--ink-muted); }
 .rd-table--kv td { font: 400 12px/20px var(--font-mono); }
-.rd-table--logs th:first-child { width: 92px; }
-.rd-table--logs th:nth-child(2) { width: 72px; }
+.rd-table--logs > thead th:first-child { width: 92px; }
+.rd-table--logs > thead th:nth-child(2) { width: 72px; }
 .rd-cap { padding: 0 0 var(--space-2); text-align: left; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .rd-num { font-variant-numeric: tabular-nums; color: var(--ink-muted); white-space: nowrap; }
 .rd-level { display: inline-block; padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-2); font: 500 11px/18px var(--font-mono); color: var(--ink-muted); text-transform: lowercase; }
@@ -169,6 +194,20 @@ select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:im
 .rd-level--error { background: var(--error-soft); color: var(--error); }
 .rd-logmsg { font: 400 12px/20px var(--font-mono); white-space: pre-wrap; }
 .rd-logspan { display: block; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.rd-logbtn { display: flex; align-items: flex-start; gap: var(--space-1); width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rd-logbtn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
+.rd-logbtn__chev { flex: none; width: 14px; height: 14px; margin-top: 3px; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
+.rd-logbtn[aria-expanded="true"] .rd-logbtn__chev { transform: rotate(90deg); }
+.rd-logbtn__text { min-width: 0; }
+.rd-table--logs > tbody > tr.is-open > td { border-bottom: 0; }
+.rd-logrow > td { padding: 0 var(--space-2) var(--space-3) calc(92px + var(--space-2)); }
+.rd-logdetail .rd-h--sub { margin: var(--space-2) 0; }
+.rd-logdetail__exc { margin: var(--space-2) 0 0; font: 400 12px/18px var(--font-sans); }
+.rd-logdetail .rd-logdetail__copied { padding: 0; }
+.rd-logdetail__payload { max-height: 320px; overscroll-behavior: contain; }
+.rd-exc:focus { outline: none; }
+.rd-exc:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) { .rd-logbtn__chev { transition: none; } }
 
 .rd-marker { padding: 0 3px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); background: var(--warn-soft); color: var(--warn); }
 .rd-marker--truncated { background: var(--surface-2); color: var(--ink-muted); outline: 1px dashed var(--border-strong); outline-offset: -1px; }
@@ -227,8 +266,37 @@ span.rd-j-tog { cursor: default; }
 .rd-wf__dur { display: flex; flex-direction: column; align-items: flex-end; font: 400 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
 .rd-wf__err { font: 500 11px/16px var(--font-sans); color: var(--error); }
 .rd-wf__detail { padding: var(--space-2) var(--space-3) var(--space-3) calc(var(--space-3) + 20px); background: var(--surface-2); }
-.rd-wf__full { margin: 0 0 var(--space-2); font: 500 12px/18px var(--font-mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .rd-wf__detail .rd-dl dd { overflow-wrap: anywhere; }
+
+.rd-h--sub { margin-top: var(--space-4); font-size: 12px; color: var(--ink-muted); }
+.rd-span { padding-top: var(--space-2); }
+
+.rd-exc__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.rd-exc__bar .rd-h { margin: 0; }
+.rd-exc__copied { padding: 0; }
+.rd-exc__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.rd-exc__type, .rd-exb__type { font: 600 13px/20px var(--font-mono); color: var(--error); }
+.rd-exc__msg { font: 400 13px/20px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rd-exb { margin-top: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.rd-exb > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); padding: 6px var(--space-3); cursor: pointer; }
+.rd-exb > summary:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.rd-exb[open] > summary { border-bottom: 1px solid var(--border); }
+.rd-exb__label { font: 500 12px/18px var(--font-sans); color: var(--ink-muted); }
+.rd-exb__type { font-size: 12px; }
+.rd-exb__msg { min-width: 0; font: 400 12px/18px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rd-exb__none { margin: 0; padding: var(--space-2) var(--space-3); }
+.rd-frames { margin: 0; padding: var(--space-1) 0; list-style: none; max-height: 480px; overflow: auto; }
+.rd-frame { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-2); padding: 2px var(--space-3); font: 400 12px/18px var(--font-mono); color: var(--ink-muted); overflow-wrap: anywhere; }
+.rd-frame__loc { min-width: 0; }
+.rd-frame.is-app { color: var(--ink); background: var(--surface-2); box-shadow: inset 2px 0 0 var(--error); }
+.rd-frame.is-app .rd-frame__loc { font-weight: 600; }
+.rd-frame__tag { padding: 0 5px; border-radius: var(--radius-pill); background: var(--error-soft); font: 500 10px/16px var(--font-sans); color: var(--error); }
+.rd-frame__code { flex-basis: 100%; padding-left: var(--space-4); font: 400 12px/18px var(--font-mono); white-space: pre-wrap; }
+.rd-spanevents { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
+.rd-event { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.rd-event__head { display: flex; justify-content: space-between; gap: var(--space-2); margin: 0 0 var(--space-1); }
+.rd-event__head code { font: 500 12px/20px var(--font-mono); }
+.rd-event .rd-exc { margin-bottom: var(--space-2); }
 
 @media (max-width: 760px) {
   .rd { width: 100vw; border-left: 0; }
@@ -238,6 +306,7 @@ span.rd-j-tog { cursor: default; }
   .rd-dl { grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); }
   .rd-wf__row { grid-template-columns: minmax(0, 1fr) 72px; padding-bottom: 6px; }
   .rd-wf__track { grid-column: 1 / -1; grid-row: 2; }
+  .rd-logrow > td { padding-left: var(--space-2); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -245,12 +314,12 @@ span.rd-j-tog { cursor: default; }
 }
 
 @media (max-width: 760px) {
-  .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
+  .ex-row, .ex-grid.has-env .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
   .ex-tools__end { margin-left: 0; }
   .ex-time__ms, .ex-time__day { display: none; }
   .ex-cell { padding: 0 6px; }
   .ex-cell--method { font-size: 11px; }
-  .ex-cell--consumer, .ex-cell--size { display: none; }
+  .ex-cell--app, .ex-cell--env, .ex-cell--consumer, .ex-cell--size { display: none; }
   .ex-sampled { display: none; }
   .ex-chip > span { max-width: 220px; }
 }
@@ -269,10 +338,13 @@ span.rd-j-tog { cursor: default; }
 .ex-tl__total { color: var(--ink); }
 .ex-tl__total strong { font-weight: 600; font-variant-numeric: tabular-nums; }
 .ex-tl__n { font: 500 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
-/* The error counts are quick filters: a quiet pill that fills when that filter is on. */
-.ex-tl__quick { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--ink-muted); text-decoration: none; }
-.ex-tl__quick:hover { background: var(--surface-2); color: var(--ink); }
-.ex-tl__quick[aria-current="true"] { border-color: var(--border-strong); background: var(--surface-2); color: var(--ink); }
+/* The error counts are quick filters, and look pressable (#985): a control outline, a funnel and
+   a hover fill; when that filter is on, the pill fills with the selected ground and an accent edge. */
+.ex-tl__quick { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-1); color: var(--ink); text-decoration: none; cursor: pointer; }
+.ex-tl__quick:hover { background: var(--surface-2); }
+.ex-tl__quick[aria-current="true"] { border-color: var(--accent-ink); background: var(--surface-2); }
+.ex-tl__icon { width: 12px; height: 12px; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linejoin: round; }
+.ex-tl__quick:hover .ex-tl__icon, .ex-tl__quick[aria-current="true"] .ex-tl__icon { stroke: currentColor; }
 .ex-tl__quick:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .ex-tl__swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .ex-tl__scope { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-left: auto; font: 400 13px/20px var(--font-sans); color: var(--ink); }

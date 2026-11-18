@@ -1,11 +1,16 @@
 import Link from "next/link";
-import { conditionText, eventDuration, filterParts, formatMetric, formatSpan, incidentHref, incidentsHref, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
-import type { AlertEvent, AlertRule } from "@/lib/identity";
+import { conditionText, currentText, eventDuration, filterParts, formatMetric, formatSpan, incidentHref, incidentsHref, metricLabel, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
+import { formatAgo } from "@/lib/first-data";
+import type { AlertEvent, AlertRule, TrafficTimeseries } from "@/lib/identity";
+import type { IncidentLinks } from "@/lib/incident-links";
+import { hasSeries, noSeriesText } from "@/lib/incident-metric";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
 import { Pagination } from "../pagination/pagination";
 import { Empty, LoadFailed, StatusBadge } from "./common";
 import { IncidentChart } from "./incident-chart";
+import { MetricChart } from "./metric-chart";
+import { RuleToggle } from "./rule-toggle";
 
 /**
  * `/<project>/incidents/<rule>` (#610): one alert rule's incidents as a timeline, newest first:
@@ -13,7 +18,10 @@ import { IncidentChart } from "./incident-chart";
  * resolved (or how long it has been open), a page at a time with Newer and Older (the API's
  * cursors, `nextCursor` null on the oldest page), above them their values against the threshold
  * as a hoverable chart. `rule` is the rule as saved; `events` is null when the API could not
- * answer; `params` are the page's search params. `now` is the load time.
+ * answer; `params` are the page's search params. `now` is the load time. Above the timeline the
+ * rule's metric over `range` against its threshold (#980): `series` is its app and environment's
+ * timeseries, null when the API could not answer (unused for a metric without a series).
+ * `links` are where the incident drills down to (#979): Explore, Errors, the endpoint and the app.
  */
 export function IncidentTimeline({
   project,
@@ -25,6 +33,9 @@ export function IncidentTimeline({
   params,
   now,
   tz,
+  series,
+  range,
+  links,
 }: {
   project: string;
   projectName: string;
@@ -36,6 +47,9 @@ export function IncidentTimeline({
   now: number;
   /** The user's time zone. */
   tz: string;
+  series: TrafficTimeseries | null;
+  range: "6h" | "24h";
+  links: IncidentLinks;
 }) {
   const pages = trailHrefs(incidentHref(project, rule.id), params, nextCursor);
   return (
@@ -50,9 +64,23 @@ export function IncidentTimeline({
           <h1 className="cp-lede">{rule.name}</h1>
           <p className="al-lead">{rule.description || ruleSummary(rule)}</p>
         </div>
-        <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={ruleHref(project, rule.id)}>
-          View rule
-        </Link>
+        <div className="al-actions" role="group" aria-label="Incident actions">
+          <Link className="ah-btn ah-btn--primary ah-btn--sm" href={links.requests.href}>
+            {links.requests.label}
+          </Link>
+          <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={links.errors.href}>
+            {links.errors.label}
+          </Link>
+          {links.endpoint ? (
+            <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={links.endpoint.href}>
+              {links.endpoint.label}
+            </Link>
+          ) : null}
+          <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={ruleHref(project, rule.id)}>
+            View rule
+          </Link>
+          <RuleToggle project={project} rule={rule} />
+        </div>
       </header>
 
       <dl className="al-summary">
@@ -69,7 +97,14 @@ export function IncidentTimeline({
         <div>
           <dt>Scope</dt>
           <dd>
-            {[app ?? "Unknown app", rule.environment, ...filterParts(rule)].join(" · ")}
+            {links.app ? (
+              <Link className="cp-link" href={links.app}>
+                {app ?? "Unknown app"}
+              </Link>
+            ) : (
+              (app ?? "Unknown app")
+            )}
+            {[rule.environment, ...filterParts(rule)].map((part) => ` · ${part}`).join("")}
           </dd>
         </div>
         <div>
@@ -77,10 +112,18 @@ export function IncidentTimeline({
           <dd>{scheduleText(rule)}</dd>
         </div>
         <div>
-          <dt>Latest value</dt>
-          <dd className="al-mono">{rule.state ? formatMetric(rule.metric, rule.state.value) : "–"}</dd>
+          <dt>Latest check</dt>
+          {/* Where the rule stands now, apart from the value that opened each incident below. */}
+          <dd>{rule.state ? currentText(rule, now) : "–"}</dd>
         </div>
       </dl>
+
+      <div className="al-bar">
+        <h2>
+          {metricLabel(rule.metric)} over the last {range === "24h" ? "24 hours" : "6 hours"}
+        </h2>
+      </div>
+      <MetricSection rule={rule} app={app} series={series} events={events ?? []} range={range} now={now} href={incidentHref(project, rule.id)} />
 
       <div className="al-bar">
         <h2>Timeline</h2>
@@ -111,12 +154,12 @@ export function IncidentTimeline({
                 </div>
                 <ul className="al-event__steps">
                   <li>
-                    <b>Triggered</b> <time dateTime={e.started_at}>{formatExact(e.started_at, tz)}</time>
+                    <b>Triggered</b> <When at={e.started_at} now={now} tz={tz} />
                   </li>
                   <li>
                     {e.notified_at ? (
                       <>
-                        <b>Notified</b> <time dateTime={e.notified_at}>{formatExact(e.notified_at, tz)}</time>
+                        <b>Notified</b> <When at={e.notified_at} now={now} tz={tz} />
                       </>
                     ) : rule.notify_after_s > 0 && !e.ended_at ? (
                       `Notifies once it holds for ${formatSpan(rule.notify_after_s)}`
@@ -127,7 +170,7 @@ export function IncidentTimeline({
                   <li>
                     {e.ended_at ? (
                       <>
-                        <b>Resolved</b> <time dateTime={e.ended_at}>{formatExact(e.ended_at, tz)}</time>, after {eventDuration(e, now)}
+                        <b>Resolved</b> <When at={e.ended_at} now={now} tz={tz} />, after {eventDuration(e, now)}
                       </>
                     ) : (
                       <>
@@ -157,6 +200,53 @@ export function IncidentTimeline({
           ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A time relative to the page's load (`12m ago`), with the exact time in the user's zone on hover. */
+function When({ at, now, tz }: { at: string; now: number; tz: string }) {
+  return (
+    <time dateTime={at} title={formatExact(at, tz)}>
+      {formatAgo(at, now)}
+    </time>
+  );
+}
+
+/**
+ * The rule's metric chart, or why there is none: the series does not carry the metric, the read
+ * failed, or the app sent nothing in the range. The chart reads the whole app and environment, so
+ * a rule with filters says they are not applied to it.
+ */
+function MetricSection({
+  rule,
+  app,
+  series,
+  events,
+  range,
+  now,
+  href,
+}: {
+  rule: AlertRule;
+  app: string | undefined;
+  series: TrafficTimeseries | null;
+  events: readonly AlertEvent[];
+  range: "6h" | "24h";
+  now: number;
+  href: string;
+}) {
+  if (!hasSeries(rule.metric)) return <Empty>{noSeriesText(rule.metric)}</Empty>;
+  if (series === null) return <LoadFailed text="We couldn’t load this rule’s metric just now." href={href} />;
+  if (!(series.points ?? []).length) return <Empty>No traffic from {app ?? "this app"} in this range yet.</Empty>;
+  const filters = filterParts(rule);
+  return (
+    <div className="al-card">
+      <MetricChart rule={rule} series={series} events={events} range={range} now={now} />
+      {filters.length ? (
+        <p className="al-metric-note">
+          Shows all of {app ?? "the app"}’s traffic{rule.environment ? ` in ${rule.environment}` : ""}; the rule’s filters ({filters.join(", ")}) are not applied to this chart.
+        </p>
+      ) : null}
     </div>
   );
 }

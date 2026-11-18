@@ -50,8 +50,12 @@ public class ApiLensProperties {
   private int maxBatchBytes = 4_194_304;
   /** Whether batch bodies are gzipped (Content-Encoding: gzip). */
   private boolean compress = true;
-  /** Retries for 408, 429, 5xx and network errors. */
-  private int maxRetries = 3;
+  /** Cap on retries for 408, 429, 5xx and network errors; -1 (default) leaves only max-retry-duration. */
+  private int maxRetries = -1;
+  /** How long a failed batch is retried before it is dropped (and counted). */
+  private Duration maxRetryDuration = Duration.ofSeconds(300);
+  /** Upper bound on the flush when the application context closes. */
+  private Duration shutdownTimeout = Duration.ofSeconds(5);
   /** Base delay of the full-jitter exponential retry backoff. */
   private Duration retryBackoffBase = Duration.ofMillis(250);
   /** Cap on one retry backoff delay. */
@@ -133,6 +137,10 @@ public class ApiLensProperties {
         .maxBatchBytes(maxBatchBytes)
         .compress(compress)
         .maxRetries(maxRetries)
+        .maxRetryDuration(maxRetryDuration)
+        .shutdownTimeout(shutdownTimeout)
+        // Spring closes the client bean on context shutdown (destroyMethod), so no JVM hook.
+        .registerShutdownHook(false)
         .retryBackoffBase(retryBackoffBase)
         .retryBackoffMax(retryBackoffMax)
         .enabled(enabled)
@@ -339,6 +347,22 @@ public class ApiLensProperties {
 
   public void setMaxRetries(int maxRetries) {
     this.maxRetries = maxRetries;
+  }
+
+  public Duration getMaxRetryDuration() {
+    return maxRetryDuration;
+  }
+
+  public void setMaxRetryDuration(Duration maxRetryDuration) {
+    this.maxRetryDuration = maxRetryDuration;
+  }
+
+  public Duration getShutdownTimeout() {
+    return shutdownTimeout;
+  }
+
+  public void setShutdownTimeout(Duration shutdownTimeout) {
+    this.shutdownTimeout = shutdownTimeout;
   }
 
   public Duration getRetryBackoffBase() {

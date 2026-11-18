@@ -21,6 +21,7 @@ const SUMMARY = {
   p95_ms: 412.6,
   p99_ms: 1240,
   requests_per_minute: 8.61,
+  current_per_minute: 12,
   apdex: 0.912,
 };
 
@@ -59,11 +60,21 @@ async function queryDown(down: boolean) {
   });
 }
 
+/**
+ * `url` reading all environments unless it names one: a URL without `env` reads the project's
+ * production environment (#993), and these specs seed and check the all-environments numbers.
+ */
+function allEnvs(url: string): string {
+  const u = new URL(url, "http://x");
+  if (!u.searchParams.has("env")) u.searchParams.set("env", "all");
+  return `${u.pathname}${u.search}`;
+}
+
 async function signIn(page: Page, next = PAGE) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next }),
+    body: JSON.stringify({ next: allEnvs(next) }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
@@ -103,12 +114,12 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
   await seed();
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1, name: "Traffic" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Traffic" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Traffic" })).toHaveAttribute("aria-current", "page");
 
   const summary = page.locator("dl.tr-tiles");
   await expect(summary.locator("dt")).toHaveText(["Requests", "Error rate", "p95 response time", "Apdex"]);
   await expect(tiles(page)).toHaveText(["12,400", "3.0%", "413 ms", "0.91"]);
-  await expect(summary.locator(".tr-tile__sub")).toHaveText(["8.6 per minute", "310 4xx, 62 5xx", "p50 38 ms, p99 1.24 s", "Good"]);
+  await expect(summary.locator(".tr-tile__sub")).toHaveText(["8.6 per minute · now 12/min", "310 4xx, 62 5xx", "p50 38 ms, p99 1.24 s", "Good"]);
   await expect(summary.locator(".tr-spark polyline")).toHaveCount(3);
 
   const status = page.getByRole("img", { name: /Requests by status/ });
@@ -134,6 +145,31 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
 
   const a11y = await new AxeBuilder({ page }).include(".tr").analyze();
   expect(a11y.violations).toEqual([]);
+});
+
+test("compares each tile with the previous window, coloured by direction, and hides without one (#1000)", async ({ page }) => {
+  const previous = { from: "", to: "", requests: 10_000, client_errors: 100, server_errors: 26, error_rate: 0.0126, p50_ms: 40, p95_ms: 344, p99_ms: 1000, apdex: 0.95 };
+  await seed({ "": { summary: { ...SUMMARY, previous }, points: POINTS, endpoints: ENDPOINTS }, production: PRODUCTION });
+  await signIn(page);
+  const summary = page.locator("dl.tr-tiles");
+  await expect(summary.locator(".tr-compare")).toHaveText([
+    "▲ 24.0% vs previous 24h",
+    "▲ 1.7 pts vs previous 24h",
+    "▲ 19.9% vs previous 24h",
+    "▼ 0.04 vs previous 24h",
+  ]);
+  // More requests is neither good nor bad; more errors, slower and a lower Apdex are bad.
+  await expect(summary.locator(".tr-compare--neutral")).toHaveCount(1);
+  await expect(summary.locator(".tr-compare--bad")).toHaveCount(3);
+  const color = (cls: string) => summary.locator(cls).first().evaluate((el) => getComputedStyle(el).color);
+  expect(await color(".tr-compare--bad")).not.toBe(await color(".tr-compare--neutral"));
+  const a11y = await new AxeBuilder({ page }).include("dl.tr-tiles").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  // Production has no previous window: no comparison at all.
+  await page.goto(`${PAGE}?env=production`);
+  await expect(tiles(page).first()).toHaveText("9,000");
+  await expect(summary.locator(".tr-compare")).toHaveCount(0);
 });
 
 test("draws the charts at their measured width on first load, never blank", async ({ page }) => {
@@ -173,7 +209,7 @@ test("draws the charts before JavaScript runs", async ({ browser }) => {
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
-  await page.goto(PAGE);
+  await page.goto(allEnvs(PAGE));
   const svg = page.getByRole("img", { name: /Requests by status/ });
   await expect(svg).toHaveAttribute("viewBox", "0 0 960 160");
   await expect(svg.locator(".tr-fill-ok")).toHaveCount(4);
@@ -184,12 +220,13 @@ test("opens an endpoint's detail from its row, keeping the scope", async ({ page
   await seed();
   await signIn(page, `${PAGE}?range=7d`);
   const link = endpointsTable(page).getByRole("link", { name: "POST /charge" });
-  await expect(link).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=7d");
-  // The link covers its row: a click anywhere on the row follows it.
+  await expect(link).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=7d&env=all");
+  // The link covers its row: a click anywhere on the row follows it, but for the error counts and
+  // p95, which open their requests in Explore (#977).
   const row = endpointsTable(page).locator("tbody tr").nth(1);
   await row.scrollIntoViewIfNeeded();
-  const cell = await row.getByRole("cell").nth(3).boundingBox();
-  if (!cell) throw new Error("the 5xx cell has no box");
+  const cell = await row.getByRole("cell").nth(1).boundingBox();
+  if (!cell) throw new Error("the Requests cell has no box");
   await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
   await page.waitForURL((url) => url.pathname === "/shop/endpoints/POST/%2Fcharge");
 });
@@ -217,6 +254,59 @@ test("filters by range and environment, kept in the URL", async ({ page }) => {
   await expect(ranges.getByRole("link", { name: "7d" })).toHaveAttribute("href", "/shop/traffic?range=7d&env=production");
 });
 
+test("without a range or environment in the URL: the range covering the first data, production, then the last choice (#993)", async ({ page }) => {
+  const ingested = (last_at: string | null) =>
+    fetch(`${IDENTITY}/__fake/ingested`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop", last_at }) });
+  await seed();
+  // A project whose first request arrived 30 minutes ago reads the last hour, in production.
+  await ingested(new Date(Date.now() - 30 * 60_000).toISOString());
+  try {
+    const res = await fetch(`${IDENTITY}/__fake/handoff`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ next: PAGE }) });
+    const { code } = (await res.json()) as { code: string };
+    await page.goto(`/auth/callback?code=${code}`);
+    await page.waitForURL((url) => url.pathname === PAGE);
+    const ranges = page.getByRole("navigation", { name: "Time range" });
+    const env = page.getByRole("combobox", { name: "Environment" });
+    await expect(ranges.getByRole("link", { name: "1h" })).toHaveAttribute("aria-current", "page");
+    await expect(env).toHaveValue("production");
+    await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /in the last 1 hour in production/);
+    // Every range link names its range, so 24h stays 24h.
+    await expect(ranges.getByRole("link", { name: "24h" })).toHaveAttribute("href", "/shop/traffic?range=24h&env=production");
+
+    // Three days of data: the last 7 days.
+    await ingested(new Date(Date.now() - 3 * 86_400_000).toISOString());
+    await page.goto(PAGE);
+    await expect(ranges.getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
+
+    // The last environment chosen is remembered for the project, "All environments" too.
+    await env.selectOption("");
+    await page.waitForURL((url) => url.searchParams.get("env") === "all");
+    await page.goto(PAGE);
+    await page.waitForURL((url) => url.searchParams.get("env") === "all");
+    await expect(env).toHaveValue("");
+    await expect(tiles(page)).toHaveText(["12,400", "3.0%", "413 ms", "0.91"]);
+  } finally {
+    await ingested(null);
+  }
+});
+
+test("the range and environment travel with the rail (#992)", async ({ page }) => {
+  await seed();
+  await signIn(page, "/shop/traffic?range=7d&env=production");
+  // The range picker sits in the page header, next to the title.
+  await expect(page.locator("header.ph").getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
+  const views = page.getByRole("navigation", { name: "Pages" });
+  await expect(views.getByRole("link", { name: "Errors" })).toHaveAttribute("href", "/shop/errors?range=7d&env=production");
+  await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Project settings" })).toHaveAttribute("href", "/shop/settings?range=7d&env=production");
+
+  await views.getByRole("link", { name: "Errors" }).click();
+  await page.waitForURL((url) => url.pathname === "/shop/errors");
+  await expect(page.getByRole("heading", { level: 1, name: "Errors" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("combobox", { name: "Environment" })).toHaveValue("production");
+  await expect(views.getByRole("link", { name: "Performance" })).toHaveAttribute("href", "/shop/performance?range=7d&env=production");
+});
+
 test("pages the endpoints table in the URL, starting again at page 1 when the scope changes", async ({ page }) => {
   const many = Array.from({ length: 30 }, (_, i) => ({ ...ENDPOINTS[0], path: `/items/${String(i).padStart(2, "0")}`, requests: 1000 - i }));
   await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many }, production: { ...PRODUCTION, endpoints: many.slice(0, 3) } });
@@ -230,13 +320,126 @@ test("pages the endpoints table in the URL, starting again at page 1 when the sc
   await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(5);
   await expect(endpointsTable(page).getByRole("link", { name: "GET /items/29" })).toBeVisible();
   // A page past the end shows the last page.
-  await page.goto(`${PAGE}?page=9`);
+  await page.goto(allEnvs(`${PAGE}?page=9`));
   await expect(pages).toContainText("Showing 26–30 of 30");
   // A narrower scope drops the page; one page of rows has no controls.
   await page.getByRole("combobox", { name: "Environment" }).selectOption("production");
   await page.waitForURL((url) => url.searchParams.get("env") === "production" && !url.searchParams.has("page"));
   await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(3);
   await expect(pages).toHaveCount(0);
+});
+
+test("sorts the endpoints table by any column, in the URL, with aria-sort (#1001)", async ({ page }) => {
+  const many = [
+    ...ENDPOINTS,
+    { method: "GET", path: "/users", requests: 600, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 12, p95_ms: 90, apdex: 0.99 },
+    { method: "GET", path: "/health", requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null },
+  ];
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many } });
+  await signIn(page, `${PAGE}?range=6h`);
+  const table = endpointsTable(page);
+  const paths = () => table.locator("tbody .tr-ep code");
+  const header = (name: string) => table.getByRole("columnheader", { name, exact: true });
+
+  // Busiest first by default, as the API lists them.
+  await expect(header("Requests")).toHaveAttribute("aria-sort", "descending");
+  await expect(header("p95")).not.toHaveAttribute("aria-sort", /./);
+  await expect(paths()).toHaveText(["/orders/{id}", "/charge", "/users", "/health"]);
+
+  // A column sorts largest first, then the other way; the scope stays in the URL.
+  await header("p95").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "p95" && url.searchParams.get("dir") === "desc" && url.searchParams.get("range") === "6h");
+  await expect(header("p95")).toHaveAttribute("aria-sort", "descending");
+  await expect(header("Requests")).not.toHaveAttribute("aria-sort", /./);
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users", "/health"]);
+  await header("p95").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("dir") === "asc");
+  await expect(header("p95")).toHaveAttribute("aria-sort", "ascending");
+  await expect(paths()).toHaveText(["/health", "/users", "/orders/{id}", "/charge"]);
+
+  // Apdex sorts worst first; endpoints without a score go last.
+  await header("Apdex").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "apdex");
+  await expect(header("Apdex")).toHaveAttribute("aria-sort", "ascending");
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users", "/health"]);
+
+  // Endpoint sorts A to Z; a sorted link survives a reload.
+  await header("Endpoint").getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "endpoint");
+  await page.reload();
+  await expect(header("Endpoint")).toHaveAttribute("aria-sort", "ascending");
+  await expect(paths()).toHaveText(["/charge", "/health", "/orders/{id}", "/users"]);
+
+  const a11y = await new AxeBuilder({ page }).include("table.tr-table").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
+test("sorts before paging and starts again at page 1 (#1001)", async ({ page }) => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ ...ENDPOINTS[0], path: `/items/${String(i).padStart(2, "0")}`, requests: 1000 - i, p95_ms: 10 + i }));
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many } });
+  await signIn(page, `${PAGE}?page=2`);
+  await endpointsTable(page).getByRole("columnheader", { name: "p95", exact: true }).getByRole("link").click();
+  await page.waitForURL((url) => url.searchParams.get("sort") === "p95" && !url.searchParams.has("page"));
+  // The slowest of all 30 heads page 1, not the slowest of the first 25.
+  await expect(endpointsTable(page).locator("tbody .tr-ep code").first()).toHaveText("/items/29");
+});
+
+test("collapses routes declared without traffic into one group under the table (#1003)", async ({ page }) => {
+  const declared = (method: string, path: string) => ({ method, path, requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null, discovered_only: true });
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: [...ENDPOINTS, declared("GET", "/health"), declared("DELETE", "/orders/{id}")] } });
+  await signIn(page);
+  // Only the endpoints with traffic are rows: no "0 / 0 ms / n/a" row reads like a fast endpoint.
+  await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(2);
+  await expect(endpointsTable(page)).not.toContainText("/health");
+
+  const group = page.locator("details.tr-declared");
+  const summary = group.locator("summary");
+  await expect(summary).toHaveText("2 declared routes without traffic");
+  await expect(group).not.toHaveAttribute("open", /.*/);
+  const list = page.getByRole("list", { name: "Declared routes without traffic" });
+  await expect(list).toBeHidden();
+  await summary.click();
+  await expect(list.getByRole("link")).toHaveText(["GET /health", "DELETE /orders/{id}"]);
+  await expect(group).toContainText("Your apps declared these routes, but none was called in the last 24 hours.");
+  await expect(list.getByRole("link", { name: "GET /health" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Fhealth");
+
+  const a11y = await new AxeBuilder({ page }).include(".tr-card--table").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
+test("searches the endpoints table by path, in the URL, keeping the scope and sort (#1003)", async ({ page }) => {
+  const declared = { method: "GET", path: "/orders/export", requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null, discovered_only: true };
+  const many = [...ENDPOINTS, { method: "GET", path: "/users", requests: 600, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 12, p95_ms: 90, apdex: 0.99 }, declared];
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many } });
+  await signIn(page, `${PAGE}?range=6h&sort=p95&dir=desc`);
+  const paths = () => endpointsTable(page).locator("tbody .tr-ep code");
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users"]);
+
+  const search = page.getByRole("searchbox", { name: "Search endpoint paths" });
+  await search.fill("ORDERS");
+  await search.press("Enter");
+  await page.waitForURL((url) => url.searchParams.get("q") === "ORDERS" && url.searchParams.get("range") === "6h" && url.searchParams.get("sort") === "p95");
+  await expect(search).toHaveValue("ORDERS");
+  await expect(paths()).toHaveText(["/orders/{id}"]);
+  // The declared routes are searched too, and their group opens to show the matches.
+  const group = page.locator("details.tr-declared");
+  await expect(group.locator("summary")).toHaveText("1 declared route without traffic");
+  await expect(page.getByRole("list", { name: "Declared routes without traffic" }).getByRole("link")).toHaveText(["GET /orders/export"]);
+
+  // No match says so; Clear takes the search back out, keeping the rest.
+  await search.fill("/nothing");
+  const form = page.getByRole("search", { name: "Endpoints" });
+  await form.getByRole("button", { name: "Search" }).click();
+  await page.waitForURL((url) => url.searchParams.get("q") === "/nothing");
+  await expect(page.getByRole("status").filter({ hasText: "No endpoints with requests match “/nothing” in the last 6 hours." })).toBeVisible();
+  await expect(endpointsTable(page)).toHaveCount(0);
+  await expect(group).toHaveCount(0);
+  await form.getByRole("link", { name: "Clear" }).click();
+  await page.waitForURL((url) => !url.searchParams.has("q") && url.searchParams.get("sort") === "p95");
+  await expect(paths()).toHaveText(["/charge", "/orders/{id}", "/users"]);
+
+  const a11y = await new AxeBuilder({ page }).include(".tr-card--table").analyze();
+  expect(a11y.violations).toEqual([]);
 });
 
 test("stays live with a pause", async ({ page }) => {
@@ -367,7 +570,7 @@ test("the row menu excludes an endpoint from metrics", async ({ page }) => {
   await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveCount(0);
 
   // Its endpoint page says so and can include it again.
-  await page.goto("/shop/endpoints/POST/%2Fcharge");
+  await page.goto(allEnvs("/shop/endpoints/POST/%2Fcharge"));
   await expect(page.locator(".ep-badge")).toHaveText("Excluded from dashboards");
 });
 
@@ -415,4 +618,51 @@ test("the row menu picks the app when the project has several", async ({ page })
   await menu.getByRole("menuitemradio", { name: "Shop" }).click();
   await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toBeEnabled();
   await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toHaveAttribute("aria-checked", "false");
+});
+
+// The app filter and App column (#976) -------------------------------------------------------
+
+test("filters by app, All apps by default, with an App column whose rows open scoped to their app", async ({ page }) => {
+  const shop = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+  const billing = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+  const billingSummary = { ...SUMMARY, requests: 4200, client_errors: 20, server_errors: 60, p95_ms: 1820, apdex: 0.61 };
+  await fetch(`${IDENTITY}/__fake/apps`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ apps: [{ id: shop, slug: "shop", name: "Shop" }, { id: billing, slug: "billing", name: "Billing", traffic: { summary: billingSummary, points: POINTS } }] }),
+  });
+  const endpoints = [
+    { ...ENDPOINTS[0], app_id: shop },
+    { ...ENDPOINTS[1], app_id: billing },
+  ];
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints } });
+  await signIn(page);
+
+  const app = page.getByRole("combobox", { name: "App" });
+  await expect(app).toHaveValue("");
+  await expect(app.getByRole("option")).toHaveText(["All apps", "Shop", "Billing"]);
+  await expect(tiles(page).first()).toHaveText("12,400");
+  await expect(endpointsTable(page).getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "4xx", "5xx", "p50", "p95", "Apdex", "Settings"]);
+  const rows = endpointsTable(page).locator("tbody tr");
+  await expect(rows.nth(0).getByRole("cell").nth(1)).toHaveText("Shop");
+  await expect(rows.nth(1).getByRole("cell").nth(1)).toHaveText("Billing");
+  // A row is one app's endpoint: its link and its settings menu are that app's.
+  await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?range=24h&env=all&app=${billing}`);
+  await endpointsTable(page).getByRole("button", { name: "Settings for POST /charge" }).click();
+  await expect(rowMenu(page, "POST /charge").getByRole("menuitemradio", { name: "Billing" })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+
+  await app.selectOption({ label: "Billing" });
+  await page.waitForURL(new RegExp(`app=${billing}`));
+  await expect(tiles(page).first()).toHaveText("4,200");
+  await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /4,200 requests in the last 24 hours for Billing/);
+  // One app in scope: its rows only, and no App column to repeat it.
+  await expect(endpointsTable(page).getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "4xx", "5xx", "p50", "p95", "Apdex", "Settings"]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first().getByRole("cell").first()).toHaveText("POST /charge");
+  // The range links keep the app.
+  await expect(page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("href", `/shop/traffic?range=7d&env=all&app=${billing}`);
+
+  const a11y = await new AxeBuilder({ page }).include(".tr").analyze();
+  expect(a11y.violations).toEqual([]);
 });

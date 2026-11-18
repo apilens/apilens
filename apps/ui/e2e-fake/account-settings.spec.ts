@@ -24,7 +24,7 @@ test("opens Profile at /settings with the Account breadcrumb", async ({ page }) 
   const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
   await expect(crumbs.getByRole("link", { name: "Account" })).toHaveAttribute("href", "/settings");
   await expect(crumbs.getByText("Profile")).toHaveAttribute("aria-current", "page");
-  await expect(sectionNav(page).getByRole("link")).toHaveText(["Profile", "Security", "Sessions", "Connected accounts", "Danger zone"]);
+  await expect(sectionNav(page).getByRole("link")).toHaveText(["Profile", "Security", "Sessions", "Connected accounts", "Preferences", "Danger zone"]);
   await expect(sectionNav(page).getByRole("link", { name: "Profile" })).toHaveAttribute("aria-current", "page");
 });
 

@@ -60,7 +60,7 @@ test("moves through the sections with the keyboard", async ({ page }) => {
 
 test("a section not built yet says so instead of a blank page", async ({ page }) => {
   await signIn(page, "/shop/settings/retention");
-  await expect(page.getByRole("heading", { level: 1, name: "Retention" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Retention" })).toBeVisible();
   await expect(page.getByText("Nothing here yet.")).toBeVisible();
   await expect(sectionNav(page).getByRole("link", { name: "Retention" })).toHaveAttribute("aria-current", "page");
   await expect(page).toHaveTitle(/^Retention · Project settings/);

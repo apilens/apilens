@@ -5,9 +5,9 @@ import { ExploreView } from "@/components/explore/explore";
 import { SetupReminder } from "@/components/onboarding/setup-reminder";
 import { getContext, getSession } from "@/lib/auth/server";
 import { LOG_LIMIT, exploreHref, parseExploreQuery } from "@/lib/explore";
-import { filterQuery } from "@/lib/explore-filters";
+import { type FilterSuggestions, filterQuery, uniqueEndpoints } from "@/lib/explore-filters";
 import { chartWindow, logWindow } from "@/lib/explore-timeline";
-import { type RequestRow, type RequestTimeline, type SavedView, identity, isApiError } from "@/lib/identity";
+import { type NamedApp, type RequestRow, type RequestTimeline, type SavedView, identity, isApiError } from "@/lib/identity";
 import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
 import { parseTrail, trailCursor } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
@@ -16,6 +16,9 @@ import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 export const metadata: Metadata = { title: "Explore" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
+
+/** The most endpoints, and consumers, the filters suggest from. */
+const SUGGEST_LIMIT = 200;
 
 // Explore (#585): the request log, newest first, read here once and then polled by the browser.
 // The filters (#586) come from the URL, so a deep link reproduces the filtered view; so do the
@@ -37,24 +40,36 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
   let older = "";
   let timeline: RequestTimeline | null = null;
   let views: SavedView[] | null = null;
-  // The log, the timeline (#587) and the saved views (#589) are read together; each can fail
-  // without the others.
-  const [log, chart, saved] = await Promise.allSettled([
+  let apps: NamedApp[] | null = null;
+  // The log, the timeline (#587), the saved views (#589) and the project's apps (#975, the App
+  // filter and column) are read together; each can fail without the others.
+  const [log, chart, saved, endpoints, consumers, appList] = await Promise.allSettled([
     session.call((o) => identity().listRequests(project, { range: q.range, ...logWindow(q), limit: LOG_LIMIT, ...filterQuery(q.filters), ...(cursor ? { cursor } : {}) }, o)),
     session.call((o) => identity().requestTimeline(project, { range: q.range, ...chartWindow(q), ...filterQuery(q.filters) }, o)),
     session.call((o) => identity().listSavedViews(project, "explore", o)),
+    // What the Path and Consumer filters suggest (#983): the range's endpoints and consumers,
+    // busiest first. Without them the fields still take typed text.
+    session.call((o) => identity().listEndpoints(project, { range: q.range, ...(q.filters.env ? { env: q.filters.env } : {}), limit: SUGGEST_LIMIT }, o)),
+    session.call((o) => identity().listConsumers(project, { range: q.range, sort: "requests", limit: SUGGEST_LIMIT }, o)),
+    session.call((o) => identity().projectApps(project, o)),
   ]);
-  for (const r of [log, chart, saved]) {
+  for (const r of [log, chart, saved, endpoints, consumers, appList]) {
     if (r.status === "fulfilled") continue;
     if (isSessionExpired(r.reason)) redirectToRefresh(next);
     if (!isApiError(r.reason)) throw r.reason;
   }
+  const suggestions: FilterSuggestions = {
+    endpoints: endpoints.status === "fulfilled" ? uniqueEndpoints(endpoints.value.endpoints ?? []) : [],
+    consumers:
+      consumers.status === "fulfilled" ? (consumers.value.consumers ?? []).map((c) => ({ id: c.consumer_id, name: c.consumer_name ?? "" })) : [],
+  };
   if (log.status === "fulfilled") {
     rows = log.value.requests ?? [];
     older = log.value.next_cursor ?? "";
   }
   if (chart.status === "fulfilled") timeline = chart.value;
   if (saved.status === "fulfilled") views = saved.value.views ?? [];
+  if (appList.status === "fulfilled") apps = appList.value.apps ?? [];
 
   return (
     <AppShell context={context} project={project} view="explore">
@@ -64,6 +79,8 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
         project={project}
         projectName={found.project.name}
         environments={found.project.environments ?? []}
+        suggestions={suggestions}
+        apps={apps}
         query={q}
         rows={rows}
         trail={trail}

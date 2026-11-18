@@ -37,7 +37,7 @@ section.cs-card--table, .cs-card--table { padding: 0; }
 /* Search */
 .cs-search { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; }
 .cs-search__box { display: inline-flex; align-items: center; gap: 6px; width: 240px; max-width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); }
-.cs-search__box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.cs-search__box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .cs-search__box svg { flex: none; width: 14px; height: 14px; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
 .cs-search__box input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--ink); font: 400 13px/20px var(--font-sans); }
 .cs-search__box input::placeholder { color: var(--ink-muted); }
@@ -99,7 +99,7 @@ section.cs-card--table, .cs-card--table { padding: 0; }
 .cs-glink:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
 .cs-meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin: 2px 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .cs-meta code { font: 400 12px/18px var(--font-mono); overflow-wrap: anywhere; }
-.cs-new { padding: 0 6px; border-radius: var(--radius-pill); background: var(--ok-soft); color: var(--accent-ink); font-weight: 500; }
+.cs-new { padding: 0 6px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font-weight: 500; }
 .cs-reqs { display: inline-flex; align-items: center; gap: var(--space-3); }
 .cs-req code { font: 400 12px/18px var(--font-mono); overflow-wrap: anywhere; }
 .cs-req b { font: 500 12px/18px var(--font-mono); }
@@ -125,6 +125,14 @@ section.cs-card--table, .cs-card--table { padding: 0; }
 .cs-tabs .cs-count { margin-left: 2px; }
 .cs-card--tab { margin-top: var(--space-3); }
 
+/* Anonymous traffic (#989): how to identify users, and the top callers by client IP / user agent. */
+.cs-notice + .cs-card { margin-top: var(--space-4); }
+.cs-note--lead { margin: 0; font-size: 13px; line-height: 20px; }
+.cs-card--setup .sdk-tabs { margin-top: var(--space-3); }
+.cs-mono { font-family: var(--font-mono); font-size: 12px; }
+.cs-ua code { display: inline-block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+.cs-tablehead .cs-tiles dd { font-size: 16px; line-height: 22px; }
+
 @media (max-width: 760px) {
   .cs-tiles { gap: var(--space-4); }
   .cs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -141,4 +149,5 @@ section.cs-card--table, .cs-card--table { padding: 0; }
   .cs-search__box { flex: 1; width: auto; }
   .cs-sortbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); width: 100%; font: 400 13px/20px var(--font-sans); }
   .cs-tiles { flex-wrap: wrap; }
+  .cs-ua code { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 }

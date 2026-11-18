@@ -4,6 +4,7 @@
 // sentences shown for the server's error codes. The server stays the authority; these checks only
 // spare a round trip. Pure; safe in Client Components and Server Actions alike.
 import type { CapturePolicy, PutCapturePolicyRequest } from "./identity";
+import { formatPercent } from "./format";
 
 /** The section of project settings that edits capture policies. */
 export const CAPTURE_SECTION = "capture";
@@ -137,11 +138,6 @@ export function samePolicy(a: PutCapturePolicyRequest, b: PutCapturePolicyReques
   );
 }
 
-/** `25%`, `12.5%`. */
-export function formatRate(rate: number): string {
-  return `${percentText(rate)}%`;
-}
-
 /** `65,536 bytes (64 KiB)`; `No cap` for null. */
 export function formatCap(bytes: number | null): string {
   if (bytes === null) return "No cap";
@@ -195,7 +191,7 @@ export function effectiveRows(policy: PutCapturePolicyRequest, config: Record<st
   const cap = sdkCap === null ? policy.max_payload_bytes : policy.max_payload_bytes === null ? sdkCap : Math.min(policy.max_payload_bytes, sdkCap);
   return [
     flagRow("Capture", policy.enabled, "enabled"),
-    { label: "Sample rate", policy: formatRate(policy.sample_rate), sdk: sdkRate === null ? null : formatRate(sdkRate), effective: formatRate(rate), narrowedBySdk: sdkRate !== null && sdkRate < policy.sample_rate },
+    { label: "Sample rate", policy: formatPercent(policy.sample_rate), sdk: sdkRate === null ? null : formatPercent(sdkRate), effective: formatPercent(rate), narrowedBySdk: sdkRate !== null && sdkRate < policy.sample_rate },
     flagRow("Headers", policy.capture_headers, "capture_headers"),
     flagRow("Request bodies", policy.capture_request_body, "capture_request_body"),
     flagRow("Response bodies", policy.capture_response_body, "capture_response_body"),

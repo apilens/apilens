@@ -28,14 +28,14 @@ from apilens import current_trace_id, current_span_id, current_traceparent
 
 ## Automatic error capture
 
-When a request **raises an unhandled exception** or **returns 5xx**, the SDK emits exactly one `ERROR` log record correlated to the trace:
+When a request **raises an exception** or **returns 5xx**, the SDK emits exactly one `ERROR` log record correlated to the trace:
 
 | Trigger | Logger name | Payload |
 |---|---|---|
-| Unhandled exception | `apilens.exception` | Full traceback (payload capped at 8,000 chars; message at 4,000) |
+| Exception (unhandled, or turned into a 5xx by the framework's error handler) | `apilens.exception` | The full stack trace with every chained cause, capped at 64 KiB keeping head and tail |
 | 5xx without an exception | `apilens.http` | `HTTP <code> on <method> <path>` |
 
-The span's status is marked `error` in both cases. These records appear in the request's **Exceptions** tab (and inline on the failing span in the Trace tab). This is the only thing the SDK writes to the logs endpoint — it is not a general logging API.
+The span's status is marked `error` in both cases. These records appear in the request's **Exceptions** tab (and inline on the failing span in the Trace tab). A failing request is never sampled out, and its exception log is sent even with span capture off. [Exception capture](/sdk-reference/exceptions) covers the payload, frame locals (`capture_locals`), the logging integration (`capture_logs`) and retention.
 
 ## Exclusions
 
@@ -44,7 +44,7 @@ The SDK never traces its own telemetry uploads (`/requests`, `/traces`, `/logs` 
 ## Kill switches
 
 ```python
-capture_spans=False          # per middleware/app, in code
+capture_spans=False          # per middleware/app, in code (exceptions are still sent)
 ```
 
 ```bash

@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -31,24 +32,29 @@ func (s *Service) discoveredRoutes(ctx context.Context, project uuid.UUID, env s
 
 // withDiscovered appends to eps, the endpoints with traffic, the declared
 // routes without any as zero rows marked discovered_only, until eps holds
-// limit endpoints. Routes excluded from metrics on their app are left out.
-// Endpoints are keyed on method and path, like the traffic rows, so a route
-// declared by several apps is listed once.
-func withDiscovered(eps []endpoint, routes []db.ListProjectDiscoveredRoutesRow, rules metricRules, limit int) []endpoint {
+// limit endpoints. Routes excluded from metrics on their app are left out,
+// and so are the routes of other apps when app (an app id) is set.
+// Endpoints are keyed on app, method and path, like the traffic rows, so a
+// route declared by several apps is listed once per app.
+func withDiscovered(eps []endpoint, routes []db.ListProjectDiscoveredRoutesRow, rules metricRules, app string, limit int) []endpoint {
 	seen := make(map[string]bool, len(eps)+len(routes))
 	for _, e := range eps {
-		seen[e.Method+" "+e.Path] = true
+		seen[endpointRowKey(e.AppID, e.Method, e.Path)] = true
 	}
 	for _, r := range routes {
 		if len(eps) >= limit {
 			break
 		}
-		k := r.Method + " " + r.Path
+		id := r.AppID.String()
+		if app != "" && !strings.EqualFold(id, app) {
+			continue
+		}
+		k := endpointRowKey(id, r.Method, r.Path)
 		if seen[k] || rules.excludes(endpointKey{app: r.AppID, method: r.Method, path: r.Path}) {
 			continue
 		}
 		seen[k] = true
-		eps = append(eps, endpoint{Method: r.Method, Path: r.Path, DiscoveredOnly: true})
+		eps = append(eps, endpoint{AppID: id, Method: r.Method, Path: r.Path, DiscoveredOnly: true})
 	}
 	return eps
 }

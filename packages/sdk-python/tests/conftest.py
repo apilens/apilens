@@ -22,6 +22,11 @@ os.environ.setdefault("APILENS_SEND_METADATA", "false")
 # /v1/heartbeat) from its flush thread. test_heartbeat.py re-enables them.
 os.environ.setdefault("APILENS_SEND_HEARTBEAT", "false")
 
+# Every middleware would also attach the logging handler to the root logger,
+# shipping unrelated ERROR records to whichever stub client was built last.
+# test_log_handler.py turns it on explicitly.
+os.environ.setdefault("APILENS_CAPTURE_LOGS", "off")
+
 # OTEL_SERVICE_NAME is an app_id fallback; a value from the developer's shell
 # would leak into every middleware built here. test_app_id.py sets it itself.
 os.environ.pop("OTEL_SERVICE_NAME", None)

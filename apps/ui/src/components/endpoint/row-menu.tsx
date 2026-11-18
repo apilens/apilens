@@ -39,7 +39,7 @@ export function EndpointRowMenus({ project, apps, children }: { project: string;
  * through the endpoint page's Server Action. Holders of `capture.manage` change them; everyone else
  * sees them with the items disabled and the reason.
  */
-export function EndpointRowMenu({ method, path }: { method: string; path: string }) {
+export function EndpointRowMenu({ method, path, appId: rowApp }: { method: string; path: string; /** The app serving the row (#976); its settings open first. */ appId?: string }) {
   const scope = useContext(RowMenuScope);
   if (!scope) throw new Error("EndpointRowMenu must render inside <EndpointRowMenus>");
   const { project, apps, announce } = scope;
@@ -48,7 +48,7 @@ export function EndpointRowMenu({ method, path }: { method: string; path: string
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"menu" | "threshold">("menu");
-  const [appId, setAppId] = useState(apps[0]?.id ?? "");
+  const [appId, setAppId] = useState(apps.find((a) => a.id === rowApp)?.id ?? apps[0]?.id ?? "");
   const [settings, setSettings] = useState<EndpointSettings | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [threshold, setThreshold] = useState("");

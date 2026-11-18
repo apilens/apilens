@@ -44,6 +44,8 @@
     <spring.boot.version>3.5.16</spring.boot.version>
     <junit.version>5.11.4</junit.version>
     <micrometer.version>1.15.0</micrometer.version>
+    <logback.version>1.5.34</logback.version>
+    <log4j2.version>2.24.3</log4j2.version>
     <maven.compiler.release>${java.version}</maven.compiler.release>
   </properties>
 
@@ -97,6 +99,18 @@
       <optional>true</optional>
     </dependency>
     <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>${logback.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j2.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
       <groupId>jakarta.servlet</groupId>
       <artifactId>jakarta.servlet-api</artifactId>
       <version>6.0.0</version>
@@ -120,6 +134,12 @@
       <groupId>io.projectreactor.netty</groupId>
       <artifactId>reactor-netty-http</artifactId>
       <version>1.2.12</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.3.232</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

@@ -89,6 +89,12 @@ def parse_profile(value: str, *, name: str = "value") -> str | None:
     return normalize_profile(value, name=name)
 
 
+def parse_capture_logs(value: str, *, name: str = "value") -> str:
+    from .log_handler import normalize_capture_logs
+
+    return normalize_capture_logs(value, name=name)
+
+
 #: Option name -> parser. The env var is ``APILENS_`` + the upper-cased name.
 ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "api_key": parse_str,
@@ -103,6 +109,7 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "log_response_body": parse_bool,
     "max_payload_bytes": parse_int,
     "capture_validation_errors": parse_bool,
+    "capture_locals": parse_bool,
     "capture_content_types": parse_list,
     "redact_query_params": parse_list,
     "redact_headers": parse_list,
@@ -114,6 +121,8 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "capture_ip": parse_bool,
     "anonymize_ip": parse_bool,
     "capture_spans": parse_bool,
+    "capture_db_spans": parse_bool,
+    "capture_logs": parse_capture_logs,
     "batch_size": parse_int,
     "flush_interval": parse_float,
     "mode": parse_mode,

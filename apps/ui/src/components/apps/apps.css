@@ -61,7 +61,7 @@
 
 .ap-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .ap-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }
-.ap-tag--new { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--ok-soft); color: var(--accent-ink); }
+.ap-tag--new { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); color: var(--accent-ink); }
 
 /* Notices above the cards: rejected data (warning), new apps, read-only. */
 .ap-notice { margin: 0 0 var(--space-4); }
@@ -109,6 +109,25 @@
 .ap-select { padding: 0 10px; }
 .ap-select select { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; }
 .ap-explain { margin: var(--space-4) 0 0; color: var(--ink); }
+
+/* One app's page (#995): header facts, three tiles and the endpoint, instance and deploy tables
+   (the Traffic page's .tr-card / .tr-table). */
+.ap-detail .ap-slug { display: block; margin-top: var(--space-1); }
+.ap-detail .cp-h a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.ap-facts { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-8); margin: var(--space-4) 0 var(--space-6); }
+.ap-facts > div { min-width: 0; }
+.ap-facts dt { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ap-facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 4px 0 0; min-height: 22px; }
+.ap-envs { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.ap-d-h { margin: 0 0 var(--space-3); font: 600 15px/22px var(--font-sans); color: var(--ink); }
+.ap-detail > .ap-notice { margin-bottom: var(--space-6); }
+.ap-detail > section > .ap-notice, .tr-card--table > .ap-notice { margin: 0 var(--space-4) var(--space-4); }
+.ap-detail > section > .ap-notice { margin: 0 0 var(--space-6); }
+.ap-mono { font: 400 12px/18px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.ap-detail .tr-table td .ap-update { display: block; }
+@media (min-width: 901px) {
+  .tr-tiles.ap-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 @media (max-width: 760px) {
   .ap-grid { grid-template-columns: minmax(0, 1fr); }

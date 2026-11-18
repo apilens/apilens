@@ -21,3 +21,17 @@ func TestSplitException(t *testing.T) {
 		}
 	}
 }
+
+func TestExceptionLabel(t *testing.T) {
+	for _, c := range []struct{ typ, in, wantTyp, wantMsg string }{
+		{"app.errors.NotFound", "app.errors.NotFound: order 1", "app.errors.NotFound", "order 1"},
+		{"", "ValueError: bad", "ValueError", "bad"},
+		{"com.acme.Boom", "plain text", "com.acme.Boom", "plain text"},
+		{"", "plain text", "", "plain text"},
+	} {
+		typ, msg := exceptionLabel(c.typ, c.in)
+		if typ != c.wantTyp || msg != c.wantMsg {
+			t.Errorf("exceptionLabel(%q, %q) = %q, %q; want %q, %q", c.typ, c.in, typ, msg, c.wantTyp, c.wantMsg)
+		}
+	}
+}

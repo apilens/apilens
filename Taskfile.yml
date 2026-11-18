@@ -230,6 +230,30 @@ tasks:
         APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
           go test -count=1 -tags=e2e ./test/e2e/... -run '^TestExampleSampling$' -v
 
+  # Full exceptions and traces are never lost (test/e2e/exceptions_e2e_test.go):
+  # the example apps at sample rate 0 in an environment of their own; every
+  # /boom/* request keeps its trace and an apilens.exception log with the
+  # raised exception, the root cause and all 60 frames of /boom/deep, the
+  # exception /boom/logged logs is shipped, and /api/v1/traces answers them.
+  test:e2e:exceptions:
+    desc: "e2e: at sample rate 0 every /boom/* exception reaches ClickHouse and the trace endpoint in full (D1-D4)"
+    cmds:
+      - |
+        set -eu
+        env_name="e2e-exceptions-$(date +%s)"
+        APILENS_EXAMPLES_SAMPLE_RATE=0 APILENS_EXAMPLES_ENVIRONMENT="$env_name" "{{.TASK_EXE}}" examples:up
+        set -a; . examples/.env; set +a
+        APILENS_E2E_EXCEPTIONS_ENV="$env_name" \
+        APILENS_E2E_BASE_URL="http://127.0.0.1:${APILENS_INGEST_PORT:-8080}" \
+        APILENS_E2E_API_KEY="$APILENS_EXAMPLES_API_KEY" \
+        APILENS_E2E_READ_KEY="$APILENS_EXAMPLES_READ_KEY" \
+        APILENS_E2E_APP=example-fastapi \
+        APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123 \
+        APILENS_E2E_CLICKHOUSE_USER=apilens \
+        APILENS_E2E_CLICKHOUSE_PASSWORD=ci-clickhouse \
+        APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
+          go test -count=1 -tags=e2e ./test/e2e/... -run '^TestExceptionsNeverLost$' -v
+
   # Failure drills (test/e2e/drills_e2e_test.go): the example apps send to a
   # fault proxy the test runs on the host (port 18090), which takes ingest
   # down, answers 5xx, then 429 with Retry-After, then 403 project_paused;

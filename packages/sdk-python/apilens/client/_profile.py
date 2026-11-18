@@ -20,6 +20,10 @@ max_payload_bytes          (default)   16384       65536
 params and body fields), which apply under every profile and cannot be
 removed. ``full`` is the SDK's default posture, unchanged for backwards
 compatibility; ``metadata`` is the recommended first production rollout.
+
+``capture_locals`` (frame local variables in exception traces) is off by
+default and stays off under ``metadata`` and ``redacted`` even when it is set
+explicitly: those profiles promise no free-form application data.
 """
 
 from __future__ import annotations
@@ -72,4 +76,21 @@ def profile_defaults(value: Any, *, name: str = "capture_profile") -> dict[str, 
     return dict(CAPTURE_PROFILES[profile]) if profile else {}
 
 
-__all__ = ["CAPTURE_PROFILES", "CaptureProfile", "normalize_profile", "profile_defaults"]
+#: Profiles under which ``capture_locals`` is forced off.
+NO_LOCALS_PROFILES = frozenset({"metadata", "redacted"})
+
+
+def effective_capture_locals(capture_locals: Any, profile: Any) -> bool:
+    """``capture_locals`` as it applies under ``profile``: off under
+    ``metadata`` and ``redacted`` whatever was set."""
+    return bool(capture_locals) and normalize_profile(profile) not in NO_LOCALS_PROFILES
+
+
+__all__ = [
+    "CAPTURE_PROFILES",
+    "NO_LOCALS_PROFILES",
+    "CaptureProfile",
+    "effective_capture_locals",
+    "normalize_profile",
+    "profile_defaults",
+]

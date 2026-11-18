@@ -271,7 +271,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .cp-oncall { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
 .cp-oncall b { display: block; font: 500 12.5px/16px var(--font-sans); color: var(--ink); } .cp-oncall small { display: block; font: 400 11.5px/16px var(--font-sans); color: var(--ink-muted); }
 .cp-oncall .cp-link { margin-left: auto; font-size: 12px; }
-.cp-pulse { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent-ink); box-shadow: 0 0 0 3px var(--ok-soft); }
+.cp-pulse { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent-ink); box-shadow: 0 0 0 3px var(--accent-soft); }
 .cp-usage { padding: 0 4px; }
 .cp-usage .r { display: flex; justify-content: space-between; font: 400 11.5px/16px var(--font-sans); color: var(--ink-muted); }
 .cp-usage .b { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; } .cp-usage .b i { display: block; height: 100%; background: var(--ink-muted); border-radius: 2px; }
@@ -336,7 +336,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-l small.w { color: var(--warn); display: inline-flex; gap: 6px; align-items: center; } .ob-l small.w .ob-ic { width: 13px; height: 13px; }
 .ob-in { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); font: 400 15px/1 var(--font-sans); color: var(--ink); }
 .ob-in > .ob-ic { color: var(--ink-muted); }
-.ob-in.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ob-in.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ob-in .pre { font: 400 13px/1 var(--font-mono); color: var(--ink-muted); margin-right: -6px; }
 .ob-in .r { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--font-sans); color: var(--ok); }
 .ob-in .r .ob-ic { width: 15px; height: 15px; }
@@ -390,7 +390,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-or::before, .ob-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .ob-code6 { display: flex; gap: 10px; margin-top: 28px; }
 .ob-code6 span { width: 58px; height: 70px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface-1); display: grid; place-items: center; font: 500 30px/1 var(--font-mono); color: var(--ink); }
-.ob-code6 span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ob-code6 span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ob-code6 span.cur::after { content: ""; width: 2px; height: 28px; background: var(--accent-ink); }
 .ob-code6 .gap { width: 6px; border: 0; background: none; }
 .ob-foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 18px 0 26px; border-top: 1px solid var(--border); }
@@ -411,7 +411,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-card { border: 1px solid var(--border); border-radius: 14px; background: var(--surface-1); overflow: hidden; }
 .ob-card .hd { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); font: 500 13px/18px var(--font-sans); color: var(--ink); }
 .ob-card .hd small { margin-left: auto; font: 400 12px/1 var(--font-mono); color: var(--ink-muted); }
-.ob-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-ink); box-shadow: 0 0 0 4px var(--ok-soft); flex: none; }
+.ob-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-ink); box-shadow: 0 0 0 4px var(--accent-soft); flex: none; }
 
 /* live workspace preview */
 .ob-pv { border-left: 1px solid var(--border); background: var(--surface-1); padding: 40px 44px; display: flex; flex-direction: column; gap: 16px; min-height: 0;
@@ -482,20 +482,20 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-stage { width: 100%; max-width: 508px; display: flex; flex-direction: column; gap: 14px; }
 .ob-win { height: 500px; }
 .ob-pv .cap { gap: 8px; }
-.ob-chg { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: 999px; background: var(--ok-soft); color: var(--accent-ink);
+.ob-chg { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink);
   font: 500 11.5px/1 var(--font-sans); letter-spacing: 0; text-transform: none; animation: obIn .5s ease-out .2s both; }
 .ob-chg .ob-ic { width: 12px; height: 12px; stroke-width: 2; }
 .ob-pv .note { font: 400 13px/20px var(--font-sans); color: var(--ink-muted); text-align: center; padding: 0 12px; }
 .ob-pv .note b { color: var(--ink); font-weight: 500; }
 /* alive */
 @keyframes obIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes obRing { 0% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 0 var(--ok-soft); } 60% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 6px var(--ok-soft); } 100% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 0 transparent; } }
+@keyframes obRing { 0% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 0 var(--accent-soft); } 60% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 6px var(--accent-soft); } 100% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 0 transparent; } }
 @keyframes obSk { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 @keyframes obPing { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(3); opacity: 0; } }
 @keyframes obBlink { 50% { opacity: 0; } }
 @keyframes obSpin { to { transform: rotate(360deg); } }
 @keyframes obDraw { from { stroke-dashoffset: 320; } to { stroke-dashoffset: 0; } }
-.ob-new { border-radius: 6px; background: var(--ok-soft); color: var(--ink); animation: obIn .5s ease-out both, obRing 2.6s ease-out .6s infinite; }
+.ob-new { border-radius: 6px; background: var(--accent-soft); color: var(--ink); animation: obIn .5s ease-out both, obRing 2.6s ease-out .6s infinite; }
 .ob-svc.ob-new { background: var(--surface-1); border-color: var(--accent); }
 .ob-pop span { animation: obIn .45s ease-out both; }
 .sk { animation: obSk 1.8s ease-in-out infinite; }
@@ -534,7 +534,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-tile.on .al-brand { color: var(--accent-ink); }
 /* sidebar additions in the preview: fade in + a small dot, never an "active" look */
 .ob-ms .ob-new { background: none; box-shadow: none; animation: obIn .6s ease-out both; position: relative; }
-.ob-ms .ob-new::after { content: ""; position: absolute; right: 6px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--accent-ink); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ob-ms .ob-new::after { content: ""; position: absolute; right: 6px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--accent-ink); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ob-ms .me.ob-new::after { top: calc(50% + 4px); }
 /* goal cards with a small drawing */
 .ob-goal { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); overflow: hidden; }
@@ -567,7 +567,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-tabs a { padding: 9px 8px 8px; font: 500 12px/1 var(--font-sans); color: var(--ink-muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .ob-tabs a.on { color: var(--ink); border-bottom-color: var(--accent); }
 .ob-json { margin: 0; padding: 10px 16px 12px; font: 400 12px/19px var(--font-mono); color: var(--ink); white-space: pre; }
-.ob-json .k { color: var(--ink-muted); } .ob-json .m { color: var(--accent-ink); background: var(--ok-soft); border-radius: 3px; padding: 0 3px; }
+.ob-json .k { color: var(--ink-muted); } .ob-json .m { color: var(--accent-ink); background: var(--accent-soft); border-radius: 3px; padding: 0 3px; }
 /* people list in preview */
 .ob-people { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); }
 .ob-people .h { padding: 10px 12px; font: 600 12px/1 var(--font-sans); color: var(--ink); border-bottom: 1px solid var(--border); display: flex; } .ob-people .h small { margin-left: auto; font: 400 11px/1 var(--font-sans); color: var(--ink-muted); }

@@ -14,17 +14,22 @@ import {
   channelTypeLabel,
   channelsHref,
   checkRuleDraft,
+  draftSummary,
+  draftThreshold,
   incidentHref,
   newRuleDraft,
   ruleDraftOf,
   rulesHref,
   thresholdUnit,
+  withMetric,
 } from "@/lib/alerts";
-import type { AlertRule, NamedApp, NotificationChannel } from "@/lib/identity";
+import type { AlertMetric, AlertRule, NamedApp, NotificationChannel } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
+import { environmentWarning } from "@/lib/rule-preview";
 import { ObIcon } from "../onboarding/ob";
 import "../org-settings/members.css";
 import { AlertsHeader } from "./common";
+import { RulePreview } from "./rule-preview";
 
 type Status = { tone: "ok" | "err"; text: string } | null;
 
@@ -59,17 +64,28 @@ export function RuleEditor({
   const manage = useCan("alerts.manage").allowed;
   const router = useRouter();
   const id = useId();
-  const [draft, setDraft] = useState<RuleDraft>(() => (rule ? ruleDraftOf(rule) : newRuleDraft(apps.length === 1 ? apps[0].id : "", environments.includes("production") ? "production" : (environments[0] ?? ""))));
+  const editing = rule !== null;
+  // #982: a new rule's name follows its summary until the user types one, and picking a metric
+  // brings its default condition and threshold until the user types a threshold.
+  const [touched, setTouched] = useState({ name: editing, threshold: false });
+  const [draft, setDraft] = useState<RuleDraft>(() => {
+    if (rule) return ruleDraftOf(rule);
+    const d = newRuleDraft(apps.length === 1 ? apps[0].id : "", environments.includes("production") ? "production" : (environments[0] ?? ""));
+    return { ...d, name: draftSummary(d) };
+  });
   const [errors, setErrors] = useState<RuleErrors>({});
   const [status, setStatus] = useState<Status>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, start] = useTransition();
-  const editing = rule !== null;
   const locked = !manage || pending;
 
   const set = <K extends RuleField>(key: K, value: RuleDraft[K]) => {
-    setDraft((d) => ({ ...d, [key]: value }));
-    setErrors((e) => ({ ...e, [key]: undefined }));
+    if (key === "name" || key === "threshold") setTouched((t) => ({ ...t, [key]: true }));
+    setDraft((d) => {
+      const next = key === "metric" ? withMetric(d, value as AlertMetric, touched.threshold) : { ...d, [key]: value };
+      return key === "name" || touched.name ? next : { ...next, name: draftSummary(next) };
+    });
+    setErrors((e) => ({ ...e, [key]: undefined, ...(key === "metric" && !touched.threshold ? { threshold: undefined, condition: undefined } : {}) }));
     setStatus(null);
   };
 
@@ -157,13 +173,14 @@ export function RuleEditor({
     </select>
   );
 
-  const toggleChannel = (cid: string) => set("channel_ids", draft.channel_ids.includes(cid) ? draft.channel_ids.filter((c) => c !== cid) : [...draft.channel_ids, cid]);
+  const envWarning = environmentWarning(draft.environment, environments);
+  const toggleChannel =(cid: string) => set("channel_ids", draft.channel_ids.includes(cid) ? draft.channel_ids.filter((c) => c !== cid) : [...draft.channel_ids, cid]);
   const appOptions = [...(editing ? [] : [{ value: "", label: "Pick an app" }]), ...apps.map((a) => ({ value: a.id, label: a.name || a.slug }))];
   if (editing && !apps.some((a) => a.id === draft.app_id)) appOptions.unshift({ value: draft.app_id, label: "Unknown app" });
 
   return (
     <div className="page page--measure al">
-      <AlertsHeader project={project} projectName={projectName} tab="rules" title={editing ? rule.name : "New alert rule"}>
+      <AlertsHeader project={project} projectName={projectName} tab="rules" section={editing ? rule.name : "New alert rule"}>
         {editing ? (
           <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={incidentHref(project, rule.id)}>
             View incidents
@@ -195,7 +212,7 @@ export function RuleEditor({
             </div>
             <div className="al-grid">
               {field("app_id", "App", select("app_id", appOptions, locked || editing), editing ? "A rule’s app never changes." : undefined)}
-              {field("environment", "Environment", text("environment", { placeholder: "production", list: `${id}-envs` }))}
+              {field("environment", "Environment", text("environment", { placeholder: "production", list: `${id}-envs`, hint: envWarning !== null }), envWarning ?? undefined)}
             </div>
             <datalist id={`${id}-envs`}>
               {environments.map((e) => (
@@ -243,6 +260,16 @@ export function RuleEditor({
               {field("threshold", "Threshold", text("threshold", { inputMode: "decimal", unit: thresholdUnit(draft.metric) }))}
               {field("window_min", "Over the last", text("window_min", { inputMode: "numeric", unit: "min" }))}
             </div>
+            <RulePreview
+              project={project}
+              appId={draft.app_id}
+              environment={draft.environment}
+              metric={draft.metric}
+              condition={draft.condition}
+              threshold={draftThreshold(draft)}
+              windowSeconds={/^\d+$/.test(draft.window_min.trim()) && Number(draft.window_min) > 0 ? Number(draft.window_min) * 60 : null}
+              filtered={Boolean(draft.endpoint.trim() || draft.consumer.trim() || draft.group.trim())}
+            />
           </div>
         </section>
 
@@ -275,7 +302,7 @@ export function RuleEditor({
           </div>
         </section>
 
-        <section className="os-card" aria-labelledby={`${id}-notify-h`}>
+        <section className="os-card" id="notify" aria-labelledby={`${id}-notify-h`}>
           <div className="os-card__head">
             <h2 id={`${id}-notify-h`}>Notify</h2>
             <p>
@@ -292,7 +319,12 @@ export function RuleEditor({
                 We couldn’t load the project’s channels. Reload the page to pick them.
               </p>
             ) : channels.length === 0 ? (
-              <p className="al-hint">No alert channels yet. Without one, incidents still open here but nobody is notified.</p>
+              <p className="al-hint">
+                No alert channels yet. Without one, incidents still open here but nobody is notified.{" "}
+                <Link className="cp-link" href={channelsHref(project)}>
+                  Add a channel
+                </Link>
+              </p>
             ) : (
               <fieldset>
                 <legend className="al-sr">Channels</legend>

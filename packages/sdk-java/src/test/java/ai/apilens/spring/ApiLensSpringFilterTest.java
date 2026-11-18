@@ -351,7 +351,7 @@ class ApiLensSpringFilterTest {
         seenTrace.set(ai.apilens.TraceContext.currentTraceId());
         req.getInputStream().readAllBytes();
         HttpServletResponse http = (HttpServletResponse) res;
-        http.setStatus(500);
+        http.setStatus(400);
         http.setContentType("application/json");
         http.getWriter().write("{\"error\":true}");
       });
@@ -364,7 +364,7 @@ class ApiLensSpringFilterTest {
       String body = server.bodies().get(0);
       assertTrue(body.contains("\"sampled\":false"), body);
       assertTrue(body.contains("\"path\":\"/orders/{id}\""));
-      assertTrue(body.contains("\"status_code\":500"));
+      assertTrue(body.contains("\"status_code\":400"));
       assertTrue(body.contains("\"request_size\":15"));
       assertTrue(body.contains("\"response_size\":14"));
       assertTrue(body.contains("\"request_payload\":\"\""));
@@ -467,7 +467,7 @@ class ApiLensSpringFilterTest {
               .build());
 
       filter.doFilter(new MockHttpServletRequest("GET", "/internal/jobs"), new MockHttpServletResponse(),
-          (req, res) -> ((HttpServletResponse) res).setStatus(500));
+          (req, res) -> ((HttpServletResponse) res).setStatus(404));
       MockHttpServletResponse created = new MockHttpServletResponse();
       filter.doFilter(new MockHttpServletRequest("POST", "/orders"), created,
           (req, res) -> ((HttpServletResponse) res).setStatus(201));
@@ -479,6 +479,118 @@ class ApiLensSpringFilterTest {
       assertTrue(body.indexOf("\"sampled\":false") < body.indexOf("\"raw_path\":\"/orders\""), body);
       assertEquals(1, count(body, "\"sampled\":false"), body);
       assertEquals(1, count(body, "\"sampled\":true"), body);
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void sampleRateZeroStillKeepsAThrowingRequestWithItsExceptionLog() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client, ApiLensSpringOptions.builder().sampleRate(0.0).build());
+
+      MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders/7");
+      request.setAttribute(BEST_MATCHING_PATTERN_ATTRIBUTE, "/orders/{id}");
+      IllegalStateException thrown = assertThrows(IllegalStateException.class, () ->
+          filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+            throw new IllegalStateException("payment gateway down");
+          }));
+      client.flushAll();
+
+      assertEquals("payment gateway down", thrown.getMessage(), "the exception still reaches the caller");
+      assertEquals(List.of("/v1/requests", "/v1/traces", "/v1/logs"), server.paths(),
+          "errors are never sampled: record, span and exception log are all sent");
+      assertTrue(server.bodies().get(0).contains("\"sampled\":true"), server.bodies().get(0));
+      assertTrue(server.bodies().get(0).contains("\"status_code\":500"));
+      assertTrue(server.bodies().get(1).contains("\"status\":\"error\""), server.bodies().get(1));
+      String log = server.bodies().get(2);
+      assertTrue(log.contains("\"logger_name\":\"apilens.exception\""), log);
+      assertTrue(log.contains("IllegalStateException: payment gateway down"), log);
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void servletWrappedHandlerExceptionIsReportedAsTheHandlerException() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(client, ApiLensSpringOptions.builder().build());
+
+      IllegalStateException handler = new IllegalStateException("payment gateway down",
+          new java.io.IOException("socket reset"));
+      handler.addSuppressed(new IllegalArgumentException("rollback failed"));
+      assertThrows(jakarta.servlet.ServletException.class, () ->
+          filter.doFilter(new MockHttpServletRequest("POST", "/charge"), new MockHttpServletResponse(),
+              (req, res) -> {
+                // What DispatcherServlet does with a handler exception nothing resolved.
+                throw new jakarta.servlet.ServletException("Request processing failed: " + handler, handler);
+              }));
+      client.flushAll();
+
+      String log = server.bodies().get(server.paths().indexOf("/v1/logs"));
+      assertTrue(log.contains("\"message\":\"java.lang.IllegalStateException: payment gateway down\""), log);
+      assertTrue(log.contains("\"exception.type\":\"java.lang.IllegalStateException\""), log);
+      assertTrue(log.contains("\"exception.message\":\"payment gateway down\""), log);
+      assertTrue(log.contains("\"exception.chain_depth\":\"2\""), log);
+      assertTrue(log.contains("Caused by: java.io.IOException: socket reset"), log);
+      assertTrue(log.contains("Suppressed: java.lang.IllegalArgumentException: rollback failed"), log);
+      assertFalse(log.contains("Request processing failed"), "the wrapper is not reported");
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void errorsOverrideDropDecisionsFromSamplingCallbacks() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder()
+              .sampleOnRequest(info -> SampleDecision.DROP)
+              .sampleOnResponse(info -> SampleDecision.DROP)
+              .build());
+
+      filter.doFilter(new MockHttpServletRequest("GET", "/orders/1"), new MockHttpServletResponse(), okChain());
+      filter.doFilter(new MockHttpServletRequest("GET", "/orders/2"), new MockHttpServletResponse(),
+          (req, res) -> ((HttpServletResponse) res).setStatus(502));
+      client.flushAll();
+
+      assertEquals(List.of("/v1/requests", "/v1/traces", "/v1/logs"), server.paths());
+      String body = server.bodies().get(0);
+      assertEquals(1, count(body, "\"sampled\":false"), body);
+      assertEquals(1, count(body, "\"sampled\":true"), body);
+      assertTrue(body.indexOf("\"sampled\":false") < body.indexOf("/orders/2"), "only the 200 is dropped");
+      String log = server.bodies().get(2);
+      assertTrue(log.contains("\"logger_name\":\"apilens.http\""), log);
+      assertTrue(log.contains("\"status_code\":502"), log);
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void captureSpansFalseStillSendsTheExceptionLog() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client, ApiLensSpringOptions.builder().captureSpans(false).build());
+
+      assertThrows(IllegalArgumentException.class, () ->
+          filter.doFilter(new MockHttpServletRequest("POST", "/charge"), new MockHttpServletResponse(),
+              (req, res) -> {
+                throw new IllegalArgumentException("card declined");
+              }));
+      client.flushAll();
+
+      assertEquals(List.of("/v1/requests", "/v1/logs"), server.paths(), "no span, but the exception log");
+      String log = server.bodies().get(1);
+      assertTrue(log.contains("\"logger_name\":\"apilens.exception\""), log);
+      assertTrue(log.contains("IllegalArgumentException: card declined"), log);
+      assertTrue(log.contains("\"trace_id\""), log);
 
       client.shutdown(false);
     }

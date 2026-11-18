@@ -34,7 +34,7 @@ type LatencySummary struct {
 	P90Ms    float64  `json:"p90_ms" doc:"90th percentile response time, in milliseconds."`
 	P95Ms    float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
 	P99Ms    float64  `json:"p99_ms" doc:"99th percentile response time, in milliseconds."`
-	Apdex    *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
+	Apdex    *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests."`
 }
 
 type latencyPoint struct {
@@ -89,9 +89,11 @@ func (s *Service) endpointLatency(ctx context.Context, in *endpointRequestsInput
 	if raw {
 		table, ts, agg = "api_requests", "timestamp", rawLatency
 	}
-	where, args := endpointFilter(p.ProjectID, in, method, ts, w, raw)
-
-	rawWhere, rawArgs := endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
+	where, args, err := endpointFilter(p.ProjectID, in, method, ts, w, raw)
+	if err != nil {
+		return nil, err
+	}
+	rawWhere, rawArgs, _ := endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
 
 	out := &endpointLatencyOutput{}
 	b := &out.Body
@@ -103,6 +105,39 @@ func (s *Service) endpointLatency(ctx context.Context, in *endpointRequestsInput
 	return out, nil
 }
 
+// latencySummary is the summary of a latency report: the percentiles from
+// the rollup (or raw) rows of where and the Apdex over the raw rows of
+// rawWhere. The Performance tiles also read it over the window before the
+// range for their comparison (#1000).
+func (s *Service) latencySummary(ctx context.Context, project uuid.UUID, table, agg, where string, args []any, rawWhere string, rawArgs []any) (LatencySummary, error) {
+	var (
+		summary    LatencySummary
+		sum, maxMs float64
+		q          []float32
+	)
+	if err := s.ch.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s WHERE %s`, agg, table, where), args...).
+		Scan(&summary.Requests, &sum, &maxMs, &q); err != nil {
+		return summary, internalError("latency", err)
+	}
+	if summary.Requests == 0 {
+		return summary, nil
+	}
+	summary.AvgMs = round2(sum / float64(summary.Requests))
+	summary.MaxMs = round2(maxMs)
+	summary.P50Ms, summary.P75Ms, summary.P90Ms = quantile(q, 0), quantile(q, 1), quantile(q, 2)
+	summary.P95Ms, summary.P99Ms = quantile(q, 3), quantile(q, 4)
+	thresholds, err := s.apdexThresholds(ctx, project)
+	if err != nil {
+		return summary, err
+	}
+	apdex, err := s.apdex(ctx, thresholds, rawWhere, rawArgs, "''")
+	if err != nil {
+		return summary, err
+	}
+	summary.Apdex = apdex[""].score()
+	return summary, nil
+}
+
 // latencyReport reads the percentiles, the p50/p75/p95 trend, the Apdex and
 // the response-time histogram of a scope. where/args select the scope in
 // table (a rollup, or raw api_requests) with ts its time column, agg the
@@ -110,24 +145,13 @@ func (s *Service) endpointLatency(ctx context.Context, in *endpointRequestsInput
 // api_requests rows. Both must bound the window. table, ts and agg come from
 // fixed values, never from input.
 func (s *Service) latencyReport(ctx context.Context, project uuid.UUID, w window, table, ts, agg, where string, args []any, rawWhere string, rawArgs []any) (LatencySummary, []latencyPoint, []latencyBucket, error) {
-	var summary LatencySummary
 	seconds := int(w.bucket.Seconds())
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
-	var (
-		sum, maxMs float64
-		q          []float32
-	)
-	if err := s.ch.QueryRow(qctx, fmt.Sprintf(`SELECT %s FROM %s WHERE %s`, agg, table, where), args...).
-		Scan(&summary.Requests, &sum, &maxMs, &q); err != nil {
-		return summary, nil, nil, internalError("latency", err)
-	}
-	if summary.Requests > 0 {
-		summary.AvgMs = round2(sum / float64(summary.Requests))
-		summary.MaxMs = round2(maxMs)
-		summary.P50Ms, summary.P75Ms, summary.P90Ms = quantile(q, 0), quantile(q, 1), quantile(q, 2)
-		summary.P95Ms, summary.P99Ms = quantile(q, 3), quantile(q, 4)
+	summary, err := s.latencySummary(qctx, project, table, agg, where, args, rawWhere, rawArgs)
+	if err != nil {
+		return summary, nil, nil, err
 	}
 
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
@@ -164,15 +188,6 @@ func (s *Service) latencyReport(ctx context.Context, project uuid.UUID, w window
 		points = append(points, pt)
 	}
 
-	thresholds, err := s.apdexThresholds(ctx, project)
-	if err != nil {
-		return summary, nil, nil, err
-	}
-	apdex, err := s.apdex(qctx, thresholds, rawWhere, rawArgs, "''")
-	if err != nil {
-		return summary, nil, nil, err
-	}
-	summary.Apdex = apdex[""].score()
 	hrows, err := s.ch.Query(qctx, `
 		SELECT `+bucketIndex("response_time_ms", latencyEdgesMs)+` AS i, count()
 		FROM api_requests WHERE `+rawWhere+` GROUP BY i`, rawArgs...)

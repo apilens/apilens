@@ -17,6 +17,7 @@ import (
 
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/ch"
+	"github.com/apilens/apilens/internal/retention"
 	"github.com/apilens/apilens/internal/testutil"
 )
 
@@ -1320,5 +1321,106 @@ func TestPostgresAuditScopeMigration(t *testing.T) {
 	}
 	if got := scoped(); !maps.Equal(got, want) {
 		t.Fatalf("after re-apply = %v, want %v", got, want)
+	}
+}
+
+func TestClickHouseSpanEventsMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	db := ch.OpenDB(chCfg, "")
+	t.Cleanup(func() { _ = db.Close() })
+	columns := func() []string {
+		t.Helper()
+		rows, err := db.QueryContext(ctx, `SELECT name FROM system.columns
+			WHERE database = currentDatabase() AND table = 'api_spans'
+			AND (name IN ('status_message', 'links') OR startsWith(name, 'events.')) ORDER BY name`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rows.Close() }()
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			names = append(names, name)
+		}
+		return names
+	}
+	want := []string{"events.attributes", "events.name", "events.time", "links", "status_message"}
+	if got := columns(); !slices.Equal(got, want) {
+		t.Fatalf("after up = %v, want %v", got, want)
+	}
+
+	provider, err := goose.NewProvider(goose.DialectClickHouse, db, migrations.ClickHouseFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 3); err != nil {
+		t.Fatalf("roll back to 00003: %v", err)
+	}
+	if got := columns(); len(got) != 0 {
+		t.Fatalf("after down = %v, want none", got)
+	}
+
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if got := columns(); !slices.Equal(got, want) {
+		t.Fatalf("after re-apply = %v, want %v", got, want)
+	}
+}
+
+// TestClickHouseLogsSpansRetentionMigration checks 00005: api_logs and
+// api_spans keep 90 days (D6), and rolling it back restores 30.
+func TestClickHouseLogsSpansRetentionMigration(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	db := ch.OpenDB(chCfg, "")
+	t.Cleanup(func() { _ = db.Close() })
+	ttls := func() map[string]int {
+		t.Helper()
+		rows, err := db.QueryContext(ctx, retention.TablesQuery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rows.Close() }()
+		out := map[string]int{}
+		for rows.Next() {
+			var name, stmt string
+			if err := rows.Scan(&name, &stmt); err != nil {
+				t.Fatal(err)
+			}
+			if name == "api_logs" || name == "api_spans" {
+				out[name], _ = retention.ParseDays(stmt)
+			}
+		}
+		return out
+	}
+	if got, want := ttls(), map[string]int{"api_logs": 90, "api_spans": 90}; !maps.Equal(got, want) {
+		t.Fatalf("after up = %v, want %v", got, want)
+	}
+
+	provider, err := goose.NewProvider(goose.DialectClickHouse, db, migrations.ClickHouseFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 4); err != nil {
+		t.Fatalf("roll back to 00004: %v", err)
+	}
+	if got, want := ttls(), map[string]int{"api_logs": 30, "api_spans": 30}; !maps.Equal(got, want) {
+		t.Fatalf("after down = %v, want %v", got, want)
+	}
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
 	}
 }

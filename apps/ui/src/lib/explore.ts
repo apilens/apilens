@@ -2,8 +2,8 @@
 // Pure helpers (URL state, row formatting, the virtual window, keyboard moves, the poll answer),
 // unit-tested in explore.test.ts.
 import { RANGE_LABEL } from "./consumers";
-import { type ExploreFilters, NO_FILTERS, filterEntries, parseFilters } from "./explore-filters";
-import { type ExploreWindow, chartWindow, instantText, logWindow, parseWindow, windowEntries, windowText } from "./explore-timeline";
+import { type ExploreFilters, NO_FILTERS, filterEntries, normalizeStatus, parseFilters } from "./explore-filters";
+import { type ExploreWindow, chartWindow, instantText, isoSecond, logWindow, parseWindow, windowEntries, windowText } from "./explore-timeline";
 import type { QueryRange, RequestRow } from "./identity";
 import { TRAIL_PARAM, trailHrefs } from "./pagination";
 import { sameDay, zonedParts } from "./time-zone";
@@ -59,6 +59,61 @@ function exploreSearch(q: Partial<ExploreState>, withRange: boolean, w: ExploreW
 /** The page URL for `q`, leaving defaults out. */
 export function exploreHref(project: string, q: Partial<ExploreState>): string {
   return `/${encodeURIComponent(project)}/explore${exploreSearch(q, false, q)}`;
+}
+
+/**
+ * The scope of an analytics aggregate (#977, decision D3 of #963): what a count, cell or bar was
+ * read over. `range`, `env` and `app` are the page's scope (empty env and app mean all); the rest
+ * narrow it to the aggregate: an endpoint (`method` and its route template `path`, which Explore
+ * matches exactly), a status filter (`500`, `4xx`), requests at or above `latency_min` ms, and a
+ * time window (`from`/`to`, a chart bucket).
+ */
+export interface ExploreScope {
+  range: QueryRange;
+  env?: string;
+  app?: string;
+  method?: string;
+  path?: string;
+  status?: string;
+  consumer_id?: string;
+  latency_min?: number | null;
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Explore narrowed to the requests behind an aggregate (#977). The range always goes in (the
+ * analytics pages default to a different range than Explore), then the window and the filters. A
+ * latency bound is whole milliseconds, rounded down so the request it came from still matches.
+ */
+export function exploreHrefFor(project: string, s: ExploreScope): string {
+  const lat = s.latency_min;
+  const filters: ExploreFilters = {
+    ...NO_FILTERS,
+    env: s.env ?? "",
+    app: s.app ?? "",
+    method: (s.method ?? "").toUpperCase(),
+    path: s.path ?? "",
+    status: normalizeStatus(s.status ?? "") ?? "",
+    consumer_id: s.consumer_id ?? "",
+    latency_min: lat !== null && lat !== undefined && Number.isFinite(lat) && lat >= 0 ? Math.floor(lat) : null,
+  };
+  const w: ExploreWindow = s.from && s.to ? { from: s.from, to: s.to } : {};
+  return `/${encodeURIComponent(project)}/explore${exploreSearch({ range: s.range, filters }, true, w)}`;
+}
+
+/**
+ * Each chart bucket's requests in Explore (#977): the bucket as a time window, from its start to
+ * the next bucket's (the last one as wide as the one before it). With fewer than two buckets their
+ * width is unknown, so the links keep the whole range.
+ */
+export function bucketHrefs(project: string, s: ExploreScope, buckets: readonly { ts: string }[]): string[] {
+  const starts = buckets.map((b) => Date.parse(b.ts));
+  return starts.map((start, i) => {
+    const end = i + 1 < starts.length ? starts[i + 1] : i > 0 ? start + (start - starts[i - 1]) : Number.NaN;
+    if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return exploreHrefFor(project, s);
+    return exploreHrefFor(project, { ...s, from: isoSecond(start), to: isoSecond(end) });
+  });
 }
 
 /**

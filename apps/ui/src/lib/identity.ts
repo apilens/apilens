@@ -1136,15 +1136,40 @@ export interface TraceSpan {
   duration_ms: number;
   status: string;
   status_code: number;
+  /** Status description, e.g. why the span failed; empty when none was reported. */
+  status_message: string;
+  attributes: Record<string, string> | null;
+  /** Timestamped span events, oldest first, e.g. an `exception` event with exception.* attributes. */
+  events: TraceSpanEvent[] | null;
+  /** Spans this span links to. */
+  links: TraceSpanLink[] | null;
+}
+
+/** One timestamped event inside a span. */
+export interface TraceSpanEvent {
+  time: string;
+  name: string;
   attributes: Record<string, string> | null;
 }
 
-/** One log line of a trace. */
+/** A link from a span to another span. */
+export interface TraceSpanLink {
+  trace_id: string;
+  span_id: string;
+}
+
+/**
+ * One log line of a trace. For an `apilens.exception` log, `payload` holds the full exception
+ * (type, message, frames, chained causes; at most 64 KiB with head and tail kept).
+ */
 export interface TraceLog {
   timestamp: string;
   level: string;
   message: string;
+  logger_name: string;
   span_id: string;
+  payload: string;
+  attributes: Record<string, string> | null;
 }
 
 /** `GET /requests/{id}`: the request with the spans and logs of its trace, oldest first. */
@@ -1152,16 +1177,27 @@ export interface RequestDetailRead {
   request: RequestDetail;
   spans: TraceSpan[] | null;
   logs: TraceLog[] | null;
+  /** True when the trace had more than 10,000 spans or 2,000 logs and the rest were left out. */
+  trace_truncated: boolean;
+}
+
+/** `GET /traces/{trace_id}`: the spans (at most 10,000) and logs (at most 2,000) of one trace. */
+export interface TraceRead {
+  trace_id: string;
+  spans: TraceSpan[] | null;
+  logs: TraceLog[] | null;
+  truncated: boolean;
 }
 
 /**
- * The filters of `GET /requests` (#576), as query parameters: equality on env, method, path,
- * consumer, group and IP; case-insensitive substrings on the URL and the bodies; status codes,
+ * The filters of `GET /requests` (#576), as query parameters: equality on env, app (id, #974),
+ * method, path, consumer, group and IP; case-insensitive substrings on the URL and the bodies; status codes,
  * classes and ranges (`4xx,500-503`); inclusive size and latency bounds; sampled `true`/`false`.
  */
 export type RequestLogFilters = Partial<
   Record<
     | "env"
+    | "app"
     | "method"
     | "status"
     | "path"
@@ -1217,13 +1253,34 @@ export interface TrafficSummary {
   p50_ms: number;
   p95_ms: number;
   p99_ms: number;
+  /** Requests / minutes of the active span (the range, or since the first data when shorter). */
   requests_per_minute: number;
+  /** Requests in the last full minute. */
+  current_per_minute?: number;
   /** Apdex from 0 to 1 against each endpoint's latency threshold (else its app's, else 500 ms); null without requests. */
   apdex?: number | null;
+  /** The same totals over the window just before the range (#1000); absent when it had no requests. */
+  previous?: TrafficSummaryTotals;
 }
 
-/** One row of `GET /traffic/endpoints`. */
+/** `GET /traffic/summary` → previous: the totals of the window before the range. */
+export interface TrafficSummaryTotals {
+  from: string;
+  to: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  error_rate: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  apdex: number | null;
+}
+
+/** One row of `GET /traffic/endpoints`: one per app, method and path (#974). */
 export interface EndpointTraffic {
+  /** The app that serves the endpoint; a path several apps serve is one row per app. */
+  app_id: string;
   method: string;
   path: string;
   requests: number;
@@ -1232,8 +1289,15 @@ export interface EndpointTraffic {
   error_rate: number;
   p50_ms: number;
   p95_ms: number;
+  /** Sum of the range's response times in ms (requests × average, #1001): where the API spends its time. */
+  total_time_ms?: number;
   /** Apdex from 0 to 1 against the endpoint's latency threshold; null without requests. */
   apdex?: number | null;
+  /**
+   * A route an app declared (`POST /v1/metadata`) without traffic in the range: its counts are zero
+   * and the API lists it after the endpoints with traffic.
+   */
+  discovered_only?: boolean;
 }
 
 /** One bucket of `GET /traffic/timeseries`, oldest first. */
@@ -1256,7 +1320,7 @@ export interface TrafficTimeseries {
 export interface TrafficQuery {
   range?: QueryRange;
   env?: string;
-  /** An app's id: the summary and timeseries of that app only (#591); absent means every app. */
+  /** An app's id: the reads of that app only (#591, #974); absent means every app. */
   app?: string;
 }
 
@@ -1359,8 +1423,13 @@ export interface DeployStatusCount {
 }
 
 export interface DeployException {
+  /** Group key: hash of the exception type and the top in-app frame (else the message with ids replaced). */
+  fingerprint: string;
   exception_type: string;
+  /** Message of the latest occurrence. */
   message: string;
+  /** Top in-app frame, line number left out; empty when none was found. */
+  top_frame: string;
   before: number;
   after: number;
   new: boolean;
@@ -1389,7 +1458,19 @@ export interface DeployComparison {
 // Alerts (#609): threshold rules, notification channels, events and the incidents feed. -----
 
 /** What an alert rule aggregates over its window. */
-export type AlertMetric = "traffic" | "errors" | "error_rate" | "p50" | "p75" | "p95" | "apdex" | "unique_consumers";
+export type AlertMetric =
+  | "traffic"
+  | "errors"
+  | "error_rate"
+  | "server_errors"
+  | "server_error_rate"
+  | "client_errors"
+  | "client_error_rate"
+  | "p50"
+  | "p75"
+  | "p95"
+  | "apdex"
+  | "unique_consumers";
 /** How the value compares to the threshold for the rule to breach. */
 export type AlertCondition = "gt" | "gte" | "lt" | "lte";
 /** Where a rule stands after its latest evaluation. */
@@ -1596,6 +1677,24 @@ export interface ConsumerDetail {
   recent_errors: RequestRow[] | null;
 }
 
+/** One client IP and user agent pair of `GET /anonymous-callers` (#989), as stored with its requests. */
+export interface AnonymousCaller extends StatusSplit {
+  /** Empty when not captured. */
+  ip_address: string;
+  /** Empty when not captured. */
+  user_agent: string;
+  last_seen: string;
+}
+
+/** `GET /anonymous-callers`: the range's requests without a consumer, and their top callers. */
+export interface AnonymousCallers {
+  range: string;
+  from: string;
+  to: string;
+  totals: StatusSplit;
+  callers: AnonymousCaller[] | null;
+}
+
 /** One SDK-reported group of `GET /consumer-groups`. */
 export interface ConsumerGroupTraffic extends StatusSplit {
   group: string;
@@ -1761,6 +1860,16 @@ export interface IngestCounts {
 /** One UTC day of `IngestCounts`; `date` is `YYYY-MM-DD`. */
 export interface IngestDay extends IngestCounts {
   date: string;
+  /** Records the app's SDKs dropped before sending that day (#927); absent from older servers. */
+  sdk_dropped?: number;
+}
+
+/** Records of one signal the app's SDKs dropped for one reason, as their heartbeats reported them (#927). */
+export interface SdkDroppedRecords {
+  signal: "requests" | "spans" | "logs";
+  /** As the SDKs name it: `queue_full`, `retries_exhausted`, ... */
+  reason: string;
+  records: number;
 }
 
 /** `GET /apps/{id}/ingest-stats?days=`: oldest day first; 503 when the counter store is not configured. */
@@ -1770,6 +1879,8 @@ export interface AppIngestStats {
   days: number;
   totals: IngestCounts;
   daily: IngestDay[] | null;
+  /** SDK drops over the days by signal and reason, most first (#927); absent from older servers. */
+  sdk_dropped?: SdkDroppedRecords[] | null;
 }
 
 // Project usage (#790, #819): the per-app edge counters summed over a project's apps, with the
@@ -1945,11 +2056,31 @@ export interface AppHealthStatus {
   ingest_today?: IngestCounts;
 }
 
-/** `GET /apps/{id}/status?project=` (#582) as the Apps overview (#591) reads it: also per environment and per SDK. Instances are left out. */
+/** One SDK instance (process) of `GET /apps/{id}/status`, as its last heartbeat described it. */
+export interface AppInstance {
+  instance_id: string;
+  environment: string;
+  sdk_name: string;
+  sdk_version: string;
+  /** Empty for an SDK APILens does not publish. */
+  sdk_latest_version: string;
+  sdk_outdated: boolean;
+  /** Language runtime and version, e.g. `python 3.13.1`. */
+  runtime: string;
+  /** Empty when not configured. */
+  release: string;
+  commit: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+/** `GET /apps/{id}/status?project=` (#582) as the Apps overview (#591) and an app's page (#995) read it: also per environment, per SDK and per instance. */
 export interface AppStatus extends AppHealthStatus {
   status: AppReporting;
   environments: AppEnvironmentStatus[] | null;
   sdks: AppSdk[] | null;
+  /** The 100 most recently seen instances, newest first; absent from older servers. */
+  instances?: AppInstance[] | null;
 }
 
 // Health checks (#608): active HTTP checks of an app environment (`/projects/{project}/alerts/
@@ -2047,10 +2178,12 @@ export interface PutPrivacyPolicyRequest {
 /** Status class filter of the endpoint reads (the errors read takes none). */
 export type StatusClass = "all" | "2xx" | "3xx" | "4xx" | "5xx";
 
-/** The scope of the endpoint reads: range, environment, status class and consumer; empty means all. */
+/** The scope of the endpoint reads: range, environment, app, status class and consumer; empty means all. */
 export interface EndpointQuery {
   range?: QueryRange;
   env?: string;
+  /** An app's id (#974): the endpoint as that app serves it; absent means every app. */
+  app?: string;
   status?: StatusClass;
   consumer?: string;
 }
@@ -2107,10 +2240,18 @@ export interface EndpointValidationError {
   last_seen: string;
 }
 
-/** Server exceptions grouped by (exception_type, message), with the latest stack trace. */
+/**
+ * Server exceptions grouped by fingerprint (exception type and top in-app frame, else the message
+ * with ids replaced), with the latest message and stack trace.
+ */
 export interface EndpointException {
+  /** Group key: hash of the exception type and the top in-app frame (else the message with ids replaced). */
+  fingerprint: string;
   exception_type: string;
+  /** Message of the latest occurrence. */
   message: string;
+  /** Top in-app frame, line number left out, e.g. `app/orders.py:get_order`; empty when none was found. */
+  top_frame: string;
   count: number;
   consumers: number;
   first_seen: string;
@@ -2220,6 +2361,8 @@ export interface SavedViewBody {
 export interface ExportFilterBody {
   range?: QueryRange;
   env?: string;
+  /** An app's id (#974); absent means every app. */
+  app?: string;
   consumer_id?: string;
   consumer_group?: string;
   ip?: string;
@@ -2291,6 +2434,8 @@ export interface ErrorStatuses {
   to: string;
   bucket_seconds: number;
   summary: ErrorSplit;
+  /** Requests and errors of the window just before the range (#1000); absent when it had no requests. */
+  previous?: ErrorSplit;
   points: (ErrorSplit & { ts: string })[] | null;
   /** Occurrences of each error status code per bucket, aligned with points, in statuses order. */
   series: { status_code: number; counts: number[] | null }[] | null;
@@ -2359,6 +2504,8 @@ export interface TrafficLatency {
   to: string;
   bucket_seconds: number;
   summary: EndpointLatency["summary"];
+  /** The summary of the window just before the range (#1000); absent when it had no requests. */
+  previous?: EndpointLatency["summary"];
   points: EndpointLatency["points"];
   /** 14 log-spaced buckets. */
   histogram: LatencyBucket[] | null;
@@ -2572,6 +2719,12 @@ export function createClient(config: ClientConfig) {
       request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
     requestTimeline: (projectSlug: string, q: { range?: QueryRange } & RequestWindow & RequestLogFilters, o: Authed) =>
       request<RequestTimeline>("GET", "/requests/timeline", { ...o, query: { project: projectSlug, ...q } }),
+    /** `GET /requests/slowest` (#1001): the range's requests with the longest response time, slowest first. */
+    slowestRequests: (projectSlug: string, q: TrafficQuery & { limit?: number }, o: Authed) =>
+      request<{ requests: RequestRow[] | null }>("GET", "/requests/slowest", {
+        ...o,
+        query: { project: projectSlug, ...trafficScope(q), ...(q.limit !== undefined ? { limit: q.limit } : {}) },
+      }),
     getRequest: (projectSlug: string, id: string, o: Authed) =>
       request<RequestDetailRead>("GET", `/requests/${seg(id)}`, { ...o, query: { project: projectSlug } }),
     trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>
@@ -2630,6 +2783,8 @@ export function createClient(config: ClientConfig) {
       q: { range?: QueryRange; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
       o: Authed,
     ) => request<ConsumerGroupsTraffic>("GET", "/consumer-groups", { ...o, query: { project: projectSlug, ...q } }),
+    listAnonymousCallers: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+      request<AnonymousCallers>("GET", "/anonymous-callers", { ...o, query: { project: projectSlug, ...q } }),
 
     projectApps: (projectSlug: string, o: Authed) =>
       request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),

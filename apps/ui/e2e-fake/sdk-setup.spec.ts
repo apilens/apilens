@@ -54,7 +54,7 @@ test.afterAll(async () => {
 test("tabs switch the snippets, which carry the key placeholder, app name and ingest URL", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "SDK setup", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "SDK setup" })).toBeVisible();
   await expect(page.getByRole("navigation").getByRole("link", { name: "SDK setup" })).toHaveAttribute("aria-current", "page");
 
   const tabs = install(page).getByRole("tab");
@@ -114,4 +114,22 @@ test("a new app waits for its first request, and refresh shows it once it report
   await expect(table.getByRole("row").nth(1)).toContainText("fastapi 0.115.0 · Python 3.13.1 · SDK 0.4.0");
   await expect(status(page).getByText("Waiting for the first request.")).toHaveCount(0);
   await expect(status(page).getByRole("button", { name: "Refresh" })).toHaveCount(0);
+});
+
+test("the release and commit step, at #release, follows the SDKs the apps run", async ({ page }) => {
+  await seedApps([{ id: SHOP, slug: "shop", name: "Shop", environments: [REPORT] }]);
+  await signIn(page);
+  const release = page.getByRole("region", { name: "Release and commit" });
+  await expect(release).toHaveAttribute("id", "release");
+  await expect(release.getByRole("tablist", { name: "SDK" }).getByRole("tab")).toHaveText(["Python"]);
+  await expect(release.getByRole("tabpanel")).toContainText('release=os.environ.get("GIT_SHA", "")');
+  await expect(release.getByRole("tabpanel")).toContainText('commit=os.environ.get("GIT_SHA", "")');
+  await expect(release.getByRole("tabpanel")).toContainText("export APILENS_COMMIT=$GIT_SHA");
+  await expect(release.getByRole("link", { name: "Integrations" })).toHaveAttribute("href", "/shop/settings/integrations");
+
+  // No app reported yet: every SDK.
+  await seedApps([]);
+  await page.goto(`${SDK}#release`);
+  await page.reload();
+  await expect(release.getByRole("tablist", { name: "SDK" }).getByRole("tab")).toHaveText(["Python", "Node.js", "Java"]);
 });

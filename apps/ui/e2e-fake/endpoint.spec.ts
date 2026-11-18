@@ -49,14 +49,29 @@ const ERRORS = {
   validation_errors: [{ loc: "query.limit", msg: "Input should be less than or equal to 100", type: "less_than_equal", count: 80, consumers: 2, last_seen: "2026-11-05T10:40:00Z" }],
   exceptions: [
     {
+      fingerprint: "5787a1eaf68e6d73",
       exception_type: "KeyError",
       message: "'currency'",
+      top_frame: "orders.py:get_order",
       count: 2,
       consumers: 1,
       first_seen: "2026-11-05T10:05:00Z",
       last_seen: "2026-11-05T10:20:00Z",
       stack_trace: 'Traceback (most recent call last):\n  File "orders.py", line 42, in get_order\n    total = order["currency"]\nKeyError: \'currency\'',
       trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+    },
+    // Same type, another top in-app frame: a group of its own.
+    {
+      fingerprint: "0932d6799a356d51",
+      exception_type: "KeyError",
+      message: "'currency'",
+      top_frame: "refunds.py:refund",
+      count: 1,
+      consumers: 1,
+      first_seen: "2026-11-05T10:10:00Z",
+      last_seen: "2026-11-05T10:10:00Z",
+      stack_trace: 'Traceback (most recent call last):\n  File "refunds.py", line 7, in refund\n    amount = order["currency"]\nKeyError: \'currency\'',
+      trace_id: "",
     },
   ],
 };
@@ -115,11 +130,21 @@ async function queryDown(down: boolean) {
   });
 }
 
+/**
+ * `url` reading all environments unless it names one: a URL without `env` reads the project's
+ * production environment (#993), and these specs seed and check the all-environments numbers.
+ */
+function allEnvs(url: string): string {
+  const u = new URL(url, "http://x");
+  if (!u.searchParams.has("env")) u.searchParams.set("env", "all");
+  return `${u.pathname}${u.search}`;
+}
+
 async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = {}) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next, ...seeds }),
+    body: JSON.stringify({ next: allEnvs(next), ...seeds }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
@@ -139,8 +164,10 @@ test("Requests tab: locked scope, tiles, status chart and top consumers, reading
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("GET /orders/{id}");
   const scope = page.getByRole("definition");
-  await expect(page.locator("dl.ep-locked dt")).toHaveText(["Method", "Path", "App"]);
-  await expect(page.locator("dl.ep-locked dd")).toHaveText(["GET", "/orders/{id}", "Shop"]);
+  await expect(page.locator("dl.ep-locked dt")).toHaveText(["Method", "Path"]);
+  await expect(page.locator("dl.ep-locked dd")).toHaveText(["GET", "/orders/{id}"]);
+  // With one app there is nothing to pick between.
+  await expect(page.getByRole("combobox", { name: "App" })).toHaveCount(0);
   await expect(scope.first()).toBeVisible();
   await expect(tabs(page).getByRole("link")).toHaveText(["Requests", "Errors", "Response times", "Data transferred"]);
   await expect(tabs(page).getByRole("link", { name: "Requests" })).toHaveAttribute("aria-current", "page");
@@ -187,7 +214,7 @@ test("Errors tab: error rates, status codes, validation errors and server except
   await expect(page.getByRole("list", { name: "Error rate legend" }).getByRole("listitem")).toHaveText(["4xx rate", "5xx rate"]);
   await expect(chart.locator("path.ep-line")).toHaveCount(2);
   const rate = await tipAt(page, /^Error rate\. Use the arrow keys/, 1);
-  await expect(rate.locator("dd")).toHaveText(["4%", "<0.1%"]);
+  await expect(rate.locator("dd")).toHaveText(["4.0%", "<0.1%"]);
 
   const statuses = page.getByRole("table", { name: "Error status codes" });
   await expect(statuses.locator("tbody tr")).toHaveCount(3);
@@ -202,9 +229,12 @@ test("Errors tab: error rates, status codes, validation errors and server except
   ]);
 
   const exceptions = page.getByRole("list", { name: "Server exceptions" });
+  // Grouped by type and top in-app frame: the same type and message raised in two places are two rows.
+  await expect(exceptions.getByRole("listitem")).toHaveCount(2);
+  await expect(exceptions.locator(".ep-exc__frame")).toHaveText(["in orders.py:get_order", "in refunds.py:refund"]);
   const first = exceptions.getByRole("listitem").first();
   await expect(first.locator("summary")).toContainText("KeyError 'currency'");
-  await expect(first.locator("summary")).toContainText("2 times, 1 consumers");
+  await expect(first.locator("summary")).toContainText("2 times, 1 consumers, first Nov 5, 2026, 10:05 AM UTC");
   await expect(first.locator("pre.ep-stack")).toBeHidden();
   await first.locator("summary").click();
   await expect(first.locator("pre.ep-stack")).toContainText('total = order["currency"]');
@@ -245,7 +275,7 @@ test("Response times tab: percentiles, Apdex, the p50/p75/p95 trend and the hist
   await expect(page.getByRole("img", { name: /Response time percentiles/ })).toHaveAttribute("aria-label", /in the last 7 days, 5xx responses/);
   expect((await reads()).at(-1)?.query).toEqual({ range: "7d", status: "5xx" });
   // Tabs keep the scope.
-  await expect(tabs(page).getByRole("link", { name: "Data transferred" })).toHaveAttribute("href", `${PAGE}?tab=transfer&range=7d&status=5xx`);
+  await expect(tabs(page).getByRole("link", { name: "Data transferred" })).toHaveAttribute("href", `${PAGE}?tab=transfer&range=7d&env=all&status=5xx`);
 });
 
 test("Data transferred tab: bytes in and out, the in/out series and both size histograms", async ({ page }) => {
@@ -330,6 +360,101 @@ test("the settings are read-only without capture.manage", async ({ page }) => {
   await expect(dialog).toBeHidden();
 });
 
+// The app filter (#976) ----------------------------------------------------------------------
+
+const SHOP_ID = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+const BILLING_ID = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+
+async function twoApps() {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ apps: [{ id: SHOP_ID, slug: "shop", name: "Shop" }, { id: BILLING_ID, slug: "billing", name: "Billing" }] }),
+  });
+  expect(res.status).toBe(204);
+}
+
+/** All apps answer REQUESTS; Billing alone answers its own, smaller numbers. */
+async function seedPerApp() {
+  const billing = {
+    requests: { ...REQUESTS, summary: { requests: 1200, successful: 1100, client_errors: 60, server_errors: 40, requests_per_minute: 0.83 }, consumers: [] },
+  };
+  const res = await fetch(`${IDENTITY}/__fake/endpoint`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", method: "GET", path: "/orders/{id}", tabs: { requests: REQUESTS, errors: ERRORS, latency: LATENCY }, apps: { [BILLING_ID]: billing } }),
+  });
+  expect(res.status).toBe(204);
+}
+
+test.describe("with several apps", () => {
+  test.afterEach(async () => {
+    // Other specs expect shop's single default app.
+    await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps: [] }) });
+  });
+
+  test("All apps is the default; scoped to one app the page shows that app's numbers", async ({ page }) => {
+    await twoApps();
+    await seedPerApp();
+    await signIn(page);
+    const app = page.getByRole("combobox", { name: "App" });
+    await expect(app).toHaveValue("");
+    await expect(app.getByRole("option")).toHaveText(["All apps", "Shop", "Billing"]);
+    await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["8,200", "7,908", "290", "2"]);
+    expect((await reads()).at(-1)?.query).toEqual({ range: "24h" });
+
+    await app.selectOption({ label: "Billing" });
+    await page.waitForURL(new RegExp(`app=${BILLING_ID}`));
+    await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["1,200", "1,100", "60", "40"]);
+    await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /1,200 requests in the last 24 hours for Billing/);
+    expect((await reads()).at(-1)?.query).toEqual({ range: "24h", app: BILLING_ID });
+    // Tabs and the Traffic link keep the app.
+    await expect(tabs(page).getByRole("link", { name: "Errors" })).toHaveAttribute("href", `${PAGE}?tab=errors&range=24h&env=all&app=${BILLING_ID}`);
+    await expect(page.locator(".pagehead").getByRole("link", { name: "Traffic" })).toHaveAttribute("href", `/shop/traffic?range=24h&env=all&app=${BILLING_ID}`);
+  });
+
+  test("across all apps the tabs do not claim one app's settings", async ({ page }) => {
+    await twoApps();
+    await seedPerApp();
+    await signIn(page, `${PAGE}?tab=errors`);
+    await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("Per app");
+    await page.goto(allEnvs(`${PAGE}?tab=latency`));
+    await expect(tiles(page).locator(".tr-tile__sub").last()).toHaveText("Excellent, target set per app");
+    await page.goto(allEnvs(`${PAGE}?tab=latency&app=${SHOP_ID}`));
+    await expect(tiles(page).locator(".tr-tile__sub").last()).toHaveText("Excellent, target app default");
+  });
+
+  test("the settings dialog asks which app and saves for that app", async ({ page }) => {
+    await twoApps();
+    await seedPerApp();
+    await signIn(page, `${PAGE}?tab=errors`);
+    await page.getByRole("button", { name: "Endpoint settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Endpoint settings" });
+    const app = dialog.getByRole("combobox", { name: "App" });
+    await expect(app.getByRole("option")).toHaveText(["Shop", "Billing"]);
+    await expect(app).toHaveValue(SHOP_ID);
+    await app.selectOption({ label: "Billing" });
+    await expect(dialog).toContainText("GET /orders/{id} in app Billing");
+    const codes = dialog.getByRole("textbox", { name: "Expected status codes" });
+    await expect(codes).toBeEnabled();
+    await codes.fill("404");
+    await dialog.getByRole("button", { name: "Save settings" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved for Billing." })).toBeVisible();
+
+    // Billing's page shows them; Shop's does not.
+    await page.goto(allEnvs(`${PAGE}?tab=errors&app=${BILLING_ID}`));
+    await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("404");
+    await page.goto(allEnvs(`${PAGE}?tab=errors&app=${SHOP_ID}`));
+    await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("None");
+    // Scoped to Billing, the dialog opens on Billing.
+    await page.goto(allEnvs(`${PAGE}?app=${BILLING_ID}`));
+    await page.getByRole("button", { name: "Endpoint settings" }).click();
+    await expect(dialog.getByRole("combobox", { name: "App" })).toHaveValue(BILLING_ID);
+    await expect(codes).toHaveValue("404");
+  });
+});
+
 test("says so when the endpoint had no requests, and when a tab cannot load", async ({ page }) => {
   await seed({});
   await signIn(page, `${PAGE}?range=1h`);
@@ -338,7 +463,7 @@ test("says so when the endpoint had no requests, and when a tab cannot load", as
 
   await seed();
   await queryDown(true);
-  await page.goto(`${PAGE}?tab=latency`);
+  await page.goto(allEnvs(`${PAGE}?tab=latency`));
   const alert = page.getByRole("alert").filter({ hasText: "We couldn’t load response times just now." });
   await expect(alert).toBeVisible();
   await queryDown(false);
@@ -364,7 +489,7 @@ test("screenshots", async ({ page }) => {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);
     await page.emulateMedia({ colorScheme: theme as "light" | "dark" });
     for (const tab of ["requests", "errors", "latency", "transfer"]) {
-      await page.goto(`${PAGE}?tab=${tab}`);
+      await page.goto(allEnvs(`${PAGE}?tab=${tab}`));
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
         await page.screenshot({ path: `${dir}/endpoint-${tab}-${theme}-${width}.png`, fullPage: true });

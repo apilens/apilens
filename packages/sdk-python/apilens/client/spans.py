@@ -4,12 +4,16 @@ Spans are captured entirely automatically; there is no manual span API. The
 middleware records a root ``server`` span per request, and outbound HTTP calls
 made with ``requests`` or ``httpx`` become child ``http`` spans (with
 ``traceparent`` propagation downstream) when the middleware is installed with
-``capture_spans=True``.
+``capture_spans=True``. Database statements become child ``db`` spans
+(see :mod:`.db_spans`) unless ``capture_db_spans=False``. A request records
+at most ``MAX_SPANS_PER_REQUEST`` (2,000) child spans; the rest are dropped
+and counted as ``span_cap`` (``drop_counts()`` and the heartbeat).
 
 When a request fails — an unhandled exception or a 5xx response — the
 middleware also emits one ERROR log correlated to the trace (see
-:func:`record_error_log`), so the failing request carries its message. This is
-the only thing written to ``/v1/logs``; it is not a general logging API.
+:func:`record_error_log`), so the failing request carries its message. ERROR
+records the app logs itself (``logger.exception(...)``) reach ``/v1/logs``
+through the logging handler (see :mod:`.log_handler`).
 """
 
 from __future__ import annotations
@@ -21,14 +25,23 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from ._exception import MAX_EXCEPTION_MESSAGE, MAX_EXCEPTION_PAYLOAD, truncate_head_tail
 from .models import LogRecord, SpanRecord
-from .trace import current_span_id, current_trace_id, detail_sampled, generate_span_id
+from .trace import (
+    current_span_budget,
+    current_span_id,
+    current_trace_id,
+    detail_sampled,
+    generate_span_id,
+)
 
 if TYPE_CHECKING:
     from .client import ApiLensClient
 
 _MAX_ATTRIBUTES = 32
 _MAX_ATTRIBUTE_VALUE_CHARS = 512
+# Attributes allowed past the default cap: the obfuscated SQL of a db span.
+_LONG_ATTRIBUTE_CHARS = {"db.statement": 2048}
 
 _FALSEY = {"0", "false", "no", "off", "disabled", ""}
 
@@ -69,8 +82,12 @@ def configure_spans(
     environment: str | None = None,
     service_name: str = "",
     instrument_http: bool = True,
+    instrument_db: bool = True,
 ) -> None:
-    """Register the destination for spans (called by the middlewares)."""
+    """Register the destination for spans (called by the middlewares).
+
+    ``instrument_db`` (the ``capture_db_spans`` option) turns database spans
+    on or off process-wide (see :mod:`.db_spans`)."""
     global _recorder
     with _recorder_lock:
         _recorder = _SpanRecorder(
@@ -81,6 +98,9 @@ def configure_spans(
         )
     if instrument_http:
         instrument_outbound_http()
+    from .db_spans import set_db_spans_enabled
+
+    set_db_spans_enabled(instrument_db)
 
 
 def _clean_attributes(attributes: dict[str, Any] | None) -> dict[str, str]:
@@ -93,7 +113,8 @@ def _clean_attributes(attributes: dict[str, Any] | None) -> dict[str, str]:
         clean_key = str(key or "").strip()
         if not clean_key or isinstance(value, (dict, list, tuple, set)):
             continue
-        output[clean_key] = str(value if value is not None else "")[:_MAX_ATTRIBUTE_VALUE_CHARS]
+        limit = _LONG_ATTRIBUTE_CHARS.get(clean_key, _MAX_ATTRIBUTE_VALUE_CHARS)
+        output[clean_key] = str(value if value is not None else "")[:limit]
     return output
 
 
@@ -101,13 +122,16 @@ class _HeldSpans:
     """Child spans recorded while a request awaits ``sample_on_response``.
 
     ``keep`` is None while the decision is pending; a span finishing later (a
-    background thread outliving the request) follows the decision.
+    background thread outliving the request) follows the decision. ``capped``
+    counts the spans over the per-request cap: reported as ``span_cap`` drops
+    only if the request is kept (a sampled-out request's spans were never due).
     """
 
-    __slots__ = ("spans", "keep", "lock")
+    __slots__ = ("spans", "capped", "keep", "lock")
 
     def __init__(self) -> None:
         self.spans: list[SpanRecord] = []
+        self.capped = 0
         self.keep: bool | None = None
         self.lock = threading.Lock()
 
@@ -119,7 +143,8 @@ _held_spans_ctx: contextvars.ContextVar[_HeldSpans | None] = contextvars.Context
 
 def hold_child_spans() -> contextvars.Token:
     """Hold the current request's child spans until :func:`release_child_spans`
-    (used while ``sample_on_response`` may still drop the request's detail)."""
+    (used while the request's detail may still be kept or dropped: a pending
+    ``sample_on_response``, or a sampled-out request that may yet fail)."""
     return _held_spans_ctx.set(_HeldSpans())
 
 
@@ -134,10 +159,13 @@ def release_child_spans(token: contextvars.Token | None, keep: bool) -> None:
     with held.lock:
         held.keep = bool(keep)
         spans, held.spans = held.spans, []
+        capped, held.capped = held.capped, 0
     recorder = _recorder
     if keep and recorder is not None:
         for span in spans:
             recorder.client.capture_span(span)
+        if capped:
+            recorder.client.count_span_cap_drops(recorder.app_id, capped)
 
 
 def record_span(
@@ -157,9 +185,24 @@ def record_span(
     recorder = _recorder
     if recorder is None or not trace_id or not span_id:
         return
+    held = _held_spans_ctx.get()
     # Child spans of a sampled-out request are dropped (the outbound patches
-    # still propagate traceparent before this point).
-    if not detail_sampled():
+    # still propagate traceparent before this point), unless they are held:
+    # a request that fails is kept whatever sampling said, so its child spans
+    # wait for that verdict.
+    if held is None and not detail_sampled():
+        return
+    # Per-request span cap (D8): the request's own server span is exempt.
+    budget = current_span_budget()
+    if budget is not None and span_id != current_span_id() and not budget.take():
+        if held is not None:
+            with held.lock:
+                if held.keep is None:
+                    held.capped += 1
+                    return
+                if not held.keep:
+                    return
+        recorder.client.count_span_cap_drops(recorder.app_id)
         return
     ended = end_time or datetime.now(tz=timezone.utc)
     record = SpanRecord(
@@ -178,7 +221,6 @@ def record_span(
         app_id=recorder.app_id,
         attributes=_clean_attributes(attributes),
     )
-    held = _held_spans_ctx.get()
     if held is not None:
         with held.lock:
             if held.keep is None:
@@ -187,6 +229,24 @@ def record_span(
             if not held.keep:
                 return
     recorder.client.capture_span(record)
+
+
+_REPORTED_ATTR = "__apilens_reported__"
+
+
+def mark_exception_reported(exc: BaseException) -> None:
+    """Flag ``exc`` as already shipped (or about to be, by the middleware), so
+    the logging handler does not send it a second time when a framework or
+    server logs it again."""
+    try:
+        setattr(exc, _REPORTED_ATTR, True)
+    except Exception:
+        pass
+
+
+def exception_reported(exc: BaseException) -> bool:
+    """True once :func:`mark_exception_reported` has flagged ``exc``."""
+    return getattr(exc, _REPORTED_ATTR, False) is True
 
 
 def record_error_log(
@@ -200,23 +260,35 @@ def record_error_log(
     status_code: int = 0,
     consumer: dict[str, str] | None = None,
     payload: str = "",
+    attributes: dict[str, str] | None = None,
     logger_name: str = "apilens",
+    client: "ApiLensClient | None" = None,
+    app_id: str = "",
+    environment: str | None = None,
 ) -> None:
-    """Queue one ERROR log correlated to a trace (no-op when not configured).
+    """Queue one ERROR log correlated to a trace.
 
     Called by the middlewares when a request raises or returns 5xx, so the
     failing request's trace carries its message. Not a public logging API.
+
+    ``client`` (with ``app_id`` and ``environment``) sends the log without a
+    span recorder, so the exception is captured even with span capture off;
+    without it the log goes to the configured recorder (no-op when none).
     """
-    recorder = _recorder
-    if recorder is None or not trace_id:
+    if client is None:
+        recorder = _recorder
+        if recorder is None:
+            return
+        client, app_id, environment = recorder.client, recorder.app_id, recorder.environment
+    if not trace_id:
         return
     consumer = consumer or {}
-    recorder.client.capture_log(
+    client.capture_log(
         LogRecord(
             timestamp=datetime.now(tz=timezone.utc),
-            environment=recorder.environment,
+            environment=environment or client.config.environment,
             level=(level or "ERROR").upper(),
-            message=(message or "")[:4000],
+            message=truncate_head_tail(message or "", MAX_EXCEPTION_MESSAGE),
             logger_name=logger_name or "apilens",
             endpoint_method=(method or "").upper(),
             endpoint_path=path or "",
@@ -226,9 +298,10 @@ def record_error_log(
             consumer_group=str(consumer.get("consumer_group") or ""),
             trace_id=trace_id,
             span_id=span_id,
-            project_slug=recorder.client.config.project_slug,
-            app_id=recorder.app_id,
-            payload=(payload or "")[:8000],
+            project_slug=client.config.project_slug,
+            app_id=app_id,
+            payload=truncate_head_tail(payload or "", MAX_EXCEPTION_PAYLOAD),
+            attributes=dict(attributes) if attributes else None,
         )
     )
 

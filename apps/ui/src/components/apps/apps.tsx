@@ -1,4 +1,5 @@
 import { keysPath } from "@/lib/api-keys";
+import { formatPercent, ratio } from "@/lib/format";
 import { APPS_PAGE, inactiveApps, lastDataText, newApps, originText, rejectionFixes, rejectionHeadline, rejectionLine, rejectionRows } from "@/lib/app-manage";
 import {
   APPS_LOAD_FAILED,
@@ -10,18 +11,21 @@ import {
   appHealth,
   appHref,
   appsHref,
+  attentionText,
   formatLastSeen,
-  needsAttention,
+  instanceCountText,
   reportingTone,
   sdkUpdate,
   sdkVersions,
+  sortBySeverity,
 } from "@/lib/apps";
-import { RANGE_LABEL, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
+import { RANGE_LABEL, formatCount, formatPerMinute } from "@/lib/consumers";
 import type { AppRejections, AppStatus, ManagedApp, NamedApp, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import { dropSummary } from "@/lib/ingest-health";
 import type { SearchParams } from "@/lib/pagination";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
 import { Sparkline } from "../traffic/charts";
 import { AppHealthLine } from "./app-health";
@@ -57,28 +61,34 @@ export interface AppsViewProps {
 
 /**
  * `/<project>/apps` (#591). One card per active app of the project, paged in the URL: requests per
- * minute, error rate and p95 over the last 24 hours with a requests sparkline and a health line
+ * minute, 5xx rate and p95 over the last 24 hours (cards sorted worst first) with a requests sparkline and a health line
  * (both hoverable for the exact numbers), whether its SDKs are reporting and their version, where
  * the app came from (apps come from the SDK: an unknown app name creates the app) and an actions
  * menu (rename, merge, archive) for readers with `capture.manage`. Above the cards: new apps an SDK
  * created, to keep or merge, and records rejected for app names with what to do. Below: archived,
  * merged and deleted apps, collapsed, with restore and delete.
  */
-export function AppsView({ project, projectName, apps, total, managed, rejections, params, now, tz }: AppsViewProps) {
-  const attention = (apps ?? []).filter((a) => a.status !== null && needsAttention(a.status)).length;
+export function AppsView({ project, projectName, apps: listed, total, managed, rejections, params, now, tz }: AppsViewProps) {
+  // Worst first on the page shown (failing, degraded, not reporting), and the header says how many and why.
+  const severity = (a: AppCardData) => ({ health: a.summary ? appHealth(a.summary) : null, reporting: a.status?.status ?? null });
+  const apps = listed === null ? null : sortBySeverity(listed, severity);
+  const attention = attentionText((apps ?? []).map(severity));
   const fresh = newApps(managed ?? []);
   const archived = inactiveApps(managed ?? []);
   return (
     <div className="page ap">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Apps</p>
-        <h1 className="cp-lede">Apps</h1>
-        <p className="ap-lead">
-          The services reporting to this project: traffic over the last 24 hours, health and SDK status. An app appears on its own the first time an SDK sends data with
-          its name.
-          {attention > 0 ? ` ${attention} ${attention === 1 ? "app needs" : "apps need"} attention.` : ""}
-        </p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Apps"
+        lead={
+          <>
+            The services reporting to this project: traffic over the last 24 hours, health and SDK status. An app appears on its own the first time an SDK sends data
+            with its name.
+            {attention ? ` ${attention}` : ""}
+          </>
+        }
+      />
 
       <AppManager project={project} apps={managed ?? []}>
         {managed && managed.length > 0 ? <AppsReadOnly /> : null}
@@ -172,18 +182,20 @@ function AppCard({ project, data: { app, managed, status, summary, points }, now
               <dd>{formatPerMinute(summary.requests_per_minute)}</dd>
             </div>
             <div>
-              <dt>Error rate</dt>
-              <dd>{formatRate(summary.client_errors + summary.server_errors, summary.requests)}</dd>
+              <dt>5xx rate</dt>
+              <dd>{formatPercent(ratio(summary.server_errors, summary.requests))}</dd>
             </div>
             <div>
               <dt>p95</dt>
               <dd>{summary.requests > 0 ? formatLatency(summary.p95_ms) : "n/a"}</dd>
             </div>
           </dl>
-          <Sparkline
-            values={series.map((p) => p.requests)}
-            hover={{ label: "Requests", range: APPS_RANGE, points: series.map((p) => ({ ts: p.ts, text: formatCount(p.requests) })) }}
-          />
+          {health !== "idle" ? (
+            <Sparkline
+              values={series.map((p) => p.requests)}
+              hover={{ label: "Requests", range: APPS_RANGE, points: series.map((p) => ({ ts: p.ts, text: formatCount(p.requests) })) }}
+            />
+          ) : null}
           {health ? <AppHealthLine health={health} summary={summary} range={RANGE_LABEL[APPS_RANGE]} /> : null}
         </>
       )}
@@ -198,7 +210,7 @@ function AppCard({ project, data: { app, managed, status, summary, points }, now
           <>
             {sdks.length === 0 ? <p className="ap-muted">No SDK reported yet</p> : null}
             {sdks.map((s) => {
-              const update = sdkUpdate(s);
+              const update = sdkUpdate(s, status.instances, now);
               return (
                 <p key={s.name} className="ap-sdk">
                   <code>{sdkVersions(s)}</code>
@@ -207,7 +219,7 @@ function AppCard({ project, data: { app, managed, status, summary, points }, now
               );
             })}
             {status.sdk_stats && dropSummary(status.sdk_stats) ? <p className="ap-drops">{dropSummary(status.sdk_stats)}</p> : null}
-            <p className="ap-muted">{formatLastSeen(status.last_seen_at, now)}</p>
+            <p className="ap-muted">{[formatLastSeen(status.last_seen_at, now), instanceCountText(status.instances, now)].filter(Boolean).join(" · ")}</p>
           </>
         )}
       </div>

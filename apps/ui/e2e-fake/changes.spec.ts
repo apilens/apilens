@@ -130,6 +130,69 @@ test("says so when there are no deploys", async ({ page }) => {
   await expect(table(page)).toHaveCount(0);
 });
 
+async function seedApps(apps: Record<string, unknown>[]) {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps }) });
+  expect(res.status).toBe(204);
+}
+
+const report = (framework: string) => ({
+  environment: "production",
+  framework,
+  framework_version: "1",
+  runtime_version: "1",
+  sdk_version: "0.1.0",
+  config: {},
+  received_at: ago(5),
+});
+
+test("no deploys: the release and commit snippets for the project's SDKs, with links to SDK setup and Integrations", async ({ page }) => {
+  await seed([]);
+  await seedApps([
+    { id: "11111111-1111-4111-8111-111111111111", slug: "orders", name: "Orders", environments: [report("spring-boot")] },
+    { id: "22222222-2222-4222-8222-222222222222", slug: "web", name: "Web", environments: [report("fastapi")] },
+  ]);
+  try {
+    await signIn(page);
+    await expect(page.getByRole("heading", { level: 1, name: "Deploys" })).toBeVisible();
+    await expect(page.getByRole("navigation").getByRole("link", { name: "Deploys" })).toHaveAttribute("aria-current", "page");
+    await expect(page).toHaveTitle(/Deploys/);
+
+    // One tab per SDK the apps run, the first app's first; arrow keys switch.
+    const record = page.getByRole("region", { name: "Record your deploys" });
+    const tabs = record.getByRole("tablist", { name: "SDK" }).getByRole("tab");
+    await expect(tabs).toHaveText(["Java", "Python"]);
+    await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+    const panel = record.getByRole("tabpanel");
+    await expect(panel).toContainText("apilens.release=${GIT_SHA:}");
+    await expect(panel).toContainText("apilens.commit=${GIT_SHA:}");
+    await expect(panel).toContainText("export APILENS_RELEASE=$GIT_SHA");
+    await tabs.first().focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+    await expect(panel).toContainText('release=os.environ.get("GIT_SHA", "")');
+
+    await expect(record.getByRole("link", { name: "Release and commit in SDK setup" })).toHaveAttribute("href", "/shop/settings/sdk#release");
+    await expect(record.getByRole("link", { name: "Link your repository in Integrations" })).toHaveAttribute("href", "/shop/settings/integrations");
+
+    const a11y = await new AxeBuilder({ page }).include(".ch").analyze();
+    expect(a11y.violations).toEqual([]);
+
+    // Every SDK when no app reported a framework.
+    await seedApps([]);
+    await page.reload();
+    await expect(record.getByRole("tablist", { name: "SDK" }).getByRole("tab")).toHaveText(["Python", "Node.js", "Java"]);
+    await record.getByRole("tab", { name: "Node.js" }).click();
+    await expect(record.getByRole("tabpanel")).toContainText("release: process.env.GIT_SHA");
+
+    // A filter that matches nothing is not "no deploys": no setup card.
+    await page.goto(`${CHANGES}?env=staging`);
+    await expect(page.getByRole("status").filter({ hasText: "No deploys of any app in staging" })).toBeVisible();
+    await expect(record).toHaveCount(0);
+  } finally {
+    await seedApps([]);
+  }
+});
+
 test("says so when the query API cannot answer, with a way to try again", async ({ page }) => {
   await seed(DEPLOYS);
   await queryDown(true);

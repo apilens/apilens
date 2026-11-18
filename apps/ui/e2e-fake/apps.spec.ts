@@ -39,6 +39,12 @@ const APPS = [
       status: "stale",
       last_seen_at: ago(18 * 60),
       sdks: [{ name: "apilens-java", versions: ["1.2.1", "1.3.0"], latest_version: "1.3.0", outdated_instances: 2 }],
+      // Two instances ran in the last 24 hours; the outdated one seen 3 days ago is gone and not counted.
+      instances: [
+        { instance_id: "rw-1", sdk_name: "apilens-java", sdk_version: "1.2.1", sdk_outdated: true, last_seen_at: ago(18 * 60) },
+        { instance_id: "rw-2", sdk_name: "apilens-java", sdk_version: "1.3.0", sdk_outdated: false, last_seen_at: ago(18 * 60) },
+        { instance_id: "rw-0", sdk_name: "apilens-java", sdk_version: "1.2.1", sdk_outdated: true, last_seen_at: ago(3 * 86_400) },
+      ],
     },
     traffic: {
       summary: { requests: 10_000, client_errors: 100, server_errors: 610, error_rate: 0.071, p50_ms: 210, p95_ms: 1820, p99_ms: 4000, requests_per_minute: 6.94 },
@@ -76,17 +82,22 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await seedApps();
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1, name: "Apps" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
-  await expect(page.locator(".ap-lead")).toContainText("2 apps need attention.");
+  await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
+  // The header counts failing, degraded and not-reporting apps (each once) and says why; cards come worst first.
+  await expect(page.locator(".ph-lead")).toMatchAriaSnapshot(`
+    - paragraph: "The services reporting to this project: traffic over the last 24 hours, health and SDK status. An app appears on its own the first time an SDK sends data with its name. 2 apps need attention: 1 failing, 2 not reporting."
+  `);
   await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(3);
+  await expect(page.getByRole("list", { name: "Apps" }).getByRole("heading", { level: 2 })).toHaveText(["refunds-worker", "legacy", "Checkout API"]);
   // The project switcher counts the project's apps from the context (app_count).
   await expect(page.locator(".oh--project small")).toHaveText("Project · 3 apps");
 
   const checkout = card(page, "Checkout API");
   await expect(checkout.locator(".ap-slug")).toHaveText("checkout-api");
   await expect(checkout.locator(".ap-pill")).toHaveText("Reporting");
-  await expect(checkout.locator(".ap-metrics dt")).toHaveText(["Requests/min", "Error rate", "p95"]);
-  await expect(checkout.locator(".ap-metrics dd")).toHaveText(["120", "2.0%", "413 ms"]);
+  // The rate shown is the 5xx share the health is judged on, not 4xx + 5xx.
+  await expect(checkout.locator(".ap-metrics dt")).toHaveText(["Requests/min", "5xx rate", "p95"]);
+  await expect(checkout.locator(".ap-metrics dd")).toHaveText(["120", "0.5%", "413 ms"]);
   await expect(checkout.locator(".tr-spark polyline")).toHaveCount(1);
   await expect(checkout.locator(".ap-health")).toHaveText("Healthy");
   await expect(checkout.locator(".ap-sdk")).toHaveText("apilens-python 0.4.0");
@@ -98,17 +109,19 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await expect(worker.locator(".ap-slug")).toHaveCount(0);
   await expect(worker.locator(".ap-pill")).toHaveText("Stale");
   await expect(worker.locator(".ap-pill")).toHaveAttribute("title", "No heartbeat in the last 2 minutes.");
-  await expect(worker.locator(".ap-metrics dd")).toHaveText(["6.9", "7.1%", "1.82 s"]);
+  await expect(worker.locator(".ap-metrics dd")).toHaveText(["6.9", "6.1%", "1.82 s"]);
   await expect(worker.locator(".ap-health")).toHaveText("Failing");
   await expect(worker.locator(".ap-sdk code")).toHaveText("apilens-java 1.2.1 to 1.3.0");
-  await expect(worker.locator(".ap-update")).toHaveText("Update available: 1.3.0 (2 instances behind)");
+  // Only instances seen in the last 24 hours count: the one gone for 3 days is not behind any more.
+  await expect(worker.locator(".ap-update")).toHaveText("Update available: 1.3.0 (1 instance behind)");
   await expect(worker.locator(".ap-drops")).toHaveText("2 batches failed · 140 records dropped");
-  await expect(worker).toContainText("Last seen 18 min ago");
+  await expect(worker).toContainText("Last seen 18 min ago · 2 instances in the last 24 h");
 
-  // No traffic in the range: no p95, no health beyond saying so.
+  // No traffic in the range: no p95, no flat sparkline, no health beyond saying so.
   const legacy = card(page, "legacy");
   await expect(legacy.locator(".ap-pill")).toHaveText("Silent");
   await expect(legacy.locator(".ap-metrics dd")).toHaveText(["0", "0%", "n/a"]);
+  await expect(legacy.locator(".tr-spark")).toHaveCount(0);
   await expect(legacy.locator(".ap-health")).toHaveText("No traffic");
   await expect(legacy.locator(".ap-update")).toHaveText("Update available: 0.9.2 (1 instance behind)");
   await expect(legacy).toContainText("Last seen 9 days ago");
@@ -119,7 +132,7 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   // The whole card opens the app: its link covers the card, so a click on the numbers lands on it.
   await worker.locator(".ap-metrics").click({ force: true });
   await page.waitForURL("**/shop/apps/refunds-worker");
-  await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
 });
 
 test("says where each app came from, flags new SDK apps to keep or merge, and archives and restores", async ({ page }) => {
@@ -130,7 +143,8 @@ test("says where each app came from, flags new SDK apps to keep or merge, and ar
   ]);
   await signIn(page);
   await expect(card(page, "Checkout API").locator(".ap-origin")).toHaveText(/Default app.*Added in the dashboard · Oct 2/);
-  await expect(card(page, "refunds-worker").locator(".ap-origin")).toContainText("Added by the SDK from key prod-backend");
+  // The key the SDK came in with is not named on the card.
+  await expect(card(page, "refunds-worker").locator(".ap-origin")).toHaveText(/^New\s*Added by the SDK · \w{3} \d{1,2}$/);
   const fresh = page.getByRole("region", { name: "New app detected" });
   await expect(fresh).toContainText("refunds-worker");
   await fresh.getByRole("button", { name: "Keep refunds-worker" }).click();
@@ -199,7 +213,7 @@ test("an app that never sent a heartbeat says so", async ({ page }) => {
   await expect(shop.locator(".ap-pill")).toHaveText("Never reported");
   await expect(shop).toContainText("No SDK reported yet");
   await expect(shop).toContainText("No heartbeat yet");
-  await expect(page.locator(".ap-lead")).not.toContainText("attention");
+  await expect(page.locator(".ph-lead")).not.toContainText("attention");
 });
 
 test("says when an app’s status or traffic cannot be read", async ({ page }) => {
@@ -215,34 +229,141 @@ test("says when an app’s status or traffic cannot be read", async ({ page }) =
   await expect(card(page, "Checkout API").locator(".ap-pill")).toHaveText("Reporting");
 });
 
-test("an unknown app is not found", async ({ page }) => {
+test("an unknown app is not found, nor an app tab that is not built", async ({ page }) => {
   await seedApps();
   await signIn(page);
-  const res = await page.goto("/shop/apps/nope");
-  expect(res?.status()).toBe(404);
+  expect((await page.goto("/shop/apps/nope"))?.status()).toBe(404);
+  expect((await page.goto("/shop/apps/checkout-api/deploys"))?.status()).toBe(404);
+});
+
+// One app's page (#995): the Checkout API seeded with endpoints, instances, environments and deploys.
+const DETAIL = [
+  {
+    ...APPS[0],
+    status: {
+      ...APPS[0].status,
+      environments: [
+        { environment: "production", status: "reporting", last_seen_at: ago(20), live_instances: 2 },
+        { environment: "staging", status: "stale", last_seen_at: ago(600), live_instances: 0 },
+      ],
+      instances: [
+        {
+          instance_id: "web-7f9c-1",
+          environment: "production",
+          sdk_name: "apilens-python",
+          sdk_version: "0.4.0",
+          sdk_latest_version: "0.4.0",
+          sdk_outdated: false,
+          runtime: "python 3.13.1",
+          release: "2026.11.05",
+          commit: "3f9a2c1d5e6f7a8b",
+          pid: 4121,
+          first_seen_at: ago(7200),
+          last_seen_at: ago(20),
+          stats: {},
+        },
+      ],
+    },
+    traffic: {
+      ...APPS[0].traffic,
+      endpoints: [
+        { app_id: CHECKOUT, method: "POST", path: "/orders", requests: 90_000, client_errors: 900, server_errors: 450, error_rate: 0.015, p50_ms: 40, p95_ms: 380, apdex: 0.93 },
+        { app_id: CHECKOUT, method: "GET", path: "/orders/{id}", requests: 60_000, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 12, p95_ms: 48, apdex: 1 },
+      ],
+    },
+    deploys: [
+      {
+        deployed_at: "2026-11-15T09:30:00Z",
+        release: "2026.11.05",
+        commit: "3f9a2c1d5e6f7a8b",
+        environment: "production",
+        url: "",
+        app_id: CHECKOUT,
+        before: { requests: 0, error_rate: 0, p95_ms: 0 },
+        after: { requests: 0, error_rate: 0, p95_ms: 0 },
+        after_partial: false,
+      },
+    ],
+  },
+  APPS[1],
+  APPS[2],
+];
+
+test("a card opens the app’s overview: health, tiles, top endpoints, instances and deploys", async ({ page }) => {
+  await seedApps(DETAIL);
+  await signIn(page);
+  await card(page, "Checkout API").getByRole("link", { name: "Checkout API" }).click();
+  await page.waitForURL("**/shop/apps/checkout-api");
+  await expect(page.getByRole("heading", { level: 1, name: "Checkout API" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
+
+  const facts = page.locator(".ap-facts");
+  await expect(facts.locator(".ap-pill").first()).toHaveText("Reporting");
+  await expect(facts.locator(".ap-health")).toHaveText("Healthy");
+  await expect(facts.locator(".ap-sdk")).toHaveText("apilens-python 0.4.0");
+  await expect(facts.getByRole("list", { name: "Environments" }).getByRole("listitem")).toHaveText(["production", "staging"]);
+
+  await expect(page.locator(".ap-tiles dt")).toHaveText(["Requests", "5xx rate", "p95 response time"]);
+  await expect(page.locator(".ap-tiles .tr-tile__value")).toHaveText(["172,800", "0.5%", "413 ms"]);
+
+  const endpoints = page.getByRole("table", { name: "Top endpoints" });
+  await expect(endpoints.getByRole("row")).toHaveCount(3);
+  await expect(endpoints.getByRole("row").nth(1)).toContainText("POST /orders");
+  await expect(endpoints.getByRole("link", { name: "GET /orders/{id}" })).toHaveAttribute("href", `/shop/endpoints/GET/%2Forders%2F%7Bid%7D?app=${CHECKOUT}`);
+
+  const instances = page.getByRole("table", { name: "SDK instances" });
+  await expect(instances.getByRole("row").nth(1)).toContainText("web-7f9c-1");
+  await expect(instances.getByRole("row").nth(1)).toContainText("2026.11.05 (3f9a2c1)");
+
+  const deploys = page.getByRole("table", { name: "Recent deploys" });
+  await expect(deploys.getByRole("link", { name: "2026.11.05" })).toHaveAttribute("href", /\/shop\/changes\//);
+
+  const a11y = await new AxeBuilder({ page }).include(".ap-detail").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  await endpoints.getByRole("link", { name: "POST /orders" }).click();
+  await page.waitForURL((url) => url.pathname === "/shop/endpoints/POST/%2Forders" && url.searchParams.get("app") === CHECKOUT);
+});
+
+test("an app with no data yet shows how to set up the SDK", async ({ page }) => {
+  await seedApps([{ id: CHECKOUT, slug: "checkout-api", name: "Checkout API" }]);
+  await signIn(page, "/shop/apps/checkout-api");
+  await expect(page.getByRole("heading", { level: 1, name: "Checkout API" })).toBeVisible();
+  const setup = page.getByRole("status").filter({ hasText: "No data from Checkout API yet." });
+  await expect(setup).toContainText("APILENS_APP_ID=checkout-api");
+  await expect(setup.getByRole("link", { name: "Set up the SDK" })).toHaveAttribute("href", "/shop/settings/sdk");
+  await expect(page.locator(".ap-tiles")).toHaveCount(0);
+  await expect(page.getByRole("table")).toHaveCount(0);
 });
 
 test("lays out at phone width without scrolling sideways", async ({ page }) => {
-  await seedApps();
+  await seedApps(DETAIL);
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
   await expect(card(page, "Checkout API")).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  await page.goto("/shop/apps/checkout-api");
+  await expect(page.getByRole("table", { name: "Top endpoints" })).toBeVisible();
+  const detailOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(detailOverflow).toBeLessThanOrEqual(0);
 });
 
 test("screenshots", async ({ page }) => {
   const dir = process.env.APPS_SHOTS;
   test.skip(!dir, "set APPS_SHOTS to a directory to capture screenshots");
-  await seedApps();
+  await seedApps(DETAIL);
   await signIn(page);
   for (const theme of ["light", "dark"]) {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
-      await page.reload();
+      await page.goto(PAGE);
       await expect(card(page, "Checkout API")).toBeVisible();
       await page.screenshot({ path: `${dir}/apps-${theme}-${width}.png`, fullPage: true });
+      await page.goto("/shop/apps/checkout-api");
+      await expect(page.getByRole("heading", { level: 1, name: "Checkout API" })).toBeVisible();
+      await page.screenshot({ path: `${dir}/app-detail-${theme}-${width}.png`, fullPage: true });
     }
   }
 });

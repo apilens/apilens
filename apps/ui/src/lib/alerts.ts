@@ -14,6 +14,8 @@ import type {
   IncidentsRange,
 } from "./identity";
 import type { PageOptions } from "./pagination";
+import { formatAgo } from "./first-data";
+import { formatPercent } from "./format";
 
 // ---------------------------------------------------------------- routes
 
@@ -100,19 +102,60 @@ export function eventDuration(e: Pick<AlertEvent, "started_at" | "ended_at">, no
   return formatSpan((end - start) / 1000);
 }
 
+/** A list heading's count as a screen reader says it: `1 incident`, `4 incidents`. */
+export function incidentCount(n: number): string {
+  return `${n} ${n === 1 ? "incident" : "incidents"}`;
+}
+
+/** The value that opened an incident, apart from where the rule stands now: `Triggered at 3.4%`. */
+export function triggeredText(metric: AlertMetric, value: number | null | undefined): string {
+  return `Triggered at ${formatMetric(metric, value)}`;
+}
+
+/**
+ * Where a rule stands at its latest check, and when that was: `Now 2.0% · checked 40s ago`.
+ * `Not evaluated yet` before the first check.
+ */
+export function currentText(rule: Pick<AlertRule, "metric" | "state">, now: number): string {
+  const s = rule.state;
+  if (!s) return "Not evaluated yet";
+  const ago = formatAgo(s.evaluated_at, now);
+  return `Now ${formatMetric(rule.metric, s.value)}${ago ? ` · checked ${ago}` : ""}`;
+}
+
+/**
+ * Whether anyone was told about an incident, when nobody was: `Not yet` while it is open,
+ * `No notification sent` once resolved, and `No channel, nobody notified` when its rule has no
+ * channel (#978). Null once a notification went out (the page shows when).
+ */
+export function unnotifiedText(e: Pick<AlertEvent, "ended_at" | "notified_at">, noChannel: boolean): string | null {
+  if (e.notified_at) return null;
+  if (noChannel) return "No channel, nobody notified";
+  return e.ended_at ? "No notification sent" : "Not yet";
+}
+
 // ---------------------------------------------------------------- metrics
 
 type Unit = "count" | "rate" | "ms" | "score";
 
-export const METRICS: { value: AlertMetric; label: string; unit: Unit }[] = [
-  { value: "traffic", label: "Requests", unit: "count" },
-  { value: "errors", label: "Errors", unit: "count" },
-  { value: "error_rate", label: "Error rate", unit: "rate" },
-  { value: "p50", label: "p50 response time", unit: "ms" },
-  { value: "p75", label: "p75 response time", unit: "ms" },
-  { value: "p95", label: "p95 response time", unit: "ms" },
-  { value: "apdex", label: "Apdex", unit: "score" },
-  { value: "unique_consumers", label: "Unique consumers", unit: "count" },
+/**
+ * The alert metrics in the editor's order. `defaultCondition` and `defaultThreshold` (API units:
+ * rates 0..1, times in ms) are what a rule starts at when its metric is picked (#982), so a switch
+ * never carries `p95 > 5 ms` or `Apdex above 5` over from the last metric.
+ */
+export const METRICS: { value: AlertMetric; label: string; unit: Unit; defaultCondition: AlertCondition; defaultThreshold: number }[] = [
+  { value: "traffic", label: "Requests", unit: "count", defaultCondition: "lt", defaultThreshold: 1 },
+  { value: "errors", label: "Errors (4xx + 5xx)", unit: "count", defaultCondition: "gt", defaultThreshold: 10 },
+  { value: "error_rate", label: "Error rate (4xx + 5xx)", unit: "rate", defaultCondition: "gt", defaultThreshold: 0.05 },
+  { value: "server_errors", label: "Server errors (5xx)", unit: "count", defaultCondition: "gt", defaultThreshold: 10 },
+  { value: "server_error_rate", label: "Server error rate (5xx)", unit: "rate", defaultCondition: "gt", defaultThreshold: 0.05 },
+  { value: "client_errors", label: "Client errors (4xx)", unit: "count", defaultCondition: "gt", defaultThreshold: 50 },
+  { value: "client_error_rate", label: "Client error rate (4xx)", unit: "rate", defaultCondition: "gt", defaultThreshold: 0.1 },
+  { value: "p50", label: "p50 response time", unit: "ms", defaultCondition: "gt", defaultThreshold: 500 },
+  { value: "p75", label: "p75 response time", unit: "ms", defaultCondition: "gt", defaultThreshold: 750 },
+  { value: "p95", label: "p95 response time", unit: "ms", defaultCondition: "gt", defaultThreshold: 1000 },
+  { value: "apdex", label: "Apdex", unit: "score", defaultCondition: "lt", defaultThreshold: 0.85 },
+  { value: "unique_consumers", label: "Unique consumers", unit: "count", defaultCondition: "lt", defaultThreshold: 1 },
 ];
 
 const unitOf = (metric: AlertMetric): Unit => METRICS.find((m) => m.value === metric)?.unit ?? "count";
@@ -126,7 +169,7 @@ export const CONDITIONS: { value: AlertCondition; label: string; symbol: string 
 ];
 export const conditionSymbol = (c: AlertCondition): string => CONDITIONS.find((x) => x.value === c)?.symbol ?? c;
 
-/** What the threshold field is entered in for `metric`: error rate in percent, the rest as stored. */
+/** What the threshold field is entered in for `metric`: error rates in percent, the rest as stored. */
 export function thresholdUnit(metric: AlertMetric): string {
   switch (unitOf(metric)) {
     case "rate":
@@ -136,7 +179,8 @@ export function thresholdUnit(metric: AlertMetric): string {
     case "score":
       return "0 to 1";
     default:
-      return metric === "unique_consumers" ? "consumers" : metric === "errors" ? "errors" : "requests";
+      if (metric === "unique_consumers") return "consumers";
+      return metric === "traffic" ? "requests" : "errors";
   }
 }
 
@@ -146,10 +190,9 @@ const COUNT = new Intl.NumberFormat("en-US");
 export function formatMetric(metric: AlertMetric, value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "–";
   switch (unitOf(metric)) {
-    case "rate": {
-      const pct = value * 100;
-      return `${Number(pct.toFixed(pct !== 0 && Math.abs(pct) < 1 ? 2 : 1))}%`;
-    }
+    case "rate":
+      // Two decimals under 1% so a 0.25% threshold reads as entered.
+      return formatPercent(value, { digits: value > 0 && value < 0.01 ? 2 : 1 });
     case "ms":
       return value >= 1000 ? `${Number((value / 1000).toFixed(2))} s` : `${Math.round(value)} ms`;
     case "score":
@@ -230,9 +273,7 @@ export function newRuleDraft(appId = "", environment = ""): RuleDraft {
     environment,
     name: "",
     description: "",
-    metric: "error_rate",
-    condition: "gt",
-    threshold: "5",
+    ...withMetric({ metric: "error_rate", condition: "gt", threshold: "" }, "error_rate", false),
     window_min: "5",
     schedule: "every",
     every_min: "1",
@@ -245,6 +286,36 @@ export function newRuleDraft(appId = "", environment = ""): RuleDraft {
     channel_ids: [],
     enabled: true,
   };
+}
+
+/**
+ * The draft with `metric` picked. Unless the user has typed a threshold (`thresholdTouched`), the
+ * metric's default condition and threshold come with it (#982).
+ */
+export function withMetric<D extends Pick<RuleDraft, "metric" | "condition" | "threshold">>(draft: D, metric: AlertMetric, thresholdTouched: boolean): D {
+  const m = METRICS.find((x) => x.value === metric);
+  if (thresholdTouched || !m) return { ...draft, metric };
+  return { ...draft, metric, condition: m.defaultCondition, threshold: thresholdField(metric, m.defaultThreshold) };
+}
+
+/** The draft's threshold in API units (rates 0..1), or null while it is not a number of 0 or more. */
+export function draftThreshold(d: Pick<RuleDraft, "metric" | "threshold">): number | null {
+  const raw = d.threshold.trim();
+  const n = Number(raw);
+  if (raw === "" || !Number.isFinite(n) || n < 0) return null;
+  return unitOf(d.metric) === "rate" ? n / 100 : n;
+}
+
+/**
+ * The one-line summary of a draft, which a new rule's name follows until the user types one
+ * (#982): `Error rate (4xx + 5xx) > 5.0% over 5 min`. Empty while the threshold or the window is
+ * not a number.
+ */
+export function draftSummary(d: Pick<RuleDraft, "metric" | "condition" | "threshold" | "window_min">): string {
+  const threshold = draftThreshold(d);
+  const window = wholeMinutes(d.window_min, 1);
+  if (threshold === null || window === null) return "";
+  return ruleSummary({ metric: d.metric, condition: d.condition, threshold, window_s: window * 60 }).slice(0, MAX_RULE_NAME);
 }
 
 /** The editor's draft of a saved rule. */

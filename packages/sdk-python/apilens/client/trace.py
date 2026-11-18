@@ -11,8 +11,33 @@ from __future__ import annotations
 import contextvars
 import re
 import secrets
+import threading
 
 _TRACEPARENT_RE = re.compile(r"^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
+
+# Most child spans one request may record (D8); the rest are dropped and
+# counted as ``span_cap``. The request's own server span is never capped.
+MAX_SPANS_PER_REQUEST = 2000
+
+
+class SpanBudget:
+    """Child spans recorded so far by one request (shared by the tasks and
+    copied contexts of that request)."""
+
+    __slots__ = ("used", "lock")
+
+    def __init__(self) -> None:
+        self.used = 0
+        self.lock = threading.Lock()
+
+    def take(self) -> bool:
+        """Claim one span slot; False once :data:`MAX_SPANS_PER_REQUEST` are used."""
+        with self.lock:
+            if self.used >= MAX_SPANS_PER_REQUEST:
+                return False
+            self.used += 1
+            return True
+
 
 class _RequestTrace:
     """The trace of the request being handled; ``ended`` once its response is done.
@@ -23,11 +48,12 @@ class _RequestTrace:
     request. Marking the shared object ended hides it from those copies too.
     """
 
-    __slots__ = ("trace_id", "span_id", "ended")
+    __slots__ = ("trace_id", "span_id", "budget", "ended")
 
     def __init__(self, trace_id: str, span_id: str) -> None:
         self.trace_id = trace_id
         self.span_id = span_id
+        self.budget = SpanBudget()
         self.ended = False
 
 
@@ -113,6 +139,12 @@ def reset_detail_sampled(token: contextvars.Token) -> None:
 def detail_sampled() -> bool:
     """False while handling a request whose detail was sampled out."""
     return _detail_sampled_ctx.get()
+
+
+def current_span_budget() -> SpanBudget | None:
+    """Span budget of the request currently being handled (None outside one)."""
+    ctx = _live_trace()
+    return ctx.budget if ctx else None
 
 
 def current_trace_id() -> str:

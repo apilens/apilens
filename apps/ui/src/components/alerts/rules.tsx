@@ -35,7 +35,11 @@ export function RulesView({
   const { rows: shown, window } = slicePage(rules ?? [], parsePage(params));
   return (
     <div className="page al">
-      <AlertsHeader project={project} projectName={projectName} tab="rules" title="Alert rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
+      <AlertsHeader project={project} projectName={projectName} tab="rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
+        {/* Channels live in Project settings; rules pick from them (#998). */}
+        <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={channelsHref(project)}>
+          Alert channels
+        </Link>
         {manage && rules !== null ? (
           <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newRuleHref(project)}>
             New rule
@@ -109,14 +113,23 @@ function RuleRow({ project, rule: r, app, channels }: { project: string; rule: A
       <td data-label="Checked">
         {scheduleText(r)}
       </td>
-      <td data-label="Notifies">{names.length ? names.join(", ") : <span className="al-muted">No channels</span>}</td>
+      <td data-label="Notifies">
+        {names.length ? (
+          names.join(", ")
+        ) : (
+          // Nobody is notified for this rule: link to its Notify section to pick a channel (#978).
+          <Link className="cp-link" href={`${ruleHref(project, r.id)}#notify`}>
+            No channels
+          </Link>
+        )}
+      </td>
       <td data-label="Status">
         {!r.enabled ? (
           <span className="ah-badge al-badge--none">Disabled</span>
         ) : r.state ? (
           <>
             <StatusBadge status={r.state.status} />
-            <span className="al-meta al-mono">{formatMetric(r.metric, r.state.value)}</span>
+            <span className="al-meta al-mono">Now {formatMetric(r.metric, r.state.value)}</span>
           </>
         ) : (
           <span className="al-muted">Not evaluated yet</span>

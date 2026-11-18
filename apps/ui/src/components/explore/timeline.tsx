@@ -1,6 +1,7 @@
 "use client";
 
 import { type KeyboardEvent, type PointerEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { formatPercent } from "@/lib/format";
 import { formatCount, stackBars } from "@/lib/consumers";
 import { type ExploreState, LOG_POLL_MS, exploreHref, statusQuickHref, timelinePath } from "@/lib/explore";
 import {
@@ -21,7 +22,6 @@ import {
   timelinePoll,
   windowText,
 } from "@/lib/explore-timeline";
-import { formatShare } from "@/lib/endpoint-detail";
 import type { RequestTimeline } from "@/lib/identity";
 import { plotWidth } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
@@ -62,6 +62,15 @@ function Tip({ text, center, width }: { text: string; center: number; width: num
     <div ref={ref} className="ex-tl__tip" aria-hidden="true" style={{ left: left ?? 0, visibility: left === null ? "hidden" : undefined }}>
       {text}
     </div>
+  );
+}
+
+/** A funnel: marks the legend's error counts as filters you can press (#985). */
+function FilterIcon() {
+  return (
+    <svg className="ex-tl__icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 3.5h11l-4.25 5v4l-2.5 1v-5z" />
+    </svg>
   );
 }
 
@@ -250,6 +259,7 @@ export function Timeline({
                   onClick={(e) => go(e, href)}
                 >
                   {label}
+                  <FilterIcon />
                 </a>
               </li>
             );
@@ -261,7 +271,8 @@ export function Timeline({
                 return (
                   <a className="ex-tl__quick" href={href} aria-current={active ? "true" : undefined} title={active ? "Show every status again" : "Show only errors (4xx and 5xx) in the log"} onClick={(e) => go(e, href)}>
                     All errors{" "}
-                    <span className="ex-tl__n">{formatShare((totals.client_errors + totals.server_errors) / Math.max(1, totals.requests))}</span>
+                    <span className="ex-tl__n">{formatPercent((totals.client_errors + totals.server_errors) / Math.max(1, totals.requests))}</span>
+                    <FilterIcon />
                   </a>
                 );
               })()}

@@ -40,7 +40,7 @@ test.afterAll(async () => {
 
 test("shows the details and identifiers with copy controls", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 1, name: "General" })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "General" })).toBeVisible();
   await expect(page).toHaveTitle(/^General · Project settings/);
   await expect(details(page).getByLabel("Name")).toHaveValue("Shop");
   await expect(details(page).getByLabel("Description")).toHaveValue("Storefront API: catalogue, cart and checkout.");
@@ -52,7 +52,7 @@ test("shows the details and identifiers with copy controls", async ({ page }) =>
   await expect(ids.getByText(SHOP_ID)).toBeVisible();
   await expect(ids.getByRole("button", { name: "Copy slug" })).toBeVisible();
   await expect(ids.getByRole("button", { name: "Copy project ID" })).toBeVisible();
-  await expect(ids).toContainText("Olive Owner ·");
+  await expect(ids.locator("dd").last()).toHaveText(/^[A-Z][a-z]{2} \d{1,2}, \d{4} by Olive Owner$/);
   await expect(page.getByRole("region", { name: "Ingest is paused" })).toHaveCount(0);
 });
 
@@ -67,7 +67,7 @@ test("edits and saves; the new name shows in the sidebar and header without a re
   await expect(form.getByRole("status")).toHaveText("Saved.");
   await expect(form.getByLabel("Name")).toHaveValue("Shop API");
   await expect(page.getByRole("button", { name: "Project Shop API. Switch project" })).toBeVisible();
-  await expect(page.getByText("Shop API · Settings")).toBeVisible();
+  await expect(page.locator(".ph-eyebrow").getByRole("link", { name: "Shop API", exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { marker?: number }).marker)).toBe(815);
 
   await page.reload();
@@ -107,6 +107,13 @@ test("an empty description reads as such for a viewer", async ({ page }) => {
   await seedProject({ project: { description: "" } });
   await signIn(page, VIEWER);
   await expect(details(page).getByText("No description yet.")).toBeVisible();
+});
+
+test("an unrecorded creator leaves just the date in the Created row", async ({ page }) => {
+  await seedProject({ project: { created_by: null } });
+  await signIn(page, VIEWER);
+  await expect(identifiers(page).locator("dd").last()).toHaveText(/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+  await expect(identifiers(page)).not.toContainText("Not recorded");
 });
 
 test("a paused project shows a notice and an admin resumes it", async ({ page }) => {

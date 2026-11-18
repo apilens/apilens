@@ -5,7 +5,6 @@ import {
   consumersHref,
   formatBucket,
   formatPerMinute,
-  formatRate,
   groupHref,
   niceMax,
   parseConsumersQuery,
@@ -41,9 +40,9 @@ describe("parseConsumersQuery", () => {
 });
 
 describe("consumersHref", () => {
-  it("leaves defaults out and encodes the consumer", () => {
+  it("leaves defaults out but always carries the range (#993) and encodes the consumer", () => {
     expect(consumersHref("shop", {})).toBe("/shop/consumers");
-    expect(consumersHref("shop", DEFAULTS as never)).toBe("/shop/consumers");
+    expect(consumersHref("shop", DEFAULTS as never)).toBe("/shop/consumers?range=24h");
     expect(consumersHref("shop", { range: "7d", consumer: "acme/eu 1", tab: "errors" })).toBe("/shop/consumers?range=7d&consumer=acme%2Feu+1&tab=errors");
     expect(consumersHref("shop", { group: "Acme Corp", q: "priya", sort: "errors" })).toBe("/shop/consumers?group=Acme+Corp&q=priya&sort=errors");
     expect(groupHref("shop", "Umbrella Health", "1h")).toBe("/shop/consumers?range=1h&group=Umbrella+Health");
@@ -73,9 +72,6 @@ describe("formatting", () => {
   });
 
   it("formats rates, per-minute and buckets", () => {
-    expect(formatRate(0, 0)).toBe("0%");
-    expect(formatRate(1, 2000)).toBe("<0.1%");
-    expect(formatRate(12, 500)).toBe("2.4%");
     expect(formatPerMinute(0)).toBe("0");
     expect(formatPerMinute(0.04)).toBe("<0.1");
     expect(formatPerMinute(2.44)).toBe("2.4");

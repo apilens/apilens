@@ -76,4 +76,10 @@ packages = ["apilens"]
 # `uv run pytest` (local dev + merge gate) needs pytest in the default group.
 dev = [
   "pytest>=8.0.0",
+  # Example-style framework tests (framework-handled 500s keep their stack).
+  "django>=4.2",
+  "fastapi>=0.110.0",
+  "flask>=3.0.0",
+  "httpx>=0.27.0",
+  "sqlalchemy>=2.0",
 ]

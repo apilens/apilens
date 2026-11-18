@@ -64,12 +64,12 @@ export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
 }
 
 /**
- * The page URL for `q`, leaving defaults out. It never carries `page`: every link built here (a
+ * The page URL for `q`, leaving defaults out (a range always goes in, #993). It never carries `page`: every link built here (a
  * range, view, filter, search, sort or tab change) starts again at page 1.
  */
 export function consumersHref(project: string, q: Partial<ConsumersQuery>): string {
   const p = new URLSearchParams();
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
+  if (q.range) p.set("range", q.range);
   if (q.consumer) {
     p.set("consumer", q.consumer);
     if (q.tab === "errors") p.set("tab", "errors");
@@ -90,14 +90,6 @@ export const groupHref = (project: string, group: string, range: QueryRange) => 
 export const consumerLabel = (c: { consumer_id: string; consumer_name: string }) => c.consumer_name.trim() || c.consumer_id;
 
 export const errorsOf = (s: Pick<StatusSplit, "client_errors" | "server_errors">) => s.client_errors + s.server_errors;
-
-/** An error rate (0..1) as a percentage: `0%`, `<0.1%`, `2.4%`. */
-export function formatRate(errors: number, requests: number): string {
-  if (requests <= 0 || errors <= 0) return "0%";
-  const rate = errors / requests;
-  if (rate < 0.001) return "<0.1%";
-  return `${(rate * 100).toFixed(1)}%`;
-}
 
 const COUNT = new Intl.NumberFormat("en-US");
 export const formatCount = (n: number) => COUNT.format(n);
@@ -189,3 +181,4 @@ const round = (n: number) => Math.round(n * 10) / 10;
 export const CONSUMERS_LOAD_FAILED = "We couldn’t load consumers just now.";
 export const CONSUMER_LOAD_FAILED = "We couldn’t load this consumer just now.";
 export const GROUPS_LOAD_FAILED = "We couldn’t load consumer groups just now.";
+export const ANONYMOUS_LOAD_FAILED = "We couldn’t load anonymous callers just now.";

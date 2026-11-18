@@ -28,3 +28,6 @@
   .sdk-facts { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
   .sdk-table th[scope="row"] { display: block; padding: 0 0 var(--space-1); border-bottom: 0; }
 }
+
+/* Release and commit (#997): its tabs open the card body. */
+.sdk-release .sdk-tabs { margin-top: 0; }

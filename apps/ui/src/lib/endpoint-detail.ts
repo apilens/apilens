@@ -2,8 +2,10 @@
 // Response times and Data transferred tabs, and the endpoint's settings. Pure helpers (URL state,
 // formatting, settings input), unit-tested in endpoint-detail.test.ts.
 import { RANGE_LABEL } from "./consumers";
+import type { ExploreScope } from "./explore";
 import type { EndpointSettings, LatencyBucket, PutEndpointSettingsRequest, QueryRange, SizeBucket, StatusClass } from "./identity";
-import { DEFAULT_RANGE, TRAFFIC_RANGES } from "./traffic";
+import { envParam } from "./scope-defaults";
+import { DEFAULT_RANGE, TRAFFIC_RANGES, parseAppParam } from "./traffic";
 
 export const ENDPOINT_TABS = [
   { slug: "requests", label: "Requests" },
@@ -16,16 +18,15 @@ const DEFAULT_TAB: EndpointTab = "requests";
 
 export const STATUS_CLASSES: readonly StatusClass[] = ["all", "2xx", "3xx", "4xx", "5xx"];
 
-/** The longest environment name, consumer id and app slug the API takes. */
+/** The longest environment name and consumer id the API takes. */
 const MAX_ENV = 64;
 const MAX_CONSUMER = 128;
-const MAX_APP = 63;
 /** The longest route template the API takes. */
 const MAX_PATH = 1024;
 
 /**
  * The page's state, all of it in the URL: `?tab=&range=&env=&status=&consumer=&app=`. Empty
- * env and consumer mean all; `app` picks the app whose settings the menu edits (else the first).
+ * env, consumer and app (an app id, #976) mean all.
  */
 export interface EndpointState {
   tab: EndpointTab;
@@ -60,7 +61,7 @@ export function parseEndpointQuery(params: SearchParams): EndpointState {
     env: capped(params.env, MAX_ENV),
     status: STATUS_CLASSES.includes(status as StatusClass) ? (status as StatusClass) : "all",
     consumer: capped(params.consumer, MAX_CONSUMER),
-    app: capped(params.app, MAX_APP),
+    app: parseAppParam(params.app),
   };
 }
 
@@ -83,12 +84,12 @@ export function parseEndpointRef(method: string, path: string): EndpointRef | nu
   return { method: method.toUpperCase(), path: template };
 }
 
-/** The page URL for the endpoint in state `q`, leaving defaults out. */
+/** The page URL for the endpoint in state `q`, leaving defaults out; a range and env always go in (#993). */
 export function endpointPageHref(project: string, ep: EndpointRef, q: Partial<EndpointState>): string {
   const p = new URLSearchParams();
   if (q.tab && q.tab !== DEFAULT_TAB) p.set("tab", q.tab);
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.env) p.set("env", q.env);
+  if (q.range) p.set("range", q.range);
+  if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.status && q.status !== "all") p.set("status", q.status);
   if (q.consumer) p.set("consumer", q.consumer);
   if (q.app) p.set("app", q.app);
@@ -99,9 +100,29 @@ export function endpointPageHref(project: string, ep: EndpointRef, q: Partial<En
 /** Whether a tab's read takes the status filter (the errors read does not). */
 export const tabTakesStatus = (tab: EndpointTab) => tab !== "errors";
 
-/** The scope in words: `the last 24 hours in production, 5xx responses, consumer acme`. */
-export function endpointScopeText(q: EndpointState, consumerLabel?: string): string {
-  const parts = [`the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`];
+/**
+ * The endpoint's requests as Explore filters them (#977, for exploreHrefFor): its method and route
+ * template in the page's range, environment and app, with the consumer and, where the open tab
+ * reads it, the status class.
+ */
+export function endpointExploreScope(ep: EndpointRef, q: EndpointState): ExploreScope {
+  return {
+    range: q.range,
+    env: q.env,
+    app: q.app,
+    method: ep.method,
+    path: ep.path,
+    consumer_id: q.consumer,
+    status: q.status !== "all" && tabTakesStatus(q.tab) ? q.status : "",
+  };
+}
+
+/** The page state with the name of the app in scope (#976), for the scope in words. */
+export type EndpointScope = EndpointState & { appLabel?: string };
+
+/** The scope in words: `the last 24 hours in production for Billing, 5xx responses, consumer acme`. */
+export function endpointScopeText(q: EndpointScope, consumerLabel?: string): string {
+  const parts = [`the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}${q.app && q.appLabel ? ` for ${q.appLabel}` : ""}`];
   if (q.status !== "all" && tabTakesStatus(q.tab)) parts.push(`${q.status} responses`);
   if (q.consumer) parts.push(`consumer ${consumerLabel || q.consumer}`);
   return parts.join(", ");
@@ -148,19 +169,6 @@ export function sizeBucketLabel(b: Pick<SizeBucket, "from_bytes" | "to_bytes">):
   return fu === tu ? `${fv}–${tv} ${tu}` : `${from}–${to}`;
 }
 
-/** A value already in percent (0 to 100): `0%`, `<0.1%`, `2.5%`, `12%`. */
-export function formatPercent(v: number): string {
-  if (!Number.isFinite(v) || v <= 0) return "0%";
-  if (v < 0.1) return "<0.1%";
-  return `${v < 10 ? v.toFixed(1).replace(/\.0$/, "") : Math.round(v)}%`;
-}
-
-/** A share from 0 to 1 as a percentage: `0%`, `<0.1%`, `12.5%`. */
-export function formatShare(share: number): string {
-  if (!Number.isFinite(share) || share <= 0) return "0%";
-  if (share < 0.001) return "<0.1%";
-  return `${(Math.min(1, share) * 100).toFixed(1)}%`;
-}
 
 // Settings ---------------------------------------------------------------------------------
 

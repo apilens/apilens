@@ -47,8 +47,8 @@ describe("RETENTION_LIMITS", () => {
   it("mirrors the install config (internal/platform/config/retention.go)", () => {
     expect(RETENTION_LIMITS).toEqual({
       requests: { default: 90, min: 1, max: 3650 },
-      logs: { default: 30, min: 1, max: 3650 },
-      spans: { default: 30, min: 1, max: 3650 },
+      logs: { default: 90, min: 1, max: 3650 },
+      spans: { default: 90, min: 1, max: 3650 },
       rollups_1m: { default: 30, min: 1, max: 400 },
       rollups_1h: { default: 400, min: 30, max: 3650 },
     });

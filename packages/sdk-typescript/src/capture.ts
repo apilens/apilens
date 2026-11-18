@@ -11,11 +11,18 @@
  * consumer, parsed request body, error). Everything else — the record,
  * masking, sampling, spans and the error log — is done here, identically for
  * every framework.
+ *
+ * A failed request (the handler threw, whatever status the app answered, or
+ * a 5xx) is never sampled out, by `sampleRate`, `sampleOnResponse` or the
+ * remote policy's rate, and always sends its error log, with or without span
+ * capture. Only capture being off (in code or remotely) drops it.
  */
 import type { IncomingHttpHeaders } from "node:http";
 
 import { ApiLensClient } from "./client.js";
 import { resolveConfig } from "./env.js";
+import { instrumentDatabases } from "./db.js";
+import { applyStackTraceLimit } from "./exception.js";
 import { RequestExcluder } from "./exclusions.js";
 import { effectiveConfig } from "./metadata.js";
 import { Sampler } from "./sampling.js";
@@ -117,9 +124,16 @@ export function requestBodyBytes(body: unknown, contentType: string, maxBytes: n
 /** The error that reached an adapter's error hook, by (raw Node) request. */
 const requestErrors = new WeakMap<object, unknown>();
 
-/** Remember `err` as the error of `req`, for the error log of a 5xx. */
-export function recordRequestError(req: object, err: unknown): void {
-  requestErrors.set(req, err);
+/**
+ * Remember `err` as the error of `req`, for the request's error log, unless
+ * one is already kept: the first hook to see an error (the one closest to
+ * where it was raised) wins over a user error handler that later swaps it
+ * for another, and a request reports at most one error.
+ */
+export function keepFirstRequestError(req: object, err: unknown): void {
+  if (err !== undefined && err !== null && !requestErrors.has(req)) {
+    requestErrors.set(req, err);
+  }
 }
 
 /** The error recorded for `req`, if any. */
@@ -151,6 +165,10 @@ export function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
     flushMode: config.flushMode,
     onStats: config.onStats,
     maxRetries: config.maxRetries,
+    maxRetrySeconds: config.maxRetrySeconds,
+    flushOnShutdown: config.flushOnShutdown,
+    shutdownTimeoutMs: config.shutdownTimeoutMs,
+    captureUnhandled: config.captureUnhandled,
     retryBackoffBaseMs: config.retryBackoffBaseMs,
     retryBackoffMaxMs: config.retryBackoffMaxMs,
     enabled: config.enabled,
@@ -187,7 +205,7 @@ export type CaptureRequestFinish = {
   consumerArgs: [unknown, unknown];
   /** The parsed request body. */
   requestBody: unknown;
-  /** The error that failed the request, for the error log of a 5xx. */
+  /** The error the handler threw (whatever the final status), for the error log. */
   error?: unknown;
 };
 
@@ -355,8 +373,12 @@ export class RequestCapture {
         consumerFromStringOrObject(config.getConsumer?.(...out.consumerArgs));
       const statusCode = out.statusCode;
       const responseHeaders = out.responseHeaders;
+      const threw = out.error !== undefined && out.error !== null;
+      // Errors are never sampled: a failed request keeps its detail, spans
+      // and error log whatever the sample rate or callbacks decided.
+      const failed = threw || statusCode >= 500;
 
-      this.sampled = core.sampler.decideResponse(this.sampled, () => ({
+      this.sampled = failed || core.sampler.decideResponse(this.sampled, () => ({
         method,
         route: path,
         rawPath,
@@ -449,9 +471,9 @@ export class RequestCapture {
         trace_id: trace?.traceId,
         span_id: trace?.spanId,
         sampled,
-      });
+      }, { keep: failed });
 
-      // Spans and the error log are detail: only for a sampled-in request.
+      // Spans are detail: only for a sampled-in (or failed) request.
       const spanRecorder = core.spanRecorder;
       if (spanRecorder && this.requestSpans && trace) {
         this.requestSpans.finish(kept);
@@ -471,18 +493,21 @@ export class RequestCapture {
               "http.status_code": String(statusCode),
             },
           });
-          if (statusCode >= 500) {
-            spanRecorder.errorLog(trace, {
-              ...errorLogContent(out.error, statusCode, method, path),
-              method,
-              path,
-              statusCode,
-              consumerId: consumer?.consumer_id || "",
-              consumerName: consumer?.consumer_name || "",
-              consumerGroup: consumer?.consumer_group || "",
-            });
-          }
         }
+      }
+      // The error log does not depend on span capture: ERROR for a 5xx, WARN
+      // for a thrown error the app answered below 500.
+      if (failed && core.logRecorder) {
+        core.logRecorder.errorLog(trace, {
+          ...errorLogContent(out.error, statusCode, method, path),
+          level: statusCode >= 500 ? "ERROR" : "WARN",
+          method,
+          path,
+          statusCode,
+          consumerId: consumer?.consumer_id || "",
+          consumerName: consumer?.consumer_name || "",
+          consumerGroup: consumer?.consumer_group || "",
+        });
       }
     } catch (error) {
       client.config.logger.error?.("Error while logging request in API Lens middleware", error);
@@ -508,6 +533,8 @@ export class CaptureCore {
   readonly parametrizePaths: boolean;
   readonly captureSpans: boolean;
   readonly spanRecorder?: SpanRecorder;
+  /** Where the error log goes; set whenever capture is enabled, spans or not. */
+  readonly logRecorder?: SpanRecorder;
   /** The effective configuration for the app metadata report. */
   readonly metadataConfig: Record<string, unknown>;
   private metadataStarted = false;
@@ -552,17 +579,26 @@ export class CaptureCore {
     // Heuristic fallback for unmatched routes; APILENS_PARAMETRIZE_PATHS=false
     // overrides it. Matched framework routes are always used.
     this.parametrizePaths = config.parametrizePaths !== false;
-    // Trace ids, request + outbound spans and the error log (with an empty
-    // app_id when none is configured); APILENS_CAPTURE_SPANS=false wins over code.
-    this.captureSpans = this.enabled && config.captureSpans !== false && envSpansEnabled();
-    if (this.captureSpans) {
-      this.spanRecorder = new SpanRecorder(
+    // The error log (with an empty app_id when none is configured) is sent
+    // whenever capture is on. Trace ids, request + outbound spans follow
+    // captureSpans; APILENS_CAPTURE_SPANS=false wins over code.
+    if (this.enabled) {
+      // Deeper stacks for the exception log (V8 keeps 10 frames by default).
+      applyStackTraceLimit(config.stackTraceLimit);
+      this.logRecorder = new SpanRecorder(
         client,
         client.config.appId,
         environment || client.config.environment,
         String(config.serviceName || "").trim() || client.config.appId,
       );
+    }
+    this.captureSpans = this.enabled && config.captureSpans !== false && envSpansEnabled();
+    if (this.captureSpans) {
+      this.spanRecorder = this.logRecorder;
       instrumentOutboundHttp();
+      if (config.captureDbSpans !== false) {
+        instrumentDatabases();
+      }
     }
 
     // Heartbeats for this app and environment.

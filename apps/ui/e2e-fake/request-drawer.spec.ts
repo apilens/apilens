@@ -165,13 +165,13 @@ test("opens a row in the drawer and shows every tab", async ({ page, context }) 
   await expect(panel(page).locator(".rd-wf__label")).toHaveText(["POST /orders", "GET cart", "SELECT orders"]);
   await expect(panel(page).locator(".rd-wf__item.is-error")).toHaveCount(1);
   await expect(panel(page).getByText("3 spans over 84 ms")).toBeVisible();
-  // A span opens to its full name and timing, and closes again.
+  // A span opens in place to its detail, and closes again.
   const span = panel(page).getByRole("button", { name: /GET cart/ });
   await span.click();
   await expect(span).toHaveAttribute("aria-expanded", "true");
-  await expect(panel(page).locator(".rd-wf__full")).toHaveText("GET cart");
+  await expect(panel(page).getByRole("region", { name: "Span GET cart" })).toBeVisible();
   await span.click();
-  await expect(panel(page).locator(".rd-wf__full")).toHaveCount(0);
+  await expect(panel(page).getByRole("region", { name: "Span GET cart" })).toHaveCount(0);
 
   // Logs: oldest first, timed from the request, with their span.
   await tab(page, "Logs").click();
@@ -285,4 +285,234 @@ test("fits a phone without sideways scrolling", async ({ page }) => {
   await expect(panel(page).locator(".rd-wf__row")).toHaveCount(3);
   const overflow = await drawer(page).evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+// ---------------------------------------------------------------- exceptions (#924)
+
+const PY_PAYLOAD = `Traceback (most recent call last):
+  File "/app/shop/payments.py", line 6, in pay
+    charge()
+  File "/usr/lib/python3.12/site-packages/stripe/api.py", line 3, in charge
+    raise ConnectionError("card gateway timed out")
+ConnectionError: card gateway timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/shop/views.py", line 15, in create_order
+    pay()
+  File "/app/shop/payments.py", line 8, in pay
+    raise RuntimeError("payment failed") from e
+RuntimeError: payment failed
+`;
+
+const NODE_PAYLOAD = `Error: load cart failed
+    at load (/app/src/cart.js:2:54)
+    at Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)
+…[2048 chars truncated]…
+Caused by: RangeError: pool exhausted
+    at query (/app/src/db.js:1:26)`;
+
+const JAVA_PAYLOAD = `java.lang.IllegalStateException: order 42 rejected
+\tat com.shop.orders.OrderService.create(OrderService.java:42)
+\tat org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)
+Caused by: java.net.SocketTimeoutException: Read timed out
+\tat java.base/sun.nio.ch.NioSocketImpl.timedRead(Native Method)
+\t... 5 more
+`;
+
+function failing(id: string, ago: number, payload: string, type: string, message: string): Row {
+  const t = at(ago);
+  const later = (ms: number) => new Date(Date.parse(t) + ms).toISOString();
+  return {
+    id,
+    timestamp: t,
+    app_id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+    method: "POST",
+    path: `/${id}`,
+    raw_path: `/${id}`,
+    status_code: 500,
+    response_time_ms: 40,
+    environment: "production",
+    consumer_id: "",
+    consumer_name: "",
+    sampled: true,
+    trace_id: `${id}-trace`,
+    detail: {
+      spans: [
+        {
+          span_id: `${id}-root`,
+          parent_span_id: "",
+          name: `POST /${id}`,
+          kind: "server",
+          service_name: "shop",
+          start: t,
+          duration_ms: 40,
+          status: "error",
+          status_code: 500,
+          status_message: `${type}: ${message}`,
+          attributes: { "http.route": `/${id}`, "http.response.status_code": "500" },
+          events: [
+            { time: later(5), name: "cache.miss", attributes: { key: "cart:42" } },
+            { time: later(39), name: "exception", attributes: { "exception.type": type, "exception.message": message, "exception.stacktrace": payload, "exception.escaped": "true" } },
+          ],
+          links: [],
+        },
+      ],
+      logs: [
+        {
+          timestamp: later(39),
+          level: "ERROR",
+          message: `${type}: ${message}`,
+          logger_name: "apilens.exception",
+          span_id: `${id}-root`,
+          payload,
+          attributes: { "exception.type": type, "exception.message": message, "exception.chain_depth": "1" },
+        },
+      ],
+    },
+  };
+}
+
+const EXC_ROWS: Row[] = [
+  failing("py", 100, PY_PAYLOAD, "RuntimeError", "payment failed"),
+  failing("node", 200, NODE_PAYLOAD, "Error", "load cart failed"),
+  failing("java", 300, JAVA_PAYLOAD, "java.lang.IllegalStateException", "order 42 rejected"),
+];
+
+const exception = (page: Page) => panel(page).getByRole("region", { name: "Exception", exact: true });
+const blocks = (page: Page) => exception(page).locator(".rd-exb > summary");
+
+async function openTrace(page: Page, index: number) {
+  await rowAt(page, index).click();
+  await tab(page, "Trace").click();
+}
+
+test("shows the full Python exception with its cause and copies the raw payload", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await seed(EXC_ROWS);
+  await signIn(page);
+  await openTrace(page, 0);
+
+  await expect(exception(page).locator(".rd-exc__title")).toHaveText("RuntimeErrorpayment failed");
+  await expect(blocks(page)).toHaveText(["RaisedRuntimeErrorpayment failed", "Caused byConnectionErrorcard gateway timed out"]);
+  // The raised exception is open, its cause collapsed until asked for.
+  const raised = exception(page).locator(".rd-exb").first();
+  await expect(raised.locator(".rd-frame")).toHaveCount(2);
+  await expect(raised.locator(".rd-frame.is-app").first()).toContainText("/app/shop/views.py:15 in create_order");
+  await expect(raised.locator(".rd-frame__code").first()).toHaveText("pay()");
+  const cause = exception(page).locator(".rd-exb").nth(1);
+  await expect(cause.locator(".rd-frame").first()).toBeHidden();
+  await blocks(page).nth(1).click();
+  await expect(cause.locator(".rd-frame")).toHaveCount(2);
+  await expect(cause.locator(".rd-frame.is-app")).toHaveCount(1);
+  await expect(cause.locator(".rd-frame").nth(1)).not.toHaveClass(/is-app/);
+
+  await exception(page).getByRole("button", { name: "Copy exception" }).click();
+  await expect(exception(page).getByRole("status")).toHaveText("Copied the full exception.");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(PY_PAYLOAD);
+
+  const a11y = await new AxeBuilder({ page }).include(".rd").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
+test("shows Node and Java exceptions with causes and the truncation notice", async ({ page }) => {
+  await seed(EXC_ROWS);
+  await signIn(page);
+
+  await openTrace(page, 1);
+  await expect(blocks(page)).toHaveText(["RaisedErrorload cart failed", "Caused byRangeErrorpool exhausted"]);
+  await expect(exception(page).getByText("2,048 chars were cut from the middle of this exception")).toBeVisible();
+  await expect(exception(page).locator(".rd-exb").first().locator(".rd-frame")).toHaveText([
+    "/app/src/cart.js:2 in loadapp",
+    "/app/node_modules/express/lib/router/layer.js:95 in Layer.handle",
+  ]);
+  await drawer(page).getByRole("button", { name: "Close request details" }).click();
+
+  await openTrace(page, 2);
+  await expect(blocks(page)).toHaveText(["Raisedjava.lang.IllegalStateExceptionorder 42 rejected", "Caused byjava.net.SocketTimeoutExceptionRead timed out"]);
+  await expect(exception(page).locator(".rd-exb").first().locator(".rd-frame.is-app")).toHaveText(["OrderService.java:42 in com.shop.orders.OrderService.createapp"]);
+  await blocks(page).nth(1).click();
+  await expect(exception(page).locator(".rd-exb").nth(1).locator(".rd-frame")).toHaveText(["Native Method in sun.nio.ch.NioSocketImpl.timedRead", "... 5 more"]);
+});
+
+test("a span opens its attributes, status message and events", async ({ page }) => {
+  await seed(EXC_ROWS);
+  await signIn(page);
+  await openTrace(page, 2);
+
+  const span = panel(page).getByRole("region", { name: "Span POST /java" });
+  await expect(span).toHaveCount(0);
+  const pick = panel(page).locator(".rd-wf__row").first();
+  await pick.click();
+  await expect(pick).toHaveAttribute("aria-expanded", "true");
+  await expect(span.getByText("java.lang.IllegalStateException: order 42 rejected").first()).toBeVisible();
+  await expect(span.getByRole("table", { name: "Span attributes" }).getByRole("row")).toHaveText(["http.route/java", "http.response.status_code500"]);
+  await expect(span.locator(".rd-event__head code")).toHaveText(["cache.miss", "exception"]);
+  await expect(span.getByRole("table", { name: "cache.miss attributes" })).toContainText("cart:42");
+  // The exception event renders like the request's exception.
+  const event = span.getByRole("region", { name: "Exception event" });
+  await expect(event.locator(".rd-exb > summary")).toHaveText(["Raisedjava.lang.IllegalStateExceptionorder 42 rejected", "Caused byjava.net.SocketTimeoutExceptionRead timed out"]);
+  await expect(span.getByRole("table", { name: "exception attributes" })).toHaveText("exception.escapedtrue");
+
+  await pick.click();
+  await expect(span).toHaveCount(0);
+});
+
+test("a log row expands to its payload and attributes, and the exception log links to the Exception section", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await seed(EXC_ROWS);
+  await signIn(page);
+  await rowAt(page, 0).click();
+  await tab(page, "Logs").click();
+
+  const toggle = panel(page).getByRole("button", { name: /RuntimeError: payment failed/ });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(panel(page).getByLabel("Log payload")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  // The payload: monospace, scrollable, exactly as stored.
+  const payload = panel(page).getByLabel("Log payload");
+  await expect(payload).toBeVisible();
+  expect(await payload.textContent()).toBe(PY_PAYLOAD);
+  const style = await payload.evaluate((el) => ({ font: getComputedStyle(el).fontFamily, overflow: getComputedStyle(el).overflowY }));
+  expect(style.overflow).toBe("auto");
+  expect(style.font.toLowerCase()).toMatch(/mono/);
+  await expect(panel(page).getByRole("table", { name: "Log attributes" }).getByRole("row")).toHaveText([
+    "exception.typeRuntimeError",
+    "exception.messagepayment failed",
+    "exception.chain_depth1",
+  ]);
+
+  await panel(page).getByRole("button", { name: "Copy payload" }).click();
+  await expect(panel(page).getByRole("status").filter({ hasText: "Copied the payload." })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(PY_PAYLOAD);
+
+  const a11y = await new AxeBuilder({ page }).include(".rd").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  // The exception log links to the Trace tab's Exception section, which takes focus.
+  await panel(page).getByRole("button", { name: "View the exception" }).click();
+  await expect(tab(page, "Trace")).toHaveAttribute("aria-selected", "true");
+  await expect(exception(page)).toBeFocused();
+
+  // A second click on the row collapses it again.
+  await tab(page, "Logs").click();
+  const again = panel(page).getByRole("button", { name: /RuntimeError: payment failed/ });
+  await again.click();
+  await expect(panel(page).getByLabel("Log payload")).toBeVisible();
+  await again.click();
+  await expect(panel(page).getByLabel("Log payload")).toHaveCount(0);
+});
+
+test("a log without payload or attributes says so when expanded", async ({ page }) => {
+  await seed(ROWS);
+  await signIn(page);
+  await rowAt(page, 0).click();
+  await tab(page, "Logs").click();
+  await panel(page).getByRole("button", { name: /validating order/ }).click();
+  await expect(panel(page).getByText("No payload was reported for this log.")).toBeVisible();
+  await expect(panel(page).getByText("No attributes were reported for this log.")).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: "View the exception" })).toHaveCount(0);
 });

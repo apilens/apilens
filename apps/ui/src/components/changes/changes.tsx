@@ -17,9 +17,12 @@ import {
 import { formatAgo } from "@/lib/first-data";
 import type { DeployChange, DeploySide, NamedApp } from "@/lib/identity";
 import { hrefWithoutPage, type SearchParams } from "@/lib/pagination";
+import { type ReleaseSdk, integrationsHref, sdkSetupReleaseHref } from "@/lib/release-setup";
 import { commitHref } from "@/lib/repository";
 import { ObIcon } from "../onboarding/ob";
+import { PageHeader } from "../page-header";
 import { ChangesFilters } from "./filters";
+import { RecordDeploys } from "./record-deploys";
 import "./changes.css";
 
 const TONE_LABEL: Record<Delta["tone"], string> = { worse: "worse", better: "better", flat: "about the same", none: "" };
@@ -47,6 +50,7 @@ export function ChangesView({
   apps,
   environments,
   commitUrlTemplate = null,
+  sdks = [],
 }: {
   project: string;
   projectName: string;
@@ -59,17 +63,20 @@ export function ChangesView({
   environments: readonly string[];
   /** The project's commit URL template (Settings › Integrations); null keeps commit ids as text. */
   commitUrlTemplate?: string | null;
+  /** The SDKs the project's apps run, which pick the empty state's snippet tabs (#997); empty shows every SDK. */
+  sdks?: readonly ReleaseSdk[];
 }) {
   const pathname = `/${encodeURIComponent(project)}/changes`;
   const appName = (id: string) => (id === "" ? "All apps" : (apps?.find((a) => a.id === id)?.name ?? "Unknown app"));
   const filtered = filter.app !== "" || filter.env !== "";
   return (
     <div className="page ch">
-      <header className="pagehead">
-        <p className="cp-h">{projectName} · Changes</p>
-        <h1 className="cp-lede">Deploys</h1>
-        <p className="ch-lead">Error rate and p95 latency in the hour before and the hour after each deploy, over the last 7 days. Open a deploy to see what changed with it.</p>
-      </header>
+      <PageHeader
+        project={project}
+        projectName={projectName}
+        title="Deploys"
+        lead="Error rate and p95 latency in the hour before and the hour after each deploy, over the last 7 days. Open a deploy to see what changed with it."
+      />
 
       <ChangesFilters pathname={pathname} params={params} filter={filter} apps={apps} environments={environments} />
 
@@ -84,6 +91,7 @@ export function ChangesView({
           </p>
         </div>
       ) : load.total === 0 ? (
+        <>
         <div className="ch-notice" role="status">
           <ObIcon name="info" />
           {filtered ? (
@@ -96,11 +104,29 @@ export function ChangesView({
             </p>
           ) : (
             <p>
-              No deploys in the last 7 days. Set a release (and commit) in the SDK config and each new release shows up here with its before and
+              No deploys in the last 7 days. Set a release and commit in the SDK config and each new release shows up here with its before and
               after numbers.
             </p>
           )}
         </div>
+        {filtered ? null : (
+          <section className="ch-setup" aria-labelledby="ch-record">
+            <h2 id="ch-record">Record your deploys</h2>
+            <p className="ch-setup__lead">
+              Stamp each release with the version you deployed and the commit it was built from, for example your CI’s <code>GIT_SHA</code>.
+            </p>
+            <RecordDeploys sdks={sdks} />
+            <p className="ch-setup__links">
+              <Link className="cp-link" href={sdkSetupReleaseHref(project)}>
+                Release and commit in SDK setup
+              </Link>
+              <Link className="cp-link" href={integrationsHref(project)}>
+                Link your repository in Integrations
+              </Link>
+            </p>
+          </section>
+        )}
+        </>
       ) : (
         <>
           <div className="ch-card">

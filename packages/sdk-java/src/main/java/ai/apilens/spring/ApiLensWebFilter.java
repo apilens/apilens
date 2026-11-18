@@ -15,10 +15,9 @@ import ai.apilens.SampleResponseInfo;
 import ai.apilens.Sampler;
 import ai.apilens.SpanRecord;
 import ai.apilens.TraceContext;
+import ai.apilens.internal.ExceptionInfo;
 import ai.apilens.internal.Strings;
 import java.io.ByteArrayOutputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Instant;
@@ -72,6 +71,11 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
   public static final String CONSUMER_ATTRIBUTE = ApiLensWebFilter.class.getName() + ".consumer";
   /** Exchange attribute holding the request's {@link TraceContext}. */
   public static final String TRACE_CONTEXT_ATTRIBUTE = ApiLensWebFilter.class.getName() + ".traceContext";
+  /**
+   * Exchange attribute holding a handler exception the application turned into a response
+   * itself; set it with {@link #recordException(ServerWebExchange, Throwable)}.
+   */
+  public static final String EXCEPTION_ATTRIBUTE = ApiLensWebFilter.class.getName() + ".exception";
   /** Recorded when the client goes away before the response was committed. */
   static final int CLIENT_CLOSED_REQUEST = 499;
 
@@ -142,6 +146,20 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
 
   public static void setConsumer(ServerWebExchange exchange, String identifier, String name, String group) {
     setConsumer(exchange, ApiLensConsumer.of(identifier, name, group));
+  }
+
+  /**
+   * Records an exception the application handled itself, so it still ships with its stack:
+   * ERROR when the response is 5xx, WARN below, and the request is always kept. Call it from a
+   * WebFlux {@code @ExceptionHandler} / {@code @ControllerAdvice} method (declare a {@code
+   * ServerWebExchange} parameter): WebFlux resolves those inside the {@code DispatcherHandler},
+   * so the exception never reaches this filter. Exceptions that propagate to a {@code
+   * WebExceptionHandler} are seen by the filter and need no call. {@code null} is ignored.
+   */
+  public static void recordException(ServerWebExchange exchange, Throwable exception) {
+    if (exchange != null && exception != null) {
+      exchange.getAttributes().put(EXCEPTION_ATTRIBUTE, exception);
+    }
   }
 
   /** The trace context of this exchange; empty ids when the filter did not capture it. */
@@ -271,9 +289,17 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
     int finalStatusCode = statusCode;
     double elapsedMs = Math.max((System.nanoTime() - startedNanos) / 1_000_000.0, 0.0);
     ApiLensConsumer consumer = resolveConsumer(exchange);
+    boolean isError = error != null || finalStatusCode >= 500;
+    // An exception the application handled and recorded counts as thrown: the request is always
+    // kept, like one whose exception reached the filter.
+    Throwable handled = failure == null ? recordedException(exchange) : null;
+    boolean threw = isError || handled != null;
     // Sampled out: the base record is still sent (sampled=false) so metrics stay exact, but
-    // without headers, bodies, span or error log. The remote sample rate only ever drops more.
-    boolean sampled = sampler.onResponse(sampling, () -> new SampleResponseInfo(
+    // without headers, bodies or span. The remote sample rate only ever drops more.
+    // Errors are never sampled (D1): a request that failed or answered 5xx is always kept, even
+    // at sampleRate 0 or when a sampling callback drops it. Remote enabled=false still wins,
+    // because shouldNotFilter bypasses the filter entirely.
+    boolean sampled = threw || sampler.onResponse(sampling, () -> new SampleResponseInfo(
         requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()))
         && policy.keeps(random);
     int maxPayloadBytes = policy.limitPayloadBytes(options.maxPayloadBytes());
@@ -326,7 +352,6 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
         .build());
 
     if (sampled && options.captureSpans()) {
-      boolean isError = error != null || finalStatusCode >= 500;
       client.captureSpan(SpanRecord.builder()
           .timestamp(startedAt)
           .environment(options.environment())
@@ -342,27 +367,41 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
           .projectSlug(client.config().projectSlug())
           .appId(client.config().appId())
           .build());
-
-      if (isError) {
-        captureErrorLog(error, finalStatusCode, method, endpointPath, trace, consumer);
-      }
     }
+    // Child spans (outbound HTTP, database) are kept or dropped with the request's server span;
+    // a kept request's spans past the per-request cap are counted as span_cap drops.
+    trace.releaseChildSpans(sampled && options.captureSpans(), client::captureSpan, client::countSpanCapDrops);
+
+    // The exception log does not depend on span capture (D2): captureSpans=false turns spans
+    // off, never exceptions.
+    // A handled exception is reported with its stack: ERROR when it answered 5xx, WARN below.
+    if (threw) {
+      captureErrorLog(error != null ? error : handled, isError ? "ERROR" : "WARN", finalStatusCode, method,
+          endpointPath, trace, consumer);
+    }
+  }
+
+  private static Throwable recordedException(ServerWebExchange exchange) {
+    Object value = exchange.getAttribute(EXCEPTION_ATTRIBUTE);
+    return value instanceof Throwable throwable ? throwable : null;
   }
 
   private void captureErrorLog(
       Throwable throwable,
+      String level,
       int statusCode,
       String method,
       String endpointPath,
       TraceContext trace,
       ApiLensConsumer consumer) {
-    String message = throwable == null
+    ExceptionInfo exception = ExceptionInfo.of(throwable);
+    String message = exception == null
         ? "HTTP " + statusCode + " on " + method + " " + endpointPath
-        : throwable.getClass().getSimpleName() + ": " + throwable.getMessage();
+        : exception.summary();
     client.captureLog(LogRecord.builder()
         .timestamp(Instant.now())
         .environment(options.environment())
-        .level("ERROR")
+        .level(level)
         .message(message)
         .loggerName(throwable == null ? "apilens.http" : "apilens.exception")
         .endpointMethod(method)
@@ -373,7 +412,8 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
         .spanId(trace.spanId())
         .projectSlug(client.config().projectSlug())
         .appId(client.config().appId())
-        .payload(throwable == null ? "" : stackTrace(throwable))
+        .payload(exception == null ? "" : exception.payload())
+        .attributes(exception == null ? null : exception.attributes())
         .build());
   }
 
@@ -485,12 +525,6 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
       return "";
     }
     return value.split(",", 2)[0].trim();
-  }
-
-  private static String stackTrace(Throwable throwable) {
-    StringWriter out = new StringWriter();
-    throwable.printStackTrace(new PrintWriter(out));
-    return out.toString();
   }
 
   /**

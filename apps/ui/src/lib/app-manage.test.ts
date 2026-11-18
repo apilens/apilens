@@ -133,11 +133,8 @@ describe("shortDay", () => {
 });
 
 describe("originText", () => {
-  it("names the key an SDK created the app with", () => {
-    expect(originText(app({ created_by_key_name: "prod-backend" }), "UTC", NOW)).toBe("Added by the SDK from key prod-backend · Nov 6");
-  });
-
-  it("says the SDK added it when no key is recorded", () => {
+  it("says the SDK added it and when, without naming the key it came with", () => {
+    expect(originText(app({ created_by_key_name: "prod-backend" }), "UTC", NOW)).toBe("Added by the SDK · Nov 6");
     expect(originText(app(), "UTC", NOW)).toBe("Added by the SDK · Nov 6");
     expect(originText(app({ first_seen_at: "2026-11-05T20:00:00Z" }), "Asia/Kolkata", NOW)).toBe("Added by the SDK · Nov 6");
     expect(originText(app({ first_seen_at: "2026-11-05T20:00:00Z" }), "UTC", NOW)).toBe("Added by the SDK · Nov 5");

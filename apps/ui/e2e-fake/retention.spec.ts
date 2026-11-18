@@ -47,7 +47,7 @@ test.afterAll(async () => {
 test("shows each signal's period and what happens after, from the API", async ({ page }) => {
   await post("/__fake/retention", { signals: CUSTOM });
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Retention", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Retention" })).toBeVisible();
   await expect(page).toHaveTitle(/^Retention · Project settings/);
 
   const table = card(page, "Retention periods").getByRole("table", { name: "Retention periods" });
@@ -72,7 +72,7 @@ test("shows the install defaults", async ({ page }) => {
   await signIn(page, RETENTION, ["project.read", "project.update", "project.delete"]);
   const table = card(page, "Retention periods").getByRole("table");
   await expect(table.getByRole("rowheader").locator(".rt-label")).toHaveText(["Requests", "Logs", "Spans", "Per-minute metrics", "Hourly metrics", "Deploys"]);
-  await expect(table.locator(".rt-period")).toHaveText(["90 days", "30 days", "30 days", "30 days", "400 days", "400 daysFixed"]);
+  await expect(table.locator(".rt-period")).toHaveText(["90 days", "90 days", "90 days", "30 days", "400 days", "400 daysFixed"]);
 });
 
 test("says so when the install reports no periods", async ({ page }) => {
@@ -94,7 +94,7 @@ test("shows a skeleton while the periods load", async ({ page }) => {
   await signIn(page, "/shop/settings/privacy");
   await post("/__fake/retention", { delay_ms: 2500 });
   await page.goto(RETENTION, { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "Retention", level: 1 })).toBeVisible();
+  await expect(page.locator("header.ph").getByRole("heading", { level: 2, name: "Retention" })).toBeVisible();
   await expect(page.locator(".rt-loading[aria-busy='true']")).toBeVisible();
   await expect(card(page, "Retention periods").getByRole("table")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".rt-loading")).toHaveCount(0);

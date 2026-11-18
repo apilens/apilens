@@ -12,11 +12,11 @@ import {
   SOURCE_PARAM,
   accessSummary,
   addedBy,
-  defaultAccessText,
   filterMembers,
   isRestrictedAndEmpty,
   lastActive,
   matchLine,
+  orgRoleNote,
   parseMemberFilters,
   sourceLines,
 } from "@/lib/access-members";
@@ -25,6 +25,7 @@ import type { AccessMember, DefaultAccess, Invitation } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { PROJECT_ROLES, ROLE_LABELS } from "@/lib/project-access";
+import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../org-settings/members.css";
 import { type OrgRef, PendingInvitations } from "./invite";
@@ -32,17 +33,13 @@ import { type Announce, AddPeople, MemberRowMenu } from "./manage";
 import { useTimeZone } from "@/lib/time-zone-context";
 import "./members.css";
 
-/** The Members tab's title and tabs, around the list (or its skeleton while it loads). */
-export function MembersFrame({ projectName, nav, badge, children }: { projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
+/** The Members tab's header (Access, then the tabs), around the list (or its skeleton while it loads). */
+export function MembersFrame({ project, projectName, nav, badge, children }: { project: string; projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
   return (
     <div className="page os om am">
-      <header className="os-head">
-        <p className="cp-h">
-          {projectName} · Access{badge}
-        </p>
-        <h1 className="cp-lede">Members</h1>
+      <PageHeader project={project} projectName={projectName} title="Access" badge={badge} className="os-head">
         {nav}
-      </header>
+      </PageHeader>
       {children}
     </div>
   );
@@ -78,6 +75,8 @@ export function AccessMembersLoading() {
  * is null when they could not be loaded; `now` is the server's clock so the first render matches.
  * `invitations` are the project's pending invitations (#809), listed under the table: undefined
  * for people without `access.manage` (the section is left out), null when they could not be loaded.
+ * `defaultAccess` is the project's default access line (#808), placed under the table (#999) so
+ * the list and "Add people" lead on a phone.
  */
 export function AccessMembers({
   project,
@@ -88,6 +87,7 @@ export function AccessMembers({
   candidates = null,
   org,
   invitations,
+  defaultAccess,
 }: {
   project: string;
   projectName: string;
@@ -97,6 +97,7 @@ export function AccessMembers({
   candidates?: Candidate[] | null;
   org: OrgRef;
   invitations?: Invitation[] | null;
+  defaultAccess?: ReactNode;
 }) {
   const router = useRouter();
   const tz = useTimeZone();
@@ -126,7 +127,6 @@ export function AccessMembers({
     <>
       <div className="am-summary">
         <p className="am-summary__count">{accessSummary(members)}</p>
-        <p className="am-summary__def">{defaultAccessText(data.defaultAccess)}</p>
       </div>
 
       {isRestrictedAndEmpty(data.defaultAccess, members) ? (
@@ -217,6 +217,7 @@ export function AccessMembers({
                   </th>
                   <td data-label="Role">
                     <span className={`am-role am-role--${m.effective_role}`}>{ROLE_LABELS[m.effective_role]}</span>
+                    {orgRoleNote(m) ? <span className="am-role-note"> {orgRoleNote(m)}</span> : null}
                   </td>
                   <td data-label="Source" className="am-src">
                     <ul className="am-src__list">
@@ -253,6 +254,8 @@ export function AccessMembers({
           <Pagination pathname={pathname} params={list.params} total={window.total} label="Members pages" className="ls-pages" />
         </div>
       )}
+
+      {defaultAccess}
 
       {invitations !== undefined ? <PendingInvitations project={project} projectName={projectName} org={org} invitations={invitations} now={now} announce={announce} /> : null}
     </>

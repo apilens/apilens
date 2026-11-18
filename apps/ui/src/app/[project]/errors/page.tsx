@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { EnvMemory } from "@/components/env-memory";
 import { type DetailLoad, ErrorsView, type TabLoad } from "@/components/errors/errors";
 import { getContext, getSession } from "@/lib/auth/server";
 import { type ErrorsState, errorsHref, parseErrorsQuery } from "@/lib/errors";
 import { type CallOptions, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
+import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import { resolveTimeZone } from "@/lib/time-zone";
+import { DEFAULT_RANGE, TRAFFIC_RANGES } from "@/lib/traffic";
 
 export const metadata: Metadata = { title: "Errors" };
 
@@ -40,11 +43,19 @@ async function readTab(project: string, q: ErrorsState, next: string): Promise<T
 // Issues tab. Scoped by the range and environment in the URL.
 export default async function ErrorsPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
-  const q = parseErrorsQuery(await searchParams);
-  const next = errorsHref(project, q);
+  const raw = await searchParams;
+  const next = errorsHref(project, parseErrorsQuery(raw));
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
+  // No range or env in the URL (#993): the range that covers the project's first data, production.
+  const { params: sp, envExplicit } = await withScopeDefaults(raw, {
+    environments: found.project.environments ?? [],
+    firstAt: async () => (await read(next, (o) => identity().ingestStatus(project, o)))?.first_at,
+    ranges: TRAFFIC_RANGES,
+    fallbackRange: DEFAULT_RANGE,
+  });
+  const q = parseErrorsQuery(sp);
 
   const code = q.tab === "status" ? q.code : null;
   const [tab, detail] = await Promise.all([
@@ -55,6 +66,7 @@ export default async function ErrorsPage({ params, searchParams }: { params: Pro
 
   return (
     <AppShell context={context} project={project} view="errors">
+      <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
       <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} />
     </AppShell>
   );

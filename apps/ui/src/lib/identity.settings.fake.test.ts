@@ -189,8 +189,8 @@ describe("retention and usage", () => {
     const { signals } = await client.projectRetention("shop", me);
     expect(signals?.map((s) => [s.key, s.period_days, s.configurable])).toEqual([
       ["requests", 90, true],
-      ["logs", 30, true],
-      ["spans", 30, true],
+      ["logs", 90, true],
+      ["spans", 90, true],
       ["rollups_1m", 30, true],
       ["rollups_1h", 400, true],
       ["deploys", 400, false],

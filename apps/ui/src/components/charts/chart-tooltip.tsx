@@ -28,7 +28,7 @@ export type { TooltipRow };
  * series with its exact, formatted value. Rendered inside the plot box (`position: relative`, see
  * `.ct-box`), centred on `x` and kept inside the box's width. It is aria-hidden: screen readers get
  * the same text from <ChartAnnounce>. Format values with the lib formatters (formatCount,
- * formatLatency, formatRate, formatShare, formatBytes…), never raw numbers.
+ * formatLatency, formatPercent, formatBytes…), never raw numbers.
  */
 export function ChartTooltip({
   x,
@@ -36,6 +36,7 @@ export function ChartTooltip({
   title,
   rows,
   placement = "above",
+  hint,
 }: {
   /** The anchor in px from the box's left edge (pointX(index, width, count, layout)). */
   x: number;
@@ -45,6 +46,8 @@ export function ChartTooltip({
   rows: readonly TooltipRow[];
   /** Above the box (default; for small plots like sparklines) or inside it at the top. */
   placement?: "above" | "inside";
+  /** A muted line under the rows, saying what a click does (a bar that opens its requests, #977). */
+  hint?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [left, setLeft] = useState<number | null>(null);
@@ -74,6 +77,7 @@ export function ChartTooltip({
           ))}
         </dl>
       ) : null}
+      {hint ? <p className="ct-tip__hint">{hint}</p> : null}
     </div>
   );
 }

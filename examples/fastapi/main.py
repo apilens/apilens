@@ -9,6 +9,10 @@ e2e, failure-drill and benchmark tasks can drive all three SDKs alike:
     POST /login           application/x-www-form-urlencoded body
     POST /upload          multipart/form-data (file + description)
     GET  /boom            unhandled exception -> 500
+    GET  /boom/chained    unhandled exception with a 3-level cause chain -> 500
+    GET  /boom/deep       unhandled exception 60 frames deep -> 500
+    GET  /boom/handled    exception turned into a 500 by an exception_handler
+    GET  /boom/logged     exception caught and logged (logger.exception) -> 200
     GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
 
 Configuration is environment only:
@@ -24,11 +28,13 @@ Configuration is environment only:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Annotated
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 POSTURES = ("off", "metadata", "redacted", "full")
@@ -42,6 +48,7 @@ if posture not in POSTURES:
 outbound_url = os.environ.get("EXAMPLE_OUTBOUND_URL", "").strip()
 
 app = FastAPI(title="APILens FastAPI example")
+logger = logging.getLogger("example")
 
 # Consumer attribution, the way a real API does it: each caller is a user who
 # sends a personal access token as `Authorization: Bearer <token>`. The app looks
@@ -134,6 +141,64 @@ async def upload(
 @app.get("/boom")
 def boom() -> None:
     raise RuntimeError("example failure: /boom always raises")
+
+
+class HandledFailure(Exception):
+    """Raised by /boom/handled; the exception_handler below answers 500."""
+
+
+@app.exception_handler(HandledFailure)
+async def handled_failure(_request: Request, exc: HandledFailure) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+
+def _read_config() -> None:
+    raise KeyError("example failure: config key 'db_url' is missing")
+
+
+def _connect() -> None:
+    try:
+        _read_config()
+    except KeyError as exc:
+        raise ConnectionError("example failure: cannot connect to the database") from exc
+
+
+def _load_order() -> None:
+    try:
+        _connect()
+    except ConnectionError as exc:
+        raise RuntimeError("example failure: cannot load order 42") from exc
+
+
+def _recurse(depth: int) -> None:
+    if depth <= 1:
+        raise ValueError("example failure: raised 60 frames deep")
+    _recurse(depth - 1)
+
+
+@app.get("/boom/chained")
+def boom_chained() -> None:
+    # RuntimeError <- ConnectionError <- KeyError
+    _load_order()
+
+
+@app.get("/boom/deep")
+def boom_deep() -> None:
+    _recurse(60)
+
+
+@app.get("/boom/handled")
+def boom_handled() -> None:
+    raise HandledFailure("example failure: handled by an exception_handler")
+
+
+@app.get("/boom/logged")
+def boom_logged() -> dict[str, object]:
+    try:
+        _load_order()
+    except RuntimeError:
+        logger.exception("example failure: /boom/logged caught and logged it")
+    return {"status": "ok", "logged": True}
 
 
 @app.get("/outbound")

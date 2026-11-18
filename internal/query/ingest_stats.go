@@ -25,6 +25,13 @@ type IngestStatsReader interface {
 	Days(ctx context.Context, appID uuid.UUID, days []time.Time) ([]ingest.Counts, error)
 }
 
+// SDKDropReader reads the per app SDK drop counters the edge keeps from
+// heartbeats; an IngestStatsReader that implements it (*ingest.ValkeyStats)
+// adds them to ingest-stats.
+type SDKDropReader interface {
+	SDKDrops(ctx context.Context, appID uuid.UUID, days []time.Time) ([][]ingest.SDKDrop, error)
+}
+
 // WithIngestStats sets where app ingest-stats reads its counters; without it
 // the operation answers 503.
 func (s *Service) WithIngestStats(r IngestStatsReader) *Service {
@@ -44,15 +51,25 @@ type IngestCounts struct {
 type IngestDay struct {
 	Date string `json:"date" format:"date" doc:"UTC day, YYYY-MM-DD."`
 	IngestCounts
+	SDKDropped int64 `json:"sdk_dropped" doc:"Records the app's SDKs dropped before sending, all signals and reasons (see sdk_dropped of the app)."`
+}
+
+// SDKDroppedRecords is how many records of one signal the app's SDKs dropped
+// for one reason.
+type SDKDroppedRecords struct {
+	Signal  string `json:"signal" enum:"requests,spans,logs" doc:"The signal of the dropped records."`
+	Reason  string `json:"reason" doc:"The drop reason as the SDKs name it: queue_full, queue_bytes, non_retryable, retries_exhausted, ..."`
+	Records int64  `json:"records" doc:"Records dropped."`
 }
 
 // AppIngestStats is the ingest health of an app over the last days.
 type AppIngestStats struct {
-	AppID  string       `json:"app_id" format:"uuid" doc:"The app's id."`
-	App    string       `json:"app" doc:"The app's slug."`
-	Days   int          `json:"days" doc:"Number of UTC days covered, today included."`
-	Totals IngestCounts `json:"totals" doc:"Sum over the days."`
-	Daily  []IngestDay  `json:"daily" doc:"One entry per day, oldest first; a day without traffic is all zero."`
+	AppID      string              `json:"app_id" format:"uuid" doc:"The app's id."`
+	App        string              `json:"app" doc:"The app's slug."`
+	Days       int                 `json:"days" doc:"Number of UTC days covered, today included."`
+	Totals     IngestCounts        `json:"totals" doc:"Sum over the days."`
+	Daily      []IngestDay         `json:"daily" doc:"One entry per day, oldest first; a day without traffic is all zero."`
+	SDKDropped []SDKDroppedRecords `json:"sdk_dropped" doc:"Records the app's SDKs dropped before sending over the days, per signal and reason, most first; empty when none were dropped. Reported in SDK heartbeats and kept per hour."`
 }
 
 type appIngestStatsInput struct {
@@ -70,10 +87,11 @@ func registerAppIngestStats(api huma.API, s *Service) {
 		OperationID: "get-app-ingest-stats",
 		Method:      http.MethodGet,
 		Path:        AppIngestStatsPath,
-		Summary:     "Per-app ingest health: accepted, rejected, truncated and masked records",
+		Summary:     "Per-app ingest health: accepted, rejected, truncated, masked and SDK-dropped records",
 		Description: "Counters the ingest edge keeps per app and UTC day, the per-app split of the Prometheus totals " +
 			"apilens_ingest_records_total (accepted, rejected), apilens_ingest_truncated_total and apilens_ingest_masked_total. " +
 			"Records not tied to an app (project-wide deploys, OTLP resources of unknown services) are not counted. " +
+			"sdk_dropped holds the records the app's SDKs dropped before sending, by signal and reason, as their heartbeats reported them. " +
 			"Days are kept for 30 days. An app that is not in the project answers 404; 503 when the counter store (Valkey) is not configured.",
 		Tags:     []string{"Dashboard"},
 		Security: security,
@@ -113,13 +131,36 @@ func (s *Service) appIngestStats(ctx context.Context, in *appIngestStatsInput) (
 	if err != nil {
 		return nil, internalError("ingest stats", err)
 	}
-	out := &appIngestStatsOutput{Body: AppIngestStats{AppID: app.ID.String(), App: app.Slug, Days: n, Daily: make([]IngestDay, 0, n)}}
+	var drops [][]ingest.SDKDrop
+	if r, ok := s.ingestStats.(SDKDropReader); ok {
+		drops, err = r.SDKDrops(ctx, app.ID, days)
+		if err == nil && len(drops) != n {
+			err = fmt.Errorf("got %d days of SDK drops, want %d", len(drops), n)
+		}
+		if err != nil {
+			return nil, internalError("SDK drops", err)
+		}
+	}
+	out := &appIngestStatsOutput{Body: AppIngestStats{
+		AppID: app.ID.String(), App: app.Slug, Days: n, Daily: make([]IngestDay, 0, n), SDKDropped: []SDKDroppedRecords{},
+	}}
 	var total ingest.Counts
+	dropped := map[ingest.SDKDropKey]int64{}
 	for i, c := range counts {
 		total = total.Add(c)
-		out.Body.Daily = append(out.Body.Daily, IngestDay{Date: days[i].Format(time.DateOnly), IngestCounts: ingestCounts(c)})
+		day := IngestDay{Date: days[i].Format(time.DateOnly), IngestCounts: ingestCounts(c)}
+		if drops != nil {
+			for _, d := range drops[i] {
+				day.SDKDropped += d.Records
+				dropped[d.SDKDropKey] += d.Records
+			}
+		}
+		out.Body.Daily = append(out.Body.Daily, day)
 	}
 	out.Body.Totals = ingestCounts(total)
+	for _, d := range ingest.SortSDKDrops(dropped) {
+		out.Body.SDKDropped = append(out.Body.SDKDropped, SDKDroppedRecords{Signal: d.Signal, Reason: d.Reason, Records: d.Records})
+	}
 	return out, nil
 }
 
