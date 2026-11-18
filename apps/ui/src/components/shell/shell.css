@@ -1,6 +1,6 @@
 /* App chrome, Supabase style: 48px top bar with scope crumbs over a 48px icon rail that
-   expands to 216px (always, never, or while hovered). Tokens from tokens.css only. */
-.shell { --tb-h: 48px; --rl-w: 48px; --rl-open: 216px; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
+   expands to 208px (always, never, or while hovered). Tokens from tokens.css only. */
+.shell { --tb-h: 48px; --rl-w: 48px; --rl-open: 208px; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
 .shell-body { flex: 1; min-height: 0; display: flex; }
 .shell .app-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 .shell-scrim { display: none; }
@@ -57,32 +57,40 @@
 .shell-rail { position: relative; z-index: 30; flex: none; width: var(--rl-w); }
 .shell-rail:has(.rl--expanded) { width: var(--rl-open); }
 .rl { height: 100%; }
-.rl-panel { position: absolute; inset: 0 auto 0 0; width: var(--rl-w); display: flex; flex-direction: column; padding: 8px; border-right: 1px solid var(--border); background: var(--bg); overflow: hidden; transition: width .15s ease-out, box-shadow .15s; }
+/* Values from Supabase Studio's sidebar (packages/ui shadcn sidebar.tsx + studio Sidebar.tsx):
+   groups p-2, menu gap-1, rows h-8 px-1.5 gap-2 rounded-md text-sm, svg size-5 stroke 1.5,
+   separators 1px at calc(100% - 1rem), footer p-2. */
+.rl-panel { position: absolute; inset: 0 auto 0 0; width: var(--rl-w); display: flex; flex-direction: column; padding: 0; box-shadow: inset -1px 0 0 var(--border); background: var(--bg); overflow: hidden; transition: width .15s ease-out, box-shadow .15s; }
 .rl--expanded .rl-panel { width: var(--rl-open); }
 /* Expand on hover: opens over the page after a short dwell, like Supabase. */
-.rl--hover .rl-panel:hover, .rl--hover .rl-panel:focus-within { width: var(--rl-open); box-shadow: var(--shadow-frame); transition-delay: .1s; }
+/* The rule is an inset shadow, not a border, so the 48px holds a full 32px row (Supabase's size-8). */
+.rl--hover .rl-panel:hover, .rl--hover .rl-panel:focus-within { width: var(--rl-open); box-shadow: inset -1px 0 0 var(--border), var(--shadow-frame); transition-delay: .1s; }
 .rl--collapsed .rl-panel { overflow: visible; }
 
 .rl-nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .rl--collapsed .rl-nav { overflow: visible; }
-.rl-group { display: flex; flex-direction: column; gap: 2px; }
-.rl-group + .rl-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.rl-group { display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.rl-sep { flex: none; width: calc(100% - 16px); height: 1px; margin: 0 auto; border: 0; background: var(--border); }
 .rl-group:empty { display: none; }
 
-.rl-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink-muted); font: 400 13px/1 var(--font-sans); text-decoration: none; white-space: nowrap; cursor: pointer; }
-.rl-item:hover, .rl-control.is-open { background: var(--surface-2); color: var(--ink); }
+/* Rows, Supabase's sidebar: 32px tall, 6px radius, 6px inset so the 20px icon sits centred in the
+   48px rail; labels 14px. Muted at rest, brighter on hover, full ink plus a fill when current. */
+.rl-item { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-muted); font: 400 14px/20px var(--font-sans); text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color .1s, color .1s; }
+.rl-item:hover, .rl-control.is-open { background: color-mix(in srgb, var(--surface-2) 60%, transparent); color: var(--ink); }
 .rl-item.on { background: var(--surface-2); color: var(--ink); font-weight: 500; }
 .rl-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-ink); }
-.rl-ic { position: relative; flex: none; display: grid; place-items: center; width: 31px; height: 32px; }
-.rl-ic .nav-ic, .rl-ic .cp-ic { width: 17px; height: 17px; }
-.rl-dot { position: absolute; top: 7px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn, var(--error)); box-shadow: 0 0 0 2px var(--bg); }
+.rl-ic { position: relative; flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+.rl-svg { width: 20px; height: 20px; flex: none; }
+/* Supabase's ActiveDot: 8px at top-2 left-4.5 of the row, i.e. 2px/12px into the icon box. */
+.rl-dot { position: absolute; top: 2px; left: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 .rl-lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .1s; }
-.rl-ct { margin-right: 8px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); font: 500 11px/16px var(--font-mono); color: var(--ink); opacity: 0; }
+.rl-ct { padding: 0 6px; border-radius: 999px; background: var(--surface-2); font: 500 11px/18px var(--font-mono); color: var(--ink); opacity: 0; }
+.rl-item.on .rl-ct { background: var(--bg); }
 .rl--expanded .rl-lb, .rl--expanded .rl-ct, .rl--drawer .rl-lb, .rl--drawer .rl-ct,
 .rl--hover .rl-panel:hover .rl-lb, .rl--hover .rl-panel:hover .rl-ct,
 .rl--hover .rl-panel:focus-within .rl-lb, .rl--hover .rl-panel:focus-within .rl-ct { opacity: 1; }
 .rl--expanded .rl-dot, .rl--drawer .rl-dot, .rl--hover .rl-panel:hover .rl-dot, .rl--hover .rl-panel:focus-within .rl-dot { display: none; }
-.rl-foot { flex: none; padding-top: 8px; border-top: 1px solid var(--border); }
+.rl-foot { flex: none; padding: 8px; }
 
 /* ---------------------------------------------------------------- phones: drawer */
 @media (max-width: 860px) {
@@ -90,9 +98,9 @@
   .tb-home, .tb-crumbs > .tb-slash:first-child, .tb-badge, .tb-search span, .tb-search kbd { display: none; }
   .tb-search { min-width: 0; width: 30px; padding: 0; justify-content: center; border: 0; background: transparent; }
   .tb-name { max-width: 120px; }
-  .shell-rail { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 260px; transform: translateX(-100%); transition: transform .15s ease-out; }
+  .shell-rail { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 288px; transform: translateX(-100%); transition: transform .15s ease-out; }
   .shell.is-open .shell-rail { transform: none; }
-  .shell-rail .rl-panel { width: 260px; box-shadow: var(--shadow-frame); }
+  .shell-rail .rl-panel { width: 288px; box-shadow: inset -1px 0 0 var(--border), var(--shadow-frame); }
   .shell.is-open .shell-scrim { display: block; position: fixed; inset: var(--tb-h) 0 0 0; z-index: 44; background: color-mix(in srgb, var(--bg) 72%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) {
