@@ -12,10 +12,11 @@ const SHOWN = 60;
 const CLOCK = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } as const;
 
 function describe(tz: string): string {
+  if (tz === DEFAULT_TIME_ZONE) return "UTC (Coordinated Universal Time)";
   const o = timeZoneOptions().find((x) => x.value === tz);
   const name = o ? (o.region ? `${o.city} (${o.region})` : o.city) : tz;
   const label = zoneLabel(tz);
-  return o && label !== o.gmt && tz !== DEFAULT_TIME_ZONE ? `${name} · ${label}, ${o.gmt}` : `${name} · ${label}`;
+  return o && label !== o.gmt ? `${name} · ${label}, ${o.gmt}` : `${name} · ${label}`;
 }
 
 /**
