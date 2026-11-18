@@ -585,7 +585,11 @@ Served by the identity role and authenticated with the session scheme
   set to `false`) turns off the project change emails sent to project
   admins (`internal/controlplane/notify`: API key created, rotated or
   revoked, default access changed, project paused, resumed or restored);
-  the deletion email is always sent. Unknown fields fail validation (`422`). Audited as
+  the deletion email is always sent. `preferences.timezone` is an IANA zone
+  (`Asia/Kolkata`) checked against the zone database embedded in the binary,
+  or empty to go back to UTC; the dashboard shows every time in it (#1046),
+  and a stored zone the database no longer knows reads as unset.
+  Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
 - `PATCH /api/v1/users/me/onboarding` (`internal/identity/onboarding.go`)
   saves onboarding progress so a refresh resumes: `step` replaces the stored

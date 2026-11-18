@@ -17,6 +17,7 @@ import {
 import type { Environment, EnvironmentColor, EnvironmentsList, UpdateEnvironmentRequest } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -192,6 +193,7 @@ interface RowActions {
 const rowId = (name: string, what: string) => `env-${what}-${name}`;
 
 function Row({ env: e, first, last, manage, busy, pending, actions }: { env: Environment; first: boolean; last: boolean; manage: boolean; busy: boolean; pending: Pending; actions: RowActions }) {
+  const tz = useTimeZone();
   const titleId = rowId(e.name, "title");
   const colour = e.color ? ENVIRONMENT_COLOR_LABELS[e.color] : "No colour";
   return (
@@ -205,7 +207,7 @@ function Row({ env: e, first, last, manage, busy, pending, actions }: { env: Env
         <span className="env-colour">{colour}</span>
       </div>
       <p className="env-meta">
-        {sourceLabel(e.source)} · {e.last_seen_at ? <time dateTime={e.last_seen_at}>{lastSeenText(e.last_seen_at)}</time> : lastSeenText(null)} · {keysText(e.api_keys)}
+        {sourceLabel(e.source)} · {e.last_seen_at ? <time dateTime={e.last_seen_at}>{lastSeenText(e.last_seen_at, tz)}</time> : lastSeenText(null, tz)} · {keysText(e.api_keys)}
       </p>
       {manage ? (
         <div className="env-actions">

@@ -35,6 +35,8 @@ import { Pagination } from "../pagination/pagination";
 import { FilterBar } from "./filter-bar";
 import { RequestDrawer } from "./request-drawer";
 import { Timeline } from "./timeline";
+import { useTimeZone } from "@/lib/time-zone-context";
+import { zoneLabel } from "@/lib/time-zone";
 
 /** How many skeleton rows stand in while another range loads. */
 const SKELETON_ROWS = 8;
@@ -73,6 +75,7 @@ export function RequestLog({
   /** The saved-view switcher and Export, at the right end of the toolbar. */
   actions?: ReactNode;
 }) {
+  const tz = useTimeZone();
   const router = useRouter();
   const [rows, setRows] = useState<RequestRow[] | null>(initial);
   // The cursor of the rows older than the ones shown, kept in step with the poll.
@@ -219,20 +222,20 @@ export function RequestLog({
           <ObIcon name="info" />
           {paged ? (
             <p>
-              No older requests in {scopeText(q)}.{" "}
+              No older requests in {scopeText(q, tz)}.{" "}
               <a className="cp-link" href={pages.newestHref} onClick={(e) => go(e, pages.newestHref)}>
                 Back to the newest
               </a>
             </p>
           ) : filtered ? (
             <p>
-              No requests in {scopeText(q)} match these filters.{" "}
+              No requests in {scopeText(q, tz)} match these filters.{" "}
               <a className="cp-link" href={clearHref} onClick={(e) => go(e, clearHref)}>
                 Clear all filters
               </a>
             </p>
           ) : (
-            <p>No requests in {scopeText(q)}. Once your app reports requests through the SDK, they show up here within seconds.</p>
+            <p>No requests in {scopeText(q, tz)}. Once your app reports requests through the SDK, they show up here within seconds.</p>
           )}
         </div>
       ) : (
@@ -240,7 +243,7 @@ export function RequestLog({
           rows={rows}
           now={now}
           onOpen={open}
-          caption={logCaption(q, pages.page, rows.length, filtered)}
+          caption={logCaption(q, pages.page, rows.length, filtered, tz)}
           pager={<Pagination mode="cursor" newerHref={pages.newerHref} olderHref={pages.olderHref} label="Request log pages" />}
         />
       )}
@@ -250,8 +253,8 @@ export function RequestLog({
 }
 
 const COLUMNS = ["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"] as const;
-/** What a header cell says, where it says more than the column's name. */
-const HEADER: Partial<Record<(typeof COLUMNS)[number], string>> = { Time: "Time (UTC)" };
+/** What a header cell says, where it says more than the column's name: the Time column names the zone. */
+const header = (c: (typeof COLUMNS)[number], tz: string) => (c === "Time" ? `Time (${zoneLabel(tz)})` : c);
 
 /** The grid: a header row and a scrolling, virtualised body. `rows` null draws skeleton rows. */
 function LogGrid({
@@ -270,6 +273,7 @@ function LogGrid({
   /** Newer and Older, beside the caption. */
   pager?: ReactNode;
 }) {
+  const tz = useTimeZone();
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -380,7 +384,7 @@ function LogGrid({
           <div className="ex-row ex-row--head" role="row" aria-rowindex={1}>
             {COLUMNS.map((c) => (
               <div key={c} role="columnheader" className={`ex-cell ex-cell--${c.toLowerCase()}`}>
-                {HEADER[c] ?? c}
+                {header(c, tz)}
               </div>
             ))}
           </div>
@@ -416,11 +420,12 @@ const LogRow = memo(function LogRow({
   onOpen?: (row: RequestRow) => void;
   rowId: string;
 }) {
+  const tz = useTimeZone();
   const consumer = consumerOf(r);
   const path = shownPath(r);
   const tone = latencyTone(r.response_time_ms);
   const status = statusClass(r.status_code);
-  const time = logTime(r.timestamp, now);
+  const time = logTime(r.timestamp, now, tz);
   // The URL as requested is what reads apart row to row; the route it matched is in the title.
   const pathTitle = r.path && r.path !== path ? `${path}\nRoute ${r.method.toUpperCase()} ${r.path}` : path;
   return (

@@ -136,6 +136,13 @@ describe("recoveryView (status and cancel pages)", () => {
     expect((await view(TOKEN)).kind).toBe("ready");
   });
 
+  it("shows the times in a zone the caller passes", async () => {
+    replies["GET /api/v1/auth/recovery/status"] = statusReply("confirmed");
+    expect(await rec.recoveryView(TOKEN, { now: NOW, timeZone: "Asia/Kolkata" })).toEqual({ kind: "confirmed", requestedAt: "Nov 4, 2026, 16:30 IST" });
+    expect(rec.formatWhen("2026-11-04T20:00:00Z", "Asia/Kolkata")).toBe("Nov 5, 2026, 01:30 IST");
+    expect(rec.formatWhen("2026-11-04T20:00:00Z", "UTC")).toBe("Nov 4, 2026, 20:00 UTC");
+  });
+
   it("confirmed: the link is spent", async () => {
     replies["GET /api/v1/auth/recovery/status"] = statusReply("confirmed");
     expect(await view(TOKEN)).toEqual({ kind: "confirmed", requestedAt: "Nov 4, 2026, 11:00 UTC" });

@@ -25,6 +25,8 @@ import { formatShare } from "@/lib/endpoint-detail";
 import type { RequestTimeline } from "@/lib/identity";
 import { plotWidth } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
+import { zoneLabel } from "@/lib/time-zone";
 
 /** The viewBox width drawn before the plot is measured (server render), stretched by CSS. */
 const FALLBACK_W = 960;
@@ -85,6 +87,7 @@ export function Timeline({
   busy: boolean;
   navigate: (href: string, replace: boolean) => void;
 }) {
+  const tz = useTimeZone();
   const id = useId();
   const [timeline, setTimeline] = useState<RequestTimeline | null>(initial);
   const [ref, measured] = useMeasuredWidth<HTMLDivElement>();
@@ -208,7 +211,7 @@ export function Timeline({
   const selHi = sel ? Math.max(sel.a, sel.b) : 0;
   const style = timeline ? labelStyle(timeline) : { seconds: false, withDay: false };
   const shown = focus ?? hover;
-  const tip = timeline && shown !== null && buckets[shown] ? bucketText(timeline, buckets[shown]) : null;
+  const tip = timeline && shown !== null && buckets[shown] ? bucketText(timeline, buckets[shown], tz) : null;
   const total = buckets.reduce((n, b) => n + b.requests, 0);
 
   return (
@@ -268,7 +271,7 @@ export function Timeline({
         <div className="ex-tl__scope">
           {zoomed && q.from && q.to ? (
             <span>
-              Zoomed to {windowText(q.from, q.to)}.{" "}
+              Zoomed to {windowText(q.from, q.to, tz)}.{" "}
               <a className="cp-link" href={resetHref} onClick={(e) => go(e, resetHref)}>
                 Reset zoom
               </a>
@@ -276,7 +279,7 @@ export function Timeline({
           ) : null}
           {q.at ? (
             <span>
-              Log from {instantText(q.at)} back.{" "}
+              Log from {instantText(q.at, tz)} back.{" "}
               <a className="cp-link" href={newestHref} onClick={(e) => go(e, newestHref)}>
                 Back to newest
               </a>
@@ -297,7 +300,7 @@ export function Timeline({
             ref={ref}
             role="group"
             tabIndex={0}
-            aria-label={`Requests over time: ${formatCount(total)} ${total === 1 ? "request" : "requests"} from ${windowText(timeline.from, timeline.to)}`}
+            aria-label={`Requests over time: ${formatCount(total)} ${total === 1 ? "request" : "requests"} from ${windowText(timeline.from, timeline.to, tz)}`}
             aria-describedby={`${id}-hint`}
             data-measured={measured ?? undefined}
             onPointerDown={onPointerDown}
@@ -342,8 +345,12 @@ export function Timeline({
           </div>
           {count ? (
             <div className="ex-tl__axis" aria-hidden="true">
-              <span>{formatInstant(buckets[0].ts, style)} UTC</span>
-              <span>{formatInstant(timeline.to, style)} UTC</span>
+              <span>
+                {formatInstant(buckets[0].ts, { ...style, tz })} {zoneLabel(tz, Date.parse(buckets[0].ts))}
+              </span>
+              <span>
+                {formatInstant(timeline.to, { ...style, tz })} {zoneLabel(tz, Date.parse(timeline.to))}
+              </span>
             </div>
           ) : null}
           <p id={`${id}-hint`} className="ex-tl__hint">

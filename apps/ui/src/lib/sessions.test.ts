@@ -78,8 +78,9 @@ describe("lastActive", () => {
 
 describe("formatDateTime", () => {
   it("formats in UTC so server and browser agree", () => {
-    expect(formatDateTime("2026-11-04T09:05:00Z")).toBe("Nov 4, 2026, 9:05 AM UTC");
-    expect(formatDateTime("")).toBe("Unknown");
+    expect(formatDateTime("2026-11-04T09:05:00Z", "UTC")).toBe("Nov 4, 2026, 9:05 AM UTC");
+    expect(formatDateTime("2026-11-04T20:05:00Z", "Asia/Kolkata")).toBe("Nov 5, 2026, 1:35 AM IST");
+    expect(formatDateTime("", "UTC")).toBe("Unknown");
   });
 });
 

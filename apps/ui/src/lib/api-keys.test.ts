@@ -23,7 +23,7 @@ import {
   keysPath,
   maskedKey,
   scopesLabel,
-  todayUTC,
+  todayIn,
   withCreated,
   STATE_LABEL,
   abilitiesText,
@@ -106,27 +106,38 @@ describe("checkScopes", () => {
 
 describe("expiryFor", () => {
   it("never expires by default", () => {
-    expect(expiryFor("never", "", NOW)).toEqual({ ok: true, expiresAt: undefined });
+    expect(expiryFor("never", "", "UTC", NOW)).toEqual({ ok: true, expiresAt: undefined });
   });
 
   it("counts preset days from now", () => {
-    expect(expiryFor("30", "", NOW)).toEqual({ ok: true, expiresAt: "2026-12-04T12:00:00.000Z" });
-    expect(expiryFor("365", "", NOW)).toEqual({ ok: true, expiresAt: "2027-11-04T12:00:00.000Z" });
+    expect(expiryFor("30", "", "UTC", NOW)).toEqual({ ok: true, expiresAt: "2026-12-04T12:00:00.000Z" });
+    expect(expiryFor("365", "", "UTC", NOW)).toEqual({ ok: true, expiresAt: "2027-11-04T12:00:00.000Z" });
   });
 
   it("keeps a custom date working through its end, UTC", () => {
-    expect(expiryFor("custom", "2026-11-05", NOW)).toEqual({ ok: true, expiresAt: "2026-11-05T23:59:59.000Z" });
+    expect(expiryFor("custom", "2026-11-05", "UTC", NOW)).toEqual({ ok: true, expiresAt: "2026-11-05T23:59:59.000Z" });
   });
 
   it("rejects a missing, invalid or past custom date", () => {
-    expect(expiryFor("custom", "", NOW)).toEqual({ ok: false, error: "Pick a date." });
-    expect(expiryFor("custom", "2026-02-30", NOW)).toEqual({ ok: false, error: "Pick a date." });
-    expect(expiryFor("custom", "2026-11-04", NOW)).toEqual({ ok: false, error: "Pick a date after today." });
-    expect(expiryFor("custom", "2025-01-01", NOW)).toEqual({ ok: false, error: "Pick a date after today." });
+    expect(expiryFor("custom", "", "UTC", NOW)).toEqual({ ok: false, error: "Pick a date." });
+    expect(expiryFor("custom", "2026-02-30", "UTC", NOW)).toEqual({ ok: false, error: "Pick a date." });
+    expect(expiryFor("custom", "2026-11-04", "UTC", NOW)).toEqual({ ok: false, error: "Pick a date after today." });
+    expect(expiryFor("custom", "2025-01-01", "UTC", NOW)).toEqual({ ok: false, error: "Pick a date after today." });
   });
 
-  it("dates today in UTC", () => {
-    expect(todayUTC(Date.parse("2026-11-04T23:30:00-05:00"))).toBe("2026-11-05");
+  it("dates today in the user's zone", () => {
+    expect(todayIn("UTC", Date.parse("2026-11-04T23:30:00-05:00"))).toBe("2026-11-05");
+    expect(todayIn("Asia/Kolkata", Date.parse("2026-11-04T19:00:00Z"))).toBe("2026-11-05");
+    expect(todayIn("UTC", Date.parse("2026-11-04T19:00:00Z"))).toBe("2026-11-04");
+  });
+
+  it("ends a custom date at midnight in the user's zone", () => {
+    expect(expiryFor("custom", "2026-11-05", "Asia/Kolkata", NOW)).toEqual({ ok: true, expiresAt: "2026-11-05T18:29:59.000Z" });
+    // Daylight saving: New York is UTC-5 in November, UTC-4 in July.
+    expect(expiryFor("custom", "2026-11-05", "America/New_York", NOW)).toEqual({ ok: true, expiresAt: "2026-11-06T04:59:59.000Z" });
+    expect(expiryFor("custom", "2027-07-01", "America/New_York", NOW)).toEqual({ ok: true, expiresAt: "2027-07-02T03:59:59.000Z" });
+    // 19:00 UTC on the 4th is already the 5th in India, so the 5th is not after today there.
+    expect(expiryFor("custom", "2026-11-05", "Asia/Kolkata", Date.parse("2026-11-04T19:00:00Z"))).toEqual({ ok: false, error: "Pick a date after today." });
   });
 });
 
@@ -305,19 +316,22 @@ describe("key state (#810)", () => {
 
   it("names each state", () => {
     expect(keyState(key(), now)).toBe("active");
-    expect(keyStateLabel(key(), now)).toBe("Active");
-    expect(keyStateLabel(key({ expires_at: at(24 * 30) }), now)).toBe("Active");
+    expect(keyStateLabel(key(), "UTC", now)).toBe("Active");
+    expect(keyStateLabel(key({ expires_at: at(24 * 30) }), "UTC", now)).toBe("Active");
     expect(keyState(key({ expires_at: at(24 * 5 + 2) }), now)).toBe("expiring");
-    expect(keyStateLabel(key({ expires_at: at(24 * 5 + 2) }), now)).toBe("Expires in 5 days");
-    expect(keyStateLabel(key({ expires_at: at(25) }), now)).toBe("Expires in 1 day");
-    expect(keyStateLabel(key({ expires_at: at(3.5) }), now)).toBe("Expires in 3 hours");
-    expect(keyStateLabel(key({ expires_at: at(0.2) }), now)).toBe("Expires in under an hour");
+    expect(keyStateLabel(key({ expires_at: at(24 * 5 + 2) }), "UTC", now)).toBe("Expires in 5 days");
+    expect(keyStateLabel(key({ expires_at: at(25) }), "UTC", now)).toBe("Expires in 1 day");
+    expect(keyStateLabel(key({ expires_at: at(3.5) }), "UTC", now)).toBe("Expires in 3 hours");
+    expect(keyStateLabel(key({ expires_at: at(0.2) }), "UTC", now)).toBe("Expires in under an hour");
     expect(keyState(key({ expires_at: at(24 * 4 + 12), rotated_to: "x" }), now)).toBe("rotating");
-    expect(keyStateLabel(key({ expires_at: "2026-11-14T00:00:00Z", rotated_to: "x" }), now)).toBe("Rotating until 14 Nov");
-    expect(keyStateLabel(key({ expires_at: at(-1) }), now)).toBe("Expired");
-    expect(keyStateLabel(key({ expires_at: at(-1), rotated_to: "x" }), now)).toBe("Expired");
-    expect(keyStateLabel(key({ expires_at: at(-1), revoked_at: at(-2) }), now)).toBe("Revoked");
-    expect(formatDayMonth("nope")).toBe("");
+    expect(keyStateLabel(key({ expires_at: "2026-11-14T00:00:00Z", rotated_to: "x" }), "UTC", now)).toBe("Rotating until 14 Nov");
+    expect(keyStateLabel(key({ expires_at: at(-1) }), "UTC", now)).toBe("Expired");
+    expect(keyStateLabel(key({ expires_at: at(-1), rotated_to: "x" }), "UTC", now)).toBe("Expired");
+    expect(keyStateLabel(key({ expires_at: at(-1), revoked_at: at(-2) }), "UTC", now)).toBe("Revoked");
+    expect(formatDayMonth("nope", "UTC")).toBe("");
+    // 20:00 UTC on the 13th is the 14th in India.
+    expect(keyStateLabel(key({ expires_at: "2026-11-13T20:00:00Z", rotated_to: "x" }), "UTC", now)).toBe("Rotating until 13 Nov");
+    expect(keyStateLabel(key({ expires_at: "2026-11-13T20:00:00Z", rotated_to: "x" }), "Asia/Kolkata", now)).toBe("Rotating until 14 Nov");
   });
 
   it("filters by state and hides inactive keys unless asked", () => {
@@ -367,14 +381,15 @@ describe("last used (#810)", () => {
   const ago = (ms: number) => new Date(now - ms).toISOString();
 
   it("reads relative time", () => {
-    expect(relativeTime(ago(10_000), now)).toBe("Just now");
-    expect(relativeTime(ago(60_000), now)).toBe("1 minute ago");
-    expect(relativeTime(ago(5 * 60_000), now)).toBe("5 minutes ago");
-    expect(relativeTime(ago(3 * 3_600_000), now)).toBe("3 hours ago");
-    expect(relativeTime(ago(30 * 3_600_000), now)).toBe("Yesterday");
-    expect(relativeTime(ago(12 * 86_400_000), now)).toBe("12 days ago");
-    expect(relativeTime("2026-08-01T10:00:00Z", now)).toBe("Aug 1, 2026");
-    expect(relativeTime("bad", now)).toBe("");
+    expect(relativeTime(ago(10_000), "UTC", now)).toBe("Just now");
+    expect(relativeTime(ago(60_000), "UTC", now)).toBe("1 minute ago");
+    expect(relativeTime(ago(5 * 60_000), "UTC", now)).toBe("5 minutes ago");
+    expect(relativeTime(ago(3 * 3_600_000), "UTC", now)).toBe("3 hours ago");
+    expect(relativeTime(ago(30 * 3_600_000), "UTC", now)).toBe("Yesterday");
+    expect(relativeTime(ago(12 * 86_400_000), "UTC", now)).toBe("12 days ago");
+    expect(relativeTime("2026-08-01T10:00:00Z", "UTC", now)).toBe("Aug 1, 2026");
+    expect(relativeTime("bad", "UTC", now)).toBe("");
+    expect(relativeTime("2026-07-31T20:00:00Z", "Asia/Kolkata", now)).toBe("Aug 1, 2026");
   });
 
   it("shows the SDK and version", () => {
@@ -409,11 +424,13 @@ describe("rotation overlap (#811)", () => {
   });
 
   it("says what happens to the old key", () => {
-    expect(overlapText("none", null, now)).toBe("The old key stops working as soon as you rotate.");
-    expect(overlapText("24h", null, now)).toBe("The old key keeps working until 14 Nov, 10:30 UTC.");
-    expect(overlapText("7d", null, now)).toBe("The old key keeps working until 20 Nov, 10:30 UTC.");
-    expect(overlapText("7d", "2026-11-15T00:00:00Z", now)).toBe("The old key keeps working until 15 Nov, 00:00 UTC, when it expires anyway.");
-    expect(formatDayTime(Number.NaN)).toBe("");
+    expect(overlapText("none", null, "UTC", now)).toBe("The old key stops working as soon as you rotate.");
+    expect(overlapText("24h", null, "UTC", now)).toBe("The old key keeps working until 14 Nov, 10:30 UTC.");
+    expect(overlapText("7d", null, "UTC", now)).toBe("The old key keeps working until 20 Nov, 10:30 UTC.");
+    expect(overlapText("7d", "2026-11-15T00:00:00Z", "UTC", now)).toBe("The old key keeps working until 15 Nov, 00:00 UTC, when it expires anyway.");
+    expect(formatDayTime(Number.NaN, "UTC")).toBe("");
+    expect(formatDayTime(Date.parse("2026-11-14T20:30:00Z"), "Asia/Kolkata")).toBe("15 Nov, 02:00 IST");
+    expect(overlapText("7d", "2026-11-15T00:00:00Z", "Asia/Kolkata", now)).toBe("The old key keeps working until 15 Nov, 05:30 IST, when it expires anyway.");
   });
 
   it("rotates only working keys that were not rotated yet", () => {
@@ -425,8 +442,9 @@ describe("rotation overlap (#811)", () => {
   });
 
   it("reports the rotation and updates the list", () => {
-    expect(rotatedText({ name: "Prod", expires_at: at(24) }, now)).toBe("Rotated Prod. The old key works until 14 Nov, 10:30 UTC.");
-    expect(rotatedText({ name: "Prod", expires_at: at(0) }, now)).toBe("Rotated Prod. The old key no longer works.");
+    expect(rotatedText({ name: "Prod", expires_at: at(24) }, "UTC", now)).toBe("Rotated Prod. The old key works until 14 Nov, 10:30 UTC.");
+    expect(rotatedText({ name: "Prod", expires_at: at(0) }, "UTC", now)).toBe("Rotated Prod. The old key no longer works.");
+    expect(rotatedText({ name: "Prod", expires_at: at(24) }, "Asia/Kolkata", now)).toBe("Rotated Prod. The old key works until 14 Nov, 16:00 IST.");
     const old = key({ id: "old" });
     const other = key({ id: "other" });
     const previous = { ...old, expires_at: at(24), rotated_to: "new" };
@@ -458,6 +476,6 @@ describe("environment limits (#811)", () => {
 describe("expiry choices (#811)", () => {
   it("offers never, 30, 90 and 365 days and a custom date", () => {
     expect(EXPIRY_CHOICES.map((c) => c.value)).toEqual(["never", "30", "90", "365", "custom"]);
-    expect(expiryFor("90", "", NOW)).toEqual({ ok: true, expiresAt: "2027-02-02T12:00:00.000Z" });
+    expect(expiryFor("90", "", "UTC", NOW)).toEqual({ ok: true, expiresAt: "2027-02-02T12:00:00.000Z" });
   });
 });

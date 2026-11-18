@@ -8,6 +8,7 @@ import type { ManagedApp } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
 import { PopMenu } from "../pop-menu";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "../project-settings/api-keys.css";
@@ -184,6 +185,7 @@ export function AppActionsMenu({ app }: { app: ManagedApp }) {
  */
 export function NewAppsNotice({ apps, now }: { apps: readonly ManagedApp[]; now: number }) {
   const { project, canManage, merge } = useManage();
+  const tz = useTimeZone();
   const { pending, run } = useWrite();
   if (apps.length === 0) return null;
   const one = apps.length === 1;
@@ -202,7 +204,7 @@ export function NewAppsNotice({ apps, now }: { apps: readonly ManagedApp[]; now:
               <span>
                 <b>{a.name}</b>
                 {a.slug !== a.name ? <code> {a.slug}</code> : null}
-                <span className="ap-muted"> · {originText(a, now)}</span>
+                <span className="ap-muted"> · {originText(a, tz, now)}</span>
               </span>
               {canManage ? (
                 <span className="ap-newlist__actions">
@@ -245,6 +247,7 @@ export function ArchivedApps({ apps, now }: { apps: readonly ManagedApp[]; now: 
 
 function ArchivedRow({ app, now }: { app: ManagedApp; now: number }) {
   const { project, canManage } = useManage();
+  const tz = useTimeZone();
   const { pending, run } = useWrite();
   const [confirming, setConfirming] = useState(false);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -262,7 +265,7 @@ function ArchivedRow({ app, now }: { app: ManagedApp; now: number }) {
           {app.slug !== app.name ? <code>{app.slug}</code> : null}
           <span className={`ap-state ap-state--${app.state}`}>{STATE_LABEL[app.state]}</span>
         </p>
-        <p className="ap-muted">{stateText(app, now)}</p>
+        <p className="ap-muted">{stateText(app, tz, now)}</p>
       </div>
       {canManage ? (
         <div className="ap-arow__actions">

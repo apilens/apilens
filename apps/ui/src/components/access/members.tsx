@@ -29,6 +29,7 @@ import "../org-settings/org-settings.css";
 import "../org-settings/members.css";
 import { type OrgRef, PendingInvitations } from "./invite";
 import { type Announce, AddPeople, MemberRowMenu } from "./manage";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./members.css";
 
 /** The Members tab's title and tabs, around the list (or its skeleton while it loads). */
@@ -98,6 +99,7 @@ export function AccessMembers({
   invitations?: Invitation[] | null;
 }) {
   const router = useRouter();
+  const tz = useTimeZone();
   const [status, setStatus] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const announce: Announce = setStatus;
   const pathname = `/${project}/access`;
@@ -227,7 +229,7 @@ export function AccessMembers({
                     </ul>
                   </td>
                   <td data-label="Last active">
-                    {m.last_active_at ? <time dateTime={m.last_active_at}>{lastActive(m.last_active_at, now)}</time> : lastActive(null, now)}
+                    {m.last_active_at ? <time dateTime={m.last_active_at}>{lastActive(m.last_active_at, tz, now)}</time> : lastActive(null, tz, now)}
                   </td>
                   <td data-label="Added by" className="am-by">
                     {addedBy(m) === "—" ? (
@@ -236,7 +238,7 @@ export function AccessMembers({
                       <span className="am-by__t">
                         {addedBy(m)}
                         <time className="am-by__d" dateTime={m.added_at}>
-                          {formatJoined(m.added_at)}
+                          {formatJoined(m.added_at, tz)}
                         </time>
                       </span>
                     )}

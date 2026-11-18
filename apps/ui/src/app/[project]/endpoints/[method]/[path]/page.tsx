@@ -7,6 +7,7 @@ import { type EndpointRef, type EndpointState, endpointPageHref, parseEndpointQu
 import { type CallOptions, type EndpointSettings, type ProjectApps, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
+import { resolveTimeZone } from "@/lib/time-zone";
 
 type Params = { project: string; method: string; path: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -83,6 +84,7 @@ export default async function EndpointPage({ params, searchParams }: { params: P
         tab={tab}
         settings={settings}
         params={sp}
+        tz={resolveTimeZone(context.user.preferences)}
       />
     </AppShell>
   );

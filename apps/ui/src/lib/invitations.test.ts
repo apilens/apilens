@@ -55,8 +55,9 @@ describe("display", () => {
   });
 
   it("formats days in UTC", () => {
-    expect(formatDay("2026-11-11T23:30:00Z")).toBe("Nov 11, 2026");
-    expect(formatDay("nope")).toBe("Unknown");
+    expect(formatDay("2026-11-11T23:30:00Z", "UTC")).toBe("Nov 11, 2026");
+    expect(formatDay("2026-11-11T23:30:00Z", "Asia/Kolkata")).toBe("Nov 12, 2026");
+    expect(formatDay("nope", "UTC")).toBe("Unknown");
   });
 
   it("names the inviter", () => {

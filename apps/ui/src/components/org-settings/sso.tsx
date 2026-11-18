@@ -22,6 +22,7 @@ import { ssoStartHref } from "@/lib/sso";
 import { ObIcon } from "../onboarding/ob";
 import { type OrgRef as BaseOrgRef, type Status } from "./controls";
 import { OrgSettingsNav } from "./nav";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./org-settings.css";
 import "./sso.css";
 
@@ -454,9 +455,10 @@ function ConnectionCard({ org, conn, onSaved }: { org: OrgRef; conn: SSOConnecti
 }
 
 function ConnectionBadge({ conn }: { conn: SSOConnection | null }) {
+  const tz = useTimeZone();
   if (!conn) return <span className="sso-badge">Not set up</span>;
   if (conn.enforce) return <span className="sso-badge on">Required</span>;
-  if (conn.last_login_at) return <span className="sso-badge ok">Active · last sign-in {formatJoined(conn.last_login_at)}</span>;
+  if (conn.last_login_at) return <span className="sso-badge ok">Active · last sign-in {formatJoined(conn.last_login_at, tz)}</span>;
   return <span className="sso-badge warn">Untested</span>;
 }
 

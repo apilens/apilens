@@ -114,6 +114,18 @@ func TestNewMeSecurityEmails(t *testing.T) {
 	}
 }
 
+func TestNewMeTimeZone(t *testing.T) {
+	for stored, want := range map[string]string{
+		`{}`:                          "",
+		`{"timezone":"Asia/Kolkata"}`: "Asia/Kolkata",
+		`{"timezone":"Mars/Olympus"}`: "",
+	} {
+		if got := NewMe(db.User{Preferences: []byte(stored)}, nil).Preferences.TimeZone; got != want {
+			t.Errorf("%s: timezone = %q, want %q", stored, got, want)
+		}
+	}
+}
+
 func TestPatchMeBuildsPatch(t *testing.T) {
 	p := testPrincipal()
 	svc := &fakeAccount{user: db.User{ID: p.UserID, Preferences: []byte(`{}`), Onboarding: []byte(`{}`)}}
@@ -152,7 +164,16 @@ func TestPatchMeBuildsPatch(t *testing.T) {
 		t.Fatalf("patch = %+v", got)
 	}
 
+	resp = api.Patch(MePath, map[string]any{"preferences": map[string]any{"timezone": "Asia/Kolkata"}})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("timezone: status = %d: %s", resp.Code, resp.Body)
+	}
+	if got := svc.patches[4]; len(got.Preferences) != 1 || got.Preferences["timezone"] != "Asia/Kolkata" {
+		t.Fatalf("patch = %+v", got)
+	}
+
 	for name, body := range map[string]map[string]any{
+		"long timezone":       {"preferences": map[string]any{"timezone": strings.Repeat("a", 65)}},
 		"bad security emails": {"preferences": map[string]any{"security_emails": "no"}},
 		"bad home":            {"preferences": map[string]any{"home": "dashboard"}},
 		"bad last project":    {"preferences": map[string]any{"last_project_slug": "Not A Slug"}},
@@ -164,7 +185,7 @@ func TestPatchMeBuildsPatch(t *testing.T) {
 			t.Errorf("%s: status = %d", name, resp.Code)
 		}
 	}
-	if len(svc.patches) != 4 {
+	if len(svc.patches) != 5 {
 		t.Fatalf("invalid bodies reached the service: %d calls", len(svc.patches))
 	}
 }

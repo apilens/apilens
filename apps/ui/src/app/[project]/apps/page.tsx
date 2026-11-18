@@ -18,6 +18,7 @@ import {
 } from "@/lib/identity";
 import { type SearchParams, pageRedirect, parsePage, slicePage } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
+import { resolveTimeZone } from "@/lib/time-zone";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
 export const metadata: Metadata = { title: "Apps" };
@@ -88,6 +89,7 @@ export default async function AppsPage({ params, searchParams }: { params: Promi
         rejections={rejections}
         params={query}
         now={Date.now()}
+        tz={resolveTimeZone(context.user.preferences)}
       />
     </AppShell>
   );

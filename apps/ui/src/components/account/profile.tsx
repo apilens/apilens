@@ -7,6 +7,7 @@ import { CODE_LENGTH, MAX_NAME, checkName, checkNewEmail, cleanCode, isCode } fr
 import { readRememberedAccount, rememberAccount } from "@/lib/remembered-account";
 import { userLabel } from "@/lib/scope";
 import { ObIcon } from "../onboarding/ob";
+import { TimeZoneCard } from "./time-zone";
 import "../org-settings/org-settings.css";
 import "./account.css";
 
@@ -22,14 +23,16 @@ function StatusLine({ status, id }: { status: Status; id: string }) {
 
 /**
  * `/settings` Profile (#340): the display name (with the initials the avatar shows) and the email
- * address, which changes only after a code sent to the new address is confirmed.
+ * address, which changes only after a code sent to the new address is confirmed, and the time
+ * zone the dashboard shows times in (#1046).
  */
-export function ProfileSettings({ user }: { user: Pick<User, "name" | "email"> }) {
+export function ProfileSettings({ user }: { user: Pick<User, "name" | "email" | "preferences"> }) {
   const [email, setEmail] = useState(user.email);
   return (
     <div className="os acct-os">
       <NameCard initial={user.name ?? ""} email={email} />
       <EmailCard email={email} onChanged={setEmail} />
+      <TimeZoneCard initial={user.preferences?.timezone ?? ""} />
     </div>
   );
 }

@@ -45,7 +45,7 @@ import {
   rotatedText,
   scopesLabel,
   sdkText,
-  todayUTC,
+  todayIn,
   withCreated,
   withRotated,
 } from "@/lib/api-keys";
@@ -59,6 +59,7 @@ import { projectSectionHref } from "@/lib/project-settings";
 import { ObIcon } from "../onboarding/ob";
 import { AccessFields } from "./access-fields";
 import { Pagination } from "../pagination/pagination";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./api-keys.css";
@@ -112,6 +113,7 @@ export function ApiKeysSettings({
   nav?: ReactNode;
 }) {
   const router = useRouter();
+  const tz = useTimeZone();
   const [keys, setKeys] = useState<ApiKey[]>(initial ?? []);
   const [status, setStatus] = useState<Status>(null);
   const [creating, setCreating] = useState(false);
@@ -170,7 +172,7 @@ export function ApiKeysSettings({
     const { key: _raw, previous, ...next } = result;
     setClock(Date.now());
     setKeys((list) => withRotated(list, next, previous));
-    setStatus({ tone: "ok", text: rotatedText(previous) });
+    setStatus({ tone: "ok", text: rotatedText(previous, tz) });
   };
 
   const saved = (key: ApiKey) => {
@@ -336,15 +338,16 @@ interface RowProps {
 }
 
 function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRotate, onRevoke }: RowProps) {
+  const tz = useTimeZone();
   const state = keyState(k, now);
   const ingest = isIngestKey(k);
   const limits = limitsText(k, info.names);
   const sdk = sdkText(k.last_used_sdk);
   const stateTitle =
     state === "revoked" && k.revoked_at
-      ? `Revoked ${formatExact(k.revoked_at)}`
+      ? `Revoked ${formatExact(k.revoked_at, tz)}`
       : k.expires_at && state !== "active"
-        ? `${state === "expired" ? "Expired" : "Stops working"} ${formatExact(k.expires_at)}`
+        ? `${state === "expired" ? "Expired" : "Stops working"} ${formatExact(k.expires_at, tz)}`
         : undefined;
   return (
     <tr className={`pk-row${isInactive(state) ? ` is-inactive is-${state}` : ""}`}>
@@ -362,8 +365,8 @@ function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRotate, on
       </td>
       <td data-label="Created">
         <div>
-          <time dateTime={k.created_at} title={formatExact(k.created_at)}>
-            {formatDay(k.created_at)}
+          <time dateTime={k.created_at} title={formatExact(k.created_at, tz)}>
+            {formatDay(k.created_at, tz)}
           </time>
           {k.created_by ? <span className="ak-sub">by {k.created_by.name}</span> : null}
         </div>
@@ -371,8 +374,8 @@ function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRotate, on
       <td data-label="Last used">
         {k.last_used_at ? (
           <div>
-            <time dateTime={k.last_used_at} title={formatExact(k.last_used_at)}>
-              {relativeTime(k.last_used_at, now)}
+            <time dateTime={k.last_used_at} title={formatExact(k.last_used_at, tz)}>
+              {relativeTime(k.last_used_at, tz, now)}
             </time>
             {sdk ? <span className="ak-sub">{sdk}</span> : null}
           </div>
@@ -382,8 +385,8 @@ function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRotate, on
       </td>
       <td data-label="Expires">
         {k.expires_at ? (
-          <time dateTime={k.expires_at} title={formatExact(k.expires_at)}>
-            {formatDay(k.expires_at)}
+          <time dateTime={k.expires_at} title={formatExact(k.expires_at, tz)}>
+            {formatDay(k.expires_at, tz)}
           </time>
         ) : (
           <span className="pk-muted">Never</span>
@@ -391,7 +394,7 @@ function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRotate, on
       </td>
       <td data-label="State">
         <span className={`ak-status ak-status--${state}`} title={stateTitle}>
-          {keyStateLabel(k, now)}
+          {keyStateLabel(k, tz, now)}
         </span>
       </td>
       <td className="pk-actions">
@@ -545,6 +548,7 @@ function CreateForm({
   // null: every environment. The field is shown only when the project's environments were read.
   const [envs, setEnvs] = useState<string[] | null>(null);
   const pinnable = environments !== null && environments.length > 0;
+  const tz = useTimeZone();
   const [expiry, setExpiry] = useState<ExpiryChoice>("never");
   const [date, setDate] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -587,7 +591,7 @@ function CreateForm({
       setError("Choose at least one environment, or allow all environments.");
       return;
     }
-    const when = expiryFor(expiry, date);
+    const when = expiryFor(expiry, date, tz);
     if (!when.ok) {
       setError(when.error);
       return;
@@ -706,7 +710,7 @@ function CreateForm({
                     type="date"
                     aria-label="Expiry date"
                     value={date}
-                    min={todayUTC(Date.now() + 86_400_000)}
+                    min={todayIn(tz, Date.now() + 86_400_000)}
                     onChange={(e) => {
                       setDate(e.target.value);
                       setError(null);
@@ -765,6 +769,7 @@ function useCopy(): [copied: boolean, failed: boolean, copy: (text: string) => P
  * have stored this key" is ticked, since the old key stops working on its own.
  */
 function RevealKey({ apiKey, slugs, onDone, acknowledge = false }: { apiKey: CreatedApiKey; slugs: ReadonlyMap<string, string>; onDone: () => void; acknowledge?: boolean }) {
+  const tz = useTimeZone();
   const [stored, setStored] = useState(false);
   const [copied, copyError, copy] = useCopy();
   const [snippetCopied, snippetError, copySnippet] = useCopy();
@@ -784,7 +789,7 @@ function RevealKey({ apiKey, slugs, onDone, acknowledge = false }: { apiKey: Cre
         <h2 id="ak-dialog-title">Copy your new key</h2>
         <p>
           <b>{apiKey.name}</b> · {ingest ? permissionSummary(apiKey) : scopesLabel(apiKey.scopes)}
-          {apiKey.expires_at ? ` · expires ${formatDay(apiKey.expires_at)}` : ""}
+          {apiKey.expires_at ? ` · expires ${formatDay(apiKey.expires_at, tz)}` : ""}
         </p>
       </div>
       <div className="ak-dialog__body">
@@ -992,6 +997,7 @@ function EnvironmentFields({ value, options, onChange }: { value: string[] | nul
 function RotateDialog({ project, apiKey, info, onClose, onRotated }: { project: string; apiKey: ApiKey; info: AppsInfo; onClose: () => void; onRotated: (key: RotatedApiKey) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
+  const tz = useTimeZone();
   const [overlap, setOverlap] = useState<RotateOverlap>(DEFAULT_OVERLAP);
   const [revealed, setRevealed] = useState<RotatedApiKey | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1066,7 +1072,7 @@ function RotateDialog({ project, apiKey, info, onClose, onRotated }: { project: 
                 </label>
               ))}
               <p id={helpId} className="ak-hint">
-                {overlapText(overlap, apiKey.expires_at)}
+                {overlapText(overlap, apiKey.expires_at, tz)}
               </p>
             </fieldset>
             {error ? (

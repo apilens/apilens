@@ -183,10 +183,12 @@ describe("detail", () => {
 
   it("writes relative times", () => {
     const now = Date.parse("2026-11-13T12:00:00Z");
-    expect(relativeTime("2026-11-13T11:59:30Z", now)).toBe("just now");
-    expect(relativeTime("2026-11-13T11:20:00Z", now)).toBe("40 min ago");
-    expect(relativeTime("2026-11-13T09:00:00Z", now)).toBe("3 h ago");
-    expect(relativeTime("2026-11-11T12:00:00Z", now)).toBe("2 days ago");
-    expect(relativeTime("2026-09-01T12:00:00Z", now)).toBe("2026-09-01");
+    expect(relativeTime("2026-11-13T11:59:30Z", "UTC", now)).toBe("just now");
+    expect(relativeTime("2026-11-13T11:20:00Z", "UTC", now)).toBe("40 min ago");
+    expect(relativeTime("2026-11-13T09:00:00Z", "UTC", now)).toBe("3 h ago");
+    expect(relativeTime("2026-11-11T12:00:00Z", "UTC", now)).toBe("2 days ago");
+    expect(relativeTime("2026-09-01T12:00:00Z", "UTC", now)).toBe("2026-09-01");
+    // 20:00 UTC is 01:30 the next day in India.
+    expect(relativeTime("2026-09-01T20:00:00Z", "Asia/Kolkata", now)).toBe("2026-09-02");
   });
 });

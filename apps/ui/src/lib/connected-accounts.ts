@@ -6,6 +6,7 @@
 // Pure; safe in Client Components and in the edge proxy.
 import type { ConnectedAccount } from "./identity";
 import type { OAuthProvider, SignInMethods } from "./sign-in-methods";
+import { zoned } from "./time-zone";
 
 /** The section's page; identity returns the browser here after connecting an account. */
 export const CONNECTED_ACCOUNTS_PATH = "/settings/connected-accounts";
@@ -52,13 +53,13 @@ export function accountName(a: Pick<ConnectedAccount, "provider" | "username" | 
   return a.email || a.name || `${providerLabel(a.provider)} account`;
 }
 
-const DATE = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+const DATE: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" };
 
-/** "Mar 4, 2026" for an RFC 3339 timestamp (UTC, so server and browser agree); "" when unparsable. */
-export function formatDate(iso: string | null | undefined): string {
+/** "Mar 4, 2026" for an RFC 3339 timestamp, in `tz` so server and browser agree; "" when unparsable. */
+export function formatDate(iso: string | null | undefined, tz: string): string {
   if (!iso) return "";
   const t = Date.parse(iso);
-  return Number.isNaN(t) ? "" : DATE.format(t);
+  return Number.isNaN(t) ? "" : zoned("en-US", DATE, tz).format(t);
 }
 
 export type ConnectedNoticeTone = "ok" | "error";

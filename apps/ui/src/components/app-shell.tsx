@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CapabilitiesProvider } from "@/lib/permissions";
 import { type UserContext, findOrg, findProject } from "@/lib/scope";
+import { resolveTimeZone } from "@/lib/time-zone";
+import { TimeZoneProvider } from "@/lib/time-zone-context";
 import { Icon } from "./icons";
 import { PausedBanner } from "./paused-banner";
 import { ScopeSwitcher } from "./scope-switcher";
@@ -16,7 +18,8 @@ import { Sidebar } from "./sidebar";
  * `account` is the account scope (`/settings/*`): no project, the first organization in the top
  * cell, and the account menu marks Account settings as the current page. The page renders inside
  * `CapabilitiesProvider` with the actions the context allows on the project in scope (in org
- * scope, the org's first project; none in account scope), so `useCan`/`<Gated>` work below it.
+ * scope, the org's first project; none in account scope), so `useCan`/`<Gated>` work below it,
+ * and inside `TimeZoneProvider` with the user's time zone, so `useTimeZone` works too.
  */
 export function AppShell({ context, project: projectSlug, org: orgSlug, account = false, view, children }: { context: UserContext; project?: string; org?: string; account?: boolean; view: string; children?: ReactNode }) {
   const found = projectSlug ? findProject(context, projectSlug) : undefined;
@@ -59,6 +62,7 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
   }, [toggle]);
 
   return (
+    <TimeZoneProvider timeZone={resolveTimeZone(context.user.preferences)}>
     <div className={`ah app${drawer ? " is-open" : ""}`}>
       <div className="app-side">
         <Sidebar user={context.user} orgs={context.orgs} org={org} project={navProject} view={project ? view : ""} orgScope={!project} account={account} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
@@ -81,5 +85,6 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
 
       <ScopeSwitcher orgs={context.orgs} open={switcher} onClose={() => setSwitcher(false)} orgSlug={org.slug} projectSlug={navProject?.slug} />
     </div>
+    </TimeZoneProvider>
   );
 }

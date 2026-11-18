@@ -346,7 +346,13 @@ export interface User {
   email_verified: boolean;
   name: string | null;
   avatar_url: string | null;
-  preferences: { home?: HomeScreen; last_project_slug?: string; security_emails?: boolean } & Record<string, unknown>;
+  preferences: {
+    home?: HomeScreen;
+    last_project_slug?: string;
+    security_emails?: boolean;
+    /** IANA zone the dashboard shows times in; absent means UTC (#1046). */
+    timezone?: string;
+  } & Record<string, unknown>;
   onboarding: OnboardingState;
   created_at: string;
   /** Authentication methods of the current session. */

@@ -10,6 +10,7 @@ import { formatBytes, formatPercent, formatShare } from "@/lib/endpoint-detail";
 import type { QueryRange } from "@/lib/identity";
 import { formatLatency, lineY, linePath } from "@/lib/traffic";
 import { PLOT_HEIGHT as H, LineMarks, Plot, type PlotHover, TimeAxis } from "../traffic/charts";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 /** What a chart's values are; the server passes the name (functions cannot cross to the client). */
 export type Unit = "count" | "ms" | "bytes" | "percent";
@@ -53,10 +54,11 @@ export function LinesChart<K extends string>({
   unit: Unit;
   range: QueryRange;
 }) {
+  const tz = useTimeZone();
   const top = niceMax(Math.max(0, ...rows.flatMap((r) => series.map((s) => r[s.key]))));
   const hover: PlotHover = {
     count: rows.length,
-    title: (i) => formatBucket(rows[i].ts, range),
+    title: (i) => formatBucket(rows[i].ts, range, tz),
     rows: (i) => series.map((s) => ({ label: s.label, value: FORMAT[unit](rows[i][s.key]), swatch: s.className })),
     marks: (i, w) => <LineMarks i={i} count={rows.length} w={w} dots={series.map((s) => ({ y: lineY(rows[i][s.key], H, top), className: s.className }))} />,
   };
@@ -109,12 +111,13 @@ export function StackedChart<K extends string>({
   unit: Unit;
   range: QueryRange;
 }) {
+  const tz = useTimeZone();
   const keys = series.map((s) => s.key);
   const className = Object.fromEntries(series.map((s) => [s.key, s.className])) as Record<K, string>;
   const { top } = stackBars([...rows], keys, 1, H);
   const hover: PlotHover = {
     count: rows.length,
-    title: (i) => formatBucket(rows[i].ts, range),
+    title: (i) => formatBucket(rows[i].ts, range, tz),
     rows: (i) => {
       const out = series.map((s) => ({ label: s.label, value: FORMAT[unit](rows[i][s.key]), swatch: s.className }));
       if (series.length < 2) return out;

@@ -66,9 +66,10 @@ describe("the window in the URL", () => {
     expect(timelinePath("shop", { range: "1h" })).toBe("/api/projects/shop/requests/timeline?range=1h");
   });
   it("says the scope in words", () => {
-    expect(scopeText({ range: "1h" })).toBe("the last 1 hour");
-    expect(scopeText({ range: "1h", from: at(2), to: at(8) })).toBe("the window from 10:02 to 10:08 UTC");
-    expect(scopeText({ range: "1h", at: at(5, 30) })).toBe("the last 1 hour, up to 10:05:30 UTC");
+    expect(scopeText({ range: "1h" }, "UTC")).toBe("the last 1 hour");
+    expect(scopeText({ range: "1h", from: at(2), to: at(8) }, "UTC")).toBe("the window from 10:02 to 10:08 UTC");
+    expect(scopeText({ range: "1h", from: at(2), to: at(8) }, "Asia/Kolkata")).toBe("the window from 15:32 to 15:38 IST");
+    expect(scopeText({ range: "1h", at: at(5, 30) }, "UTC")).toBe("the last 1 hour, up to 10:05:30 UTC");
   });
 });
 
@@ -115,14 +116,21 @@ describe("bucket geometry", () => {
 
 describe("labels", () => {
   it("formats instants and windows in UTC", () => {
-    expect(formatInstant(at(5))).toBe("10:05");
-    expect(formatInstant(at(5, 7), { seconds: true })).toBe("10:05:07");
-    expect(formatInstant(at(5), { withDay: true })).toBe("Nov 5, 10:05");
-    expect(formatInstant("x")).toBe("");
-    expect(windowText(at(2), at(14))).toBe("10:02 to 10:14 UTC");
-    expect(windowText(at(2, 30), at(3))).toBe("10:02:30 to 10:03:00 UTC");
-    expect(windowText("2026-11-04T22:00:00Z", "2026-11-05T02:00:00Z")).toBe("Nov 4, 22:00 to Nov 5, 02:00 UTC");
-    expect(instantText(at(5))).toBe("10:05 UTC");
+    expect(formatInstant(at(5), { tz: "UTC" })).toBe("10:05");
+    expect(formatInstant(at(5, 7), { tz: "UTC", seconds: true })).toBe("10:05:07");
+    expect(formatInstant(at(5), { tz: "UTC", withDay: true })).toBe("Nov 5, 10:05");
+    expect(formatInstant("x", { tz: "UTC" })).toBe("");
+    expect(windowText(at(2), at(14), "UTC")).toBe("10:02 to 10:14 UTC");
+    expect(windowText(at(2, 30), at(3), "UTC")).toBe("10:02:30 to 10:03:00 UTC");
+    expect(windowText("2026-11-04T22:00:00Z", "2026-11-05T02:00:00Z", "UTC")).toBe("Nov 4, 22:00 to Nov 5, 02:00 UTC");
+    expect(instantText(at(5), "UTC")).toBe("10:05 UTC");
+  });
+  it("formats instants and windows in the user's zone", () => {
+    expect(formatInstant(at(5), { tz: "Asia/Kolkata", withDay: true })).toBe("Nov 5, 15:35");
+    expect(instantText(at(5), "Asia/Kolkata")).toBe("15:35 IST");
+    // 22:00 and 02:00 UTC both fall on Nov 5 in IST.
+    expect(windowText("2026-11-04T22:00:00Z", "2026-11-05T02:00:00Z", "Asia/Kolkata")).toBe("03:30 to 07:30 IST");
+    expect(windowText("2026-11-05T18:00:00Z", "2026-11-05T19:00:00Z", "Asia/Kolkata")).toBe("Nov 5, 23:30 to Nov 6, 00:30 IST");
   });
   it("labels seconds for sub-minute buckets and the day from 6 hours up", () => {
     expect(labelStyle(timeline)).toEqual({ seconds: false, withDay: false });
@@ -131,8 +139,8 @@ describe("labels", () => {
   });
   it("says what a bar holds", () => {
     const b = { ts: at(3), requests: 1204, successful: 1100, client_errors: 100, server_errors: 4 };
-    expect(bucketText(timeline, b)).toBe("10:03 to 10:04 UTC: 1,204 requests (1,100 successful, 100 4xx, 4 5xx)");
-    expect(bucketText(timeline, { ...b, requests: 1 })).toContain(": 1 request (");
+    expect(bucketText(timeline, b, "UTC")).toBe("10:03 to 10:04 UTC: 1,204 requests (1,100 successful, 100 4xx, 4 5xx)");
+    expect(bucketText(timeline, { ...b, requests: 1 }, "UTC")).toContain(": 1 request (");
   });
 });
 

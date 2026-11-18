@@ -24,6 +24,7 @@ export function IncidentTimeline({
   nextCursor,
   params,
   now,
+  tz,
 }: {
   project: string;
   projectName: string;
@@ -33,6 +34,8 @@ export function IncidentTimeline({
   nextCursor: string | null;
   params: SearchParams;
   now: number;
+  /** The user's time zone. */
+  tz: string;
 }) {
   const pages = trailHrefs(incidentHref(project, rule.id), params, nextCursor);
   return (
@@ -108,12 +111,12 @@ export function IncidentTimeline({
                 </div>
                 <ul className="al-event__steps">
                   <li>
-                    <b>Triggered</b> <time dateTime={e.started_at}>{formatExact(e.started_at)}</time>
+                    <b>Triggered</b> <time dateTime={e.started_at}>{formatExact(e.started_at, tz)}</time>
                   </li>
                   <li>
                     {e.notified_at ? (
                       <>
-                        <b>Notified</b> <time dateTime={e.notified_at}>{formatExact(e.notified_at)}</time>
+                        <b>Notified</b> <time dateTime={e.notified_at}>{formatExact(e.notified_at, tz)}</time>
                       </>
                     ) : rule.notify_after_s > 0 && !e.ended_at ? (
                       `Notifies once it holds for ${formatSpan(rule.notify_after_s)}`
@@ -124,7 +127,7 @@ export function IncidentTimeline({
                   <li>
                     {e.ended_at ? (
                       <>
-                        <b>Resolved</b> <time dateTime={e.ended_at}>{formatExact(e.ended_at)}</time>, after {eventDuration(e, now)}
+                        <b>Resolved</b> <time dateTime={e.ended_at}>{formatExact(e.ended_at, tz)}</time>, after {eventDuration(e, now)}
                       </>
                     ) : (
                       <>

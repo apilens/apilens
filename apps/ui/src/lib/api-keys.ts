@@ -4,6 +4,7 @@
 // trip. Pure; safe in Client Components and Server Actions alike.
 import type { ApiKey, ApiKeyScope, Environment, KeyApp, RotateOverlap } from "./identity";
 import type { PageOptions } from "./pagination";
+import { zoned, zonedParts, zoneLabel, zoneOffsetMinutes } from "./time-zone";
 
 /** The Access tab that lists the keys; `/<project>/settings/keys` redirects to it (#801). */
 export const KEYS_SECTION = "keys";
@@ -66,27 +67,32 @@ export const EXPIRY_CHOICES: readonly { value: ExpiryChoice; label: string }[] =
 const DAY_MS = 86_400_000;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** Today as `YYYY-MM-DD` in UTC: the earliest a custom expiry date can't be. */
-export function todayUTC(now = Date.now()): string {
-  return new Date(now).toISOString().slice(0, 10);
+/** Today as `YYYY-MM-DD` in `tz`: the earliest a custom expiry date can't be. */
+export function todayIn(tz: string, now = Date.now()): string {
+  const p = zonedParts(now, tz);
+  return `${p.year}-${String(p.month + 1).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
 
 /**
  * When a key with `choice` stops working, as the API's `expires_at` (`undefined` for never), or
- * why it cannot. A custom `date` (`YYYY-MM-DD`) means the key works through the end of that day,
- * UTC, and must be after today.
+ * why it cannot. A custom `date` (`YYYY-MM-DD`) means the key works through the end of that day
+ * in `tz`, and must be after today there.
  */
 export function expiryFor(
   choice: ExpiryChoice,
   date: string,
+  tz: string,
   now = Date.now(),
 ): { ok: true; expiresAt: string | undefined } | { ok: false; error: string } {
   if (choice === "never") return { ok: true, expiresAt: undefined };
   if (choice === "custom") {
     const m = DATE.exec(date);
-    const t = m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59) : Number.NaN;
-    if (!m || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== date) return { ok: false, error: "Pick a date." };
-    if (date <= todayUTC(now)) return { ok: false, error: "Pick a date after today." };
+    const wall = m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59) : Number.NaN;
+    if (!m || Number.isNaN(wall) || new Date(wall).toISOString().slice(0, 10) !== date) return { ok: false, error: "Pick a date." };
+    if (date <= todayIn(tz, now)) return { ok: false, error: "Pick a date after today." };
+    // 23:59:59 on that day in `tz`: shift by the offset, then again by the offset at that instant (DST).
+    const guess = wall - zoneOffsetMinutes(tz, wall) * 60_000;
+    const t = wall - zoneOffsetMinutes(tz, guess) * 60_000;
     return { ok: true, expiresAt: new Date(t).toISOString() };
   }
   const days = Number(choice);
@@ -127,12 +133,12 @@ export const EXPIRING_SOON_DAYS = 7;
 export type KeyState = "active" | "expiring" | "rotating" | "expired" | "revoked";
 
 const HOUR_MS = 3_600_000;
-const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const DAY_MONTH: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
 
-/** `14 Nov` (UTC), as the State column names the end of a rotation. */
-export function formatDayMonth(iso: string): string {
+/** `14 Nov` in `tz`, as the State column names the end of a rotation. */
+export function formatDayMonth(iso: string, tz: string): string {
   const t = Date.parse(iso);
-  return Number.isNaN(t) ? "" : DAY_MONTH.format(t);
+  return Number.isNaN(t) ? "" : zoned("en-GB", DAY_MONTH, tz).format(t);
 }
 
 /**
@@ -162,9 +168,9 @@ export function expiresInText(expiresAt: string, now = Date.now()): string {
 }
 
 /** The State column's words for a key. */
-export function keyStateLabel(key: Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">, now = Date.now()): string {
+export function keyStateLabel(key: Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">, tz: string, now = Date.now()): string {
   const state = keyState(key, now);
-  if (state === "rotating") return `Rotating until ${formatDayMonth(key.expires_at as string)}`;
+  if (state === "rotating") return `Rotating until ${formatDayMonth(key.expires_at as string, tz)}`;
   if (state === "expiring") return expiresInText(key.expires_at as string, now);
   return STATE_LABEL[state];
 }
@@ -247,8 +253,8 @@ export function limitsText(key: Pick<ApiKey, "scopes" | "app_ids" | "environment
 // ---------------------------------------------------------------------------------------------
 // Created and Last used columns (#810).
 
-/** `Just now`, `5 minutes ago`, `3 hours ago`, `Yesterday`, `12 days ago`, then the day. */
-export function relativeTime(iso: string, now = Date.now()): string {
+/** `Just now`, `5 minutes ago`, `3 hours ago`, `Yesterday`, `12 days ago`, then the day in `tz`. */
+export function relativeTime(iso: string, tz: string, now = Date.now()): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
   const ago = Math.max(0, now - t);
@@ -264,10 +270,10 @@ export function relativeTime(iso: string, now = Date.now()): string {
   const d = Math.floor(ago / DAY_MS);
   if (d === 1) return "Yesterday";
   if (d < 30) return `${d} days ago`;
-  return DAY_FULL.format(t);
+  return zoned("en-US", DAY_FULL, tz).format(t);
 }
 
-const DAY_FULL = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const DAY_FULL: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
 
 /** `apilenss/0.5.0` → `apilenss 0.5.0`; the SDK the key last sent data with. */
 export function sdkText(sdk: string | null | undefined): string {
@@ -476,26 +482,26 @@ export function overlapEnd(overlap: RotateOverlap, expiresAt: string | null, now
   return Number.isNaN(own) ? end : Math.min(end, own);
 }
 
-const DAY_TIME = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
+const DAY_TIME: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false };
 
-/** `14 Nov, 10:30 UTC`. */
-export function formatDayTime(t: number): string {
-  return Number.isNaN(t) ? "" : `${DAY_TIME.format(t)} UTC`;
+/** `14 Nov, 10:30 UTC` (`IST`, …) in `tz`. */
+export function formatDayTime(t: number, tz: string): string {
+  return Number.isNaN(t) ? "" : `${zoned("en-GB", DAY_TIME, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
 /** The sentence under the overlap choices: what happens to the old key. */
-export function overlapText(overlap: RotateOverlap, expiresAt: string | null, now = Date.now()): string {
+export function overlapText(overlap: RotateOverlap, expiresAt: string | null, tz: string, now = Date.now()): string {
   if (overlap === "none") return "The old key stops working as soon as you rotate.";
   const end = overlapEnd(overlap, expiresAt, now);
   const capped = end < now + OVERLAP_MS[overlap];
-  return `The old key keeps working until ${formatDayTime(end)}${capped ? ", when it expires anyway" : ""}.`;
+  return `The old key keeps working until ${formatDayTime(end, tz)}${capped ? ", when it expires anyway" : ""}.`;
 }
 
 /** The status line after a rotation, from the rotated key as the API answered it. */
-export function rotatedText(previous: Pick<ApiKey, "name" | "expires_at">, now = Date.now()): string {
+export function rotatedText(previous: Pick<ApiKey, "name" | "expires_at">, tz: string, now = Date.now()): string {
   const end = previous.expires_at ? Date.parse(previous.expires_at) : Number.NaN;
   if (Number.isNaN(end) || end <= now) return `Rotated ${previous.name}. The old key no longer works.`;
-  return `Rotated ${previous.name}. The old key works until ${formatDayTime(end)}.`;
+  return `Rotated ${previous.name}. The old key works until ${formatDayTime(end, tz)}.`;
 }
 
 /** The list after a rotation: the new key first, the old one replaced by its rotated row. */

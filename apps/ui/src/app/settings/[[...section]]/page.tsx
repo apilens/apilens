@@ -15,6 +15,7 @@ import { type ConnectedAccount, type Passkey, type SessionInfo, type TwoFactorSt
 import { ownedOrgs } from "@/lib/profile";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import { signInMethods } from "@/lib/sign-in-providers";
+import { resolveTimeZone } from "@/lib/time-zone";
 
 type Params = { section?: string[] };
 type Search = Record<string, string | string[] | undefined>;
@@ -77,8 +78,8 @@ async function sectionContent(section: AccountSection, context: UserContext, sea
   if (section.slug === "danger") return <DeleteAccount email={context.user.email} owned={ownedOrgs(context.orgs)} />;
   if (section.slug === "sessions") {
     const sessions = await loadSessions(next);
-    // `now` is taken here so server and browser render the same "last active" text.
-    return <SessionsSettings sessions={sessions} now={Date.now()} search={search} />;
+    // `now` and the zone are taken here so server and browser render the same text.
+    return <SessionsSettings sessions={sessions} now={Date.now()} tz={resolveTimeZone(context.user.preferences)} search={search} />;
   }
   if (section.slug === "security") {
     // One after the other: each call may refresh the session, and refreshes must not race.

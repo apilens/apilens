@@ -121,7 +121,8 @@ function Tiles({ counts, label }: { counts: IngestCounts; label: string }) {
 
 const CHART_W = 700;
 const CHART_H = 120;
-const dayTitle = (date: string) => formatDay(`${date}T00:00:00Z`);
+// Days are calendar dates the API buckets in UTC, so they read in UTC whatever the user's zone.
+const dayTitle = (date: string) => formatDay(`${date}T00:00:00Z`, "UTC");
 
 /**
  * Records received per day, oldest left: accepted with rejected stacked on top. Hovering, tapping
@@ -224,7 +225,7 @@ function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off"
                 {days.map((d) => (
                   <tr key={d.date} className="pk-row">
                     <th scope="row" data-label="Day (UTC)">
-                      <time dateTime={d.date}>{formatDay(`${d.date}T00:00:00Z`)}</time>
+                      <time dateTime={d.date}>{formatDay(`${d.date}T00:00:00Z`, "UTC")}</time>
                     </th>
                     {EDGE_COUNTERS.map((c) => (
                       <td key={c.key} data-label={c.label} className={d[c.key] > 0 && c.key === "rejected" ? "ih-hot" : undefined}>

@@ -51,6 +51,8 @@ export interface AppsViewProps {
   rejections: AppRejections | null;
   params: SearchParams;
   now: number;
+  /** The zone days are shown in. */
+  tz: string;
 }
 
 /**
@@ -62,7 +64,7 @@ export interface AppsViewProps {
  * created, to keep or merge, and records rejected for app names with what to do. Below: archived,
  * merged and deleted apps, collapsed, with restore and delete.
  */
-export function AppsView({ project, projectName, apps, total, managed, rejections, params, now }: AppsViewProps) {
+export function AppsView({ project, projectName, apps, total, managed, rejections, params, now, tz }: AppsViewProps) {
   const attention = (apps ?? []).filter((a) => a.status !== null && needsAttention(a.status)).length;
   const fresh = newApps(managed ?? []);
   const archived = inactiveApps(managed ?? []);
@@ -112,7 +114,7 @@ export function AppsView({ project, projectName, apps, total, managed, rejection
           <>
             <ul className="ap-grid" aria-label="Apps">
               {apps.map((a) => (
-                <AppCard key={a.app.id} project={project} data={a} now={now} />
+                <AppCard key={a.app.id} project={project} data={a} now={now} tz={tz} />
               ))}
             </ul>
             <Pagination pathname={appsHref(project)} params={params} total={total} {...APPS_PAGE} label="App pages" />
@@ -125,7 +127,7 @@ export function AppsView({ project, projectName, apps, total, managed, rejection
   );
 }
 
-function AppCard({ project, data: { app, managed, status, summary, points }, now }: { project: string; data: AppCardData; now: number }) {
+function AppCard({ project, data: { app, managed, status, summary, points }, now, tz }: { project: string; data: AppCardData; now: number; tz: string }) {
   const health = summary ? appHealth(summary) : null;
   const sdks = status?.sdks ?? [];
   const series = points ?? [];
@@ -156,7 +158,7 @@ function AppCard({ project, data: { app, managed, status, summary, points }, now
             </span>
           ) : null}
           {managed.new ? <span className="ap-tag ap-tag--new">New</span> : null}
-          <span>{originText(managed, now)}</span>
+          <span>{originText(managed, tz, now)}</span>
         </p>
       ) : null}
 

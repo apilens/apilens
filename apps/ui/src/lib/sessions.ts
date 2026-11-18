@@ -1,6 +1,7 @@
 // The Sessions section of account settings (#343): ordering, labels and copy for the signed-in
 // user's live sessions. Pure; safe in Client Components (types only from identity).
 import type { AuthMethod, SessionInfo } from "./identity";
+import { zoned, zoneLabel } from "./time-zone";
 
 /** The section's path; Server Actions revalidate it after a change. */
 export const SESSIONS_PATH = "/settings/sessions";
@@ -73,19 +74,13 @@ export function lastActive(iso: string, now: number): string {
   return "Active now";
 }
 
-/** An absolute date and time for titles and the "Signed in" column, in UTC so server and browser agree. */
-export function formatDateTime(iso: string): string {
+const DATE_TIME: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+
+/** An absolute date and time for titles and the "Signed in" column, in `tz` so server and browser agree. */
+export function formatDateTime(iso: string, tz: string): string {
   const at = time(iso);
   if (!at) return "Unknown";
-  return new Intl.DateTimeFormat("en", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-    timeZoneName: "short",
-  }).format(at);
+  return `${zoned("en", DATE_TIME, tz).format(at)} ${zoneLabel(tz, at)}`;
 }
 
 /** A sentence for a failed session action, by error code. */

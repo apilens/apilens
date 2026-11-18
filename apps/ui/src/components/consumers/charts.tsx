@@ -5,6 +5,7 @@ import { formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/con
 import type { QueryRange } from "@/lib/identity";
 import { ChartAnnounce, ChartTooltip, Crosshair } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 const W = 960;
 const H = 160;
@@ -39,13 +40,14 @@ export function StackedBars<K extends string>({
   /** The name of the bucket total in the tooltip ("Consumers", "Requests"); omitted when null. */
   totalLabel?: string;
 }) {
+  const tz = useTimeZone();
   const { top, bars } = stackBars(rows, series.map((s) => s.key), W, H);
   const hover = useChartHover<HTMLDivElement>(rows.length, "slot");
   const i = hover.index;
   const className = Object.fromEntries(series.map((s) => [s.key, s.className])) as Record<K, string>;
   const firstTs = rows[0]?.ts;
   const lastTs = rows[rows.length - 1]?.ts;
-  const title = i !== null ? formatBucket(rows[i].ts, range) : "";
+  const title = i !== null ? formatBucket(rows[i].ts, range, tz) : "";
   // Top of the stack first, as the bars read.
   const tipRows =
     i !== null
@@ -89,8 +91,8 @@ export function StackedBars<K extends string>({
       </div>
       {firstTs && lastTs ? (
         <figcaption className="cs-axis-x" aria-hidden="true">
-          <span>{formatBucket(firstTs, range)}</span>
-          <span>{formatBucket(lastTs, range)}</span>
+          <span>{formatBucket(firstTs, range, tz)}</span>
+          <span>{formatBucket(lastTs, range, tz)}</span>
         </figcaption>
       ) : null}
     </figure>
@@ -120,13 +122,14 @@ export function Sparkline({ values, times, range, name }: { values: readonly num
 }
 
 function HoverSparkline({ values, times, range, name }: { values: readonly number[]; times: readonly string[]; range: QueryRange; name: string }) {
+  const tz = useTimeZone();
   const n = values.length;
   const hover = useChartHover<HTMLDivElement>(n, "point");
   const i = hover.index;
   const max = Math.max(...values, 0);
   // The same y as sparklinePoints, in px (the box is SPARK_H px tall).
   const y = (val: number) => (max > 0 ? SPARK_H - 1 - (val / max) * (SPARK_H - 2) : SPARK_H - 1);
-  const title = i !== null ? formatBucket(times[i], range) : "";
+  const title = i !== null ? formatBucket(times[i], range, tz) : "";
   const rows = i !== null ? [{ label: "Requests", value: formatCount(values[i]) }] : [];
   const peak = values.indexOf(max);
   return (
@@ -135,7 +138,7 @@ function HoverSparkline({ values, times, range, name }: { values: readonly numbe
         ref={hover.ref}
         className="cs-spark ct-box"
         role="group"
-        aria-label={`Requests over time for ${name}, peaking at ${formatCount(max)} (${formatBucket(times[peak], range)}). Use the arrow keys to read each bucket.`}
+        aria-label={`Requests over time for ${name}, peaking at ${formatCount(max)} (${formatBucket(times[peak], range, tz)}). Use the arrow keys to read each bucket.`}
         {...hover.bind}
       >
         <svg viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">

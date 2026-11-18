@@ -94,6 +94,32 @@ describe("saveProfileName", () => {
   });
 });
 
+describe("saveTimeZone", () => {
+  it("saves the zone and refreshes every page", async () => {
+    updateMe.mockResolvedValue({ ...user, preferences: { timezone: "Asia/Kolkata" } });
+    const res = await actions.saveTimeZone(" Asia/Kolkata ");
+    expect(res).toMatchObject({ ok: true, user: { preferences: { timezone: "Asia/Kolkata" } } });
+    expect(updateMe).toHaveBeenCalledWith({ preferences: { timezone: "Asia/Kolkata" } }, { accessToken: "a" });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("clears it with an empty zone", async () => {
+    updateMe.mockResolvedValue({ ...user, preferences: {} });
+    expect(await actions.saveTimeZone("")).toMatchObject({ ok: true });
+    expect(updateMe).toHaveBeenCalledWith({ preferences: { timezone: "" } }, { accessToken: "a" });
+  });
+
+  it("refuses an unknown zone before calling the API", async () => {
+    expect(await actions.saveTimeZone("Mars/Olympus")).toEqual({ ok: false, error: "Pick a time zone from the list." });
+    expect(updateMe).not.toHaveBeenCalled();
+  });
+
+  it("explains the API refusing it", async () => {
+    updateMe.mockRejectedValue(new ApiError({ status: 400, code: "invalid_request" }));
+    expect(await actions.saveTimeZone("Asia/Kolkata")).toMatchObject({ ok: false, error: "Pick a time zone from the list." });
+  });
+});
+
 describe("requestEmailChange", () => {
   it("asks for a code to the new address", async () => {
     startEmailChange.mockResolvedValue({ pending_email: "new@example.com", expires_at: "2026-11-04T10:15:00Z" });

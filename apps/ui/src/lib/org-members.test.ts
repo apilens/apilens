@@ -119,8 +119,9 @@ describe("display", () => {
   });
 
   it("formats the join date in UTC", () => {
-    expect(formatJoined("2026-10-31T23:30:00Z")).toBe("Oct 31, 2026");
-    expect(formatJoined("nope")).toBe("Unknown");
+    expect(formatJoined("2026-10-31T23:30:00Z", "UTC")).toBe("Oct 31, 2026");
+    expect(formatJoined("2026-10-31T23:30:00Z", "Asia/Kolkata")).toBe("Nov 1, 2026");
+    expect(formatJoined("nope", "UTC")).toBe("Unknown");
   });
 
   it("links the settings sections", () => {

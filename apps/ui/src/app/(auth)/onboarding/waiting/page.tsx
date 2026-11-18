@@ -6,6 +6,7 @@ import { getContext } from "@/lib/auth/server";
 import { env } from "@/lib/env";
 import { appIdFor } from "@/lib/install";
 import { savedInstrument } from "@/lib/instrument";
+import { resolveTimeZone } from "@/lib/time-zone";
 
 export const metadata: Metadata = { title: "Waiting for your first request" };
 
@@ -27,6 +28,7 @@ export default async function Page() {
       project={{ slug: project.slug, name: project.name }}
       appId={appIdFor(project.slug)}
       ingestUrl={env().publicIngestUrl}
+      tz={resolveTimeZone(ctx.user.preferences)}
     />
   );
 }

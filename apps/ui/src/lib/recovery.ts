@@ -18,6 +18,7 @@ import {
   identity,
   isApiError,
 } from "./identity";
+import { DEFAULT_TIME_ZONE, zoned, zoneLabel } from "./time-zone";
 
 /** Longest token identity accepts (`RecoveryTokenBody.token`). */
 export const MAX_RECOVERY_TOKEN_LENGTH = 128;
@@ -44,19 +45,13 @@ export function recoveryToken(input: unknown): string | undefined {
   return value && value.length <= MAX_RECOVERY_TOKEN_LENGTH ? value : undefined;
 }
 
-/** "Nov 4, 2026, 14:03 UTC": rendered on the server, so it is the same in every browser. */
-export function formatWhen(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return iso;
-  return `${new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    timeZone: "UTC",
-  }).format(at)} UTC`;
+const WHEN: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+
+/** "Nov 4, 2026, 14:03 UTC" in `tz`: rendered on the server, so it is the same in every browser. */
+export function formatWhen(iso: string, tz: string): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return iso;
+  return `${zoned("en-US", WHEN, tz).format(at)} ${zoneLabel(tz, at)}`;
 }
 
 export type RecoveryView =
@@ -80,6 +75,8 @@ export interface ViewDeps {
   context?: CallOptions;
   /** Milliseconds since the epoch (tests). */
   now?: number;
+  /** Zone the times are shown in; the links are opened signed out, so UTC unless a caller knows better. */
+  timeZone?: string;
 }
 
 /** Loads the request behind a recovery link and decides which state the page shows. */
@@ -100,20 +97,21 @@ export async function recoveryView(rawToken: unknown, deps: ViewDeps = {}): Prom
     return { kind: "error" };
   }
 
-  const requestedAt = formatWhen(st.requested_at);
+  const tz = deps.timeZone ?? DEFAULT_TIME_ZONE;
+  const requestedAt = formatWhen(st.requested_at, tz);
   switch (st.status) {
     case "confirmed":
       return { kind: "confirmed", requestedAt };
     case "cancelled":
       return { kind: "cancelled", requestedAt };
     case "ready":
-      return { kind: "ready", token, requestedAt, readyAt: formatWhen(st.ready_at) };
+      return { kind: "ready", token, requestedAt, readyAt: formatWhen(st.ready_at, tz) };
     case "pending": {
       const readyAtMs = Date.parse(st.ready_at);
       const secondsLeft = Number.isNaN(readyAtMs) ? 0 : Math.max(0, Math.ceil((readyAtMs - (deps.now ?? Date.now())) / 1000));
       // The clock passed `ready_at` between identity's answer and now: identity will accept it.
-      if (secondsLeft === 0) return { kind: "ready", token, requestedAt, readyAt: formatWhen(st.ready_at) };
-      return { kind: "pending", token, requestedAt, readyAt: formatWhen(st.ready_at), secondsLeft };
+      if (secondsLeft === 0) return { kind: "ready", token, requestedAt, readyAt: formatWhen(st.ready_at, tz) };
+      return { kind: "pending", token, requestedAt, readyAt: formatWhen(st.ready_at, tz), secondsLeft };
     }
     default:
       return { kind: "error" };

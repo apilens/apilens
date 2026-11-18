@@ -39,4 +39,14 @@ func TestValidatePreferences(t *testing.T) {
 			t.Errorf("security_emails %v: err = %v", bad, err)
 		}
 	}
+	for _, tz := range []string{"UTC", "Asia/Kolkata", "America/New_York", "Europe/Berlin", ""} {
+		if err := ValidatePreferences(map[string]any{"timezone": tz}); err != nil {
+			t.Errorf("timezone %q: %v", tz, err)
+		}
+	}
+	for _, bad := range []any{"Local", "Mars/Olympus", "asia/kolkata ", "../etc/passwd", 1, nil} {
+		if err := ValidatePreferences(map[string]any{"timezone": bad}); !errors.Is(err, ErrInvalidPreference) {
+			t.Errorf("timezone %v: err = %v", bad, err)
+		}
+	}
 }

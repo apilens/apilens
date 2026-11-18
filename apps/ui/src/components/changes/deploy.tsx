@@ -48,6 +48,7 @@ export function DeployView({
   now,
   id,
   repository = null,
+  tz,
 }: {
   project: string;
   projectName: string;
@@ -60,6 +61,8 @@ export function DeployView({
   now: number;
   /** The project's commit and release URL templates (Settings › Integrations); null when unset or unread. */
   repository?: Pick<Project, "commit_url_template" | "release_url_template"> | null;
+  /** The user's time zone. */
+  tz: string;
 }) {
   const changes = `/${encodeURIComponent(project)}/changes`;
   const crumb = (
@@ -118,7 +121,7 @@ export function DeployView({
         {crumb}
         <div className="chd-titlebar">
           <h1 className="cp-lede chd-title">{d.release}</h1>
-          <DeploySteps project={project} previous={detail.previous} next={detail.next} />
+          <DeploySteps project={project} previous={detail.previous} next={detail.next} tz={tz} />
         </div>
         <dl className="chd-facts">
           <div>
@@ -152,7 +155,7 @@ export function DeployView({
           <div>
             <dt>Deployed</dt>
             <dd>
-              <time dateTime={d.deployed_at}>{formatDeployTime(d.deployed_at)}</time> <span className="chd-none">({formatAgo(d.deployed_at, now)})</span>
+              <time dateTime={d.deployed_at}>{formatDeployTime(d.deployed_at, tz)}</time> <span className="chd-none">({formatAgo(d.deployed_at, now)})</span>
             </dd>
           </div>
           <div>
@@ -229,7 +232,7 @@ export function DeployView({
         <div className="chd-section__head">
           <h2 id="chd-chart-h">Around the deploy</h2>
           <p>
-            Per minute, {formatMinute(detail.before_from)} to {formatMinute(detail.after_to)}
+            Per minute, {formatMinute(detail.before_from, tz)} to {formatMinute(detail.after_to, tz)}
             {open ? " (now)" : ""}.
           </p>
         </div>
@@ -264,11 +267,11 @@ export function DeployView({
 }
 
 /** The previous and next deploy of the same app and environment. */
-function DeploySteps({ project, previous, next }: { project: string; previous?: DeployRef; next?: DeployRef }) {
+function DeploySteps({ project, previous, next, tz }: { project: string; previous?: DeployRef; next?: DeployRef; tz: string }) {
   return (
     <nav className="chd-steps" aria-label="Other deploys of this app and environment">
       {previous ? (
-        <Link className="chd-step" href={deployHref(project, previous.id)} rel="prev" title={formatDeployTime(previous.deployed_at)}>
+        <Link className="chd-step" href={deployHref(project, previous.id)} rel="prev" title={formatDeployTime(previous.deployed_at, tz)}>
           <span aria-hidden="true">←</span> <span className="chd-step__lbl">Previous</span> <b>{previous.release}</b>
         </Link>
       ) : (
@@ -277,7 +280,7 @@ function DeploySteps({ project, previous, next }: { project: string; previous?: 
         </span>
       )}
       {next ? (
-        <Link className="chd-step" href={deployHref(project, next.id)} rel="next" title={formatDeployTime(next.deployed_at)}>
+        <Link className="chd-step" href={deployHref(project, next.id)} rel="next" title={formatDeployTime(next.deployed_at, tz)}>
           <span className="chd-step__lbl">Next</span> <b>{next.release}</b> <span aria-hidden="true">→</span>
         </Link>
       ) : (

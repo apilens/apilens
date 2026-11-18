@@ -4,6 +4,7 @@ import {
   errorRateDelta,
   exploreHref,
   formatDeployTime,
+  formatMinute,
   minuteOffsetText,
   p95LinePath,
   p95Scale,
@@ -100,8 +101,11 @@ describe("formatting", () => {
   });
 
   it("formats the deploy time and how late the report came", () => {
-    expect(formatDeployTime("2026-11-05T10:37:20Z")).toBe("Nov 5, 10:37:20 UTC");
-    expect(formatDeployTime("nope")).toBe("");
+    expect(formatDeployTime("2026-11-05T10:37:20Z", "UTC")).toBe("Nov 5, 10:37:20 UTC");
+    expect(formatDeployTime("nope", "UTC")).toBe("");
+    expect(formatDeployTime("2026-11-05T20:37:20Z", "Asia/Kolkata")).toBe("Nov 6, 02:07:20 IST");
+    expect(formatMinute("2026-11-05T10:37:00Z", "UTC")).toBe("10:37 UTC");
+    expect(formatMinute("2026-11-05T10:37:00Z", "Asia/Kolkata")).toBe("16:07 IST");
     expect(reportLag("2026-11-05T10:37:20Z", "2026-11-05T10:37:21Z")).toBe("");
     expect(reportLag("2026-11-05T10:37:20Z", "2026-11-05T10:38:00Z")).toBe("40 s later");
     expect(reportLag("2026-11-05T10:37:20Z", "2026-11-05T11:07:20Z")).toBe("30 min later");

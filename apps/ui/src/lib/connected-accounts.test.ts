@@ -44,9 +44,11 @@ describe("accountName", () => {
 
 describe("formatDate", () => {
   it("formats in UTC and tolerates missing or bad values", () => {
-    expect(formatDate("2026-03-04T23:30:00-05:00")).toBe("Mar 5, 2026");
-    expect(formatDate(null)).toBe("");
-    expect(formatDate("not a date")).toBe("");
+    expect(formatDate("2026-03-04T23:30:00-05:00", "UTC")).toBe("Mar 5, 2026");
+    expect(formatDate("2026-03-04T20:00:00Z", "Asia/Kolkata")).toBe("Mar 5, 2026");
+    expect(formatDate("2026-03-04T20:00:00Z", "UTC")).toBe("Mar 4, 2026");
+    expect(formatDate(null, "UTC")).toBe("");
+    expect(formatDate("not a date", "UTC")).toBe("");
   });
 });
 

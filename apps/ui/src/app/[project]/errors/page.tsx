@@ -7,6 +7,7 @@ import { type ErrorsState, errorsHref, parseErrorsQuery } from "@/lib/errors";
 import { type CallOptions, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
+import { resolveTimeZone } from "@/lib/time-zone";
 
 export const metadata: Metadata = { title: "Errors" };
 
@@ -54,7 +55,7 @@ export default async function ErrorsPage({ params, searchParams }: { params: Pro
 
   return (
     <AppShell context={context} project={project} view="errors">
-      <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} />
+      <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} />
     </AppShell>
   );
 }

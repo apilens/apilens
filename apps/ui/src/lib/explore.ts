@@ -6,6 +6,7 @@ import { type ExploreFilters, NO_FILTERS, filterEntries, parseFilters } from "./
 import { type ExploreWindow, chartWindow, instantText, logWindow, parseWindow, windowEntries, windowText } from "./explore-timeline";
 import type { QueryRange, RequestRow } from "./identity";
 import { TRAIL_PARAM, trailHrefs } from "./pagination";
+import { sameDay, zonedParts } from "./time-zone";
 
 export const EXPLORE_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "1h";
@@ -74,12 +75,12 @@ export function timelinePath(project: string, q: Pick<ExploreState, "range"> & P
 }
 
 /**
- * The scope in words: `the last 1 hour`; `the window from 10:02 to 10:14 UTC` when zoomed;
- * `…, up to 10:10 UTC` after a jump.
+ * The scope in words, times in `tz`: `the last 1 hour`; `the window from 10:02 to 10:14 UTC` when
+ * zoomed; `…, up to 10:10 UTC` after a jump.
  */
-export function scopeText(q: Pick<ExploreState, "range"> & ExploreWindow): string {
-  const base = q.from && q.to ? `the window from ${windowText(q.from, q.to)}` : `the last ${RANGE_LABEL[q.range]}`;
-  return q.at ? `${base}, up to ${instantText(q.at)}` : base;
+export function scopeText(q: Pick<ExploreState, "range"> & ExploreWindow, tz: string): string {
+  const base = q.from && q.to ? `the window from ${windowText(q.from, q.to, tz)}` : `the last ${RANGE_LABEL[q.range]}`;
+  return q.at ? `${base}, up to ${instantText(q.at, tz)}` : base;
 }
 
 /**
@@ -129,19 +130,18 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const pad = (n: number, w = 2) => String(n).padStart(w, "0");
 
 /**
- * When a request happened, for the log's Time column (UTC, like every chart): the clock time to the
- * millisecond (`10:51:03` and `.214`), with the day in front (`Nov 5`) when it is not `now`'s UTC day.
+ * When a request happened, for the log's Time column (in `tz`, like every chart): the clock time to
+ * the millisecond (`10:51:03` and `.214`), with the day in front (`Nov 5`) when it is not `now`'s day.
  * Unparseable times read as a dash.
  */
-export function logTime(ts: string, now: number): { day: string; clock: string; ms: string } {
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return { day: "", clock: "–", ms: "" };
-  const n = new Date(now);
-  const sameDay = d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+export function logTime(ts: string, now: number, tz: string): { day: string; clock: string; ms: string } {
+  const t = Date.parse(ts);
+  if (Number.isNaN(t)) return { day: "", clock: "–", ms: "" };
+  const d = zonedParts(t, tz);
   return {
-    day: sameDay ? "" : `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`,
-    clock: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
-    ms: `.${pad(d.getUTCMilliseconds(), 3)}`,
+    day: sameDay(t, now, tz) ? "" : `${MONTHS[d.month]} ${d.day}`,
+    clock: `${pad(d.hour)}:${pad(d.minute)}:${pad(d.second)}`,
+    ms: `.${pad(d.millisecond, 3)}`,
   };
 }
 
@@ -241,8 +241,8 @@ export function logPages(project: string, q: ExploreState, trail: readonly strin
  * an older page says which, counting from the newest (every page before it was full), and that it
  * is not live.
  */
-export function logCaption(q: ExploreState, page: number, count: number, filtered: boolean): string {
-  const where = `${scopeText(q)}${filtered ? " matching the filters" : ""}`;
+export function logCaption(q: ExploreState, page: number, count: number, filtered: boolean, tz: string): string {
+  const where = `${scopeText(q, tz)}${filtered ? " matching the filters" : ""}`;
   if (page <= 1) return `The newest ${count === 1 ? "request" : `${count} requests`} in ${where}, newest first.`;
   const from = (page - 1) * LOG_LIMIT + 1;
   const n = (v: number) => new Intl.NumberFormat("en-US").format(v);

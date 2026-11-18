@@ -5,6 +5,7 @@ import { auditSentence, changedFields, fieldValue, relativeTime } from "@/lib/au
 import type { AuditEvent } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import { CopyValue } from "../copy-value";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 /** Where an event happened on the organization's log: its project, or the organization itself. */
 function ProjectCell({ e }: { e: AuditEvent }) {
@@ -29,6 +30,7 @@ export function ActivityTable({
   scope?: "project" | "org";
 }) {
   const org = scope === "org";
+  const tz = useTimeZone();
   const [open, setOpen] = useState<AuditEvent | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
 
@@ -62,8 +64,8 @@ export function ActivityTable({
               }}
             >
               <td data-label="Time">
-                <time dateTime={e.time} title={formatExact(e.time)}>
-                  {relativeTime(e.time, now)}
+                <time dateTime={e.time} title={formatExact(e.time, tz)}>
+                  {relativeTime(e.time, tz, now)}
                 </time>
               </td>
               <td data-label="Who" className={e.actor.type === "system" ? "pk-muted" : undefined}>
@@ -124,6 +126,7 @@ export function ActivityTable({
  * back to the row it was opened from.
  */
 function ActivityDetail({ event: e, label, now, org, onClose }: { event: AuditEvent; label: string | undefined; now: number; org: boolean; onClose: () => void }) {
+  const tz = useTimeZone();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -150,7 +153,7 @@ function ActivityDetail({ event: e, label, now, org, onClose }: { event: AuditEv
               {auditSentence(e)}
             </h2>
             <p className="acl-panel__sub">
-              <time dateTime={e.time}>{formatExact(e.time)}</time> · {relativeTime(e.time, now)}
+              <time dateTime={e.time}>{formatExact(e.time, tz)}</time> · {relativeTime(e.time, tz, now)}
             </p>
           </div>
           <button type="button" className="acl-close" aria-label="Close event details" onClick={() => ref.current?.close()}>

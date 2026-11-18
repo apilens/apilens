@@ -9,6 +9,7 @@ import { type User, identity, isApiError } from "@/lib/identity";
 import { ACCOUNT_DELETED_PATH, checkName, cleanCode, deleteConfirmed, isCode, profileError } from "@/lib/profile";
 import { SESSION_COOKIE_NAME } from "@/lib/session-format";
 import { withActionSession } from "@/lib/server-session";
+import { isTimeZone } from "@/lib/time-zone";
 
 export type Failed = { ok: false; error: string; code?: string; retryAfter?: number };
 export type ProfileResult = { ok: true; user: User } | Failed;
@@ -34,6 +35,22 @@ export async function saveProfileName(name: string): Promise<ProfileResult> {
       return { ok: true, user };
     } catch (err) {
       return failed(err);
+    }
+  });
+}
+
+/** Saves the zone the dashboard shows times in (#1046); empty goes back to UTC. */
+export async function saveTimeZone(timeZone: string): Promise<ProfileResult> {
+  const tz = typeof timeZone === "string" ? timeZone.trim() : "";
+  if (tz !== "" && !isTimeZone(tz)) return { ok: false, error: "Pick a time zone from the list." };
+  return withActionSession(async (session) => {
+    try {
+      const user = await session.call((o) => identity().updateMe({ preferences: { timezone: tz } }, o));
+      // Every page formats times in it.
+      revalidatePath("/", "layout");
+      return { ok: true, user };
+    } catch (err) {
+      return failed(err, { invalid_request: "Pick a time zone from the list.", validation_failed: "Pick a time zone from the list." });
     }
   });
 }

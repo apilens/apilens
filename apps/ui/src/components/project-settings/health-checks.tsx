@@ -9,6 +9,7 @@ import { CHECKS_PAGE, EVENTS_SHOWN, type HealthCheckField, PROBE_POLICY, attempt
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import type { HealthCheck, HealthCheckEvent, HealthCheckProbe, NamedApp } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -97,6 +98,7 @@ function statusOf(c: HealthCheck): { tone: "up" | "down" | "idle"; label: string
 
 function CheckItem({ project, check: c, app, events }: { project: string; check: HealthCheck; app: string; events: HealthCheckEvent[] | null }) {
   const router = useRouter();
+  const tz = useTimeZone();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -142,8 +144,8 @@ function CheckItem({ project, check: c, app, events }: { project: string; check:
         {c.last_result ? (
           <>
             {" · "}last probe{" "}
-            <time dateTime={c.last_result.checked_at} title={formatExact(c.last_result.checked_at)}>
-              {formatExact(c.last_result.checked_at)}
+            <time dateTime={c.last_result.checked_at} title={formatExact(c.last_result.checked_at, tz)}>
+              {formatExact(c.last_result.checked_at, tz)}
             </time>
             : {probeOutcome(c.last_result)} in {formatLatency(c.last_result.latency_ms)}
           </>
@@ -174,14 +176,15 @@ function CheckItem({ project, check: c, app, events }: { project: string; check:
 
 /** One failure: when it started and ended, and the request that failed. */
 function Failure({ event: e }: { event: HealthCheckEvent }) {
+  const tz = useTimeZone();
   return (
     <li className="hc-failure">
       <p className="hc-failure__when">
-        <time dateTime={e.started_at}>{formatExact(e.started_at)}</time>
+        <time dateTime={e.started_at}>{formatExact(e.started_at, tz)}</time>
         {e.ended_at ? (
           <>
             {" "}
-            to <time dateTime={e.ended_at}>{formatExact(e.ended_at)}</time>
+            to <time dateTime={e.ended_at}>{formatExact(e.ended_at, tz)}</time>
           </>
         ) : (
           <span className="hc-open">ongoing</span>

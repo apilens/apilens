@@ -9,6 +9,7 @@ import type { QueryRange } from "@/lib/identity";
 import { ChartAnnounce, ChartTooltip } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
 import { PLOT_HEIGHT as H, Plot, TimeAxis } from "../traffic/charts";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 export interface BarSeries<K extends string> {
   key: K;
@@ -37,6 +38,7 @@ export function CountBars<K extends string>({
   series: readonly BarSeries<K>[];
   range: QueryRange;
 }) {
+  const tz = useTimeZone();
   const keys = series.map((s) => s.key);
   const className = Object.fromEntries(series.map((s) => [s.key, s.className])) as Record<K, string>;
   const n = rows.length;
@@ -44,7 +46,7 @@ export function CountBars<K extends string>({
   const i = hover.index;
   const { top } = stackBars([...rows], keys, 1, H);
   const row = i !== null ? rows[i] : null;
-  const title = row ? formatBucket(row.ts, range) : "";
+  const title = row ? formatBucket(row.ts, range, tz) : "";
   const tipRows = row
     ? [
         ...series.map((s) => ({ label: s.label, value: formatCount(row[s.key]), swatch: s.className })),

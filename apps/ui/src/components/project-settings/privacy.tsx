@@ -24,6 +24,7 @@ import {
 } from "@/lib/privacy-policy";
 import { REDACTED, type RedactorDefaults, compileRedactor } from "@/lib/privacy-redact";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./privacy.css";
@@ -58,6 +59,7 @@ export function PrivacySettings({ projectName, project, policy }: { project: str
 }
 
 function PrivacyEditor({ project, initial, manage }: { project: string; initial: PrivacyPolicy; manage: boolean }) {
+  const tz = useTimeZone();
   const [saved, setSaved] = useState<PrivacyPolicy>(initial);
   const [draft, setDraft] = useState<PrivacyDraft>(() => draftOf(listsOf(initial)));
   const [errors, setErrors] = useState<DraftErrors>({});
@@ -142,7 +144,7 @@ function PrivacyEditor({ project, initial, manage }: { project: string; initial:
             />
           ))}
           <p className="prv-audit">
-            {saved.updated_at ? <>Last changed {formatExact(saved.updated_at)}.</> : "Never changed: only the built-in patterns apply."}
+            {saved.updated_at ? <>Last changed {formatExact(saved.updated_at, tz)}.</> : "Never changed: only the built-in patterns apply."}
           </p>
         </div>
         {manage ? (

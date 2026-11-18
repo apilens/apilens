@@ -14,6 +14,7 @@ import {
   passkeyVendor,
 } from "@/lib/passkey-settings";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "./security.css";
 
@@ -166,8 +167,9 @@ interface RowProps {
 
 function PasskeyRow(props: RowProps) {
   const { passkey: p, now, editing, confirming } = props;
+  const tz = useTimeZone();
   const vendor = passkeyVendor(p);
-  const lastUsed = now === null ? (p.last_used_at ? formatDay(p.last_used_at) : "Never") : formatLastUsed(p.last_used_at, now);
+  const lastUsed = now === null ? (p.last_used_at ? formatDay(p.last_used_at, tz) : "Never") : formatLastUsed(p.last_used_at, tz, now);
   const renameButton = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(editing);
 
@@ -196,13 +198,13 @@ function PasskeyRow(props: RowProps) {
         </td>
         <td data-label="Authenticator">{vendor}</td>
         <td data-label="Added">
-          <time dateTime={p.created_at} title={formatExact(p.created_at)}>
-            {formatDay(p.created_at)}
+          <time dateTime={p.created_at} title={formatExact(p.created_at, tz)}>
+            {formatDay(p.created_at, tz)}
           </time>
         </td>
         <td data-label="Last used">
           {p.last_used_at ? (
-            <time dateTime={p.last_used_at} title={formatExact(p.last_used_at)}>
+            <time dateTime={p.last_used_at} title={formatExact(p.last_used_at, tz)}>
               {lastUsed}
             </time>
           ) : (

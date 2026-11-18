@@ -26,6 +26,7 @@ import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { DialogError, Gated, Modal, type OrgRef, type Status, statusOf } from "./controls";
 import { InviteDialog } from "./invite-dialog";
 import { OrgSettingsNav } from "./nav";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./org-settings.css";
 import "./members.css";
 
@@ -43,6 +44,7 @@ import "./members.css";
 export function OrgMembersSettings({ org, members, viewer, search = {} }: { org: OrgRef; members: Member[]; viewer: Viewer; search?: SearchParams }) {
   const owners = ownerCount(members);
   const pathname = `/orgs/${org.slug}/settings/members`;
+  const tz = useTimeZone();
   const list = useListSearch(pathname, search);
   const matched = searchRows(members, list.query, (m) => [m.user.name, m.user.email, roleLabel(m.role)]);
   const { rows, window } = slicePage(matched, parsePage(list.params));
@@ -164,7 +166,7 @@ export function OrgMembersSettings({ org, members, viewer, search = {} }: { org:
                     </Gated>
                   </td>
                   <td data-label="Joined">
-                    <time dateTime={m.joined_at}>{formatJoined(m.joined_at)}</time>
+                    <time dateTime={m.joined_at}>{formatJoined(m.joined_at, tz)}</time>
                   </td>
                   <td className="om-act">
                     <Gated gate={remove}>

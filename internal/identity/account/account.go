@@ -16,6 +16,9 @@ import (
 	"regexp"
 	"slices"
 	"time"
+	// The zone database ships in the binary so `timezone` validates the same
+	// in a scratch image as on a dev machine.
+	_ "time/tzdata"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -51,6 +54,9 @@ const (
 	// project admins (internal/controlplane/notify) on or off. A missing
 	// key means on; deletion emails ignore it.
 	PreferenceSecurityEmails = "security_emails"
+	// PreferenceTimeZone is the IANA time zone the dashboard shows times
+	// in. Empty clears it, and the dashboard falls back to UTC.
+	PreferenceTimeZone = "timezone"
 )
 
 // lastProjectRE is the project slug rule (projects.slug), or empty.
@@ -272,7 +278,7 @@ func (s *Service) Restore(ctx context.Context, email string) (db.User, error) {
 
 // ValidatePreferences checks the known preference keys of a patch: `home`
 // must be one of Homes, `last_project_slug` a project slug or empty, and
-// `security_emails` a boolean.
+// `security_emails` a boolean and `timezone` an IANA zone name or empty.
 // Unknown keys are the caller's schema's concern.
 func ValidatePreferences(p map[string]any) error {
 	if v, ok := p[PreferenceLastProject]; ok {
@@ -286,6 +292,12 @@ func ValidatePreferences(p map[string]any) error {
 			return fmt.Errorf("%w: security_emails must be true or false", ErrInvalidPreference)
 		}
 	}
+	if v, ok := p[PreferenceTimeZone]; ok {
+		tz, isString := v.(string)
+		if !isString || !ValidTimeZone(tz) {
+			return fmt.Errorf("%w: timezone must be an IANA time zone such as Europe/Berlin, or empty", ErrInvalidPreference)
+		}
+	}
 	if v, ok := p[PreferenceHome]; ok {
 		h, isString := v.(string)
 		if !isString || !slices.Contains(Homes, h) {
@@ -293,6 +305,19 @@ func ValidatePreferences(p map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// ValidTimeZone reports whether tz is empty or a zone in the IANA database.
+// "Local" is refused: it names the server's zone, not one the user picked.
+func ValidTimeZone(tz string) bool {
+	if tz == "" {
+		return true
+	}
+	if tz == "Local" || len(tz) > 64 {
+		return false
+	}
+	_, err := time.LoadLocation(tz)
+	return err == nil
 }
 
 // inTx runs fn in a transaction whose audit events commit with it.

@@ -123,9 +123,10 @@ describe("keysText and usedText", () => {
 
   it("says when data last arrived", () => {
     const now = Date.parse("2026-11-13T12:00:00Z");
-    expect(lastSeenText(null, now)).toBe("No data yet");
-    expect(lastSeenText("2026-11-13T11:59:30Z", now)).toBe("Last seen just now");
-    expect(lastSeenText("2026-11-13T09:00:00Z", now)).toBe("Last seen 3 hours ago");
-    expect(lastSeenText("2026-11-12T10:00:00Z", now)).toBe("Last seen yesterday");
+    expect(lastSeenText(null, "UTC", now)).toBe("No data yet");
+    expect(lastSeenText("2026-11-13T11:59:30Z", "UTC", now)).toBe("Last seen just now");
+    expect(lastSeenText("2026-11-13T09:00:00Z", "UTC", now)).toBe("Last seen 3 hours ago");
+    expect(lastSeenText("2026-11-12T10:00:00Z", "UTC", now)).toBe("Last seen yesterday");
+    expect(lastSeenText("2026-09-30T20:00:00Z", "Asia/Kolkata", now)).toBe("Last seen Oct 1, 2026");
   });
 });

@@ -7,6 +7,7 @@ import type { QueryRange } from "@/lib/identity";
 import { type StatusRow, formatLatency, latencyTop, lineY, linePath, plotWidth } from "@/lib/traffic";
 import { ChartAnnounce, ChartTooltip, Crosshair, type TooltipRow } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 /** The viewBox width drawn before the box is measured (server render), stretched by CSS. */
 const FALLBACK_W = 960;
@@ -127,13 +128,14 @@ export function LineMarks({ i, count, w, dots }: { i: number; count: number; w: 
 }
 
 export function TimeAxis({ rows, range }: { rows: { ts: string }[]; range: QueryRange }) {
+  const tz = useTimeZone();
   const firstTs = rows[0]?.ts;
   const lastTs = rows[rows.length - 1]?.ts;
   if (!firstTs || !lastTs) return null;
   return (
     <figcaption className="tr-axis-x" aria-hidden="true">
-      <span>{formatBucket(firstTs, range)}</span>
-      <span>{formatBucket(lastTs, range)}</span>
+      <span>{formatBucket(firstTs, range, tz)}</span>
+      <span>{formatBucket(lastTs, range, tz)}</span>
     </figcaption>
   );
 }
@@ -160,10 +162,11 @@ export function statusTipRows(r: StatusRow): TooltipRow[] {
  * legend names every series, so no series is told apart by color alone.
  */
 export function StatusChart({ label, summary, rows, range }: { label: string; summary: string; rows: StatusRow[]; range: QueryRange }) {
+  const tz = useTimeZone();
   const keys = STATUS.map((s) => s.key);
   const className = Object.fromEntries(STATUS.map((s) => [s.key, s.className])) as Record<Status, string>;
   const { top } = stackBars(rows, keys, FALLBACK_W, H);
-  const hover: PlotHover = { count: rows.length, title: (i) => formatBucket(rows[i].ts, range), rows: (i) => statusTipRows(rows[i]) };
+  const hover: PlotHover = { count: rows.length, title: (i) => formatBucket(rows[i].ts, range, tz), rows: (i) => statusTipRows(rows[i]) };
   return (
     <figure className="tr-chart">
       <ul className="tr-legend" aria-label={`${label} legend`}>
@@ -193,11 +196,12 @@ export function StatusChart({ label, summary, rows, range }: { label: string; su
 
 /** p95 latency over time as a line, one point per bucket; hovering a bucket shows its p95. */
 export function LatencyChart({ label, summary, rows, range }: { label: string; summary: string; rows: { ts: string; p95_ms: number }[]; range: QueryRange }) {
+  const tz = useTimeZone();
   const values = rows.map((r) => r.p95_ms);
   const top = latencyTop(values);
   const hover: PlotHover = {
     count: rows.length,
-    title: (i) => formatBucket(rows[i].ts, range),
+    title: (i) => formatBucket(rows[i].ts, range, tz),
     rows: (i) => [{ label: "p95", value: formatLatency(values[i]), swatch: "tr-sw-line" }],
     marks: (i, w) => <LineMarks i={i} count={rows.length} w={w} dots={[{ y: lineY(values[i], H, top), className: "tr-dot--accent" }]} />,
   };
@@ -255,13 +259,14 @@ export function Sparkline({ values, hover }: { values: readonly number[]; hover?
 }
 
 function HoverSparkline({ values, label, range, points }: { values: readonly number[]; label: string; range: QueryRange; points: readonly SparkPoint[] }) {
+  const tz = useTimeZone();
   const n = values.length;
   const hover = useChartHover<HTMLDivElement>(n, "point");
   const i = hover.index;
   const max = Math.max(...values, 0);
   // The same y as sparklinePoints, in px (the box is SPARK_H px tall).
   const y = (v: number) => (max > 0 ? SPARK_H - 1 - (v / max) * (SPARK_H - 2) : SPARK_H - 1);
-  const title = i !== null ? formatBucket(points[i].ts, range) : "";
+  const title = i !== null ? formatBucket(points[i].ts, range, tz) : "";
   const rows = i !== null ? [{ label, value: points[i].text }] : [];
   const first = points[0];
   const last = points[n - 1];
@@ -271,7 +276,7 @@ function HoverSparkline({ values, label, range, points }: { values: readonly num
         ref={hover.ref}
         className="tr-spark tr-spark--hover ct-box"
         role="group"
-        aria-label={`${label} in the last ${RANGE_LABEL[range]}, from ${first.text} (${formatBucket(first.ts, range)}) to ${last.text} (${formatBucket(last.ts, range)}). Use the arrow keys to read each point.`}
+        aria-label={`${label} in the last ${RANGE_LABEL[range]}, from ${first.text} (${formatBucket(first.ts, range, tz)}) to ${last.text} (${formatBucket(last.ts, range, tz)}). Use the arrow keys to read each point.`}
         {...hover.bind}
       >
         <svg viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">

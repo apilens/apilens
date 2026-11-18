@@ -58,6 +58,7 @@ export function EndpointView({
   tab,
   settings,
   params = {},
+  tz,
 }: {
   project: string;
   projectName: string;
@@ -68,6 +69,8 @@ export function EndpointView({
   settings: SettingsLoad;
   /** The page's search params as read, for the tables' paging (`?page=`, `?vpage=`, `?xpage=`). */
   params?: SearchParams;
+  /** The user's time zone. */
+  tz: string;
 }) {
   const href = (patch: Partial<EndpointState>) => endpointPageHref(project, ep, { ...q, ...patch });
   // A shared link may name an environment the project no longer lists; keep it selectable.
@@ -157,13 +160,13 @@ export function EndpointView({
       </nav>
 
       <section className="ep-panel" aria-label={ENDPOINT_TABS.find((t) => t.slug === q.tab)?.label} data-tab={q.tab}>
-        <Panel tab={tab} project={project} endpoint={ep} q={q} settings={saved} pager={{ pathname: endpointPageHref(project, ep, {}), params }} />
+        <Panel tab={tab} project={project} endpoint={ep} q={q} settings={saved} pager={{ pathname: endpointPageHref(project, ep, {}), params }} tz={tz} />
       </section>
     </div>
   );
 }
 
-function Panel({ tab, project, endpoint, q, settings, pager }: { tab: TabLoad; project: string; endpoint: EndpointRef; q: EndpointState; settings: EndpointSettings | null; pager: Pager }) {
+function Panel({ tab, project, endpoint, q, settings, pager, tz }: { tab: TabLoad; project: string; endpoint: EndpointRef; q: EndpointState; settings: EndpointSettings | null; pager: Pager; tz: string }) {
   const retry = endpointPageHref(project, endpoint, q);
   if (tab.data === null) return <LoadFailed text={tabLoadFailed(tab.tab)} href={retry} />;
   const requests = tab.data.summary.requests;
@@ -181,7 +184,7 @@ function Panel({ tab, project, endpoint, q, settings, pager }: { tab: TabLoad; p
     case "requests":
       return <RequestsTab data={tab.data} project={project} endpoint={endpoint} q={q} pager={pager} />;
     case "errors":
-      return <ErrorsTab data={tab.data} q={q} settings={settings} pager={pager} />;
+      return <ErrorsTab data={tab.data} q={q} settings={settings} pager={pager} tz={tz} />;
     case "latency":
       return <LatencyTab data={tab.data} q={q} settings={settings} />;
     case "transfer":
@@ -234,7 +237,7 @@ const Empty = ({ children }: { children: ReactNode }) => (
   </p>
 );
 
-const When = ({ iso }: { iso: string }) => <time dateTime={iso}>{formatExact(iso)}</time>;
+const When = ({ iso, tz }: { iso: string; tz: string }) => <time dateTime={iso}>{formatExact(iso, tz)}</time>;
 
 /** Where the tables' paging links go: the endpoint page without its query, and the query as read. */
 interface Pager {
@@ -343,7 +346,7 @@ function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequ
 // Errors ---------------------------------------------------------------------------------
 
 
-function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: EndpointState; settings: EndpointSettings | null; pager: Pager }) {
+function ErrorsTab({ data, q, settings, pager, tz }: { data: EndpointErrors; q: EndpointState; settings: EndpointSettings | null; pager: Pager; tz: string }) {
   const s = data.summary;
   const allStatuses = data.statuses ?? [];
   const allValidation = data.validation_errors ?? [];
@@ -413,7 +416,7 @@ function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: Endp
                       {formatCount(r.consumers)}
                     </td>
                     <td data-label="Last seen">
-                      <When iso={r.last_seen} />
+                      <When iso={r.last_seen} tz={tz} />
                     </td>
                   </tr>
                 ))}
@@ -458,7 +461,7 @@ function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: Endp
                       {formatCount(v.consumers)}
                     </td>
                     <td data-label="Last seen">
-                      <When iso={v.last_seen} />
+                      <When iso={v.last_seen} tz={tz} />
                     </td>
                   </tr>
                 ))}
@@ -482,7 +485,7 @@ function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: Endp
                         <b>{x.exception_type || "Exception"}</b> <span className="ep-exc__msg">{x.message}</span>
                       </span>
                       <span className="ep-exc__meta">
-                        {formatCount(x.count)} times, {formatCount(x.consumers)} consumers, last <When iso={x.last_seen} />
+                        {formatCount(x.count)} times, {formatCount(x.consumers)} consumers, last <When iso={x.last_seen} tz={tz} />
                       </span>
                     </summary>
                     {x.stack_trace ? <pre className="ep-stack">{x.stack_trace}</pre> : <p className="tr-empty">The SDK sent no stack trace for this exception.</p>}

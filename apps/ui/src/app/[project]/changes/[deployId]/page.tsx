@@ -8,6 +8,7 @@ import { type CallOptions, type Project, identity, isApiError } from "@/lib/iden
 import { type SearchParams, pageHref } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
+import { resolveTimeZone } from "@/lib/time-zone";
 
 export const metadata: Metadata = { title: "Deploy" };
 
@@ -59,7 +60,7 @@ export default async function DeployPage({ params, searchParams }: { params: Pro
 
   return (
     <AppShell context={context} project={project} view="changes">
-      <DeployView project={project} projectName={found.project.name} id={id} load={load} comparison={comparison} apps={apps} params={sp} now={Date.now()} repository={repo} />
+      <DeployView project={project} projectName={found.project.name} id={id} load={load} comparison={comparison} apps={apps} params={sp} now={Date.now()} repository={repo} tz={resolveTimeZone(context.user.preferences)} />
     </AppShell>
   );
 }

@@ -22,6 +22,7 @@ import { useCan } from "@/lib/permissions";
 import { roleLabel } from "@/lib/scope";
 import type { Announce } from "./manage";
 import { RolePicker } from "./manage";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/invitations.css";
 import "./invite.css";
 
@@ -184,6 +185,7 @@ export function PendingInvitations({
   announce: Announce;
 }) {
   const invite = useCan("members.invite");
+  const tz = useTimeZone();
   const router = useRouter();
   const headingId = useId();
   const [revoking, setRevoking] = useState<Invitation | null>(null);
@@ -279,10 +281,10 @@ export function PendingInvitations({
                     <td data-label="Expires">
                       {isExpired(inv, now) ? (
                         <span className="oi-expired">
-                          Expired <time dateTime={inv.expires_at}>{formatDay(inv.expires_at)}</time>
+                          Expired <time dateTime={inv.expires_at}>{formatDay(inv.expires_at, tz)}</time>
                         </span>
                       ) : (
-                        <time dateTime={inv.expires_at}>{formatDay(inv.expires_at)}</time>
+                        <time dateTime={inv.expires_at}>{formatDay(inv.expires_at, tz)}</time>
                       )}
                     </td>
                     <td className="om-act oi-act">

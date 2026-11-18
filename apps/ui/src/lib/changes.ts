@@ -4,6 +4,7 @@
 import { isoSecond } from "./explore-timeline";
 import { formatCount } from "./first-data";
 import type { DeployChange, DeployEndpoint, DeploySide, QueryRange } from "./identity";
+import { zoneLabel, zoned } from "./time-zone";
 
 /** The deploys the view lists: the last seven days, newest first. */
 export const CHANGES_RANGE: QueryRange = "7d";
@@ -191,21 +192,22 @@ export function splitEndpoints(es: readonly DeployEndpoint[]): { compared: Deplo
   };
 }
 
-/** A time as the header shows it: `Nov 5, 10:37:20 UTC`. */
-export function formatDeployTime(iso: string): string {
+const DATE: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+const CLOCK_S: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false };
+const CLOCK: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
+
+/** A time as the header shows it, in `tz`: `Nov 5, 10:37:20 UTC`. */
+export function formatDeployTime(iso: string, tz: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
-  const d = new Date(t);
-  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "UTC" });
-  return `${date}, ${time} UTC`;
+  return `${zoned("en-US", DATE, tz).format(t)}, ${zoned("en-GB", CLOCK_S, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
-/** A minute of the chart: `10:37 UTC`. */
-export function formatMinute(iso: string): string {
+/** A minute of the chart, in `tz`: `10:37 UTC`. */
+export function formatMinute(iso: string, tz: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
-  return `${new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" })} UTC`;
+  return `${zoned("en-GB", CLOCK, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
 /** How long after the deploy the report arrived, when it is worth saying: `2 min later`; "" within 5 s. */

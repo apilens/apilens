@@ -25,6 +25,7 @@ import {
 import { filterQuery } from "@/lib/explore-filters";
 import type { RequestExport } from "@/lib/identity";
 import { PopMenu } from "../pop-menu";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 /** localStorage, or null where the browser blocks it. */
 function storage(): Storage | null {
@@ -64,6 +65,7 @@ type Toast = { export: RequestExport; note: string | null } | { failed: string }
  * this browser, each downloadable while its file lasts (24 hours).
  */
 export function ExportMenu({ project, query: q }: { project: string; query: ExploreState }) {
+  const tz = useTimeZone();
   const trigger = useRef<HTMLButtonElement>(null);
   const ids = { pop: useId(), err: useId() };
   const [open, setOpen] = useState(false);
@@ -216,7 +218,7 @@ export function ExportMenu({ project, query: q }: { project: string; query: Expl
                       <span className="ex-exports__title">{x ? filterText(x.filter) : r?.kind === "error" ? "Couldn’t read this export" : "Reading…"}</span>
                       {x && s ? (
                         <span className={`ex-exports__meta${s === "failed" ? " is-err" : ""}`}>
-                          {createdText(x.created_at)} · {s === "running" ? `${percent(x)}%` : exportTitle(s).replace(/^Export /, "")}
+                          {createdText(x.created_at, tz)} · {s === "running" ? `${percent(x)}%` : exportTitle(s).replace(/^Export /, "")}
                         </span>
                       ) : null}
                     </div>
@@ -251,6 +253,7 @@ function ExportToast({
   onDownload: (x: RequestExport) => void;
   onDismiss: () => void;
 }) {
+  const tz = useTimeZone();
   const x = toast && "export" in toast ? toast.export : null;
   const s = x ? exportStatus(x, now) : null;
   const err = !!toast && (!x || s === "failed" || s === "expired");
@@ -261,7 +264,7 @@ function ExportToast({
         <div className={`ex-toast${err ? " is-err" : ""}`}>
           <div className="ex-toast__body">
             <p className="ex-toast__title">{x && s ? exportTitle(s) : "Export didn’t start"}</p>
-            <p className="ex-toast__detail">{x ? exportDetail(x, now) : "failed" in toast ? toast.failed : ""}</p>
+            <p className="ex-toast__detail">{x ? exportDetail(x, now, tz) : "failed" in toast ? toast.failed : ""}</p>
             {x && s === "running" ? (
               <div className="ex-toast__bar" role="progressbar" aria-label="Export progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent(x)}>
                 <span style={{ width: `${percent(x)}%` }} />
