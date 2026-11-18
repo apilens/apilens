@@ -32,7 +32,7 @@ import {
   trafficHref,
 } from "@/lib/traffic";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
-import { ScopeSelect } from "../endpoint/filters";
+import { ScopeFilters, ScopeSelect } from "../endpoint/filters";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
@@ -98,12 +98,12 @@ export function TrafficView({
       />
 
       <div className="tr-bar">
-        <div className="tr-bar__scope">
+        <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
           <EnvPicker project={project} query={q} environments={environments} />
           {apps && (apps.length > 1 || q.app) ? (
             <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: trafficHref(project, { ...q, app: o.value }) }))} />
           ) : null}
-        </div>
+        </ScopeFilters>
         <LiveControl />
       </div>
 
@@ -308,7 +308,6 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
           </span>
           <span className="tr-tile__sub">{rating ?? "No requests to score"}</span>
           <CompareLine comparison={compare(s.apdex, p?.apdex, { kind: "score", better: "up", range })} />
-          <span className="tr-spark" aria-hidden="true" />
         </dd>
       </div>
     </dl>

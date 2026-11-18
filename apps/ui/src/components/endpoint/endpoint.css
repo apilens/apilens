@@ -43,6 +43,20 @@
 .ep-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
 .ep-swatch-line { height: 2px; border-radius: 1px; }
 
+/* Histogram labels and marks (#1004): each bar's count over it; dashed lines at p50, p95 and the
+   Apdex threshold T, told apart by their tags and legend, not by color alone. */
+.ep-bar-label { position: absolute; transform: translate(-50%, -100%); color: var(--ink-muted); white-space: nowrap; }
+.ep-bar-label--in { transform: translateX(-50%); color: var(--on-accent); }
+.ep-mark { stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ep-mark--p50 { stroke: var(--ink-muted); color: var(--ink-muted); }
+.ep-mark--p95 { stroke: var(--ink); color: var(--ink); }
+.ep-mark--t { stroke: var(--warn); color: var(--warn); }
+.ep-mark-swatch { width: 14px; height: 0; border-radius: 0; border-top: 2px dashed currentColor; }
+/* Mark tags sit in a strip above the plot, clear of the bars and their counts. */
+.ep-hist--marks .tr-yplot { margin-top: 20px; }
+.ep-mark-tag { position: absolute; top: -18px; font-weight: 500; white-space: nowrap; transform: translateX(3px); }
+.ep-mark-tag--end { transform: translateX(calc(-100% - 3px)); }
+
 .ep-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
 .ep-pair .tr-card { margin-bottom: var(--space-6); }
 

@@ -24,8 +24,9 @@ import { TRAFFIC_RANGES, apdexRating, appName, appOptions, formatApdex, formatLa
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
 import { StatusChart } from "../traffic/charts";
+import { latencyMarks } from "@/lib/chart-ticks";
 import { Histogram, LinesChart, StackedChart } from "./charts";
-import { ScopeSelect } from "./filters";
+import { ScopeFilters, ScopeSelect } from "./filters";
 import { SettingsMenu } from "./settings";
 import "../traffic/traffic.css";
 import "./endpoint.css";
@@ -137,6 +138,7 @@ export function EndpointView({
               </a>
             ))}
           </nav>
+          <ScopeFilters active={(q.env ? 1 : 0) + (tabTakesStatus(q.tab) && q.status !== "all" ? 1 : 0) + (q.app ? 1 : 0) + (q.consumer ? 1 : 0)}>
           <ScopeSelect
             label="Environment"
             value={q.env}
@@ -160,6 +162,7 @@ export function EndpointView({
               </a>
             </span>
           ) : null}
+          </ScopeFilters>
         </div>
       </div>
 
@@ -544,7 +547,7 @@ function LatencyTab({ data, q, settings, perApp }: { data: EndpointLatency; q: E
   const s = data.summary;
   const rating = apdexRating(s.apdex);
   const threshold = settings?.latency_threshold_ms;
-  const buckets = (data.histogram ?? []).map((b) => ({ label: latencyBucketLabel(b), count: b.count }));
+  const buckets = (data.histogram ?? []).map((b) => ({ label: latencyBucketLabel(b), count: b.count, from: b.from_ms, to: b.to_ms }));
   return (
     <>
       <Tiles
@@ -579,6 +582,7 @@ function LatencyTab({ data, q, settings, perApp }: { data: EndpointLatency; q: E
           summary={`${formatCount(s.requests)} requests by response time, from ${buckets[0]?.label ?? "0 ms"} to ${buckets[buckets.length - 1]?.label ?? ""}.`}
           buckets={buckets}
           unit="count"
+          marks={latencyMarks(s, perApp ? null : threshold)}
         />
       </Card>
     </>
@@ -589,8 +593,8 @@ function LatencyTab({ data, q, settings, perApp }: { data: EndpointLatency; q: E
 
 function TransferTab({ data, q }: { data: EndpointTransfer; q: EndpointScope }) {
   const s = data.summary;
-  const req = (data.request_size_histogram ?? []).map((b) => ({ label: sizeBucketLabel(b), count: b.count }));
-  const res = (data.response_size_histogram ?? []).map((b) => ({ label: sizeBucketLabel(b), count: b.count }));
+  const req = (data.request_size_histogram ?? []).map((b) => ({ label: sizeBucketLabel(b), count: b.count, from: b.from_bytes, to: b.to_bytes }));
+  const res = (data.response_size_histogram ?? []).map((b) => ({ label: sizeBucketLabel(b), count: b.count, from: b.from_bytes, to: b.to_bytes }));
   return (
     <>
       <Tiles

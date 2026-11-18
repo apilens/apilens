@@ -260,13 +260,16 @@ test("Response times tab: percentiles, Apdex, the p50/p75/p95 trend and the hist
   await expect(trend.locator("path.ep-line")).toHaveCount(3);
   await expect(trend.locator('path[data-series="p95_ms"]')).toHaveAttribute("d", /^M[\d.]+,[\d.]+(L[\d.]+,[\d.]+){2}$/);
   const hist = page.getByRole("img", { name: /Response time histogram/ });
-  await expect(hist.locator(".tr-hit")).toHaveCount(14);
+  // #1004: the empty buckets at the end (5 s and up) are left out; p50 and p95 are marked (no T:
+  // this endpoint uses the app's default).
+  await expect(hist.locator(".tr-hit")).toHaveCount(12);
+  await expect(page.getByRole("list", { name: "Response time histogram marks" }).getByRole("listitem")).toHaveText(["p50 31 ms", "p95 220 ms"]);
   const bar = await tipAt(page, /^Response time histogram\. Use the arrow keys/, 5);
   await expect(bar.locator(".ct-tip__title")).toHaveText("20–50 ms");
   await expect(bar.locator("dd").first()).toHaveText("2,600");
   await page.keyboard.press("End");
-  await expect(bar.locator(".ct-tip__title")).toHaveText("≥10 s");
-  await expect(bar.locator("dd").first()).toHaveText("0");
+  await expect(bar.locator(".ct-tip__title")).toHaveText("2–5 s");
+  await expect(bar.locator("dd").first()).toHaveText("6");
   expect((await reads()).map((r) => [r.tab, r.query])).toEqual([["latency", { range: "7d" }]]);
 
   // The status filter is in the URL and sent to the read.
@@ -298,8 +301,9 @@ test("Data transferred tab: bytes in and out, the in/out series and both size hi
 
   const req = page.getByRole("img", { name: /Request size histogram/ });
   const res = page.getByRole("img", { name: /Response size histogram/ });
-  await expect(req.locator(".tr-hit")).toHaveCount(10);
-  await expect(res.locator(".tr-hit")).toHaveCount(10);
+  // #1004: the empty buckets at the end are left out.
+  await expect(req.locator(".tr-hit")).toHaveCount(3);
+  await expect(res.locator(".tr-hit")).toHaveCount(5);
   const reqBar = await tipAt(page, /^Request size histogram\. Use the arrow keys/, 0);
   await expect(reqBar.locator(".ct-tip__title")).toHaveText("0 B");
   await expect(reqBar.locator("dd").first()).toHaveText("6,000");
@@ -478,6 +482,17 @@ test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await expect(page.getByRole("table", { name: "Error status codes" }).locator("tbody tr")).toHaveCount(3);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // The filters fold behind one button (#1004); the range stays in view.
+  const filters = page.getByRole("button", { name: "Filters" });
+  await expect(page.getByRole("combobox", { name: "Environment" })).toBeHidden();
+  await filters.click();
+  await expect(filters).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("combobox", { name: "Environment" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Time range" })).toBeVisible();
+  // The response-time histogram fits the phone, its labels inside it.
+  await page.goto(`${PAGE}?tab=latency`);
+  await expect(page.getByRole("img", { name: /Response time histogram/ })).toBeVisible();
+  expect(await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
 });
 
 test("screenshots", async ({ page }) => {
