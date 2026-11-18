@@ -27,3 +27,17 @@
 @media (max-width: 860px) {
   .acct-os .os-confirm .row { flex-wrap: wrap; }
 }
+
+/* Time zone (#1046): the current zone's clock, quick picks, and the searchable list. */
+.acct-os .ac-tz-now { margin-left: auto; padding-right: var(--space-2); font: 500 12px/1 var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
+.ac-tz-quick { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.ac-tz-list { max-height: 280px; overflow-y: auto; margin: var(--space-3) 0 0; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
+.ac-tz-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "city off" "region off"; column-gap: var(--space-3); padding: 6px var(--space-3); border-radius: var(--radius-sm); cursor: pointer; }
+.ac-tz-list li.is-active { background: var(--surface-2); }
+.ac-tz-list li.is-current .ac-tz-city { font-weight: 600; }
+.ac-tz-list li.is-current .ac-tz-city::after { content: " ✓"; color: var(--accent-ink); }
+.ac-tz-city { grid-area: city; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.ac-tz-region { grid-area: region; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.ac-tz-region:empty { display: none; }
+.ac-tz-off { grid-area: off; align-self: center; font: 500 12px/1 var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
+.ac-tz-list li.ac-tz-empty { display: block; cursor: default; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }

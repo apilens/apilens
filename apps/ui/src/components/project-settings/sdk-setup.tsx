@@ -12,6 +12,7 @@ import { formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
 import { radioKeyTarget } from "@/lib/radio-group";
 import { type AppSetupStatus, SDK_LANGUAGES, lastDataLine, reportedSdk, sdkDocs, setupSnippets } from "@/lib/sdk-setup";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "../onboarding/install.css";
@@ -156,7 +157,8 @@ function StatusCard({ apps, ingest }: { apps: AppSetupStatus[] | null; ingest: I
   const [refreshing, startRefresh] = useTransition();
   const [checked, setChecked] = useState(false);
   const now = useNow();
-  const ago = (at: string) => (now === null ? `at ${formatExact(at)}` : formatAgo(at, now));
+  const tz = useTimeZone();
+  const ago = (at: string) => (now === null ? `at ${formatExact(at, tz)}` : formatAgo(at, now));
   const refresh = () => {
     setChecked(false);
     startRefresh(() => {
@@ -199,6 +201,7 @@ function StatusCard({ apps, ingest }: { apps: AppSetupStatus[] | null; ingest: I
 
 function AppStatusRows({ status }: { status: AppSetupStatus }) {
   const { app, reports } = status;
+  const tz = useTimeZone();
   const titleId = `sdk-app-${app.id}`;
   return (
     <div className="sdk-app">
@@ -229,7 +232,7 @@ function AppStatusRows({ status }: { status: AppSetupStatus }) {
                 </th>
                 <td data-label="SDK">{reportedSdk(r)}</td>
                 <td data-label="Last reported">
-                  <time dateTime={r.received_at}>{formatExact(r.received_at)}</time>
+                  <time dateTime={r.received_at}>{formatExact(r.received_at, tz)}</time>
                 </td>
               </tr>
             ))}

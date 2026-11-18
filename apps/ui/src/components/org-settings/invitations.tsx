@@ -12,6 +12,7 @@ import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { DialogError, Gated, Modal, type OrgRef, type Status, statusOf } from "./controls";
 import { InviteDialog } from "./invite-dialog";
 import { OrgSettingsNav } from "./nav";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./org-settings.css";
 import "./members.css";
 import "./invitations.css";
@@ -47,6 +48,7 @@ export function OrgInvitationsSettings({
   search?: SearchParams;
 }) {
   const pathname = `/orgs/${org.slug}/settings/invitations`;
+  const tz = useTimeZone();
   const list = useListSearch(pathname, search);
   const matched = searchRows(all, list.query, (inv) => [inv.email, roleLabel(inv.role), inviterName(inv)]);
   const { rows: invitations, window } = slicePage(matched, parsePage(list.params));
@@ -164,10 +166,10 @@ export function OrgInvitationsSettings({
                     <td data-label="Expires">
                       {expired ? (
                         <span className="oi-expired">
-                          Expired <time dateTime={inv.expires_at}>{formatDay(inv.expires_at)}</time>
+                          Expired <time dateTime={inv.expires_at}>{formatDay(inv.expires_at, tz)}</time>
                         </span>
                       ) : (
-                        <time dateTime={inv.expires_at}>{formatDay(inv.expires_at)}</time>
+                        <time dateTime={inv.expires_at}>{formatDay(inv.expires_at, tz)}</time>
                       )}
                     </td>
                     <td className="om-act oi-act">

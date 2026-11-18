@@ -26,9 +26,10 @@ describe("backupCodesLeft", () => {
 
 describe("enabledSince", () => {
   it("formats a date and ignores missing or bad ones", () => {
-    expect(enabledSince("2026-11-04T10:00:00Z", "en-GB")).toBe("since 4 Nov 2026");
-    expect(enabledSince(null)).toBe("");
-    expect(enabledSince("nope")).toBe("");
+    expect(enabledSince("2026-11-04T10:00:00Z", "UTC", "en-GB")).toBe("since 4 Nov 2026");
+    expect(enabledSince("2026-11-04T20:00:00Z", "Asia/Kolkata", "en-GB")).toBe("since 5 Nov 2026");
+    expect(enabledSince(null, "UTC")).toBe("");
+    expect(enabledSince("nope", "UTC")).toBe("");
   });
 });
 

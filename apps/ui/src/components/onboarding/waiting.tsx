@@ -5,6 +5,7 @@ import { unstable_rethrow } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { finishInstallLater } from "@/app/(auth)/onboarding/install/actions";
 import { sdkBaseUrl } from "@/lib/install";
+import { zoned } from "@/lib/time-zone";
 import {
   BACKOFF_AFTER_MS,
   TROUBLESHOOT_AFTER_MS,
@@ -33,6 +34,8 @@ function hostOf(url: string): string {
   }
 }
 
+const CHECKED: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit" };
+
 /**
  * "Waiting for your first request" (#334), step 5: polls the project's ingest status (the Route
  * Handler for `GET /projects/{slug}/ingest-status`, #287) every 3 s, every 10 s after two minutes,
@@ -47,10 +50,13 @@ export function Waiting({
   project,
   appId,
   ingestUrl,
+  tz,
 }: Partial<StepProps> & {
   project: { slug: string; name: string };
   appId: string;
   ingestUrl: string;
+  /** The zone "checked" times are shown in. */
+  tz: string;
 }) {
   const [state, setState] = useState<WaitState>("waiting");
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
@@ -164,7 +170,7 @@ export function Waiting({
           <span>
             Listening for <b>{appId}</b>
           </span>
-          <small>{checkedAt ? `checked ${checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "starting"}</small>
+          <small>{checkedAt ? `checked ${zoned("en-US", CHECKED, tz).format(checkedAt)}` : "starting"}</small>
         </div>
         <div className="ob-check">
           <span className="st ok">

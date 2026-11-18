@@ -3,6 +3,7 @@
 // in Client Components and Server Actions alike.
 import type { Passkey } from "./identity";
 import { PASSKEY_CANCELLED } from "./auth/passkeys";
+import { zoned, zonedParts, zoneLabel } from "./time-zone";
 
 /** Where passkeys are managed. */
 export const SECURITY_SETTINGS_PATH = "/settings/security";
@@ -38,31 +39,37 @@ export function passkeyVendor(p: Pick<Passkey, "authenticator" | "transports">):
   return "Unknown authenticator";
 }
 
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const EXACT = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+const DAY: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
+const EXACT: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
 
-/** `Nov 4, 2026`. UTC so the server render and the browser agree. */
-export function formatDay(iso: string): string {
+/** `Nov 4, 2026` in `tz`, so the server render and the browser agree. */
+export function formatDay(iso: string, tz: string): string {
   const t = Date.parse(iso);
-  return Number.isNaN(t) ? "" : DAY.format(t);
+  return Number.isNaN(t) ? "" : zoned("en-US", DAY, tz).format(t);
 }
 
-/** `Nov 4, 2026, 2:05 PM UTC`, for a tooltip. */
-export function formatExact(iso: string): string {
+/** `Nov 4, 2026, 2:05 PM UTC` (`IST`, …) in `tz`, for a tooltip. */
+export function formatExact(iso: string, tz: string): string {
   const t = Date.parse(iso);
-  return Number.isNaN(t) ? "" : `${EXACT.format(t)} UTC`;
+  return Number.isNaN(t) ? "" : `${zoned("en-US", EXACT, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
-/** "Never", "Today", "Yesterday", "5 days ago", or the day for anything older than a month. */
-export function formatLastUsed(iso: string | null, now = Date.now()): string {
+/** Days since the epoch of the calendar day `t` falls on in `tz`. */
+function dayNumber(t: number, tz: string): number {
+  const p = zonedParts(t, tz);
+  return Date.UTC(p.year, p.month, p.day) / 86_400_000;
+}
+
+/** "Never", "Today", "Yesterday", "5 days ago" (calendar days in `tz`), or the day for anything older than a month. */
+export function formatLastUsed(iso: string | null, tz: string, now = Date.now()): string {
   if (!iso) return "Never";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "Never";
-  const days = Math.floor(now / 86_400_000) - Math.floor(t / 86_400_000);
+  const days = dayNumber(now, tz) - dayNumber(t, tz);
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
   if (days < 30) return `${days} days ago`;
-  return formatDay(iso);
+  return formatDay(iso, tz);
 }
 
 /** User-facing copy for a failed add, rename or remove, or `null` when nothing should be shown. */

@@ -239,8 +239,9 @@ describe("small readers", () => {
   });
 
   it("formats exact times and offsets", () => {
-    expect(formatExact("2026-11-05T14:03:12.345Z")).toBe("Nov 5, 2026, 14:03:12.345 UTC");
-    expect(formatExact("nope")).toBe("");
+    expect(formatExact("2026-11-05T14:03:12.345Z", "UTC")).toBe("Nov 5, 2026, 14:03:12.345 UTC");
+    expect(formatExact("nope", "UTC")).toBe("");
+    expect(formatExact("2026-11-05T20:03:12.345Z", "Asia/Kolkata")).toBe("Nov 6, 2026, 01:33:12.345 IST");
     expect(offsetMs("2026-11-05T14:03:12.357Z", "2026-11-05T14:03:12.345Z")).toBe("+12.0 ms");
     expect(offsetMs("2026-11-05T14:03:12.340Z", "2026-11-05T14:03:12.345Z")).toBe("−5.0 ms");
   });

@@ -8,6 +8,7 @@ import { niceMax } from "@/lib/consumers";
 import { formatCount } from "@/lib/first-data";
 import type { DeployPoint } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 const W = 1000;
 const BARS_H = 120;
@@ -19,6 +20,7 @@ const LINE_H = 64;
  * the arrow keys), with a marker on the deploy's minute. Every number in the tooltip is exact.
  */
 export function DeployChart({ series, deployMinute, release }: { series: readonly DeployPoint[]; deployMinute: string; release: string }) {
+  const tz = useTimeZone();
   const n = series.length;
   const hover = useChartHover<HTMLDivElement>(n, "slot");
   const i = hover.index;
@@ -39,7 +41,7 @@ export function DeployChart({ series, deployMinute, release }: { series: readonl
   );
 
   const pt = i !== null ? series[i] : null;
-  const title = pt ? `${formatMinute(pt.ts)} · ${minuteOffsetText(pt.ts, deployMinute)}` : "";
+  const title = pt ? `${formatMinute(pt.ts, tz)} · ${minuteOffsetText(pt.ts, deployMinute)}` : "";
   const rows: TooltipRow[] = pt
     ? [
         { label: "Requests", value: formatCount(pt.requests) },
@@ -57,7 +59,7 @@ export function DeployChart({ series, deployMinute, release }: { series: readonl
         ref={hover.ref}
         className="ct-box chd-plots"
         role="group"
-        aria-label={`Requests, errors and p95 latency per minute from ${formatMinute(first.ts)} to ${formatMinute(last.ts)}, with ${release} deployed at ${formatMinute(deployMinute)}. Use the arrow keys to read each minute.`}
+        aria-label={`Requests, errors and p95 latency per minute from ${formatMinute(first.ts, tz)} to ${formatMinute(last.ts, tz)}, with ${release} deployed at ${formatMinute(deployMinute, tz)}. Use the arrow keys to read each minute.`}
         {...hover.bind}
       >
         <div className="chd-plot">
@@ -111,13 +113,13 @@ export function DeployChart({ series, deployMinute, release }: { series: readonl
         {i !== null && hover.width > 0 ? <ChartTooltip x={pointX(i, hover.width, n, "slot")} boxWidth={hover.width} title={title} rows={rows} placement="inside" /> : null}
       </div>
       <div className="chd-xaxis" aria-hidden="true">
-        <span>{formatMinute(first.ts)}</span>
+        <span>{formatMinute(first.ts, tz)}</span>
         {markPct !== null && markPct > 15 && markPct < 85 ? (
           <span className="chd-xaxis__mark" style={{ left: `${markPct}%` }}>
-            {formatMinute(deployMinute)}
+            {formatMinute(deployMinute, tz)}
           </span>
         ) : null}
-        <span>{formatMinute(last.ts)}</span>
+        <span>{formatMinute(last.ts, tz)}</span>
       </div>
       <figcaption className="chd-legend">
         <span>

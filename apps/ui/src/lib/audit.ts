@@ -9,6 +9,7 @@
 
 import type { AuditAction, AuditEvent, AuditFilters, AuditScope } from "./identity";
 import type { ParamsInput } from "./pagination";
+import { zonedParts } from "./time-zone";
 
 /** The action groups offered as a filter, in order. */
 export const AUDIT_GROUPS = [
@@ -210,7 +211,7 @@ export interface ActivityFilters {
   /** On the organization's audit log (#813): one project's slug. */
   project?: string;
   group?: AuditGroup;
-  /** First day, `YYYY-MM-DD` (UTC). */
+  /** First day, `YYYY-MM-DD` (UTC; the filter has not moved to the user's zone yet, #1046). */
   from?: string;
   /** Last day, inclusive, `YYYY-MM-DD` (UTC). */
   to?: string;
@@ -407,8 +408,8 @@ export function retentionText(days: number): string {
   return `The activity log goes back ${days} day${days === 1 ? "" : "s"}; older events are deleted.`;
 }
 
-/** "just now", "5 min ago", "3 h ago", "2 days ago", then the date. */
-export function relativeTime(iso: string, now = Date.now()): string {
+/** "just now", "5 min ago", "3 h ago", "2 days ago", then the date (`YYYY-MM-DD` in `tz`). */
+export function relativeTime(iso: string, tz: string, now = Date.now()): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
   const s = Math.max(0, Math.round((now - t) / 1000));
@@ -417,5 +418,6 @@ export function relativeTime(iso: string, now = Date.now()): string {
   if (s < 86_400) return `${Math.floor(s / 3600)} h ago`;
   const d = Math.floor(s / 86_400);
   if (d < 30) return `${d} day${d === 1 ? "" : "s"} ago`;
-  return new Date(t).toISOString().slice(0, 10);
+  const p = zonedParts(t, tz);
+  return `${p.year}-${String(p.month + 1).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }

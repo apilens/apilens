@@ -8,6 +8,7 @@ import { useCan } from "@/lib/permissions";
 import { type GeneralDraft, type GeneralErrors, PROJECT_DESCRIPTION_MAX, PROJECT_NAME_MAX, checkGeneral, generalDraftOf } from "@/lib/project-general";
 import { CopyValue } from "../copy-value";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./general.css";
@@ -60,11 +61,12 @@ function GeneralBody({ project, initial, names, edit }: { project: string; initi
 }
 
 function PausedNotice({ project, detail, names, onResumed }: { project: string; detail: ProjectDetail; names: Record<string, string>; onResumed: (p: ProjectDetail) => void }) {
+  const tz = useTimeZone();
   const resume = useCan("project.delete").allowed;
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const by = detail.paused_by ? names[detail.paused_by] : undefined;
-  const since = detail.paused_at ? formatDay(detail.paused_at) : "";
+  const since = detail.paused_at ? formatDay(detail.paused_at, tz) : "";
 
   const onResume = () => {
     if (pending) return;
@@ -82,7 +84,7 @@ function PausedNotice({ project, detail, names, onResumed }: { project: string; 
       <div className="t">
         <h2 id="pgen-paused">Ingest is paused</h2>
         <p>
-          Since <time dateTime={detail.paused_at ?? undefined} title={detail.paused_at ? formatExact(detail.paused_at) : undefined}>{since}</time>
+          Since <time dateTime={detail.paused_at ?? undefined} title={detail.paused_at ? formatExact(detail.paused_at, tz) : undefined}>{since}</time>
           {by ? <> by {by}</> : null}, the ingest edge refuses data sent with this project’s keys. Stored data and the dashboard are unaffected.
           {resume ? null : " A project admin can resume it."}
         </p>
@@ -234,6 +236,7 @@ function DetailsCard({ project, current, edit, onSaved }: { project: string; cur
 }
 
 function IdentifiersCard({ detail, names }: { detail: ProjectDetail; names: Record<string, string> }) {
+  const tz = useTimeZone();
   const creator = detail.created_by === null ? "Not recorded" : (names[detail.created_by] ?? "A former member");
   return (
     <section className="os-card" aria-labelledby="pgen-ids">
@@ -259,8 +262,8 @@ function IdentifiersCard({ detail, names }: { detail: ProjectDetail; names: Reco
             <dt>Created</dt>
             <dd>
               {creator} ·{" "}
-              <time dateTime={detail.created_at} title={formatExact(detail.created_at)}>
-                {formatDay(detail.created_at)}
+              <time dateTime={detail.created_at} title={formatExact(detail.created_at, tz)}>
+                {formatDay(detail.created_at, tz)}
               </time>
             </dd>
           </div>

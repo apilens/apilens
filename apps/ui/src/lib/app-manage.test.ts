@@ -122,24 +122,29 @@ describe("pagination of the cards", () => {
 
 describe("shortDay", () => {
   it("leaves out this year's year", () => {
-    expect(shortDay("2026-11-06T09:00:00Z", NOW)).toBe("Nov 6");
-    expect(shortDay("2025-12-31T23:00:00Z", NOW)).toBe("Dec 31, 2025");
-    expect(shortDay(null, NOW)).toBe("");
-    expect(shortDay("nope", NOW)).toBe("");
+    expect(shortDay("2026-11-06T09:00:00Z", "UTC", NOW)).toBe("Nov 6");
+    expect(shortDay("2025-12-31T23:00:00Z", "UTC", NOW)).toBe("Dec 31, 2025");
+    expect(shortDay(null, "UTC", NOW)).toBe("");
+    expect(shortDay("nope", "UTC", NOW)).toBe("");
+    // 20:00 UTC on Dec 31 is already the new year in India.
+    expect(shortDay("2025-12-31T20:00:00Z", "Asia/Kolkata", Date.parse("2026-01-02T00:00:00Z"))).toBe("Jan 1");
+    expect(shortDay("2026-11-05T20:00:00Z", "Asia/Kolkata", NOW)).toBe("Nov 6");
   });
 });
 
 describe("originText", () => {
   it("names the key an SDK created the app with", () => {
-    expect(originText(app({ created_by_key_name: "prod-backend" }), NOW)).toBe("Added by the SDK from key prod-backend · Nov 6");
+    expect(originText(app({ created_by_key_name: "prod-backend" }), "UTC", NOW)).toBe("Added by the SDK from key prod-backend · Nov 6");
   });
 
   it("says the SDK added it when no key is recorded", () => {
-    expect(originText(app(), NOW)).toBe("Added by the SDK · Nov 6");
+    expect(originText(app(), "UTC", NOW)).toBe("Added by the SDK · Nov 6");
+    expect(originText(app({ first_seen_at: "2026-11-05T20:00:00Z" }), "Asia/Kolkata", NOW)).toBe("Added by the SDK · Nov 6");
+    expect(originText(app({ first_seen_at: "2026-11-05T20:00:00Z" }), "UTC", NOW)).toBe("Added by the SDK · Nov 5");
   });
 
   it("says when a person added it in the dashboard", () => {
-    expect(originText(app({ created_by: "dashboard", created_at: "2026-10-02T10:00:00Z" }), NOW)).toBe("Added in the dashboard · Oct 2");
+    expect(originText(app({ created_by: "dashboard", created_at: "2026-10-02T10:00:00Z" }), "UTC", NOW)).toBe("Added in the dashboard · Oct 2");
   });
 });
 
@@ -171,15 +176,16 @@ describe("restore and delete", () => {
   });
 
   it("explains each inactive state", () => {
-    expect(stateText(app({ state: "archived", archived_at: "2026-11-02T00:00:00Z" }), NOW)).toBe("Archived Nov 2. It comes back on its own when its SDK sends data again.");
-    expect(stateText(app({ slug: "ordrs", state: "merged", merged_into_slug: "orders" }), NOW)).toBe(
+    expect(stateText(app({ state: "archived", archived_at: "2026-11-02T00:00:00Z" }), "UTC", NOW)).toBe("Archived Nov 2. It comes back on its own when its SDK sends data again.");
+    expect(stateText(app({ slug: "ordrs", state: "merged", merged_into_slug: "orders" }), "UTC", NOW)).toBe(
       "Merged into orders. New data for ordrs goes there; earlier data stays under ordrs.",
     );
-    expect(stateText(app({ slug: "gone", state: "deleted", deleted_at: "2026-11-05T00:00:00Z", restorable_until: "2026-12-05T00:00:00Z" }), NOW)).toBe(
+    expect(stateText(app({ slug: "gone", state: "deleted", deleted_at: "2026-11-05T00:00:00Z", restorable_until: "2026-12-05T00:00:00Z" }), "UTC", NOW)).toBe(
       "Deleted Nov 5. Data for gone is rejected until Dec 5; restore it before then to keep the name.",
     );
-    expect(stateText(app({ slug: "gone", state: "deleted", restorable_until: iso(NOW - 1) }), NOW)).toBe("Deleted. It can no longer be restored, and the name gone is free again.");
-    expect(stateText(app(), NOW)).toBe("");
+    expect(stateText(app({ slug: "gone", state: "deleted", restorable_until: iso(NOW - 1) }), "UTC", NOW)).toBe("Deleted. It can no longer be restored, and the name gone is free again.");
+    expect(stateText(app(), "UTC", NOW)).toBe("");
+    expect(stateText(app({ state: "archived", archived_at: "2026-11-01T20:00:00Z" }), "Asia/Kolkata", NOW)).toBe("Archived Nov 2. It comes back on its own when its SDK sends data again.");
   });
 });
 

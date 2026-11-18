@@ -91,8 +91,10 @@ describe("summary", () => {
 
 describe("cells", () => {
   it("shows last activity and who added someone", () => {
-    expect(lastActive(null)).toBe("Never signed in");
-    expect(lastActive("2026-11-12T10:00:00Z", Date.parse("2026-11-13T10:00:00Z"))).toBe("Yesterday");
+    expect(lastActive(null, "UTC")).toBe("Never signed in");
+    expect(lastActive("2026-11-12T10:00:00Z", "UTC", Date.parse("2026-11-13T10:00:00Z"))).toBe("Yesterday");
+    // 20:00 UTC on the 12th is already the 13th in India.
+    expect(lastActive("2026-11-12T20:00:00Z", "Asia/Kolkata", Date.parse("2026-11-13T10:00:00Z"))).toBe("Today");
     expect(addedBy(tom)).toBe("Ada Admin");
     expect(addedBy(max)).toBe("—");
   });

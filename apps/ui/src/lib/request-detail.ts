@@ -3,6 +3,7 @@
 // parsing, the collapsible JSON lines, cURL, the waterfall, the Route Handler's answer), unit-tested
 // in request-detail.test.ts.
 import type { RequestDetail, RequestDetailRead, TraceLog, TraceSpan } from "./identity";
+import { zoneLabel, zoned } from "./time-zone";
 
 /** The drawer's tabs, in order. */
 export const DRAWER_TABS = [
@@ -357,7 +358,7 @@ export function spanName(spans: readonly TraceSpan[], log: Pick<TraceLog, "span_
 
 // ---------------------------------------------------------------- time
 
-const CLOCK = new Intl.DateTimeFormat("en-US", {
+const CLOCK: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "short",
   day: "numeric",
@@ -366,13 +367,12 @@ const CLOCK = new Intl.DateTimeFormat("en-US", {
   second: "2-digit",
   fractionalSecondDigits: 3,
   hourCycle: "h23",
-  timeZone: "UTC",
-});
+};
 
-/** An exact time: `Nov 5, 2026, 14:03:12.345 UTC`; empty for an unreadable one. */
-export function formatExact(at: string): string {
+/** An exact time in `tz`: `Nov 5, 2026, 14:03:12.345 UTC`; empty for an unreadable one. */
+export function formatExact(at: string, tz: string): string {
   const t = Date.parse(at);
-  return Number.isNaN(t) ? "" : `${CLOCK.format(t)} UTC`;
+  return Number.isNaN(t) ? "" : `${zoned("en-US", CLOCK, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
 /** A log line's offset from the request: `+12.4 ms`, `-0.8 ms`. */

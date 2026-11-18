@@ -186,7 +186,8 @@ function Populated({ project, usage }: { project: string; usage: ProjectUsage })
 
 const CHART_W = 700;
 const CHART_H = 120;
-const dayTitle = (date: string) => formatDay(`${date}T00:00:00Z`);
+// Days are calendar dates the API buckets in UTC, so they read in UTC whatever the user's zone.
+const dayTitle = (date: string) => formatDay(`${date}T00:00:00Z`, "UTC");
 
 /**
  * Accepted records per day, oldest left. Hovering, tapping or arrowing through a day shows its

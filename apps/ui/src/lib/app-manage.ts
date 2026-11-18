@@ -5,6 +5,7 @@
 import type { AppRejection, AppRejectionReason, ManagedApp, NamedApp } from "./identity";
 import { formatCount } from "./first-data";
 import type { PageOptions } from "./pagination";
+import { zoned, zonedParts } from "./time-zone";
 
 /** App ids are UUIDs (`format: uuid`). */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,23 +52,23 @@ export function cardApps(managed: readonly ManagedApp[] | null, listed: readonly
   return listed ? [...listed] : null;
 }
 
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-const DAY_YEAR = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const DAY: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+const DAY_YEAR: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
 
-/** `Nov 6` this year, `Nov 6, 2025` before; empty for a missing or bad date. */
-export function shortDay(iso: string | null | undefined, now = Date.now()): string {
+/** `Nov 6` this year, `Nov 6, 2025` before, in `tz`; empty for a missing or bad date. */
+export function shortDay(iso: string | null | undefined, tz: string, now = Date.now()): string {
   if (!iso) return "";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
-  return new Date(t).getUTCFullYear() === new Date(now).getUTCFullYear() ? DAY.format(t) : DAY_YEAR.format(t);
+  return zoned("en-US", zonedParts(t, tz).year === zonedParts(now, tz).year ? DAY : DAY_YEAR, tz).format(t);
 }
 
 /**
  * Where an app came from: `Added by the SDK from key prod-backend · Nov 6`, `Added by the SDK ·
  * Nov 6` (no key recorded) or `Added in the dashboard · Nov 6`.
  */
-export function originText(app: Pick<ManagedApp, "created_by" | "created_by_key_name" | "created_at" | "first_seen_at">, now = Date.now()): string {
-  const day = shortDay(app.created_by === "sdk" ? (app.first_seen_at ?? app.created_at) : app.created_at, now);
+export function originText(app: Pick<ManagedApp, "created_by" | "created_by_key_name" | "created_at" | "first_seen_at">, tz: string, now = Date.now()): string {
+  const day = shortDay(app.created_by === "sdk" ? (app.first_seen_at ?? app.created_at) : app.created_at, tz, now);
   const who = app.created_by === "sdk" ? (app.created_by_key_name ? `Added by the SDK from key ${app.created_by_key_name}` : "Added by the SDK") : "Added in the dashboard";
   return day ? `${who} · ${day}` : who;
 }
@@ -102,15 +103,15 @@ export function canDelete(app: Pick<ManagedApp, "state" | "is_default">): boolea
 export const STATE_LABEL: Record<ManagedApp["state"], string> = { active: "Active", archived: "Archived", merged: "Merged", deleted: "Deleted" };
 
 /** One sentence on what an archived, merged or deleted app means now. */
-export function stateText(app: ManagedApp, now = Date.now()): string {
+export function stateText(app: ManagedApp, tz: string, now = Date.now()): string {
   switch (app.state) {
     case "archived":
-      return `Archived${app.archived_at ? ` ${shortDay(app.archived_at, now)}` : ""}. It comes back on its own when its SDK sends data again.`;
+      return `Archived${app.archived_at ? ` ${shortDay(app.archived_at, tz, now)}` : ""}. It comes back on its own when its SDK sends data again.`;
     case "merged":
       return `Merged into ${app.merged_into_slug ?? "another app"}. New data for ${app.slug} goes there; earlier data stays under ${app.slug}.`;
     case "deleted":
       return canRestore(app, now)
-        ? `Deleted${app.deleted_at ? ` ${shortDay(app.deleted_at, now)}` : ""}. Data for ${app.slug} is rejected until ${shortDay(app.restorable_until, now)}; restore it before then to keep the name.`
+        ? `Deleted${app.deleted_at ? ` ${shortDay(app.deleted_at, tz, now)}` : ""}. Data for ${app.slug} is rejected until ${shortDay(app.restorable_until, tz, now)}; restore it before then to keep the name.`
         : `Deleted. It can no longer be restored, and the name ${app.slug} is free again.`;
     default:
       return "";
@@ -223,7 +224,8 @@ export function rejectionHeadline(rows: readonly AppRejection[], days: number): 
 
 /** One rejection line: `orders-api: 340 records, the key can’t create apps (last Nov 6).` */
 export function rejectionLine(r: AppRejection, now = Date.now()): string {
-  const day = shortDay(`${r.last_day}T00:00:00Z`, now);
+  // `last_day` is a calendar date (UTC day), not an instant: keep it in UTC so the day does not shift.
+  const day = shortDay(`${r.last_day}T00:00:00Z`, "UTC", now);
   const name = r.app || "(no name)";
   return `${name}: ${formatCount(r.records)} ${r.records === 1 ? "record" : "records"}, ${REJECTION_REASON[r.reason]?.label ?? "rejected"}${day ? ` (last ${day})` : ""}.`;
 }

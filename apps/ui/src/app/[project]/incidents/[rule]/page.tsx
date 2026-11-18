@@ -7,6 +7,7 @@ import { getContext } from "@/lib/auth/server";
 import { EVENTS_PAGE, incidentHref } from "@/lib/alerts";
 import { type SearchParams, parseTrail, trailCursor } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
+import { resolveTimeZone } from "@/lib/time-zone";
 import { appNames, load, loadApps, loadRule } from "../load";
 
 export const metadata: Metadata = { title: "Incidents" };
@@ -43,6 +44,7 @@ export default async function IncidentPage({ params, searchParams }: { params: P
           nextCursor={events?.next_cursor ?? null}
           params={sp}
           now={Date.now()}
+          tz={resolveTimeZone(context.user.preferences)}
         />
       )}
     </AppShell>

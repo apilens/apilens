@@ -21,6 +21,7 @@ import type { AppEnvironmentReport, CapturePolicy, NamedApp, PutCapturePolicyReq
 import { formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
 import "./capture.css";
@@ -118,10 +119,10 @@ function AppPicker({ project, apps, current }: { project: string; apps: NamedApp
 }
 
 /** When and by whom the policy was last saved, or that it never was. */
-function savedLine(policy: CapturePolicy, userId: string): string {
+function savedLine(policy: CapturePolicy, userId: string, tz: string): string {
   if (!policy.updated_at) return "Never changed: the app captures everything.";
   const who = policy.updated_by === userId ? "you" : "a project admin";
-  return `Last changed ${formatExact(policy.updated_at)} by ${who}. Every change is recorded in the audit log.`;
+  return `Last changed ${formatExact(policy.updated_at, tz)} by ${who}. Every change is recorded in the audit log.`;
 }
 
 interface PolicyCardProps {
@@ -134,6 +135,7 @@ interface PolicyCardProps {
 }
 
 function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCardProps) {
+  const tz = useTimeZone();
   const [draft, setDraft] = useState<PolicyDraft>(() => draftOf(policyValues(saved)));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState<Status>(null);
@@ -300,7 +302,7 @@ function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCard
           />
         ) : null}
 
-        <p className="cps-audit">{savedLine(saved, userId)}</p>
+        <p className="cps-audit">{savedLine(saved, userId, tz)}</p>
       </div>
       {manage ? (
         <div className="os-card__foot">
@@ -395,6 +397,7 @@ function ReportsCard({ reports, policy }: { reports: AppEnvironmentReport[] | nu
 }
 
 function EnvironmentReport({ report, policy }: { report: AppEnvironmentReport; policy: PutCapturePolicyRequest }) {
+  const tz = useTimeZone();
   const rows = effectiveRows(policy, report.config ?? {});
   const runtime = runtimeLine(report);
   const titleId = `cps-env-${report.environment}`;
@@ -403,7 +406,7 @@ function EnvironmentReport({ report, policy }: { report: AppEnvironmentReport; p
       <div className="cps-env__head">
         <h3 id={titleId}>{report.environment}</h3>
         <p>
-          {runtime ? `${runtime} · ` : ""}reported <time dateTime={report.received_at}>{formatExact(report.received_at)}</time>
+          {runtime ? `${runtime} · ` : ""}reported <time dateTime={report.received_at}>{formatExact(report.received_at, tz)}</time>
         </p>
       </div>
       <table className="pk-table cps-table" aria-labelledby={titleId}>

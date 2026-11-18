@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   HISTORY_MAX,
   canDownload,
+  createdText,
   exportBody,
   exportDetail,
   exportPoll,
@@ -111,16 +112,20 @@ describe("toast copy", () => {
     expect(percent({ progress: 1.4 })).toBe(100);
     expect(percent({ progress: Number.NaN })).toBe(0);
     expect(exportTitle("running")).toBe("Exporting requests");
-    expect(exportDetail(base, NOW)).toBe("4,200 of 10,000 rows written.");
-    expect(exportDetail({ ...base, total_rows: null, rows_written: 0 }, NOW)).toBe("0 rows written so far.");
-    expect(exportDetail({ ...base, status: "queued" }, NOW)).toBe("It starts as soon as a worker is free.");
-    expect(exportDetail(done, NOW)).toBe("10,000 rows, 1.2 MB gzip CSV. Downloadable until Nov 6, 10:00 UTC.");
-    expect(exportDetail({ ...done, expires_at: "2026-11-05T18:40:00Z" }, NOW)).toBe("10,000 rows, 1.2 MB gzip CSV. Downloadable until 18:40 UTC.");
-    expect(exportDetail({ ...base, status: "failed", error: "clickhouse unavailable." }, NOW)).toBe("clickhouse unavailable. Start a new export to try again.");
-    expect(exportDetail({ ...base, status: "failed", error: null }, NOW)).toBe("Start a new export to try again.");
-    expect(exportDetail({ ...base, status: "cancelled" }, NOW)).toBe("No file was kept.");
+    expect(exportDetail(base, NOW, "UTC")).toBe("4,200 of 10,000 rows written.");
+    expect(exportDetail({ ...base, total_rows: null, rows_written: 0 }, NOW, "UTC")).toBe("0 rows written so far.");
+    expect(exportDetail({ ...base, status: "queued" }, NOW, "UTC")).toBe("It starts as soon as a worker is free.");
+    expect(exportDetail(done, NOW, "UTC")).toBe("10,000 rows, 1.2 MB gzip CSV. Downloadable until Nov 6, 10:00 UTC.");
+    expect(exportDetail({ ...done, expires_at: "2026-11-05T18:40:00Z" }, NOW, "UTC")).toBe("10,000 rows, 1.2 MB gzip CSV. Downloadable until 18:40 UTC.");
+    // 18:40 UTC is 00:10 IST the next day, so the day shows.
+    expect(exportDetail({ ...done, expires_at: "2026-11-05T18:40:00Z" }, NOW, "Asia/Kolkata")).toBe("10,000 rows, 1.2 MB gzip CSV. Downloadable until Nov 6, 00:10 IST.");
+    expect(createdText("2026-11-05T10:02:00Z", "UTC")).toBe("Nov 5, 10:02 UTC");
+    expect(createdText("2026-11-05T20:02:00Z", "Asia/Kolkata")).toBe("Nov 6, 01:32 IST");
+    expect(exportDetail({ ...base, status: "failed", error: "clickhouse unavailable." }, NOW, "UTC")).toBe("clickhouse unavailable. Start a new export to try again.");
+    expect(exportDetail({ ...base, status: "failed", error: null }, NOW, "UTC")).toBe("Start a new export to try again.");
+    expect(exportDetail({ ...base, status: "cancelled" }, NOW, "UTC")).toBe("No file was kept.");
     expect(exportTitle(exportStatus(done, Date.parse("2026-11-08T00:00:00Z")))).toBe("Export expired");
-    expect(exportDetail(done, Date.parse("2026-11-08T00:00:00Z"))).toMatch(/^Exports can be downloaded for 24 hours\./);
+    expect(exportDetail(done, Date.parse("2026-11-08T00:00:00Z"), "UTC")).toMatch(/^Exports can be downloaded for 24 hours\./);
   });
 });
 

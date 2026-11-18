@@ -6,6 +6,7 @@
 // The server stays the authority. Pure; safe in Client Components and Server Actions alike.
 import { type Action, can } from "./capabilities";
 import type { InviteResult, Member, OrgRole, UserContext } from "./identity";
+import { zoned } from "./time-zone";
 
 /** Every role, most powerful first (the role select's order). */
 export const MEMBER_ROLES: readonly OrgRole[] = ["owner", "admin", "member", "viewer"];
@@ -112,11 +113,13 @@ export function memberInitials(m: Member): string {
   return (m.user.email[0] ?? "?").toUpperCase();
 }
 
-/** The day someone joined, the same on the server and in every browser. */
-export function formatJoined(iso: string): string {
+const JOINED: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" };
+
+/** The day someone joined in `tz`, the same on the server and in every browser. */
+export function formatJoined(iso: string, tz: string): string {
   const at = Date.parse(iso);
   if (Number.isNaN(at)) return "Unknown";
-  return new Intl.DateTimeFormat("en", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }).format(at);
+  return zoned("en", JOINED, tz).format(at);
 }
 
 /** What the dialog says once the invitations went out. */

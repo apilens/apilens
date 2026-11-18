@@ -104,9 +104,9 @@ export function keysText(n: number): string {
 }
 
 /** When data last arrived for an environment: `Last seen 3 hours ago`, or `No data yet`. */
-export function lastSeenText(iso: string | null, now = Date.now()): string {
+export function lastSeenText(iso: string | null, tz: string, now = Date.now()): string {
   if (!iso) return "No data yet";
-  const rel = relativeTime(iso, now);
+  const rel = relativeTime(iso, tz, now);
   return `Last seen ${/^(Just|Yesterday)/.test(rel) ? rel[0].toLowerCase() + rel.slice(1) : rel}`;
 }
 

@@ -2,6 +2,7 @@
 // its dialogs (turn on with a QR code, backup codes shown once, turn off, regenerate). Identity
 // stays the authority; these only shape what it answers. Pure; safe in Client Components and
 // Server Actions alike.
+import { zoned } from "./time-zone";
 
 /** At or below this many unused backup codes the card suggests regenerating them. */
 export const LOW_BACKUP_CODES = 3;
@@ -25,12 +26,14 @@ export function backupCodesLeft(n: number): string {
   return `${n} backup ${n === 1 ? "code" : "codes"} left`;
 }
 
-/** "since 4 Nov 2026" for the card, in the viewer's locale; empty for a missing or bad date. */
-export function enabledSince(iso: string | null, locale?: string): string {
+const SINCE: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" };
+
+/** "since 4 Nov 2026" for the card, the day in `tz`, in the viewer's locale; empty for a missing or bad date. */
+export function enabledSince(iso: string | null, tz: string, locale?: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `since ${d.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}`;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  return `since ${zoned(locale ?? new Intl.DateTimeFormat().resolvedOptions().locale, SINCE, tz).format(t)}`;
 }
 
 /**
@@ -41,6 +44,7 @@ export function backupCodesText(codes: readonly string[], email: string | null, 
   const lines = [
     "APILens backup codes",
     ...(email ? [`Account: ${email}`] : []),
+    // The file is an export: its date stays the ISO (UTC) day.
     `Generated: ${at.toISOString().slice(0, 10)}`,
     "",
     "Each code signs you in once if you can't use your authenticator app.",

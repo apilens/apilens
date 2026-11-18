@@ -54,6 +54,7 @@ export function ErrorsView({
   query: q,
   tab,
   detail,
+  tz,
 }: {
   project: string;
   projectName: string;
@@ -61,6 +62,8 @@ export function ErrorsView({
   query: ErrorsState;
   tab: TabLoad;
   detail: DetailLoad | undefined;
+  /** The user's time zone. */
+  tz: string;
 }) {
   const href = (patch: Partial<ErrorsState>) => errorsHref(project, { ...q, code: null, ...patch });
   // Another tab, range or environment starts the table again at its first page.
@@ -100,7 +103,7 @@ export function ErrorsView({
         ))}
       </nav>
 
-      {tab.tab === "status" ? <StatusTab project={project} q={q} data={tab.data} /> : <IssuesTab project={project} q={q} data={tab.data} />}
+      {tab.tab === "status" ? <StatusTab project={project} q={q} data={tab.data} tz={tz} /> : <IssuesTab project={project} q={q} data={tab.data} tz={tz} />}
 
       {detail ? (
         <ErrorModal
@@ -108,7 +111,7 @@ export function ErrorsView({
           lead={`Responses with status ${detail.code} counted as errors in ${errorsScopeText(q)}.`}
           closeHref={href({})}
         >
-          <Detail project={project} q={q} load={detail} />
+          <Detail project={project} q={q} load={detail} tz={tz} />
         </ErrorModal>
       ) : null}
     </div>
@@ -168,7 +171,7 @@ const Empty = ({ children }: { children: ReactNode }) => (
   </p>
 );
 
-const When = ({ iso }: { iso: string }) => <time dateTime={iso}>{formatExact(iso)}</time>;
+const When = ({ iso, tz }: { iso: string; tz: string }) => <time dateTime={iso}>{formatExact(iso, tz)}</time>;
 
 const Status = ({ code }: { code: number }) => <span className={`er-status er-status--${statusClass(code)}`}>{code}</span>;
 
@@ -180,7 +183,7 @@ const EndpointName = ({ method, path }: { method: string; path: string }) => (
 
 // Status codes ------------------------------------------------------------------------------
 
-function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data: ErrorStatuses | null }) {
+function StatusTab({ project, q, data, tz }: { project: string; q: ErrorsState; data: ErrorStatuses | null; tz: string }) {
   if (data === null) return <LoadFailed text={STATUSES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const s = data.summary;
   if (s.requests === 0) {
@@ -219,7 +222,7 @@ function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data
         {statuses.length === 0 ? (
           <Empty>No error responses in {errorsScopeText(q)}.</Empty>
         ) : (
-          <StatusTable project={project} q={q} statuses={statuses} points={data.points ?? []} series={data.series ?? []} />
+          <StatusTable project={project} q={q} statuses={statuses} points={data.points ?? []} series={data.series ?? []} tz={tz} />
         )}
       </Card>
     </>
@@ -232,12 +235,14 @@ function StatusTable({
   statuses,
   points,
   series,
+  tz,
 }: {
   project: string;
   q: ErrorsState;
   statuses: ErrorStatusRow[];
   points: { ts: string }[];
   series: NonNullable<ErrorStatuses["series"]>;
+  tz: string;
 }) {
   const { rows, window } = slicePage(statuses, q);
   const counts = new Map(series.map((s) => [s.status_code, s.counts ?? []]));
@@ -289,7 +294,7 @@ function StatusTable({
                 <Trend code={r.status_code} counts={counts.get(r.status_code) ?? []} points={points} range={q.range} />
               </td>
               <td data-label="Last seen">
-                <When iso={r.last_seen} />
+                <When iso={r.last_seen} tz={tz} />
               </td>
             </tr>
           ))}
@@ -308,7 +313,7 @@ function Trend({ code, counts, points, range }: { code: number; counts: number[]
 
 // Detail modal ------------------------------------------------------------------------------
 
-function Detail({ project, q, load }: { project: string; q: ErrorsState; load: DetailLoad }) {
+function Detail({ project, q, load, tz }: { project: string; q: ErrorsState; load: DetailLoad; tz: string }) {
   const here = errorsHref(project, { ...q, code: load.code });
   if (load.data === null) return <LoadFailed text={DETAIL_LOAD_FAILED} href={here} />;
   const d = load.data;
@@ -332,18 +337,18 @@ function Detail({ project, q, load }: { project: string; q: ErrorsState; load: D
             No {d.status_code} responses counted as errors in {errorsScopeText(q)}. Endpoints where {d.status_code} is expected are not counted.
           </Empty>
         ) : q.view === "consumers" ? (
-          <ConsumersView project={project} q={q} d={d} />
+          <ConsumersView project={project} q={q} d={d} tz={tz} />
         ) : q.view === "details" ? (
-          <DetailsView project={project} q={q} d={d} />
+          <DetailsView project={project} q={q} d={d} tz={tz} />
         ) : (
-          <SummaryView q={q} d={d} />
+          <SummaryView q={q} d={d} tz={tz} />
         )}
       </div>
     </>
   );
 }
 
-function SummaryView({ q, d }: { q: ErrorsState; d: ErrorStatusDetail }) {
+function SummaryView({ q, d, tz }: { q: ErrorsState; d: ErrorStatusDetail; tz: string }) {
   const identified = d.occurrences - d.anonymous;
   return (
     <>
@@ -358,11 +363,11 @@ function SummaryView({ q, d }: { q: ErrorsState; d: ErrorStatusDetail }) {
       <dl className="er-seen">
         <div>
           <dt>First seen</dt>
-          <dd>{d.first_seen ? <When iso={d.first_seen} /> : "Not in this range"}</dd>
+          <dd>{d.first_seen ? <When iso={d.first_seen} tz={tz} /> : "Not in this range"}</dd>
         </div>
         <div>
           <dt>Last seen</dt>
-          <dd>{d.last_seen ? <When iso={d.last_seen} /> : "Not in this range"}</dd>
+          <dd>{d.last_seen ? <When iso={d.last_seen} tz={tz} /> : "Not in this range"}</dd>
         </div>
       </dl>
       <section className="er-freq" aria-labelledby="er-freq">
@@ -379,7 +384,7 @@ function SummaryView({ q, d }: { q: ErrorsState; d: ErrorStatusDetail }) {
   );
 }
 
-function ConsumersView({ project, q, d }: { project: string; q: ErrorsState; d: ErrorStatusDetail }) {
+function ConsumersView({ project, q, d, tz }: { project: string; q: ErrorsState; d: ErrorStatusDetail; tz: string }) {
   const all = d.consumer_breakdown ?? [];
   const { rows: consumers, window } = slicePage(all, { page: q.dpage, per: q.dper });
   return (
@@ -420,7 +425,7 @@ function ConsumersView({ project, q, d }: { project: string; q: ErrorsState; d: 
                     {formatShare(c.share)}
                   </td>
                   <td data-label="Last seen">
-                    <When iso={c.last_seen} />
+                    <When iso={c.last_seen} tz={tz} />
                   </td>
                 </tr>
               ))}
@@ -433,7 +438,7 @@ function ConsumersView({ project, q, d }: { project: string; q: ErrorsState; d: 
   );
 }
 
-function DetailsView({ project, q, d }: { project: string; q: ErrorsState; d: ErrorStatusDetail }) {
+function DetailsView({ project, q, d, tz }: { project: string; q: ErrorsState; d: ErrorStatusDetail; tz: string }) {
   const all = d.endpoint_breakdown ?? [];
   if (all.length === 0) return <Empty>No endpoints answered with {d.status_code} in {errorsScopeText(q)}.</Empty>;
   const { rows: endpoints, window } = slicePage(all, { page: q.dpage, per: q.dper });
@@ -451,7 +456,7 @@ function DetailsView({ project, q, d }: { project: string; q: ErrorsState; d: Er
               </a>
             </div>
             <p className="er-ep__facts">
-              {formatCount(e.count)} {e.count === 1 ? "response" : "responses"}, {formatCount(e.consumers)} {e.consumers === 1 ? "consumer" : "consumers"}, last <When iso={e.last_seen} />
+              {formatCount(e.count)} {e.count === 1 ? "response" : "responses"}, {formatCount(e.consumers)} {e.consumers === 1 ? "consumer" : "consumers"}, last <When iso={e.last_seen} tz={tz} />
             </p>
             <p className="er-ep__facts">
               {e.validation_errors ? `${formatCount(e.validation_errors)} with validation errors` : "No validation errors"}
@@ -469,7 +474,7 @@ function DetailsView({ project, q, d }: { project: string; q: ErrorsState; d: Er
 
 // Issues ------------------------------------------------------------------------------------
 
-function IssuesTab({ project, q, data }: { project: string; q: ErrorsState; data: ErrorGroup[] | null }) {
+function IssuesTab({ project, q, data, tz }: { project: string; q: ErrorsState; data: ErrorGroup[] | null; tz: string }) {
   if (data === null) return <LoadFailed text={ISSUES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const { rows, window } = slicePage(data, q);
   return (
@@ -510,7 +515,7 @@ function IssuesTab({ project, q, data }: { project: string; q: ErrorsState; data
                     {formatCount(g.consumers)}
                   </td>
                   <td data-label="Last seen">
-                    <When iso={g.last_seen} />
+                    <When iso={g.last_seen} tz={tz} />
                   </td>
                 </tr>
               ))}

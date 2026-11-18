@@ -3,6 +3,7 @@
 // (`?from=&to=`). Pure helpers (URL window, bucket geometry, selection, labels, the poll answer),
 // unit-tested in explore-timeline.test.ts.
 import type { RequestTimeline, RequestTimelineBucket } from "./identity";
+import { zoneLabel, zoned } from "./time-zone";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
@@ -143,19 +144,19 @@ export function moveBucket(key: string, current: number, count: number): number 
   }
 }
 
-const TIME = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
-const TIME_S = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: "UTC" });
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const TIME_S: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" };
+const DAY: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
 
 /**
- * An instant for labels, in UTC: `14:05`, `14:05:30` when `seconds`, with the day in front
- * (`Nov 5, 14:05`) when `withDay`. The caller adds "UTC" once per label.
+ * An instant for labels, in `tz`: `14:05`, `14:05:30` when `seconds`, with the day in front
+ * (`Nov 5, 14:05`) when `withDay`. The caller adds the zone (`zoneLabel`) once per label.
  */
-export function formatInstant(iso: string, { seconds = false, withDay = false }: { seconds?: boolean; withDay?: boolean } = {}): string {
+export function formatInstant(iso: string, { tz, seconds = false, withDay = false }: { tz: string; seconds?: boolean; withDay?: boolean }): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
-  const time = (seconds ? TIME_S : TIME).format(t);
-  return withDay ? `${DAY.format(t)}, ${time}` : time;
+  const time = zoned("en-US", seconds ? TIME_S : TIME, tz).format(t);
+  return withDay ? `${zoned("en-US", DAY, tz).format(t)}, ${time}` : time;
 }
 
 /** How a timeline labels its instants: seconds below one-minute buckets, the day from 6 h windows up. */
@@ -163,22 +164,23 @@ export function labelStyle(t: Pick<RequestTimeline, "from" | "to" | "bucket_seco
   return { seconds: t.bucket_seconds < 60, withDay: Date.parse(t.to) - Date.parse(t.from) >= 6 * 3600_000 };
 }
 
-/** A window in words: `10:02 to 10:14 UTC`, `Nov 4, 22:00 to Nov 5, 02:00 UTC`. */
-export function windowText(from: string, to: string): string {
+/** A window in words, in `tz`: `10:02 to 10:14 UTC`, `Nov 4, 22:00 to Nov 5, 02:00 UTC`. */
+export function windowText(from: string, to: string, tz: string): string {
+  const day = zoned("en-US", DAY, tz);
   const seconds = Date.parse(from) % 60_000 !== 0 || Date.parse(to) % 60_000 !== 0;
-  const withDay = DAY.format(Date.parse(from)) !== DAY.format(Date.parse(to)) || Date.parse(to) - Date.parse(from) >= 24 * 3600_000;
-  return `${formatInstant(from, { seconds, withDay })} to ${formatInstant(to, { seconds, withDay })} UTC`;
+  const withDay = day.format(Date.parse(from)) !== day.format(Date.parse(to)) || Date.parse(to) - Date.parse(from) >= 24 * 3600_000;
+  return `${formatInstant(from, { tz, seconds, withDay })} to ${formatInstant(to, { tz, seconds, withDay })} ${zoneLabel(tz, Date.parse(to))}`;
 }
 
-/** An instant in words: `10:14 UTC`, `10:14:30 UTC`. */
-export const instantText = (iso: string) => `${formatInstant(iso, { seconds: Date.parse(iso) % 60_000 !== 0 })} UTC`;
+/** An instant in words, in `tz`: `10:14 UTC`, `10:14:30 UTC`. */
+export const instantText = (iso: string, tz: string) => `${formatInstant(iso, { tz, seconds: Date.parse(iso) % 60_000 !== 0 })} ${zoneLabel(tz, Date.parse(iso))}`;
 
 const COUNT = new Intl.NumberFormat("en-US");
 
 /** A bucket for its tooltip and the screen reader: its time, total and split. */
-export function bucketText(t: RequestTimeline, b: RequestTimelineBucket): string {
+export function bucketText(t: RequestTimeline, b: RequestTimelineBucket, tz: string): string {
   const { start, end } = bucketSpan(t, b);
-  const when = windowText(isoSecond(start), isoSecond(Math.ceil(end / 1000) * 1000));
+  const when = windowText(isoSecond(start), isoSecond(Math.ceil(end / 1000) * 1000), tz);
   const n = (v: number) => COUNT.format(v);
   return `${when}: ${n(b.requests)} ${b.requests === 1 ? "request" : "requests"} (${n(b.successful)} successful, ${n(b.client_errors)} 4xx, ${n(b.server_errors)} 5xx)`;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkPasskeyName,
   formatDay,
+  formatExact,
   formatLastUsed,
   isPasskeyId,
   passkeySettingsError,
@@ -44,8 +45,19 @@ describe("dates", () => {
   const now = Date.parse("2026-11-04T12:00:00Z");
 
   it("formats the day in UTC", () => {
-    expect(formatDay("2026-11-04T23:30:00Z")).toBe("Nov 4, 2026");
-    expect(formatDay("nope")).toBe("");
+    expect(formatDay("2026-11-04T23:30:00Z", "UTC")).toBe("Nov 4, 2026");
+    expect(formatDay("nope", "UTC")).toBe("");
+  });
+
+  it("formats in the user's zone", () => {
+    // 23:30 UTC is 05:00 the next day in India.
+    expect(formatDay("2026-11-04T23:30:00Z", "Asia/Kolkata")).toBe("Nov 5, 2026");
+    expect(formatExact("2026-11-04T23:30:00Z", "UTC")).toMatch(/^Nov 4, 2026, 11:30\sPM UTC$/);
+    expect(formatExact("2026-11-04T23:30:00Z", "Asia/Kolkata")).toMatch(/^Nov 5, 2026, 5:00\sAM IST$/);
+    expect(formatExact("nope", "UTC")).toBe("");
+    // 01:00 UTC on the 4th is 06:30 on the 4th in India; 18:40 UTC on the 3rd is already the 4th there.
+    expect(formatLastUsed("2026-11-03T18:40:00Z", "Asia/Kolkata", now)).toBe("Today");
+    expect(formatLastUsed("2026-11-03T18:40:00Z", "UTC", now)).toBe("Yesterday");
   });
 
   it.each([
@@ -55,7 +67,7 @@ describe("dates", () => {
     ["2026-10-30T12:00:00Z", "5 days ago"],
     ["2026-09-01T12:00:00Z", "Sep 1, 2026"],
   ])("last used %j is %j", (iso, expected) => {
-    expect(formatLastUsed(iso, now)).toBe(expected);
+    expect(formatLastUsed(iso, "UTC", now)).toBe(expected);
   });
 });
 

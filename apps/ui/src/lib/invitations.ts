@@ -10,6 +10,7 @@
 import type { ContextOrg, ContextProject, Invitation, InvitationAccepted, InvitationPreview, UpdateOnboardingRequest, UserContext } from "./identity";
 import { homeView } from "./landing";
 import { orgHome } from "./scope";
+import { zoned } from "./time-zone";
 
 /** The least time between two emails of one invitation (`orgs.ResendCooldown`). */
 export const RESEND_COOLDOWN_MS = 5 * 60_000;
@@ -38,12 +39,12 @@ export function isExpired(inv: Pick<Invitation, "expires_at">, now: number): boo
   return !Number.isNaN(at) && at <= now;
 }
 
-const DAY = new Intl.DateTimeFormat("en", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+const DAY: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" };
 
-/** A day, the same on the server and in every browser. */
-export function formatDay(iso: string): string {
+/** A day in `tz`, the same on the server and in every browser. */
+export function formatDay(iso: string, tz: string): string {
   const at = Date.parse(iso);
-  return Number.isNaN(at) ? "Unknown" : DAY.format(at);
+  return Number.isNaN(at) ? "Unknown" : zoned("en", DAY, tz).format(at);
 }
 
 /** Who sent `inv`: their name, their email when they have none, or a dash once they are gone. */

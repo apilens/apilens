@@ -33,6 +33,7 @@ import {
 } from "@/lib/request-detail";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 /** Height of one JSON line in px; the viewer's virtual window depends on it, so the CSS uses the same number. */
 const LINE_HEIGHT = 20;
@@ -51,6 +52,7 @@ type Load = { kind: "loading" } | { kind: "detail"; data: RequestDetailRead } | 
  * button and a click outside close it, and focus goes back to the row.
  */
 export function RequestDrawer({ project, row, onClose }: { project: string; row: RequestRow & { id: string }; onClose: () => void }) {
+  const tz = useTimeZone();
   const ref = useRef<HTMLDialogElement>(null);
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -126,7 +128,7 @@ export function RequestDrawer({ project, row, onClose }: { project: string; row:
             <p className="rd-sub">
               <span className={`ex-status ex-status--${status}`}>{r.status_code}</span>
               <span className={`ex-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
-              <time dateTime={r.timestamp}>{formatExact(r.timestamp)}</time>
+              <time dateTime={r.timestamp}>{formatExact(r.timestamp, tz)}</time>
             </p>
           </div>
           <div className="rd-head__actions">
@@ -245,9 +247,10 @@ function Marked({ text }: { text: string }) {
 // ---------------------------------------------------------------- overview
 
 function Overview({ r }: { r: RequestDetail }) {
+  const tz = useTimeZone();
   const consumer = consumerOf(r);
   const items: [string, ReactNode][] = [
-    ["Time", formatExact(r.timestamp)],
+    ["Time", formatExact(r.timestamp, tz)],
     ["Route", <code key="route">{r.path}</code>],
     ["URL", r.raw_path ? <code key="url">{r.base_url ? `${r.base_url.replace(/\/+$/, "")}${r.raw_path}` : r.raw_path}</code> : null],
     ["Status", r.status_code],
@@ -692,6 +695,7 @@ function Waterfall({ spans, traced }: { spans: TraceSpan[]; traced: boolean }) {
 // ---------------------------------------------------------------- logs
 
 function Logs({ logs, spans, at, traced }: { logs: TraceLog[]; spans: TraceSpan[]; at: string; traced: boolean }) {
+  const tz = useTimeZone();
   if (!logs.length) {
     return <p className="rd-empty">{traced ? "No logs were reported for this request’s trace." : "This request has no trace id, so no logs are linked to it."}</p>;
   }
@@ -711,7 +715,7 @@ function Logs({ logs, spans, at, traced }: { logs: TraceLog[]; spans: TraceSpan[
           return (
             <tr key={`${l.timestamp}#${i}`}>
               <td className="rd-num">
-                <time dateTime={l.timestamp} title={formatExact(l.timestamp)}>
+                <time dateTime={l.timestamp} title={formatExact(l.timestamp, tz)}>
                   {offsetMs(l.timestamp, at)}
                 </time>
               </td>

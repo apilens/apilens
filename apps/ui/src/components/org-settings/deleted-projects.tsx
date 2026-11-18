@@ -9,11 +9,12 @@ import type { DeletedProject } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import { REAUTH_CANCELLED } from "@/lib/reauth";
 import { useReauth } from "../reauth-dialog";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./deleted-projects.css";
 
 /** A relative date with the exact one beside it (and as its tooltip). */
 function When({ iso, relative }: { iso: string; relative: string }) {
-  const exact = formatExact(iso);
+  const exact = formatExact(iso, useTimeZone());
   return (
     <>
       <time dateTime={iso} title={exact} suppressHydrationWarning>

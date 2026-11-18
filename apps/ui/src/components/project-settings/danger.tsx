@@ -13,6 +13,7 @@ import { REAUTH_CANCELLED } from "@/lib/reauth";
 import { ConfirmDialog } from "../confirm-dialog";
 import { ObIcon } from "../onboarding/ob";
 import { useReauth } from "../reauth-dialog";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "../org-settings/org-settings.css";
 import "./danger.css";
 
@@ -68,6 +69,7 @@ export function ProjectDangerZone({
 
 function DangerBody({ project, org, initial, renamedFrom }: { project: string; org: string; initial: ProjectDetail; renamedFrom: string | null }) {
   const router = useRouter();
+  const tz = useTimeZone();
   const allowed = useCan("project.delete").allowed;
   const [current, setCurrent] = useState(initial);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -188,8 +190,8 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
               <p className="t">
                 <b>Data collection is paused</b>
                 Since{" "}
-                <time dateTime={current.paused_at ?? undefined} title={current.paused_at ? formatExact(current.paused_at) : undefined}>
-                  {current.paused_at ? formatDay(current.paused_at) : ""}
+                <time dateTime={current.paused_at ?? undefined} title={current.paused_at ? formatExact(current.paused_at, tz) : undefined}>
+                  {current.paused_at ? formatDay(current.paused_at, tz) : ""}
                 </time>
                 , the ingest edge refuses data sent with this project’s keys. Resume to accept it again.
               </p>

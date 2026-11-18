@@ -16,6 +16,7 @@ import {
   groupSecret,
 } from "@/lib/two-factor-settings";
 import { ObIcon } from "../onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./two-factor.css";
 
 const SECURITY_PATH = "/settings/security";
@@ -29,6 +30,7 @@ type Flow = "enable" | "disable" | "regenerate" | null;
  * (a code or a backup code) and regenerating the backup codes (a code, then the new ones).
  */
 export function TwoFactorSettings({ initial, email }: { initial: TwoFactorStatus; email: string | null }) {
+  const tz = useTimeZone();
   const [status, setStatus] = useState(initial);
   const [flow, setFlow] = useState<Flow>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function TwoFactorSettings({ initial, email }: { initial: TwoFactorStatus
           </h2>
           {status.enabled ? (
             <p>
-              {["Signing in asks for a code from your authenticator app", enabledSince(status.confirmed_at)].filter(Boolean).join(" ")}.{" "}
+              {["Signing in asks for a code from your authenticator app", enabledSince(status.confirmed_at, tz)].filter(Boolean).join(" ")}.{" "}
               <span className={low ? "tf-low" : undefined} data-testid="tf-remaining">
                 {backupCodesLeft(status.backup_codes_remaining)}.
               </span>

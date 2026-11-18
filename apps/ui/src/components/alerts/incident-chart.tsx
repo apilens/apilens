@@ -11,6 +11,7 @@ import type { AlertEvent, AlertRule } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import { ChartAnnounce, ChartTooltip } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
+import { useTimeZone } from "@/lib/time-zone-context";
 
 const W = 600;
 const H = 120;
@@ -21,6 +22,7 @@ const H = 120;
  * color alone. `now` is the load time (the duration of an open incident).
  */
 export function IncidentChart({ rule, events, now }: { rule: Pick<AlertRule, "metric" | "condition" | "threshold">; events: readonly AlertEvent[]; now: number }) {
+  const tz = useTimeZone();
   const rows = [...events].reverse();
   const n = rows.length;
   const hover = useChartHover<HTMLDivElement>(n, "slot");
@@ -33,7 +35,7 @@ export function IncidentChart({ rule, events, now }: { rule: Pick<AlertRule, "me
   const slot = n ? W / n : W;
   const gap = slot > 6 ? Math.min(8, slot * 0.25) : 0;
   const e = i !== null ? rows[i] : null;
-  const title = e ? `Started ${formatExact(e.started_at)}` : "";
+  const title = e ? `Started ${formatExact(e.started_at, tz)}` : "";
   const tipRows = e
     ? [
         { label: "Value", value: formatMetric(rule.metric, e.value), swatch: e.ended_at ? "al-c-resolved" : "al-c-open" },
@@ -41,7 +43,7 @@ export function IncidentChart({ rule, events, now }: { rule: Pick<AlertRule, "me
         { label: e.ended_at ? "Resolved after" : "Ongoing for", value: eventDuration(e, now) },
       ]
     : [];
-  const summary = `${n} incidents, from ${formatExact(rows[0]?.started_at ?? "")} to ${formatExact(rows[n - 1]?.started_at ?? "")}, threshold ${conditionText(rule.metric, rule.condition, rule.threshold)}.`;
+  const summary = `${n} incidents, from ${formatExact(rows[0]?.started_at ?? "", tz)} to ${formatExact(rows[n - 1]?.started_at ?? "", tz)}, threshold ${conditionText(rule.metric, rule.condition, rule.threshold)}.`;
   return (
     <figure className="al-chart">
       <ul className="al-legend" aria-label="Incident values legend">
@@ -76,8 +78,8 @@ export function IncidentChart({ rule, events, now }: { rule: Pick<AlertRule, "me
       </div>
       <ChartAnnounce text={i !== null ? tooltipText(title, tipRows) : ""} />
       <figcaption className="al-axis" aria-hidden="true">
-        <span>{rows[0] ? formatExact(rows[0].started_at) : ""}</span>
-        <span>{rows[n - 1] ? formatExact(rows[n - 1].started_at) : ""}</span>
+        <span>{rows[0] ? formatExact(rows[0].started_at, tz) : ""}</span>
+        <span>{rows[n - 1] ? formatExact(rows[n - 1].started_at, tz) : ""}</span>
       </figcaption>
     </figure>
   );

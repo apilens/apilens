@@ -7,6 +7,7 @@ import { RANGE_LABEL } from "./consumers";
 import { formatBytes } from "./explore";
 import { type ExploreFilters, FILTER_KEYS, activeCount } from "./explore-filters";
 import type { ExportFilterBody, ExportStatus, QueryRange, RequestExport } from "./identity";
+import { sameDay, zoneLabel, zoned } from "./time-zone";
 
 /** The most rows one export writes, newest first, as the API caps it. */
 export const MAX_EXPORT_ROWS = 1_000_000;
@@ -72,8 +73,8 @@ export function exportTitle(s: ExportStatus): string {
   }
 }
 
-/** The line under the title: progress, the file, or what went wrong and what to do. */
-export function exportDetail(x: Pick<RequestExport, "status" | "expires_at" | "total_rows" | "rows_written" | "size_bytes" | "error">, now: number): string {
+/** The line under the title: progress, the file, or what went wrong and what to do; times in `tz`. */
+export function exportDetail(x: Pick<RequestExport, "status" | "expires_at" | "total_rows" | "rows_written" | "size_bytes" | "error">, now: number, tz: string): string {
   const s = exportStatus(x, now);
   switch (s) {
     case "queued":
@@ -81,7 +82,7 @@ export function exportDetail(x: Pick<RequestExport, "status" | "expires_at" | "t
     case "running":
       return x.total_rows === null ? `${rows(x.rows_written)} written so far.` : `${COUNT.format(x.rows_written)} of ${rows(x.total_rows)} written.`;
     case "completed":
-      return `${rows(x.rows_written)}, ${formatBytes(x.size_bytes)} gzip CSV.${x.expires_at ? ` Downloadable until ${expiryText(x.expires_at, now)}.` : ""}`;
+      return `${rows(x.rows_written)}, ${formatBytes(x.size_bytes)} gzip CSV.${x.expires_at ? ` Downloadable until ${expiryText(x.expires_at, now, tz)}.` : ""}`;
     case "failed":
       return `${x.error?.trim() ? `${x.error.trim().replace(/\.$/, "")}. ` : ""}Start a new export to try again.`;
     case "cancelled":
@@ -91,21 +92,20 @@ export function exportDetail(x: Pick<RequestExport, "status" | "expires_at" | "t
   }
 }
 
-const TIME = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
-const DAY_TIME = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const DAY_TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 
-/** An expiry: `18:40 UTC` today, `Nov 6, 18:40 UTC` on another day. */
-export function expiryText(iso: string, now: number): string {
+/** An expiry in `tz`: `18:40 UTC` today, `Nov 6, 18:40 UTC` on another day. */
+export function expiryText(iso: string, now: number, tz: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
-  return `${DAY.format(t) === DAY.format(now) ? TIME.format(t) : DAY_TIME.format(t)} UTC`;
+  return `${zoned("en-US", sameDay(t, now, tz) ? TIME : DAY_TIME, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
-/** When an export was asked for, for the history list: `Nov 5, 10:02 UTC`. */
-export function createdText(iso: string): string {
+/** When an export was asked for, for the history list, in `tz`: `Nov 5, 10:02 UTC`. */
+export function createdText(iso: string, tz: string): string {
   const t = Date.parse(iso);
-  return Number.isNaN(t) ? "" : `${DAY_TIME.format(t)} UTC`;
+  return Number.isNaN(t) ? "" : `${zoned("en-US", DAY_TIME, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
 /** What the export of a history row covered: `Last 1 hour, 2 filters`. */

@@ -8519,6 +8519,10 @@
           "security_emails": {
             "description": "Whether the user gets an email when a project they administer changes (API keys, default access, pause, restore). On unless turned off; deletion emails are always sent.",
             "type": "boolean"
+          },
+          "timezone": {
+            "description": "IANA time zone the dashboard shows times in, such as Asia/Kolkata. Absent means UTC.",
+            "type": "string"
           }
         },
         "required": [
@@ -8546,6 +8550,11 @@
           "security_emails": {
             "description": "Turn the project change emails sent to project admins on or off. Deletion emails are always sent.",
             "type": "boolean"
+          },
+          "timezone": {
+            "description": "IANA time zone to show times in, such as Asia/Kolkata, or empty to go back to UTC.",
+            "maxLength": 64,
+            "type": "string"
           }
         },
         "type": "object"

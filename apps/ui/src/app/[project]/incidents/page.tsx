@@ -7,6 +7,7 @@ import { getContext } from "@/lib/auth/server";
 import { incidentsHref, incidentsRange } from "@/lib/alerts";
 import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
 import { findProject } from "@/lib/scope";
+import { resolveTimeZone } from "@/lib/time-zone";
 import { appNames, load, loadApps } from "./load";
 
 export const metadata: Metadata = { title: "Incidents" };
@@ -32,6 +33,7 @@ export default async function IncidentsPage({ params, searchParams }: { params: 
         incidents={feed ? (feed.incidents ?? []) : null}
         apps={appNames(apps)}
         now={Date.now()}
+        tz={resolveTimeZone(context.user.preferences)}
         params={sp}
         // "I'll do this later" on the onboarding install step (#333) opens the project here with a reminder.
         notice={sp[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}

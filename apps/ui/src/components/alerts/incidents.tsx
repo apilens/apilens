@@ -38,6 +38,7 @@ export function IncidentsView({
   now,
   notice,
   params = {},
+  tz,
 }: {
   project: string;
   projectName: string;
@@ -48,6 +49,8 @@ export function IncidentsView({
   now: number;
   /** Shown above the title (the onboarding setup reminder). */
   notice?: ReactNode;
+  /** The user's time zone. */
+  tz: string;
 }) {
   const label = INCIDENTS_RANGES.find((r) => r.value === range)?.label ?? range;
   const open = (incidents ?? []).filter((i) => i.open);
@@ -77,7 +80,7 @@ export function IncidentsView({
           {open.length === 0 ? (
             <Empty>No open incidents. Every alert rule is within its threshold.</Empty>
           ) : (
-            <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} now={now} params={params} paging={OPEN_PAGING} />
+            <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} now={now} params={params} paging={OPEN_PAGING} tz={tz} />
           )}
 
           <div className="al-bar">
@@ -99,7 +102,7 @@ export function IncidentsView({
               ) : null}
             </Empty>
           ) : (
-            <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} now={now} params={params} paging={RESOLVED_PAGING} />
+            <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} now={now} params={params} paging={RESOLVED_PAGING} tz={tz} />
           )}
         </>
       )}
@@ -115,6 +118,7 @@ function IncidentTable({
   now,
   params,
   paging,
+  tz,
 }: {
   label: string;
   project: string;
@@ -123,6 +127,7 @@ function IncidentTable({
   now: number;
   params: SearchParams;
   paging: PageOptions;
+  tz: string;
 }) {
   const { rows, window } = slicePage(all, parsePage(params, paging));
   return (
@@ -143,7 +148,7 @@ function IncidentTable({
         </thead>
         <tbody>
           {rows.map((i) => (
-            <IncidentRow key={i.rule_id} project={project} i={i} app={apps[i.app_id]} now={now} />
+            <IncidentRow key={i.rule_id} project={project} i={i} app={apps[i.app_id]} now={now} tz={tz} />
           ))}
         </tbody>
       </table>
@@ -152,7 +157,7 @@ function IncidentTable({
   );
 }
 
-function IncidentRow({ project, i, app, now }: { project: string; i: Incident; app: string | undefined; now: number }) {
+function IncidentRow({ project, i, app, now, tz }: { project: string; i: Incident; app: string | undefined; now: number; tz: string }) {
   const e = i.latest;
   return (
     <tr>
@@ -174,7 +179,7 @@ function IncidentRow({ project, i, app, now }: { project: string; i: Incident; a
       <td data-label="Timeline">
         <span>
           Started{" "}
-          <time dateTime={e.started_at} title={formatExact(e.started_at)}>
+          <time dateTime={e.started_at} title={formatExact(e.started_at, tz)}>
             {formatAgo(e.started_at, now)}
           </time>
         </span>

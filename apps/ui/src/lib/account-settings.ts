@@ -13,7 +13,7 @@ export interface AccountSection {
 export const ACCOUNT_SETTINGS = { label: "Account settings", crumb: "Account" } as const;
 
 export const ACCOUNT_SECTIONS: readonly AccountSection[] = [
-  { slug: "", label: "Profile", summary: "Your name and email address." },
+  { slug: "", label: "Profile", summary: "Your name, email address and time zone." },
   { slug: "security", label: "Security", summary: "Passkeys, two-factor authentication and recovery codes." },
   { slug: "sessions", label: "Sessions", summary: "Devices signed in to your account." },
   { slug: "connected-accounts", label: "Connected accounts", summary: "Sign-in providers linked to your account." },

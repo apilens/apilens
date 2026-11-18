@@ -11,6 +11,7 @@ import {
 } from "@/lib/connected-accounts";
 import type { ConnectedAccount } from "@/lib/identity";
 import { Brand, ObIcon } from "./onboarding/ob";
+import { useTimeZone } from "@/lib/time-zone-context";
 import "./connected-accounts.css";
 
 /**
@@ -127,9 +128,10 @@ function AccountItem({ account, label, onGone }: { account: ConnectedAccount; la
   const [pending, start] = useTransition();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const openRef = useRef<HTMLButtonElement>(null);
+  const tz = useTimeZone();
   const name = accountName(account);
-  const since = formatDate(account.created_at);
-  const used = formatDate(account.last_login_at);
+  const since = formatDate(account.created_at, tz);
+  const used = formatDate(account.last_login_at, tz);
   const detail = [
     account.username && account.email ? account.email : null,
     since ? `Connected ${since}` : null,

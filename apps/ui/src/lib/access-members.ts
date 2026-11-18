@@ -118,8 +118,8 @@ export function isRestrictedAndEmpty(def: DefaultAccess, members: readonly Pick<
 }
 
 /** "Never signed in", "Today", "Yesterday", "5 days ago", or the day for anything older than a month. */
-export function lastActive(iso: string | null, now = Date.now()): string {
-  return iso ? formatLastUsed(iso, now) : "Never signed in";
+export function lastActive(iso: string | null, tz: string, now = Date.now()): string {
+  return iso ? formatLastUsed(iso, tz, now) : "Never signed in";
 }
 
 /** Who granted the direct role, or a dash when nobody did (or their account is gone). */

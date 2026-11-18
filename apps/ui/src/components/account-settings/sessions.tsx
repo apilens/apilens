@@ -20,7 +20,7 @@ const plural = (n: number) => `${n} other session${n === 1 ? "" : "s"}`;
  * revalidated and re-rendered with the new list. The API returns every session, so they are paged
  * here (`?page=&per=`, `search` is the page's searchParams); the current one leads page 1.
  */
-export function SessionsSettings({ sessions, now, search = {} }: { sessions: SessionInfo[]; now: number; search?: SearchParams }) {
+export function SessionsSettings({ sessions, now, tz, search = {} }: { sessions: SessionInfo[]; now: number; tz: string; search?: SearchParams }) {
   const ordered = orderSessions(sessions);
   const others = hasOtherSessions(ordered);
   const { rows, window } = slicePage(ordered, parsePage(search));
@@ -98,12 +98,12 @@ export function SessionsSettings({ sessions, now, search = {} }: { sessions: Ses
                       {s.ip ?? <span className="ss-muted">Unknown</span>}
                     </td>
                     <td data-label="Last active">
-                      <time dateTime={s.last_seen_at} title={formatDateTime(s.last_seen_at)}>
+                      <time dateTime={s.last_seen_at} title={formatDateTime(s.last_seen_at, tz)}>
                         {lastActive(s.last_seen_at, now)}
                       </time>
                     </td>
                     <td data-label="Signed in">
-                      <time dateTime={s.created_at}>{formatDateTime(s.created_at)}</time>
+                      <time dateTime={s.created_at}>{formatDateTime(s.created_at, tz)}</time>
                     </td>
                     <td className="ss-act">
                       <button

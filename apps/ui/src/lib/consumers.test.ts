@@ -80,9 +80,11 @@ describe("formatting", () => {
     expect(formatPerMinute(0.04)).toBe("<0.1");
     expect(formatPerMinute(2.44)).toBe("2.4");
     expect(formatPerMinute(1234.5)).toBe("1,235");
-    expect(formatBucket("2026-11-05T14:05:00Z", "1h")).toBe("14:05 UTC");
-    expect(formatBucket("2026-11-05T14:00:00Z", "7d")).toBe("Nov 5, 14:00 UTC");
-    expect(formatBucket("nope", "1h")).toBe("");
+    expect(formatBucket("2026-11-05T14:05:00Z", "1h", "UTC")).toBe("14:05 UTC");
+    expect(formatBucket("2026-11-05T14:00:00Z", "7d", "UTC")).toBe("Nov 5, 14:00 UTC");
+    expect(formatBucket("nope", "1h", "UTC")).toBe("");
+    expect(formatBucket("2026-11-05T14:05:00Z", "1h", "Asia/Kolkata")).toBe("19:35 IST");
+    expect(formatBucket("2026-11-05T20:00:00Z", "7d", "Asia/Kolkata")).toBe("Nov 6, 01:30 IST");
   });
 
   it("rounds axis tops up", () => {

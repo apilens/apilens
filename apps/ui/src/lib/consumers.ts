@@ -4,6 +4,7 @@
 // e.g. the company or plan a user belongs to). Groups are never created or assigned here. Pure
 // helpers (URL state, chart geometry, copy), unit-tested in consumers.test.ts.
 import type { QueryRange, StatusSplit } from "./identity";
+import { zoneLabel, zoned } from "./time-zone";
 
 export const CONSUMER_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -109,14 +110,14 @@ export function formatPerMinute(n: number): string {
   return COUNT.format(Math.round(n));
 }
 
-const BUCKET_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
-const BUCKET_TIME = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
+const BUCKET_DAY: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const BUCKET_TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 
-/** A bucket's start for tooltips and axis labels, in UTC: `14:05 UTC` or `Nov 5, 14:00 UTC`. */
-export function formatBucket(ts: string, range: QueryRange): string {
+/** A bucket's start for tooltips and axis labels, in `tz`: `14:05 UTC` or `Nov 5, 14:00 UTC`. */
+export function formatBucket(ts: string, range: QueryRange, tz: string): string {
   const t = Date.parse(ts);
   if (Number.isNaN(t)) return "";
-  return `${(range === "7d" || range === "24h" ? BUCKET_DAY : BUCKET_TIME).format(t)} UTC`;
+  return `${zoned("en-US", range === "7d" || range === "24h" ? BUCKET_DAY : BUCKET_TIME, tz).format(t)} ${zoneLabel(tz, t)}`;
 }
 
 /** The start of each of `count` buckets from `from`, `seconds` wide (ISO strings); [] when unknown. */

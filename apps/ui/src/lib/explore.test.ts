@@ -36,7 +36,7 @@ describe("parseExploreQuery / exploreHref", () => {
   });
   it("polls the project's Route Handler with the range", () => {
     expect(requestsPath("shop", { range: "6h" })).toBe("/api/projects/shop/requests?range=6h");
-    expect(scopeText({ range: "24h" })).toBe("the last 24 hours");
+    expect(scopeText({ range: "24h" }, "UTC")).toBe("the last 24 hours");
   });
   it("asks for the API's largest page", () => {
     expect(LOG_LIMIT).toBe(200);
@@ -137,8 +137,8 @@ describe("older pages", () => {
     expect(exploreHref("shop", q)).not.toContain("cursor");
   });
   it("captions the newest and an older page", () => {
-    expect(logCaption(q, 1, 200, true)).toBe("The newest 200 requests in the last 6 hours matching the filters, newest first.");
-    expect(logCaption(q, 3, 12, false)).toBe("Requests 401–412 from the newest in the last 6 hours, newest first. Live updates run on the newest page only.");
+    expect(logCaption(q, 1, 200, true, "UTC")).toBe("The newest 200 requests in the last 6 hours matching the filters, newest first.");
+    expect(logCaption(q, 3, 12, false, "UTC")).toBe("Requests 401–412 from the newest in the last 6 hours, newest first. Live updates run on the newest page only.");
   });
 });
 
@@ -163,13 +163,19 @@ describe("logPoll", () => {
 describe("logTime", () => {
   const now = Date.parse("2026-11-06T10:52:00Z");
   it("shows the UTC clock time to the millisecond, without a day for today", () => {
-    expect(logTime("2026-11-06T10:51:03.214Z", now)).toEqual({ day: "", clock: "10:51:03", ms: ".214" });
+    expect(logTime("2026-11-06T10:51:03.214Z", now, "UTC")).toEqual({ day: "", clock: "10:51:03", ms: ".214" });
   });
   it("puts the day in front for another UTC day", () => {
-    expect(logTime("2026-11-05T23:59:59.007Z", now)).toEqual({ day: "Nov 5", clock: "23:59:59", ms: ".007" });
+    expect(logTime("2026-11-05T23:59:59.007Z", now, "UTC")).toEqual({ day: "Nov 5", clock: "23:59:59", ms: ".007" });
+  });
+  it("reads the clock and the day in the user's zone", () => {
+    // 23:59:59 UTC on Nov 5 is 05:29:59 IST on Nov 6, the same day as `now` (16:22 IST).
+    expect(logTime("2026-11-05T23:59:59.007Z", now, "Asia/Kolkata")).toEqual({ day: "", clock: "05:29:59", ms: ".007" });
+    // 20:00 UTC on Nov 6 is already Nov 7 in IST.
+    expect(logTime("2026-11-06T20:00:00.000Z", now, "Asia/Kolkata")).toEqual({ day: "Nov 7", clock: "01:30:00", ms: ".000" });
   });
   it("reads an unparseable time as a dash", () => {
-    expect(logTime("nope", now)).toEqual({ day: "", clock: "–", ms: "" });
+    expect(logTime("nope", now, "UTC")).toEqual({ day: "", clock: "–", ms: "" });
   });
 });
 
