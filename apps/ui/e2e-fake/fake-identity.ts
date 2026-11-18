@@ -186,6 +186,10 @@
 //                                                  window counted per bucket by status class; the log's seed
 //                                                  also honours from/to
 //   POST /__fake/timeline-down {project, down}     test hook: only the timeline answers 503 for `project`
+//   GET  /api/v1/requests/facets?project=&field=   Explore's facet counts (#1052): the seeded rows in the
+//                                                  window under every `filter=` condition but the field's,
+//                                                  counted per value; `/__fake/facets-down` makes them 503
+//   (requests, timeline and facets all honour `filter=field:op:value` conditions, #1052)
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
 //                                                  until saved; PUT answers 403 without capture.manage
@@ -656,6 +660,8 @@ const ingestedRows = new Map<
 >();
 /** Projects whose query reads answer 503, set by `/__fake/query-down` (#335). */
 const queryDown = new Set<string>();
+/** Projects whose `GET /requests/facets` alone answers 503, set by `/__fake/facets-down` (#1052). */
+const facetsDown = new Set<string>();
 /** Projects whose `GET /requests/timeline` alone answers 503, set by `/__fake/timeline-down` (#587). */
 const timelineDown = new Set<string>();
 /** Project slug → the rows `GET /api/v1/requests` answers instead, as seeded by `/__fake/requests` (#585). */
@@ -1168,6 +1174,86 @@ function issueHandoff(
 }
 
 /** The signed-in user's id, from `Authorization: Bearer at_…`. */
+// Explore's conditions (#1052): `filter=field:op:value`, as internal/query reads them. One field's
+// `eq` (and `contains`) values are alternatives; `neq` and `ncontains` each exclude; the rest AND.
+type FakeCond = { field: string; op: string; value: string };
+function fakeConds(url: URL, except = ""): FakeCond[] {
+  const out: FakeCond[] = [];
+  for (const raw of url.searchParams.getAll("filter")) {
+    const i = raw.indexOf(":");
+    const j = raw.indexOf(":", i + 1);
+    if (i < 0 || j < 0) continue;
+    const field = raw.slice(0, i).toLowerCase();
+    if (field === except) continue;
+    out.push({ field, op: raw.slice(i + 1, j).toLowerCase(), value: raw.slice(j + 1) });
+  }
+  return out;
+}
+function statusTermMatch(code: number, term: string): boolean {
+  return term.split(",").some((t) => {
+    const s = t.trim().toLowerCase();
+    if (/^[1-5]xx$/.test(s)) return String(code)[0] === s[0];
+    const [lo, hi] = s.split("-").map(Number);
+    return hi === undefined ? code === lo : code >= lo && code <= hi;
+  });
+}
+function condHit(r: Record<string, unknown>, c: FakeCond): boolean {
+  const has = (v: unknown, needle: string) => String(v ?? "").toLowerCase().includes(needle.toLowerCase());
+  const contains = c.op === "contains" || c.op === "ncontains";
+  const v = c.value;
+  switch (c.field) {
+    case "path": {
+      if (contains) return has(r.path, v) || has(r.raw_path, v);
+      return r.path === v || (!/[{<]|\/:/.test(v) && has(r.raw_path, v));
+    }
+    case "url":
+      return contains ? has(r.raw_path, v) : r.raw_path === v;
+    case "consumer":
+      return contains ? has(r.consumer_id, v) || has(r.consumer_name, v) : r.consumer_id === v || r.consumer_name === v;
+    case "method":
+      return String(r.method).toUpperCase() === v.toUpperCase();
+    case "app":
+      return String(r.app_id ?? "").toLowerCase() === v.toLowerCase();
+    case "env":
+      return r.environment === v;
+    case "status":
+      return statusTermMatch(Number(r.status_code), v);
+    case "latency":
+    case "request_size":
+    case "response_size": {
+      const n = Number(r[c.field === "latency" ? "response_time_ms" : c.field] ?? 0);
+      if (c.op === "gt") return n >= Number(v);
+      if (c.op === "lt") return n <= Number(v);
+      const [lo, hi] = v.split("-").map(Number);
+      return n >= lo && n <= hi;
+    }
+    case "payload": {
+      const d = (r.detail ?? {}) as Record<string, unknown>;
+      const q = (d.request ?? {}) as Record<string, unknown>;
+      return has(q.request_body, v) || has(q.response_body, v);
+    }
+    case "sampled":
+      return (r.sampled !== false) === (v === "true");
+    default: {
+      const col = c.field === "ip" ? "ip_address" : c.field;
+      return contains ? has(r[col], v) : String(r[col] ?? "") === v;
+    }
+  }
+}
+function condsMatch(r: Record<string, unknown>, conds: FakeCond[]): boolean {
+  const groups = new Map<string, FakeCond[]>();
+  for (const c of conds) {
+    if (c.op === "neq" || c.op === "ncontains") {
+      if (condHit(r, c)) return false;
+    } else if (c.op === "eq" || c.op === "contains") {
+      const k = `${c.field}:${c.op}`;
+      groups.set(k, [...(groups.get(k) ?? []), c]);
+    } else if (!condHit(r, c)) return false;
+  }
+  for (const g of groups.values()) if (!g.some((c) => condHit(r, c))) return false;
+  return true;
+}
+
 function signedInUser(req: IncomingMessage): string | undefined {
   const auth = req.headers.authorization ?? "";
   return auth.startsWith("Bearer ") ? userByAccess.get(auth.slice(7)) : undefined;
@@ -2217,6 +2303,41 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     return problem(res, 404, "not_found");
   }
+  // Explore's facet counts (#1052), as `GET /requests/facets` answers them: the seeded rows inside
+  // the window under every condition but the field's own, counted per value, most first.
+  if (req.method === "GET" && path === "/api/v1/requests/facets") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug) || facetsDown.has(slug)) return problem(res, 503, "unavailable");
+    const field = url.searchParams.get("field") ?? "";
+    const col = { status: "status_code", method: "method", app: "app_id", env: "environment", path: "path", consumer: "consumer_id", consumer_group: "consumer_group" }[field];
+    if (!col) return problem(res, 422, "validation_failed");
+    const span = { "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800 }[url.searchParams.get("range") ?? "24h"] ?? 86400;
+    const end = Date.now() + 60_000;
+    const lo = Math.max(end - span * 1000, Date.parse(url.searchParams.get("from") ?? "") || 0);
+    const hi = Math.min(end, Date.parse(url.searchParams.get("to") ?? "") || end);
+    const search = (url.searchParams.get("search") ?? "").toLowerCase();
+    const limit = Math.min(50, Number(url.searchParams.get("limit") ?? 50) || 50);
+    const conds = fakeConds(url, field);
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const r of requestsSeed.get(slug) ?? []) {
+      const t = Date.parse(String(r.timestamp));
+      if (t < lo || t >= hi || !condsMatch(r, conds)) continue;
+      const value = String(r[col] ?? "");
+      if (!value && (field === "consumer" || field === "consumer_group")) continue;
+      const label = field === "consumer" ? String(r.consumer_name ?? "") : "";
+      if (search && !(`${value} ${label}`.toLowerCase().includes(search))) continue;
+      const cur = counts.get(value) ?? { label, count: 0 };
+      counts.set(value, { label: cur.label || label, count: cur.count + 1 });
+    }
+    const values = [...counts.entries()]
+      .map(([value, v]) => ({ value, label: v.label, count: v.count }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+      .slice(0, limit);
+    return send(res, 200, { field, values });
+  }
   // The Explore timeline (#587), as `GET /requests/timeline` answers it: the seeded rows inside the
   // window (the range ending now, narrowed by from/to) counted per bucket by status class. The
   // bucket width follows internal/query's steps (at most 100 bars). `/__fake/timeline-down` makes
@@ -2238,7 +2359,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!Number.isNaN(to)) hi = Math.min(hi, to);
     hi = Math.max(hi, lo);
     const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
-    const step = steps.find((s) => (hi - lo) / 1000 <= s * 100) ?? 86400;
+    const named = { minute: 60, hour: 3600, day: 86400 }[url.searchParams.get("bucket") ?? ""];
+    const step = named && (hi - lo) / 1000 <= named * 1440 ? named : (steps.find((s) => (hi - lo) / 1000 <= s * 100) ?? 86400);
+    const conds = fakeConds(url);
     const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
     const method = (url.searchParams.get("method") ?? "").toUpperCase();
     const app = url.searchParams.get("app") ?? "";
@@ -2249,7 +2372,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         t < hi &&
         (!method || r.method === method) &&
         (!app || r.app_id === app) &&
-        (!status.length || status.some((s) => (/^[1-5]xx$/.test(s) ? String(r.status_code)[0] === s[0] : String(r.status_code) === s)))
+        (!status.length || status.some((s) => (/^[1-5]xx$/.test(s) ? String(r.status_code)[0] === s[0] : String(r.status_code) === s))) &&
+        condsMatch(r, conds)
       );
     });
     const buckets = [];
@@ -2524,7 +2648,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         // The timeline's zoom and jump point (#587): from (inclusive) and to (exclusive).
         const from = Date.parse(url.searchParams.get("from") ?? "");
         const to = Date.parse(url.searchParams.get("to") ?? "");
+        const conds = fakeConds(url);
         const matches = (r: Record<string, unknown>) =>
+          condsMatch(r, conds) &&
           (Number.isNaN(from) || Date.parse(String(r.timestamp)) >= from) &&
           (Number.isNaN(to) || Date.parse(String(r.timestamp)) < to) &&
           (!method || r.method === method) &&
@@ -2763,6 +2889,13 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const { project, down } = await readBody(req);
     if (down) timelineDown.add(String(project));
     else timelineDown.delete(String(project));
+    return send(res, 204);
+  }
+  if (req.method === "POST" && path === "/__fake/facets-down") {
+    // Test hook: only Explore's facet counts (#1052) answer 503 for `project`, or again normally.
+    const { project, down } = await readBody(req);
+    if (down) facetsDown.add(String(project));
+    else facetsDown.delete(String(project));
     return send(res, 204);
   }
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);

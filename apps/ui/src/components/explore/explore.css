@@ -1,85 +1,245 @@
-/* Explore (#585). Tokens from tokens.css only. Color carries meaning: the status chip is neutral for
-   2xx and 3xx, --warn for 4xx and --error for 5xx; latency turns --warn above 500 ms and --error
-   above 2 s (it also says so in its title, never by color alone). Rows are a fixed 32px (ROW_HEIGHT
-   in lib/explore.ts): the log renders only the rows in view and positions them by that height. At
-   phone width the consumer and size columns drop, so the page never scrolls sideways. */
-/* Page width and gutters come from .page (styles/page.css). */
-.ex-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
+/* Explore (#585; revamped in #1052 after Supabase Unified Logs). Tokens from tokens.css only.
+   Colour carries meaning: 4xx is --warn, 5xx --error, everything under 400 neutral (also said in
+   text: the status code, its reason phrase in the title). The page fills the content pane: a
+   facet sidebar (256-512px, its own scroll), then a 48px title row, one toolbar row, the 60px chart
+   and the table, which scrolls itself under a sticky header. Rows are 30px (ROW_H in
+   log-table.tsx), two lines (52px) under 640px; only the rows in view are in the DOM. */
+.exr { display: flex; height: 100%; min-height: 0; background: var(--bg); }
+.exr-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-x: hidden; }
+.exr-title { flex: none; display: flex; align-items: center; height: 48px; padding: 0 var(--space-4); border-bottom: 1px solid var(--border); box-sizing: border-box; }
+.exr-title h1 { margin: 0; font: 500 15px/20px var(--font-sans); color: var(--ink); }
+
+/* One toolbar row: sidebar · range · filter bar (flexible) · refresh · views · columns · export · live. */
+.exr-tools { flex: none; display: flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-4); }
+.exr-tools__end { display: flex; align-items: center; gap: 6px; }
+.exr-tools .ex-views { margin: 0; }
+.exr-tools .ex-views__trigger { min-height: 32px; height: 32px; border-color: var(--border); border-radius: 6px; font-size: 12px; }
+.exr-tools .ex-views__said:empty { display: none; }
+.ex-tbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 500 12px/1 var(--font-sans); white-space: nowrap; cursor: pointer; }
+.ex-tbtn:hover { background: var(--surface-2); }
+.ex-tbtn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.ex-tbtn--icon { width: 32px; padding: 0; }
+.ex-tbtn[aria-pressed="true"]:not(.exr-live) { background: var(--surface-2); }
+.ex-tbtn .cp-ic { width: 14px; height: 14px; color: var(--ink-muted); }
+.ex-tbtn__icon { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; color: var(--ink-muted); }
+.ex-tbtn__icon.is-spinning { animation: ex-spin .8s linear infinite; }
+@keyframes ex-spin { to { transform: rotate(360deg); } }
+.exr-range__text { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.exr-live__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.exr-live.is-on { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); color: var(--ok); }
+.exr-live.is-on .exr-live__dot { background: var(--ok); animation: ex-pulse 2s ease-in-out infinite; }
+@keyframes ex-pulse { 50% { opacity: .35; } }
+.exr-paused, .exr-banner { flex: none; margin: 0 var(--space-4) var(--space-1); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.exr-banner { padding: 3px var(--space-2); border-radius: 6px; background: var(--warn-soft); color: var(--ink); }
+
+/* The filter bar: pills and the input in one bordered field. */
+.exp { position: relative; flex: 1 1 280px; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 32px; padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-sizing: border-box; }
+.exp:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.exp-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.3; stroke-linejoin: round; }
+.exp-pills { display: flex; flex-wrap: nowrap; flex: 0 1 auto; gap: 4px; margin: 0; padding: 0; list-style: none; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.exp-pill { flex: none; display: inline-flex; align-items: center; max-width: 320px; height: 24px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }
+.exp-pill__body { display: inline-flex; align-items: center; gap: 4px; min-width: 0; height: 100%; padding: 0 2px 0 6px; border: 0; background: none; color: var(--ink); font: 400 12px/1 var(--font-sans); cursor: pointer; }
+.exp-pill__body:focus-visible, .exp-pill__x:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; border-radius: 3px; }
+.exp-pill__field { color: var(--ink-muted); }
+.exp-pill__op { font-family: var(--font-mono); color: var(--accent-ink); }
+.exp-pill.is-not .exp-pill__op { color: var(--error); }
+.exp-pill__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exp-pill__value.is-mono { font-family: var(--font-mono); }
+.exp-pill__x { display: grid; place-items: center; width: 20px; height: 100%; padding: 0; border: 0; background: none; color: var(--ink-muted); cursor: pointer; }
+.exp-pill__x:hover { color: var(--ink); }
+.exp-pill__x svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.exp-field { position: relative; flex: 1 1 140px; min-width: 120px; }
+.exp-input { width: 100%; height: 26px; padding: 0 2px; border: 0; background: transparent; color: var(--ink); font: 400 13px/1 var(--font-sans); outline: none; }
+.exp-input::placeholder { color: var(--ink-muted); }
+.exp-clear { flex: none; height: 24px; padding: 0 6px; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); font: 500 12px/1 var(--font-sans); cursor: pointer; }
+.exp-clear:hover { background: var(--surface-2); color: var(--ink); }
+.exp-menu { position: absolute; top: calc(100% + 8px); left: -8px; z-index: 40; min-width: 260px; max-height: 320px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
+.exp-menu li { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 30px; padding: 0 8px; border-radius: 6px; font: 400 13px/1 var(--font-sans); color: var(--ink); cursor: pointer; }
+.exp-menu li.is-active { background: var(--surface-2); }
+.exp-menu__detail { font: 400 11px/1 var(--font-mono); color: var(--ink-muted); }
+.exp-edit { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.exp-edit__field { margin: 0; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.exp-edit__ops { display: flex; flex-wrap: wrap; gap: 4px; }
+.exp-edit__op { height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 500 12px/1 var(--font-mono); cursor: pointer; }
+.exp-edit__op[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.exp-edit__op:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+
+/* Chart and table fade while another query's rows load (not while paging). */
+.exr-data { flex: 1; min-height: 0; display: flex; flex-direction: column; transition: opacity .15s ease; }
+.exr-data.is-stale { opacity: .6; }
+
+/* The 60px status chart: no gridlines, ticks only. */
+.exc { flex: none; position: relative; padding: var(--space-1) var(--space-4) 0; }
+.exc--error { padding: var(--space-3) var(--space-4); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.exc-plot { position: relative; height: 60px; cursor: crosshair; touch-action: none; user-select: none; }
+.exc-plot:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 4px; }
+.exc-plot svg { display: block; width: 100%; height: 60px; }
+.exc-ok { fill: color-mix(in srgb, var(--ink-muted) 45%, transparent); }
+.exc-4xx { fill: var(--warn); }
+.exc-5xx { fill: var(--error); }
+.exc-hover { fill: var(--surface-2); }
+.exc-sel { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.exc-focus { fill: none; stroke: var(--accent-ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.exc-axis { position: relative; height: 18px; font: 400 11px/18px var(--font-mono); color: var(--ink-muted); }
+.exc-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.exc-tip { position: absolute; top: 0; z-index: 6; min-width: 160px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/16px var(--font-sans); color: var(--ink); pointer-events: none; }
+.exc-tip p { margin: 0; }
+.exc-tip__when { margin-bottom: 4px !important; color: var(--ink-muted); }
+.exc-tip__row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 6px; }
+.exc-tip__n { font-family: var(--font-mono); text-align: right; }
+.exc-tip__total { margin-top: 2px !important; padding-top: 2px; border-top: 1px solid var(--border); }
+.exc-swatch { width: 8px; height: 8px; border-radius: 2px; }
+.exc-swatch--2xx { background: color-mix(in srgb, var(--ink-muted) 45%, transparent); }
+.exc-swatch--4xx { background: var(--warn); }
+.exc-swatch--5xx { background: var(--error); }
+.exc-pop { position: absolute; top: 6px; z-index: 7; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 180px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); cursor: default; }
+.exc-pop__when { font: 400 11px/14px var(--font-sans); color: var(--ink-muted); }
+
+/* The table. */
+.exl { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.exl-grid { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; color: var(--ink); }
+.exl-grid:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exl-head { position: sticky; top: 0; z-index: 2; background: var(--bg); }
+.exl-row { display: grid; align-items: center; box-sizing: border-box; }
+.exl-row--head { height: 30px; box-shadow: inset 0 -1px 0 var(--border); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exl-body { position: relative; }
+.exl-body > .exl-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font: 400 12px/16px var(--font-mono); }
+.exl-body > .exl-row.is-openable { cursor: pointer; }
+.exl-body > .exl-row:hover { background: var(--surface-2); }
+.exl-body > .exl-row:focus { outline: none; }
+.exl-body > .exl-row:focus-visible { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
+.exl-body > .exl-row.is-4xx { background: color-mix(in srgb, var(--warn) 5%, transparent); }
+.exl-body > .exl-row.is-4xx:hover { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.exl-body > .exl-row.is-4xx:focus-visible, .exl-body > .exl-row.is-4xx[aria-selected="true"] { background: color-mix(in srgb, var(--warn) 20%, transparent); }
+.exl-body > .exl-row.is-5xx { background: color-mix(in srgb, var(--error) 5%, transparent); }
+.exl-body > .exl-row.is-5xx:hover { background: color-mix(in srgb, var(--error) 10%, transparent); }
+.exl-body > .exl-row.is-5xx:focus-visible, .exl-body > .exl-row.is-5xx[aria-selected="true"] { background: color-mix(in srgb, var(--error) 20%, transparent); }
+.exl-body > .exl-row.is-old { opacity: .5; }
+.exl-cell { min-width: 0; padding: 0 var(--space-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.exl-cell--latency, .exl-cell--size { text-align: right; font-variant-numeric: tabular-nums; }
+.exl-cell--time { font-variant-numeric: tabular-nums; }
+.exl-cell--app, .exl-cell--env, .exl-cell--consumer { font-family: var(--font-sans); }
+.exl-row--head .exl-cell { font: inherit; }
+.exl-cell--dot { display: flex; justify-content: center; padding: 0; }
+.exl-cell--method { color: var(--ink-muted); }
+.exl-cell--path { display: flex; align-items: center; gap: 6px; }
+.exl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.exl-dot--4xx { background: var(--warn); }
+.exl-dot--5xx { background: var(--error); }
+.exl-faint { color: var(--ink-muted); }
+.exl-status--4xx { color: var(--warn); }
+.exl-status--5xx { color: var(--error); }
+.exl-lat--slow { color: var(--warn); }
+.exl-lat--frustrated { color: var(--error); font-weight: 500; }
+/* Clipped from the left: the last path segment stays in view. */
+.exl-clip { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.exl-clip bdi { direction: ltr; unicode-bidi: isolate; }
+.exl-tag { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/16px var(--font-sans); color: var(--ink-muted); }
+.exl-cell--stack { display: flex; flex-direction: column; justify-content: center; gap: 3px; height: 100%; }
+.exl-sub { font: 400 11px/14px var(--font-mono); color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; }
+.exl-bone { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%); background-size: 200% 100%; animation: exl-shimmer 1.4s ease-in-out infinite; }
+.exl-bone--dot { width: 7px; height: 7px; border-radius: 50%; }
+@keyframes exl-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.exl-grid.is-loading .exl-body { -webkit-mask-image: linear-gradient(to bottom, var(--ink) 20%, transparent 95%); mask-image: linear-gradient(to bottom, var(--ink) 20%, transparent 95%); }
+.exl-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: 32px; padding: 0 var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.exl-foot p { margin: 0; }
+.exr-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); border-top: 1px solid var(--border); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.exr-empty p { margin: 0; }
+.exr-empty__title { font-weight: 500; font-size: 14px; color: var(--ink); }
+.exr-data > .ex-notice { margin: var(--space-3) var(--space-4); }
+
+/* The facet sidebar (Supabase's secondary sidebar: 256px, header 48px, its own scroll). */
+.exf-side { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
+.exf { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.exf-head { flex: none; display: flex; align-items: center; gap: var(--space-2); height: 48px; padding: 0 var(--space-4) 0 var(--space-6); border-bottom: 1px solid var(--border); box-sizing: border-box; }
+.exf-title { flex: 1; margin: 0; font: 500 14px/20px var(--font-sans); color: var(--ink); }
+.exf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) 0; scrollbar-width: thin; }
+.exf-facet { padding: 2px var(--space-3); }
+.exf-facet + .exf-facet { border-top: 1px solid var(--border); }
+.exf-facet__head { display: flex; align-items: center; gap: var(--space-2); }
+.exf-facet__title { flex: 1; min-width: 0; margin: 0; font: inherit; }
+.exf-facet__title button { display: flex; align-items: center; gap: 6px; width: 100%; height: 32px; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--ink); font: 500 13px/1 var(--font-sans); cursor: pointer; }
+.exf-facet__title button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exf-facet__title .cp-ic { width: 12px; height: 12px; color: var(--ink-muted); transform: rotate(-90deg); transition: transform .12s; }
+.exf-facet.is-open .exf-facet__title .cp-ic { transform: none; }
+.exf-badge { min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font: 500 11px/16px var(--font-mono); text-align: center; }
+.exf-facet__body { padding: 0 0 var(--space-2); }
+.exf-link { padding: 0; border: 0; background: none; color: var(--accent-ink); font: 500 12px/16px var(--font-sans); cursor: pointer; }
+.exf-link:hover { text-decoration: underline; }
+.exf-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
+.exf-search { box-sizing: border-box; width: 100%; height: 28px; margin: 0 0 6px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 400 12px/1 var(--font-sans); }
+.exf-search:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.exf-list { max-height: 215px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.exf-sub { margin: 0; padding: 0 0 0 20px; list-style: none; }
+.exf-item { display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 4px; border-radius: 4px; }
+.exf-item:hover, .exf-item:focus-within { background: var(--surface-2); }
+.exf-item input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+.exf-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 13px/1.2 var(--font-sans); color: var(--ink); cursor: pointer; }
+.exf-label.is-mono { font: 400 12px/1.2 var(--font-mono); }
+.exf-count { flex: none; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.exf-only { display: none; flex: none; padding: 0 2px; border: 0; background: none; color: var(--accent-ink); font: 500 11px/16px var(--font-sans); cursor: pointer; }
+.exf-item:hover > .exf-count, .exf-item:focus-within > .exf-count { display: none; }
+.exf-item:hover > .exf-only, .exf-item:focus-within > .exf-only { display: inline; }
+.exf-group > .exf-item { padding-left: 0; }
+.exf-expand { flex: none; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; background: none; color: var(--ink-muted); cursor: pointer; }
+.exf-expand .cp-ic { width: 12px; height: 12px; transform: rotate(-90deg); transition: transform .12s; }
+.exf-expand.is-open .cp-ic { transform: none; }
+.exf-item--skeleton { justify-content: space-between; }
+.exf-item--skeleton .exl-bone { width: 60%; }
+.exf-item--skeleton .exf-bone-count { width: 24px; }
+.exf-note { margin: 4px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.exf-handle { position: absolute; top: 0; right: -3px; z-index: 3; width: 6px; height: 100%; cursor: col-resize; }
+.exf-handle:hover, .exf-handle:focus-visible { outline: none; box-shadow: inset -3px 0 0 var(--accent); }
+
+/* Phones: the facets in a bottom sheet. */
+.exs { position: fixed; inset: 0; z-index: 60; }
+.exs-scrim { position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.exs-sheet { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; max-height: 82dvh; border: 1px solid var(--border); border-radius: 12px 12px 0 0; background: var(--bg); box-shadow: var(--shadow-frame); overflow: hidden; }
+.exs-sheet .exf { height: auto; min-height: 0; flex: 1; }
+.exs-close { position: absolute; top: 10px; right: var(--space-4); z-index: 1; }
+
+/* The Columns menu. */
+.exm-cols { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); }
+.exm-cols__list { max-height: 320px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.exm-cols__item { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px; border-radius: 4px; }
+.exm-cols__item:hover, .exm-cols__item:focus-within { background: var(--surface-2); }
+.exm-cols__item.is-dragging { opacity: .4; }
+.exm-cols__grip { flex: none; color: var(--ink-muted); font: 400 10px/1 var(--font-mono); letter-spacing: -2px; cursor: grab; }
+.exm-cols__label { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; font: 400 13px/1 var(--font-sans); color: var(--ink); }
+.exm-cols__label input { margin: 0; accent-color: var(--accent); }
+.exm-cols__note { font: 400 11px/1 var(--font-sans); color: var(--ink-muted); }
+.exm-cols__move { display: flex; gap: 2px; opacity: 0; }
+.exm-cols__item:hover .exm-cols__move, .exm-cols__item:focus-within .exm-cols__move { opacity: 1; }
+.exm-cols__move button { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); font: 400 12px/1 var(--font-sans); cursor: pointer; }
+.exm-cols__move button:hover:not(:disabled) { background: var(--surface-1); color: var(--ink); }
+.exm-cols__move button:disabled { opacity: .35; cursor: default; }
+
+.ex-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 759px) {
+  .exr-title { padding: 0 var(--space-4); }
+  .exr-tools { flex-wrap: wrap; }
+  .exr-tools .exp { order: 9; flex-basis: 100%; }
+  .exr-tools__end { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+  .ex-tbtn__label, .exr-tools .ex-views__name, .exr-tools .ex-views__badge { display: none; }
+  .exr-range__text { max-width: 140px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .exr-live.is-on .exr-live__dot, .exl-bone, .ex-tbtn__icon.is-spinning { animation: none; }
+  .exr-data, .exf-facet__title .cp-ic, .exf-expand .cp-ic { transition: none; }
+}
+
+
 
 .ex-muted, .ex-faint { color: var(--ink-muted); }
 
-/* The toolbar: one row (range, filters, then saved view, Export and Live at the right edge). The
-   filter section is display: contents, so its button row sits in this row and its form, when open,
-   drops to a full-width line of its own (order) instead of growing the row. */
-.ex-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: var(--space-6) 0 var(--space-4); }
-.ex-tools > .ex-filters { display: contents; }
-.ex-tools .ex-filters__bar { flex: 1 1 260px; min-width: 0; }
-.ex-tools .ex-form { flex-basis: 100%; order: 99; margin-top: 0; }
-.ex-tools .ex-filters__error { flex-basis: 100%; order: 97; }
-.ex-tools .ex-filters__chips { flex-basis: 100%; order: 98; }
-.ex-tools__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-left: auto; }
-.ex-tools .ex-views { margin-top: 0; }
-.ex-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
-.ex-seg a { padding: 4px 12px; border-radius: 7px; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
-.ex-seg a:hover { color: var(--ink); }
-.ex-seg a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
-.ex-seg a:focus-visible, .ex .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
-/* The filter bar's Status segments (#985): buttons, pressed like the range picker's current link. */
-.ex-seg__btn { padding: 4px 12px; border: 0; border-radius: 7px; background: transparent; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); cursor: pointer; }
-.ex-seg__btn:hover { color: var(--ink); }
-.ex-seg__btn[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); }
-.ex-seg__btn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
-
-.ex-live { display: inline-flex; align-items: center; gap: var(--space-2); }
-.ex-live__state { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/16px var(--font-mono); color: var(--ink); }
-.ex-live__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: ex-pulse 2s ease-in-out infinite; }
-.ex-live__state.is-paused { color: var(--ink-muted); }
-.ex-live__state.is-paused .ex-live__dot { background: var(--border-strong); animation: none; }
-@keyframes ex-pulse { 50% { opacity: .35; } }
+.ex .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 
 .ex-notice { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
 .ex-notice p { margin: 0; }
 .ex-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
 .ex-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
 .ex-notice--error svg { color: var(--error); }
-
-/* The log: one card, the grid scrolls inside it with a sticky header row. */
-.ex-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
-.ex-grid { position: relative; height: max(360px, calc(100dvh - 380px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; font: 400 13px/20px var(--font-sans); color: var(--ink); }
-.ex-grid:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.ex-head { position: sticky; top: 0; z-index: 1; }
-.ex-spacer { position: relative; }
-.ex-row {
-  display: grid;
-  /* Time, App, Method, Path, Status, Latency, Consumer, Size; .has-env adds Env after App (#975). */
-  grid-template-columns: 128px minmax(0, 120px) 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px;
-  align-items: center;
-  height: 32px;
-  border-bottom: 1px solid var(--border);
-  box-sizing: border-box;
-}
-.ex-grid.has-env .ex-row { grid-template-columns: 128px minmax(0, 120px) minmax(0, 104px) 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px; }
-.ex-spacer > .ex-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; }
-.ex-spacer > .ex-row:hover { background: var(--surface-2); }
-.ex-spacer > .ex-row:focus { outline: none; }
-.ex-spacer > .ex-row:focus-visible { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
-/* Errors read apart while scanning: an edge in the status color (the chip still says the code), and
-   server errors (5xx) a faint --error-tint wash over the whole row (#985). */
-.ex-spacer > .ex-row.is-4xx { box-shadow: inset 3px 0 0 var(--warn); }
-.ex-spacer > .ex-row.is-5xx { box-shadow: inset 3px 0 0 var(--error); background: var(--error-tint); }
-.ex-spacer > .ex-row.is-5xx:hover { background: var(--error-soft); }
-.ex-spacer > .ex-row.is-4xx:focus-visible, .ex-spacer > .ex-row.is-5xx:focus-visible { box-shadow: inset 3px 0 0 var(--accent-ink); }
-.ex-row--head { background: var(--surface-2); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
-.ex-cell { min-width: 0; padding: 0 var(--space-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.ex-cell--status, .ex-cell--latency, .ex-cell--size { text-align: right; font-variant-numeric: tabular-nums; }
-.ex-cell--time { font: 400 12px/20px var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
-.ex-row--head .ex-cell--time { font: inherit; color: inherit; }
-.ex-time__day, .ex-time__ms { color: var(--ink-muted); }
-.ex-cell--method { font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
-.ex-row--head .ex-cell--method { font: inherit; }
-.ex-cell--path { display: flex; align-items: center; gap: var(--space-2); }
-.ex-cell--path code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 400 13px/20px var(--font-mono); }
-.ex-sampled { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/16px var(--font-sans); color: var(--ink-muted); }
 
 .ex-status { display: inline-block; padding: 0 6px; border-radius: var(--radius-pill); font: 500 12px/20px var(--font-mono); }
 .ex-status--2xx, .ex-status--3xx, .ex-status--other { background: var(--surface-2); color: var(--ink-muted); }
@@ -88,30 +248,6 @@
 .ex-lat--slow { color: var(--warn); }
 .ex-lat--frustrated { color: var(--error); font-weight: 500; }
 
-.ex-row--skeleton .ex-bone { display: block; height: 10px; border-radius: 5px; background: var(--surface-2); }
-.ex-foot { margin: 0; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
-.ex-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-4); }
-.ex-foot p { margin: 0; }
-.ex-foot .pg { padding: 0; }
-
-/* Filter bar (#586): the Filters button, the active filters as removable chips, and the form. */
-.ex-filters { margin-bottom: var(--space-4); }
-.ex-filters__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.ex-search { flex: 1 1 220px; min-width: 160px; max-width: 360px; }
-.ex-input--pick { width: auto; min-width: 0; max-width: 200px; }
-.ex-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; list-style: none; }
-.ex-chips > li { display: inline-flex; }
-.ex-chip { align-items: center; max-width: 100%; min-height: 30px; padding: 0 2px 0 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-1); font: 400 13px/20px var(--font-sans); color: var(--ink); }
-.ex-chip > span { min-width: 0; max-width: 320px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.ex-chip__x { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-left: 2px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); cursor: pointer; }
-.ex-chip__x:hover { background: var(--surface-2); color: var(--ink); }
-.ex-chip__x:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
-.ex-chip__x svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
-
-.ex-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-4); margin-top: var(--space-3); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
-.ex-form[hidden] { display: none; }
-.ex-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.ex-label { padding: 0; font: 500 13px/18px var(--font-sans); color: var(--ink); }
 .ex-hint, .ex-error { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ex-error { color: var(--error); }
 .ex-input { box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 400 13px/1 var(--font-sans); }
@@ -120,27 +256,7 @@
 .ex-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ex-input[aria-invalid="true"] { border-color: var(--error); }
 select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; }
-/* A legend is not a flex item, so the fieldset's gap skips it: space it like a label. */
-.ex-range > .ex-label { margin-bottom: 6px; }
-.ex-range__inputs { display: flex; align-items: center; gap: var(--space-2); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
-.ex-input--num { min-width: 0; flex: 1; font-variant-numeric: tabular-nums; }
 
-/* Path and Consumer suggestions (#983): a listbox under the field, over the fields below it. */
-.ex-combo { position: relative; min-width: 0; }
-.ex-combo__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: 264px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); box-shadow: var(--shadow-frame); }
-.ex-combo__list[hidden] { display: none; }
-.ex-combo__opt { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 6px 8px; border-radius: 5px; font: 400 13px/18px var(--font-sans); color: var(--ink); cursor: pointer; }
-.ex-combo__opt.is-active { background: var(--surface-2); }
-.ex-combo__lead { flex: none; min-width: 52px; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
-.ex-combo__text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.ex-input--mono + .ex-combo__list .ex-combo__text { font-family: var(--font-mono); }
-.ex-combo__detail { flex: none; max-width: 45%; margin-left: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
-
-/* Request drawer (#588): a modal side panel from the right edge. Markers the SDK left in place of
-   values read apart from real data: [redacted] and [masked] on --warn-soft, ...[truncated] on
-   --surface-2 with a dashed edge, each with a title saying what it means. JSON lines are a fixed
-   20px (LINE_HEIGHT in request-drawer.tsx): the viewer renders only the lines in view. */
-.ex-spacer > .ex-row.is-openable { cursor: pointer; }
 .rd { box-sizing: border-box; width: min(760px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0 0 0 auto; padding: 0; border: 0; border-left: 1px solid var(--border); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
 .rd::backdrop { background: color-mix(in srgb, var(--bg) 55%, transparent); }
 .rd-in { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -309,75 +425,10 @@ span.rd-j-tog { cursor: default; }
   .rd-logrow > td { padding-left: var(--space-2); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ex-live__dot { animation: none; }
-}
-
-@media (max-width: 760px) {
-  .ex-row, .ex-grid.has-env .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
-  .ex-tools__end { margin-left: 0; }
-  .ex-time__ms, .ex-time__day { display: none; }
-  .ex-cell { padding: 0 6px; }
-  .ex-cell--method { font-size: 11px; }
-  .ex-cell--app, .ex-cell--env, .ex-cell--consumer, .ex-cell--size { display: none; }
-  .ex-sampled { display: none; }
-  .ex-chip > span { max-width: 220px; }
-}
-
-/* Timeline (#587): requests per bucket stacked by status class. Successful bars are muted ink
-   (context); 4xx and 5xx take the dataviz status palette's warning and critical steps, fixed in
-   both themes (validated: CVD dE 24 light / 19 dark between neighbours). Warning sits under 3:1 on
-   the light surface, so the legend, the per-bar tooltip and the log itself carry the numbers. Hover
-   and selection never animate unless the reader allows motion. */
-.ex-tl { --ex-tl-4xx: #fab219; --ex-tl-5xx: #d03b3b; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
-.ex-tl[aria-busy="true"] .ex-tl__plot { opacity: .6; }
-.ex-tl__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-6); }
-.ex-tl__title { margin: 0; font: 600 14px/20px var(--font-sans); color: var(--ink); }
-.ex-tl__legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
-.ex-tl__legend li { display: inline-flex; align-items: center; gap: 6px; }
-.ex-tl__total { color: var(--ink); }
-.ex-tl__total strong { font-weight: 600; font-variant-numeric: tabular-nums; }
-.ex-tl__n { font: 500 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
-/* The error counts are quick filters, and look pressable (#985): a control outline, a funnel and
-   a hover fill; when that filter is on, the pill fills with the selected ground and an accent edge. */
-.ex-tl__quick { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-1); color: var(--ink); text-decoration: none; cursor: pointer; }
-.ex-tl__quick:hover { background: var(--surface-2); }
-.ex-tl__quick[aria-current="true"] { border-color: var(--accent-ink); background: var(--surface-2); }
-.ex-tl__icon { width: 12px; height: 12px; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linejoin: round; }
-.ex-tl__quick:hover .ex-tl__icon, .ex-tl__quick[aria-current="true"] .ex-tl__icon { stroke: currentColor; }
-.ex-tl__quick:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
-.ex-tl__swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
-.ex-tl__scope { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-left: auto; font: 400 13px/20px var(--font-sans); color: var(--ink); }
-.ex-tl__plot { position: relative; width: 100%; cursor: crosshair; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
-.ex-tl__plot:focus { outline: none; }
-.ex-tl__plot:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 4px; border-radius: 2px; }
-.ex-tl__plot svg { display: block; width: 100%; height: 64px; overflow: visible; }
-.ex-tl__top { position: absolute; top: -20px; right: 0; font: 400 11px/14px var(--font-mono); color: var(--ink-muted); }
-.ex-tl__grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ex-tl__base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ex-tl__hover { fill: var(--surface-2); }
-.ex-tl-ok { fill: var(--ink-muted); background: var(--ink-muted); }
-.ex-tl-4xx { fill: var(--ex-tl-4xx); background: var(--ex-tl-4xx); }
-.ex-tl-5xx { fill: var(--ex-tl-5xx); background: var(--ex-tl-5xx); }
-.ex-tl__sel { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent-ink); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ex-tl__focus { fill: none; stroke: var(--accent-ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.ex-tl__cursor { stroke: var(--accent-ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.ex-tl__tip { position: absolute; bottom: calc(100% + 6px); z-index: 2; width: max-content; max-width: min(440px, 100%); box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); font: 400 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); pointer-events: none; }
-.ex-tl__axis { display: flex; justify-content: space-between; margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
-.ex-tl__error { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
-.ex-tl__error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--ink-muted); }
 /* The keyboard help: read by screen readers (aria-describedby on the plot), not shown. */
-.ex-tl__hint, .ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Motion only for readers who allow it (#587 acceptance: respects reduced motion). */
-@media (prefers-reduced-motion: no-preference) {
-  .ex-tl__plot { transition: opacity 120ms ease-out; }
-}
-
-@media (max-width: 760px) {
-  .ex-tl { padding: var(--space-3) var(--space-3) var(--space-2); }
-  .ex-tl__scope { margin-left: 0; }
-}
 
 /* Saved views (#589): the view switcher in the page header, Save view in the filter bar, and the
    menu and small forms they open (portalled to <body>, so those rules do not sit under .ex). */

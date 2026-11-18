@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cancelRequestExport, startRequestExport } from "@/app/project/[project]/explore/export-actions";
-import type { ExploreState } from "@/lib/explore";
+import { type ExploreQuery, apiWindow, isCustom } from "@/lib/explore-query";
 import {
   EXPORT_POLL_MS,
   MAX_EXPORT_ROWS,
@@ -22,7 +22,6 @@ import {
   readHistory,
   rememberExport,
 } from "@/lib/explore-export";
-import { filterQuery } from "@/lib/explore-filters";
 import { formatPercent } from "@/lib/format";
 import type { RequestExport } from "@/lib/identity";
 import { PopMenu } from "../pop-menu";
@@ -65,7 +64,7 @@ type Toast = { export: RequestExport; note: string | null } | { failed: string }
  * cancelled or expired. The popover lists the user's recent exports of the project, remembered in
  * this browser, each downloadable while its file lasts (24 hours).
  */
-export function ExportMenu({ project, query: q }: { project: string; query: ExploreState }) {
+export function ExportMenu({ project, query: q, className = "ah-btn ah-btn--secondary ah-btn--sm" }: { project: string; query: ExploreQuery; className?: string }) {
   const tz = useTimeZone();
   const trigger = useRef<HTMLButtonElement>(null);
   const ids = { pop: useId(), err: useId() };
@@ -129,7 +128,7 @@ export function ExportMenu({ project, query: q }: { project: string; query: Expl
     setStarting(true);
     setStartErr(null);
     try {
-      const r = await startRequestExport(project, { range: q.range, filters: filterQuery(q.filters) });
+      const r = await startRequestExport(project, { range: apiWindow(q, Date.now()).range, filters: q.conds.map((c) => `${c.field}:${c.op}:${c.value}`) });
       if (!r.ok) {
         setStartErr(r.error);
         return;
@@ -169,14 +168,15 @@ export function ExportMenu({ project, query: q }: { project: string; query: Expl
     if (fromToast) setToast(fresh ? { export: fresh, note: null } : { failed: r.kind === "gone" ? "That export no longer exists." : `Couldn’t download the export. ${exportError(r.kind === "error" ? r.code : "not_found")}` });
   };
 
-  const zoomed = !!(q.from && q.to) || !!q.at;
+  // The export job reads a whole API range: 15m and a custom window export the range holding them.
+  const zoomed = isCustom(q) || q.range === "15m";
 
   return (
     <>
       <button
         ref={trigger}
         type="button"
-        className="ah-btn ah-btn--secondary ah-btn--sm"
+        className={className}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {
@@ -189,9 +189,9 @@ export function ExportMenu({ project, query: q }: { project: string; query: Expl
       <PopMenu open={open} onClose={() => setOpen(false)} triggerRef={trigger} label="Export requests to CSV" role="dialog" id={ids.pop}>
         <div className="ex-views__form">
           <p className="ex-views__confirm">
-            A gzip CSV of {exportScope(q.range, q.filters)}, newest first, at most {MAX_EXPORT_ROWS.toLocaleString("en-US")} rows. Headers and bodies are never included.
+            A gzip CSV of {exportScope(apiWindow(q, now).range, q.conds)}, newest first, at most {MAX_EXPORT_ROWS.toLocaleString("en-US")} rows. Headers and bodies are never included.
           </p>
-          {zoomed ? <p className="ex-hint">It covers the whole range, not the timeline’s zoom.</p> : null}
+          {zoomed ? <p className="ex-hint">It covers the whole {apiWindow(q, now).range} range holding this window.</p> : null}
           {startErr ? (
             <p id={ids.err} className="ex-error" role="alert">
               {startErr}

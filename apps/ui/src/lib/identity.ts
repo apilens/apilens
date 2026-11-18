@@ -216,7 +216,7 @@ const API_PREFIX = "/api/v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-type Query = Record<string, string | number | boolean | undefined>;
+type Query = Record<string, string | number | boolean | readonly string[] | undefined>;
 
 /** Encodes one path segment (slugs, tokens, ids). */
 const seg = (value: string) => encodeURIComponent(value);
@@ -224,7 +224,12 @@ const seg = (value: string) => encodeURIComponent(value);
 function buildUrl(baseUrl: string, path: string, query?: Query): string {
   const url = new URL(`${baseUrl.replace(/\/+$/, "")}${API_PREFIX}${path}`);
   if (query) {
-    for (const [k, v] of Object.entries(query)) if (v !== undefined) url.searchParams.set(k, String(v));
+    for (const [k, v] of Object.entries(query)) {
+      if (v === undefined) continue;
+      // A list repeats its parameter (`filter=a&filter=b`, #1052).
+      if (Array.isArray(v)) for (const item of v) url.searchParams.append(k, item);
+      else url.searchParams.set(k, String(v));
+    }
   }
   return url.href;
 }
@@ -1221,6 +1226,20 @@ export type RequestLogFilters = Partial<
 export interface RequestWindow {
   from?: string;
   to?: string;
+}
+
+/** Explore's conditions (#1052): repeatable `field:op:value` values of the `filter` parameter. */
+export interface RequestConditions {
+  filter?: readonly string[];
+}
+
+/** The fields `GET /requests/facets` counts (#1052). */
+export type RequestFacetField = "status" | "method" | "app" | "env" | "path" | "consumer" | "consumer_group";
+
+/** `GET /requests/facets` (#1052): requests per value of one field, most first. */
+export interface RequestFacets {
+  field: RequestFacetField;
+  values: { value: string; label: string; count: number }[] | null;
 }
 
 /** One bucket of `GET /requests/timeline` (#587), oldest first. */
@@ -2379,6 +2398,8 @@ export interface ExportFilterBody {
   latency_max?: number;
   sampled?: "true" | "false";
   trace_id?: string;
+  /** Explore's `field:op:value` conditions (#1052), as the `filter` parameter of `GET /requests`. */
+  filters?: string[];
 }
 
 export type ExportStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "expired";
@@ -2717,10 +2738,13 @@ export function createClient(config: ClientConfig) {
       request<IngestStatus>("GET", `/projects/${seg(projectSlug)}/ingest-status`, o),
 
     // query: dashboard reads as the signed-in user (#295) ----------------------------------
-    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number } & RequestWindow & RequestLogFilters, o: Authed) =>
+    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number; cursor?: string } & RequestWindow & RequestLogFilters & RequestConditions, o: Authed) =>
       request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
-    requestTimeline: (projectSlug: string, q: { range?: QueryRange } & RequestWindow & RequestLogFilters, o: Authed) =>
+    requestTimeline: (projectSlug: string, q: { range?: QueryRange; bucket?: "minute" | "hour" | "day" } & RequestWindow & RequestLogFilters & RequestConditions, o: Authed) =>
       request<RequestTimeline>("GET", "/requests/timeline", { ...o, query: { project: projectSlug, ...q } }),
+    /** `GET /requests/facets` (#1052): requests per value of `field` under the other conditions. */
+    requestFacets: (projectSlug: string, q: { range?: QueryRange; field: RequestFacetField; search?: string; limit?: number } & RequestWindow & RequestConditions, o: Authed) =>
+      request<RequestFacets>("GET", "/requests/facets", { ...o, query: { project: projectSlug, ...q } }),
     /** `GET /requests/slowest` (#1001): the range's requests with the longest response time, slowest first. */
     slowestRequests: (projectSlug: string, q: TrafficQuery & { limit?: number }, o: Authed) =>
       request<{ requests: RequestRow[] | null }>("GET", "/requests/slowest", {

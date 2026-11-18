@@ -1,9 +1,10 @@
 // Explore saved views (#589): named filter sets of the request log, kept by the API (#578) per
-// project. A view saves the filters (#586) under their URL names; the page's range and timeline
-// window are not part of it. The view in use is the one whose filters are the page's. Pure helpers
-// (the saved shape, matching, names, who edits, the optimistic list), unit-tested in
-// explore-views.test.ts.
-import { type ExploreFilters, activeCount, filterQuery, parseFilters, sameFilters } from "./explore-filters";
+// project. A view saves the conditions (#1052) as `{filter: ["field:op:value", …]}`, the URL's own
+// form; views saved before then hold the older one-value filters (`{status: "5xx"}`), read as an
+// older link is. The page's range and window are not part of a view. The view in use is the one
+// whose conditions are the page's, in any order. Pure helpers (the saved shape, matching, names,
+// who edits, the optimistic list), unit-tested in explore-views.test.ts.
+import { type Cond, condString, dedupe, legacyConds, parseCond } from "./explore-query";
 import type { SavedView } from "./identity";
 
 /** The longest view name the API takes. */
@@ -13,24 +14,33 @@ export const MAX_VIEW_NAME = 128;
 export const PENDING_PREFIX = "pending:";
 export const isPending = (v: Pick<SavedView, "id">) => v.id.startsWith(PENDING_PREFIX);
 
-/** The filters as a view saves them: the ones that are on, under their URL names. */
-export const viewFilter = (f: ExploreFilters): Record<string, string> => filterQuery(f);
+/** The conditions as a view saves them. */
+export const viewFilter = (conds: readonly Cond[]): { filter: string[] } => ({ filter: conds.map(condString) });
 
-/** The filters a view holds; values the request log would refuse are dropped, as from a URL. */
-export function filtersOfView(v: Pick<SavedView, "filter">): ExploreFilters {
+/** The conditions a view holds; values the request log would refuse are dropped, as from a URL. */
+export function filtersOfView(v: Pick<SavedView, "filter">): Cond[] {
+  const raw = typeof v.filter === "object" && v.filter !== null && !Array.isArray(v.filter) ? (v.filter as Record<string, unknown>) : {};
+  const conds = Array.isArray(raw.filter) ? raw.filter.filter((x): x is string => typeof x === "string").map(parseCond) : [];
   const params: Record<string, string> = {};
-  const raw = typeof v.filter === "object" && v.filter !== null && !Array.isArray(v.filter) ? v.filter : {};
   for (const [k, val] of Object.entries(raw)) {
+    if (k === "filter") continue;
     if (typeof val === "string") params[k] = val;
     else if (typeof val === "number" && Number.isFinite(val)) params[k] = String(val);
     else if (typeof val === "boolean") params[k] = String(val);
   }
-  return parseFilters(params);
+  return dedupe([...conds.filter((c): c is Cond => c !== null), ...legacyConds(params)]);
 }
 
-/** The view in use: the first one (by name) whose filters are `filters`, or null. */
-export function activeView<V extends Pick<SavedView, "filter">>(views: readonly V[], filters: ExploreFilters): V | null {
-  return views.find((v) => sameFilters(filtersOfView(v), filters)) ?? null;
+/** Whether two condition lists hold the same conditions, in any order. */
+export function sameSet(a: readonly Cond[], b: readonly Cond[]): boolean {
+  if (a.length !== b.length) return false;
+  const keys = new Set(a.map(condString));
+  return b.every((c) => keys.has(condString(c)));
+}
+
+/** The view in use: the first one (by name) whose conditions are `conds`, or null. */
+export function activeView<V extends Pick<SavedView, "filter">>(views: readonly V[], conds: readonly Cond[]): V | null {
+  return views.find((v) => sameSet(filtersOfView(v), conds)) ?? null;
 }
 
 /** Views by name, as the switcher lists them. */
@@ -63,7 +73,7 @@ export const canEditView = (v: Pick<SavedView, "created_by" | "shared">, me: str
 export const VIEW_EDIT_DENIED = "Only the view’s creator or a project admin can change it.";
 
 /** Whether the page's filters can be saved as a new view: some are on and no view holds them. */
-export const canSaveFilters = (views: readonly Pick<SavedView, "filter">[], filters: ExploreFilters) => activeCount(filters) > 0 && activeView(views, filters) === null;
+export const canSaveFilters = (views: readonly Pick<SavedView, "filter">[], conds: readonly Cond[]) => conds.length > 0 && activeView(views, conds) === null;
 
 /** Puts `v` in the list in place of `replace` (or of the view with its id), kept by name. */
 export function upsertView<V extends Pick<SavedView, "id" | "name">>(views: readonly V[], v: V, replace = v.id): V[] {
