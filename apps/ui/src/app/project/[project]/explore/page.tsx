@@ -1,15 +1,12 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { ExploreView } from "@/components/explore/explore";
 import { SetupReminder } from "@/components/onboarding/setup-reminder";
 import { getContext, getSession } from "@/lib/auth/server";
-import { LOG_LIMIT, exploreHref, parseExploreQuery } from "@/lib/explore";
-import { type FilterSuggestions, filterQuery, uniqueEndpoints } from "@/lib/explore-filters";
-import { chartWindow, logWindow } from "@/lib/explore-timeline";
+import { PAGE_SIZE, apiQuery, bucketFor, exploreUrl, hasLegacy, readExploreUrl } from "@/lib/explore-query";
 import { type NamedApp, type RequestRow, type RequestTimeline, type SavedView, identity, isApiError } from "@/lib/identity";
 import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
-import { parseTrail, trailCursor } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
@@ -17,55 +14,46 @@ export const metadata: Metadata = { title: "Explore" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-/** The most endpoints, and consumers, the filters suggest from. */
-const SUGGEST_LIMIT = 200;
-
-// Explore (#585): the request log, newest first, read here once and then polled by the browser.
-// The filters (#586) come from the URL, so a deep link reproduces the filtered view; so do the
-// timeline's zoom and jump point (#587). A saved view (#589) is a named set of those filters.
-// `?cursor=` walks the log back past its newest 200 rows (lib/explore logPages).
+// Explore (#585, revamped after Supabase Unified Logs in #1052): the request log, newest first, read
+// here once and then paged and polled by the browser. The whole view is in the URL: the range or
+// window, the conditions (`?filter=field:op:value`) and the open request (`?id=`). An older link
+// (`?status=4xx&app=…`, from other pages and saved bookmarks) is rewritten to that scheme once,
+// here, so every link into Explore keeps working.
 export default async function ExplorePage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
   const sp = await searchParams;
-  const q = parseExploreQuery(sp);
-  const trail = parseTrail(sp);
-  const cursor = trailCursor(trail);
-  const next = exploreHref(project, q);
+  const q = readExploreUrl(sp);
+  const later = sp[LATER_PARAM] === LATER_VALUE;
+  const next = exploreUrl(project, q);
+  if (hasLegacy(sp)) redirect(later ? `${next}${next.includes("?") ? "&" : "?"}${LATER_PARAM}=${LATER_VALUE}` : next);
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
 
   const session = await getSession();
+  const now = Date.now();
+  const api = apiQuery(q, now);
   let rows: RequestRow[] | null = null;
-  let older = "";
+  let cursor = "";
   let timeline: RequestTimeline | null = null;
   let views: SavedView[] | null = null;
   let apps: NamedApp[] | null = null;
-  // The log, the timeline (#587), the saved views (#589) and the project's apps (#975, the App
-  // filter and column) are read together; each can fail without the others.
-  const [log, chart, saved, endpoints, consumers, appList] = await Promise.allSettled([
-    session.call((o) => identity().listRequests(project, { range: q.range, ...logWindow(q), limit: LOG_LIMIT, ...filterQuery(q.filters), ...(cursor ? { cursor } : {}) }, o)),
-    session.call((o) => identity().requestTimeline(project, { range: q.range, ...chartWindow(q), ...filterQuery(q.filters) }, o)),
+  // The log, the chart, the saved views (#589) and the project's apps (#975, the App facet and
+  // column) are read together; each can fail without the others.
+  const [log, chart, saved, appList] = await Promise.allSettled([
+    session.call((o) => identity().listRequests(project, { ...api, limit: PAGE_SIZE }, o)),
+    session.call((o) => identity().requestTimeline(project, { ...api, bucket: bucketFor(q, now) }, o)),
     session.call((o) => identity().listSavedViews(project, "explore", o)),
-    // What the Path and Consumer filters suggest (#983): the range's endpoints and consumers,
-    // busiest first. Without them the fields still take typed text.
-    session.call((o) => identity().listEndpoints(project, { range: q.range, ...(q.filters.env ? { env: q.filters.env } : {}), limit: SUGGEST_LIMIT }, o)),
-    session.call((o) => identity().listConsumers(project, { range: q.range, sort: "requests", limit: SUGGEST_LIMIT }, o)),
     session.call((o) => identity().projectApps(project, o)),
   ]);
-  for (const r of [log, chart, saved, endpoints, consumers, appList]) {
+  for (const r of [log, chart, saved, appList]) {
     if (r.status === "fulfilled") continue;
     if (isSessionExpired(r.reason)) redirectToRefresh(next);
     if (!isApiError(r.reason)) throw r.reason;
   }
-  const suggestions: FilterSuggestions = {
-    endpoints: endpoints.status === "fulfilled" ? uniqueEndpoints(endpoints.value.endpoints ?? []) : [],
-    consumers:
-      consumers.status === "fulfilled" ? (consumers.value.consumers ?? []).map((c) => ({ id: c.consumer_id, name: c.consumer_name ?? "" })) : [],
-  };
   if (log.status === "fulfilled") {
     rows = log.value.requests ?? [];
-    older = log.value.next_cursor ?? "";
+    cursor = log.value.next_cursor ?? "";
   }
   if (chart.status === "fulfilled") timeline = chart.value;
   if (saved.status === "fulfilled") views = saved.value.views ?? [];
@@ -73,22 +61,18 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
 
   return (
     <AppShell context={context} project={project} view="explore">
-      {/* "I'll do this later" on the onboarding install step (#333) can land here as the home view. */}
-      {sp[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
       <ExploreView
         project={project}
-        projectName={found.project.name}
         environments={found.project.environments ?? []}
-        suggestions={suggestions}
         apps={apps}
         query={q}
         rows={rows}
-        trail={trail}
-        older={older}
+        cursor={cursor}
         timeline={timeline}
         views={views}
         me={context.user.id}
-        now={Date.now()}
+        now={now}
+        notice={later ? <SetupReminder project={project} /> : null}
       />
     </AppShell>
   );

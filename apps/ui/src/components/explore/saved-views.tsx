@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useId, useRef, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createExploreView, deleteExploreView, updateExploreView } from "@/app/project/[project]/explore/actions";
-import { type ExploreState, exploreHref } from "@/lib/explore";
-import { NO_FILTERS, activeCount } from "@/lib/explore-filters";
+import type { Cond } from "@/lib/explore-query";
 import {
   MAX_VIEW_NAME,
   PENDING_PREFIX,
@@ -30,7 +28,9 @@ type Said = { tone: "ok" | "err"; text: string } | null;
 interface Scope {
   project: string;
   me: string;
-  query: ExploreState;
+  conds: Cond[];
+  /** Puts a view's conditions on the page (the range stays). */
+  apply: (conds: Cond[]) => void;
   /** Null when the API could not list them. */
   views: SavedView[] | null;
   said: Said;
@@ -54,7 +54,14 @@ let pendingSeq = 0;
  * filter bar. Every change shows at once (optimistic) and is undone, with the reason, when the API
  * refuses it. `initial` is null when the API could not list the views.
  */
-export function SavedViews({ project, me, query, initial, children }: { project: string; me: string; query: ExploreState; initial: SavedView[] | null; children: ReactNode }) {
+export function SavedViews({
+  project,
+  me,
+  conds,
+  apply,
+  initial,
+  children,
+}: { project: string; me: string; conds: Cond[]; apply: (conds: Cond[]) => void; initial: SavedView[] | null; children: ReactNode }) {
   const [views, setViews] = useState<SavedView[] | null>(() => (initial ? sortViews(initial) : null));
   const [said, setSaid] = useState<Said>(null);
   // How many changes are on their way: a new server read must not undo one before it lands.
@@ -76,7 +83,7 @@ export function SavedViews({ project, me, query, initial, children }: { project:
   const save = useCallback(
     (name: string, shared: boolean) => {
       const at = new Date().toISOString();
-      const temp: SavedView = { id: `${PENDING_PREFIX}${++pendingSeq}`, name, surface: "explore", filter: viewFilter(query.filters), shared, created_by: me, created_at: at, updated_at: at };
+      const temp: SavedView = { id: `${PENDING_PREFIX}${++pendingSeq}`, name, surface: "explore", filter: viewFilter(conds), shared, created_by: me, created_at: at, updated_at: at };
       setViews((vs) => upsertView(vs ?? [], temp));
       setSaid(null);
       void track(createExploreView(project, { name, filter: temp.filter, shared })).then((r) => {
@@ -89,7 +96,7 @@ export function SavedViews({ project, me, query, initial, children }: { project:
         }
       });
     },
-    [project, me, query.filters],
+    [project, me, conds],
   );
 
   const change = useCallback(
@@ -126,7 +133,7 @@ export function SavedViews({ project, me, query, initial, children }: { project:
     [project],
   );
 
-  return <ViewsScope.Provider value={{ project, me, query, views, said, save, change, remove }}>{children}</ViewsScope.Provider>;
+  return <ViewsScope.Provider value={{ project, me, conds, apply, views, said, save, change, remove }}>{children}</ViewsScope.Provider>;
 }
 
 /**
@@ -136,20 +143,18 @@ export function SavedViews({ project, me, query, initial, children }: { project:
  * everyone else sees those items disabled with the reason.
  */
 export function ViewSwitcher() {
-  const { project, me, query: q, views, said, change, remove } = useViews();
+  const { me, conds, apply, views, said, change, remove } = useViews();
   const admin = useCan("capture.manage").allowed;
-  const router = useRouter();
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"menu" | "rename" | "delete">("menu");
   const [name, setName] = useState("");
   const [nameErr, setNameErr] = useState<string | null>(null);
-  const [, startNav] = useTransition();
   const ids = { menu: useId(), name: useId(), err: useId() };
 
   const list = views ?? [];
-  const current = activeView(list, q.filters);
-  const filtered = activeCount(q.filters) > 0;
+  const current = activeView(list, conds);
+  const filtered = conds.length > 0;
   const label = current ? current.name : filtered ? "Unsaved filters" : "All requests";
   const editable = current !== null && !isPending(current) && canEditView(current, me, admin);
 
@@ -174,12 +179,11 @@ export function ViewSwitcher() {
     return () => cancelAnimationFrame(frame);
   }, [open, mode, ids.menu]);
 
-  const pick = (filters: ExploreState["filters"]) => {
+  const pick = (next: Cond[]) => {
     close();
     trigger.current?.focus();
-    // A view sets the filters; the range stays, the timeline's zoom starts over.
-    const href = exploreHref(project, { range: q.range, filters });
-    startNav(() => router.push(href, { scroll: false }));
+    // A view sets the conditions; the range stays.
+    apply(next);
   };
 
   const onRename = (e: FormEvent) => {
@@ -271,7 +275,7 @@ export function ViewSwitcher() {
           </div>
         ) : (
           <>
-            <button type="button" role="menuitemradio" aria-checked={!current && !filtered} className="cp-sitem" onClick={() => pick(NO_FILTERS)}>
+            <button type="button" role="menuitemradio" aria-checked={!current && !filtered} className="cp-sitem" onClick={() => pick([])}>
               <span className="lb">All requests</span>
               {!current && !filtered ? (
                 <span className="sl">
@@ -359,7 +363,7 @@ export function ViewSwitcher() {
  * the project. Shown while some filters are on that no saved view holds.
  */
 export function SaveView() {
-  const { me, query: q, views, save } = useViews();
+  const { me, conds, views, save } = useViews();
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -375,7 +379,7 @@ export function SaveView() {
     return () => cancelAnimationFrame(frame);
   }, [open, ids.name]);
 
-  if (views === null || !canSaveFilters(views, q.filters)) return null;
+  if (views === null || !canSaveFilters(views, conds)) return null;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

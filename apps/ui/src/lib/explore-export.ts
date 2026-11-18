@@ -5,7 +5,7 @@
 // unit-tested in explore-export.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import { formatBytes } from "./explore";
-import { type ExploreFilters, FILTER_KEYS, activeCount } from "./explore-filters";
+import { type Cond, condString } from "./explore-query";
 import type { ExportFilterBody, ExportStatus, QueryRange, RequestExport } from "./identity";
 import { sameDay, zoneLabel, zoned } from "./time-zone";
 
@@ -20,20 +20,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Whether `id` can be an export's id (a UUID). */
 export const isExportId = (id: unknown): id is string => typeof id === "string" && UUID.test(id);
 
-/** The body of an export: the page's range and the filters that are on, as the API types them. */
-export function exportBody(range: QueryRange, f: ExploreFilters): ExportFilterBody {
-  const body: Record<string, string | number> = { range };
-  for (const k of FILTER_KEYS) {
-    const v = f[k];
-    if (v === null || v === "") continue;
-    body[k] = v;
-  }
-  return body as ExportFilterBody;
+/** The body of an export: the API range and Explore's conditions (#1052). */
+export function exportBody(range: QueryRange, conds: readonly Cond[]): ExportFilterBody {
+  return conds.length ? { range, filters: conds.map(condString) } : { range };
 }
 
 /** What an export covers, in words: `the last 1 hour, 2 filters on`. */
-export function exportScope(range: QueryRange, f: ExploreFilters): string {
-  const n = activeCount(f);
+export function exportScope(range: QueryRange, conds: readonly Cond[]): string {
+  const n = conds.length;
   return `the last ${RANGE_LABEL[range]}${n === 0 ? ", no filters" : n === 1 ? ", 1 filter on" : `, ${n} filters on`}`;
 }
 
@@ -115,10 +109,12 @@ export function filterText(f: ExportFilterBody | null | undefined): string {
   // A min/max pair is one filter, as the filter bar counts it.
   const keys = new Set(
     Object.keys(b)
-      .filter((k) => k !== "range" && b[k] !== undefined && b[k] !== null && b[k] !== "")
+      .filter((k) => k !== "range" && k !== "filters" && b[k] !== undefined && b[k] !== null && b[k] !== "")
       .map((k) => k.replace(/_(min|max)$/, "")),
   );
-  return `Last ${RANGE_LABEL[range]}${keys.size === 0 ? "" : keys.size === 1 ? ", 1 filter" : `, ${keys.size} filters`}`;
+  // Explore's conditions (#1052) count one each.
+  const n = keys.size + (Array.isArray(b.filters) ? b.filters.length : 0);
+  return `Last ${RANGE_LABEL[range]}${n === 0 ? "" : n === 1 ? ", 1 filter" : `, ${n} filters`}`;
 }
 
 /** The export with its download link made absolute against the browser-facing API origin. */

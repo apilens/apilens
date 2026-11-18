@@ -14,9 +14,9 @@ export type DeleteViewResult = { ok: true } | { ok: false; error: string; code?:
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Checked = { ok: true; name: string; filter: Record<string, string>; shared: boolean } | { ok: false; error: string; code: string };
+type Checked = { ok: true; name: string; filter: { filter: string[] }; shared: boolean } | { ok: false; error: string; code: string };
 
-/** The body of a save: a trimmed name, the filters as the log reads them, and the sharing. */
+/** The body of a save: a trimmed name, the conditions as the log reads them, and the sharing. */
 function check(input: unknown): Checked {
   const b = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const name = typeof b.name === "string" ? b.name.trim() : "";

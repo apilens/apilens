@@ -26,13 +26,13 @@ beforeEach(() => {
 });
 
 describe("startRequestExport", () => {
-  it("starts an export with the range and the filters the log reads, as the signed-in user", async () => {
+  it("starts an export with the range and the conditions the log reads, as the signed-in user", async () => {
     createRequestExport.mockResolvedValue(QUEUED);
-    await expect(actions.startRequestExport("shop", { range: "6h", filters: { env: "production", status: "5XX", latency_min: "250", bogus: "x", method: "g3t" } })).resolves.toEqual({
+    await expect(actions.startRequestExport("shop", { range: "6h", filters: ["env:eq:production", "status:eq:5XX", "latency:gt:250", "bogus:eq:x", "method:eq:g3t", 7] })).resolves.toEqual({
       ok: true,
       export: QUEUED,
     });
-    expect(createRequestExport).toHaveBeenCalledWith("shop", { range: "6h", env: "production", status: "5xx", latency_min: 250 }, { accessToken: "a" });
+    expect(createRequestExport).toHaveBeenCalledWith("shop", { range: "6h", filters: ["env:eq:production", "status:eq:5xx", "latency:gt:250"] }, { accessToken: "a" });
   });
 
   it("falls back to the default range and makes the download link absolute", async () => {

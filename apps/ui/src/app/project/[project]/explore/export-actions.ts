@@ -6,9 +6,8 @@
 // download link made absolute, or a sentence to show, never a raw error.
 import { isProjectSlug } from "@/lib/api-keys";
 import { env } from "@/lib/env";
-import { DEFAULT_RANGE, EXPLORE_RANGES } from "@/lib/explore";
 import { exportBody, exportError, isExportId, withPublicLink } from "@/lib/explore-export";
-import { parseFilters } from "@/lib/explore-filters";
+import { type Cond, dedupe, parseCond } from "@/lib/explore-query";
 import { type QueryRange, type RequestExport, identity, isApiError } from "@/lib/identity";
 import { type ServerSession, withActionSession } from "@/lib/server-session";
 
@@ -25,22 +24,20 @@ async function run(fn: (session: ServerSession) => Promise<RequestExport>): Prom
   });
 }
 
+const RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
+
 /**
- * Starts an export of `project`'s request log. `input` is `{range, filters}` with the filters
- * under their URL names; values the request log would refuse are dropped, as from a URL.
+ * Starts an export of `project`'s request log. `input` is `{range, filters}`: the API's range and
+ * Explore's `field:op:value` conditions (#1052); conditions the log would refuse are dropped, as
+ * from a URL.
  */
 export async function startRequestExport(project: unknown, input: unknown): Promise<ExportActionResult> {
   if (!isProjectSlug(project)) return { ok: false, error: exportError("forbidden"), code: "not_found" };
   const b = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
-  const range = EXPLORE_RANGES.includes(b.range as QueryRange) ? (b.range as QueryRange) : DEFAULT_RANGE;
-  const params: Record<string, string> = {};
-  if (typeof b.filters === "object" && b.filters !== null && !Array.isArray(b.filters)) {
-    for (const [k, v] of Object.entries(b.filters as Record<string, unknown>)) {
-      if (typeof v === "string") params[k] = v;
-      else if (typeof v === "number" && Number.isFinite(v)) params[k] = String(v);
-    }
-  }
-  const body = exportBody(range, parseFilters(params));
+  const range = RANGES.includes(b.range as QueryRange) ? (b.range as QueryRange) : "1h";
+  const raw = Array.isArray(b.filters) ? b.filters : [];
+  const conds = dedupe(raw.map((s) => (typeof s === "string" ? parseCond(s) : null)).filter((c): c is Cond => c !== null));
+  const body = exportBody(range, conds);
   return run((s) => s.call((o) => identity().createRequestExport(project, body, o)));
 }
 

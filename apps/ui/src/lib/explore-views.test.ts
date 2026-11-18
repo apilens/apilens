@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { NO_FILTERS } from "./explore-filters";
+import { type Cond, parseCond } from "./explore-query";
 import { activeView, canEditView, canSaveFilters, checkViewName, filtersOfView, isPending, sortViews, upsertView, viewError, viewFilter } from "./explore-views";
 
 const ME = "u-me";
+const cs = (...list: string[]): Cond[] => list.map((s) => parseCond(s) as Cond);
 const OTHER = "u-other";
 
 const view = (id: string, name: string, filter: Record<string, unknown>, extra: { shared?: boolean; created_by?: string | null } = {}) => ({
@@ -14,40 +15,41 @@ const view = (id: string, name: string, filter: Record<string, unknown>, extra: 
 });
 
 describe("viewFilter and filtersOfView", () => {
-  it("saves only the filters that are on, under their URL names, and reads them back", () => {
-    const f = { ...NO_FILTERS, env: "production", status: "5xx", latency_min: 500 };
-    expect(viewFilter(f)).toEqual({ env: "production", status: "5xx", latency_min: "500" });
+  it("saves the conditions in the URL's form and reads them back", () => {
+    const f = cs("env:eq:production", "status:neq:5xx", "latency:gt:500");
+    expect(viewFilter(f)).toEqual({ filter: ["env:eq:production", "status:neq:5xx", "latency:gt:500"] });
     expect(filtersOfView({ filter: viewFilter(f) })).toEqual(f);
   });
 
-  it("takes numbers and booleans as written by another client, and drops what the log refuses", () => {
-    expect(filtersOfView({ filter: { latency_max: 900, sampled: false, method: "g3t", status: "abc", nested: { a: 1 } } })).toEqual({ ...NO_FILTERS, latency_max: 900, sampled: "false" });
-    expect(filtersOfView({ filter: null as unknown as Record<string, unknown> })).toEqual(NO_FILTERS);
+  it("reads views saved before conditions, numbers and booleans included, and drops what the log refuses", () => {
+    expect(filtersOfView({ filter: { latency_max: 900, sampled: false, method: "g3t", status: "abc", nested: { a: 1 } } })).toEqual(cs("latency:lt:900", "sampled:eq:false"));
+    expect(filtersOfView({ filter: { filter: ["status:eq:5xx", "nope", 3] } })).toEqual(cs("status:eq:5xx"));
+    expect(filtersOfView({ filter: null as unknown as Record<string, unknown> })).toEqual([]);
   });
 });
 
 describe("activeView", () => {
-  const views = [view("a", "Errors", { status: "5xx" }), view("b", "Prod errors", { env: "production", status: "5xx" })];
+  const views = [view("a", "Errors", { status: "5xx" }), view("b", "Prod errors", { filter: ["env:eq:production", "status:eq:5xx"] })];
 
-  it("is the view whose filters are the page's", () => {
-    expect(activeView(views, { ...NO_FILTERS, status: "5xx", env: "production" })?.id).toBe("b");
-    expect(activeView(views, { ...NO_FILTERS, status: "5xx" })?.id).toBe("a");
+  it("is the view whose conditions are the page's, in any order", () => {
+    expect(activeView(views, cs("status:eq:5xx", "env:eq:production"))?.id).toBe("b");
+    expect(activeView(views, cs("status:eq:5xx"))?.id).toBe("a");
     // A view saved by another client is read as a URL would be.
-    expect(activeView([view("c", "Loud", { status: "5XX" })], { ...NO_FILTERS, status: "5xx" })?.id).toBe("c");
+    expect(activeView([view("c", "Loud", { status: "5XX" })], cs("status:eq:5xx"))?.id).toBe("c");
   });
 
-  it("is null when no view holds the filters", () => {
-    expect(activeView(views, { ...NO_FILTERS, status: "4xx" })).toBeNull();
-    expect(activeView(views, NO_FILTERS)).toBeNull();
+  it("is null when no view holds the conditions", () => {
+    expect(activeView(views, cs("status:eq:4xx"))).toBeNull();
+    expect(activeView(views, [])).toBeNull();
   });
 });
 
 describe("canSaveFilters", () => {
   it("needs a filter on that no view holds", () => {
     const views = [view("a", "Errors", { status: "5xx" })];
-    expect(canSaveFilters(views, NO_FILTERS)).toBe(false);
-    expect(canSaveFilters(views, { ...NO_FILTERS, status: "5xx" })).toBe(false);
-    expect(canSaveFilters(views, { ...NO_FILTERS, status: "4xx" })).toBe(true);
+    expect(canSaveFilters(views, [])).toBe(false);
+    expect(canSaveFilters(views, cs("status:eq:5xx"))).toBe(false);
+    expect(canSaveFilters(views, cs("status:eq:4xx"))).toBe(true);
   });
 });
 

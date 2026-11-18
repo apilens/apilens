@@ -25,10 +25,10 @@ beforeEach(() => {
 });
 
 describe("createExploreView", () => {
-  it("saves the checked view as the signed-in user, keeping only filters the log reads", async () => {
+  it("saves the checked view as the signed-in user, keeping only conditions the log reads, older filters as conditions", async () => {
     createSavedView.mockResolvedValue(SAVED);
     await expect(createExploreView("shop", { name: "  Prod 5xx ", filter: { env: "production", status: "5XX", bogus: "x", method: "g3t" }, shared: true })).resolves.toEqual({ ok: true, view: SAVED });
-    expect(createSavedView).toHaveBeenCalledWith("shop", { name: "Prod 5xx", surface: "explore", filter: { env: "production", status: "5xx" }, shared: true }, { accessToken: "a" });
+    expect(createSavedView).toHaveBeenCalledWith("shop", { name: "Prod 5xx", surface: "explore", filter: { filter: ["env:eq:production", "status:eq:5xx"] }, shared: true }, { accessToken: "a" });
   });
 
   it("refuses bad input without calling the API", async () => {
@@ -52,7 +52,7 @@ describe("updateExploreView", () => {
   it("replaces the view as the signed-in user", async () => {
     updateSavedView.mockResolvedValue(SAVED);
     await expect(updateExploreView("shop", ID, { name: "Prod 5xx", filter: { status: "5xx" }, shared: false })).resolves.toEqual({ ok: true, view: SAVED });
-    expect(updateSavedView).toHaveBeenCalledWith("shop", ID, { name: "Prod 5xx", filter: { status: "5xx" }, shared: false }, { accessToken: "a" });
+    expect(updateSavedView).toHaveBeenCalledWith("shop", ID, { name: "Prod 5xx", filter: { filter: ["status:eq:5xx"] }, shared: false }, { accessToken: "a" });
   });
 
   it("refuses an id that is not a view's", async () => {

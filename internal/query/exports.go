@@ -157,6 +157,7 @@ type ExportFilter struct {
 	LatencyMax      *float64 `json:"latency_max,omitempty" minimum:"0" doc:"Only requests that took at most this many milliseconds."`
 	Sampled         string   `json:"sampled,omitempty" enum:"true,false" doc:"Only requests the SDK kept in full (true) or sampled out to a base record (false); omitted means both."`
 	TraceID         string   `json:"trace_id,omitempty" maxLength:"64" doc:"Only requests of this trace."`
+	Filters         []string `json:"filters,omitempty" maxItems:"50" doc:"field:op:value conditions, as the filter parameter of GET /api/v1/requests."`
 }
 
 // input is the request log input f means.
@@ -165,7 +166,7 @@ func (f ExportFilter) input() *requestsInput {
 		App: f.App, ConsumerID: f.ConsumerID, ConsumerGroup: f.ConsumerGroup, IP: f.IP, Method: f.Method, Path: f.Path,
 		URLContains: f.URLContains, PayloadContains: f.PayloadContains,
 		RequestSizeMin: f.RequestSizeMin, ResponseSizeMin: f.ResponseSizeMin, LatencyMin: f.LatencyMin,
-		Status: f.Status, Sampled: f.Sampled, TraceID: f.TraceID,
+		Status: f.Status, Sampled: f.Sampled, TraceID: f.TraceID, Filter: f.Filters,
 	}
 	in.Range, in.Env = f.Range, f.Env
 	if f.RequestSizeMax != nil {

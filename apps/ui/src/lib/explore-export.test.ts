@@ -18,7 +18,9 @@ import {
   rememberExport,
   withPublicLink,
 } from "./explore-export";
-import { NO_FILTERS } from "./explore-filters";
+import { type Cond, parseCond } from "./explore-query";
+
+const cs = (...list: string[]): Cond[] => list.map((s) => parseCond(s) as Cond);
 import type { RequestExport } from "./identity";
 
 const NOW = Date.parse("2026-11-05T10:00:00Z");
@@ -61,24 +63,21 @@ function memory(): Storage {
 }
 
 describe("exportBody", () => {
-  it("sends the range and only the filters that are on, typed as the API takes them", () => {
-    expect(exportBody("6h", { ...NO_FILTERS, env: "production", status: "5xx", latency_min: 250, request_size_max: 0, sampled: "true" })).toEqual({
+  it("sends the range and the conditions as the API's filters", () => {
+    expect(exportBody("6h", cs("env:eq:production", "status:neq:5xx", "latency:gt:250"))).toEqual({
       range: "6h",
-      env: "production",
-      status: "5xx",
-      request_size_max: 0,
-      latency_min: 250,
-      sampled: "true",
+      filters: ["env:eq:production", "status:neq:5xx", "latency:gt:250"],
     });
-    expect(exportBody("1h", NO_FILTERS)).toEqual({ range: "1h" });
+    expect(exportBody("1h", [])).toEqual({ range: "1h" });
   });
 });
 
 describe("exportScope and filterText", () => {
   it("say what an export covers", () => {
-    expect(exportScope("1h", NO_FILTERS)).toBe("the last 1 hour, no filters");
-    expect(exportScope("7d", { ...NO_FILTERS, env: "production" })).toBe("the last 7 days, 1 filter on");
-    expect(exportScope("24h", { ...NO_FILTERS, env: "p", latency_min: 1, latency_max: 9 })).toBe("the last 24 hours, 2 filters on");
+    expect(exportScope("1h", [])).toBe("the last 1 hour, no filters");
+    expect(exportScope("7d", cs("env:eq:production"))).toBe("the last 7 days, 1 filter on");
+    expect(exportScope("24h", cs("env:eq:p", "latency:between:1-9"))).toBe("the last 24 hours, 2 filters on");
+    expect(filterText({ range: "6h", filters: ["status:eq:5xx", "env:eq:p"] })).toBe("Last 6 hours, 2 filters");
     expect(filterText({ range: "6h" })).toBe("Last 6 hours");
     expect(filterText({ range: "1h", env: "p", latency_min: 1, latency_max: 2 })).toBe("Last 1 hour, 2 filters");
     expect(filterText({ status: "5xx" })).toBe("Last 24 hours, 1 filter");

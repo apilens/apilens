@@ -85,9 +85,9 @@ var dashboardDescriptions = map[string]string{
 		"bucket, its top endpoints and a page of its latest requests and errors. A consumer the project never saw answers 404.",
 	"list-requests": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, " +
 		"method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to " +
-		"narrow the window inside the range. An invalid status filter or cursor answers 422.",
+		"narrow the window inside the range. An invalid status filter, filter condition or cursor answers 422. filter: " + filterDoc,
 	"get-request-timeline": "The same filters as list-requests, counted per bucket by status class, for the timeline above the log. " +
-		"Every bucket of the window is listed, empty ones with zeros.",
+		"Every bucket of the window is listed, empty ones with zeros. filter: " + filterDoc,
 	"get-request": "One request of the log by its id, with what was captured of it (headers, bodies, attributes, validation " +
 		"errors) and the spans and logs of its trace in the project. An unknown id or another project's answers 404.",
 	"list-errors": "Requests answered with 400 or above, grouped by endpoint and status code, most frequent first, with distinct " +
@@ -126,6 +126,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerErrorStatus(api, s)
 	registerTrafficLatency(api, s)
 	registerSlowestRequests(api, s)
+	registerRequestFacets(api, s)
 	registerDeployChanges(api, s)
 	registerDeployDetail(api, s)
 	registerIngestStatus(api, s, guard)
