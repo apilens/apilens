@@ -24,6 +24,13 @@ var timelineSteps = []time.Duration{
 	time.Hour, 2 * time.Hour, 3 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour,
 }
 
+// timelineBucketWidths are the widths a caller may ask for by name (#1052):
+// Explore picks minute under 12 hours, hour under 2 days, day beyond.
+var timelineBucketWidths = map[string]time.Duration{"minute": time.Minute, "hour": time.Hour, "day": 24 * time.Hour}
+
+// maxFixedBuckets bounds the bars of a timeline drawn at a named width.
+const maxFixedBuckets = 1440
+
 // timelineStep is the finest bucket width that draws span in at most
 // maxTimelineBuckets bars.
 func timelineStep(span time.Duration) time.Duration {
@@ -55,6 +62,9 @@ type requestTimelineInput struct {
 	LatencyMin      float64   `query:"latency_min" minimum:"0" doc:"As in GET /api/v1/requests."`
 	LatencyMax      float64   `query:"latency_max" minimum:"0" doc:"As in GET /api/v1/requests."`
 	Sampled         string    `query:"sampled" enum:"true,false" doc:"As in GET /api/v1/requests."`
+	TraceID         string    `query:"trace_id" maxLength:"64" doc:"As in GET /api/v1/requests."`
+	Filter          []string  `query:"filter,explode" maxItems:"50" doc:"As in GET /api/v1/requests."`
+	Bucket          string    `query:"bucket" enum:"minute,hour,day" doc:"Bucket width: minute, hour or day. Omitted, or when it would draw more than 1440 bars, the finest width that draws the window in at most 100 bars."`
 
 	hasRequestSizeMax, hasResponseSizeMax, hasLatencyMax bool
 }
@@ -77,6 +87,7 @@ func (in *requestTimelineInput) filter() *requestsInput {
 		RequestSizeMin: in.RequestSizeMin, RequestSizeMax: in.RequestSizeMax,
 		ResponseSizeMin: in.ResponseSizeMin, ResponseSizeMax: in.ResponseSizeMax,
 		Status: in.Status, LatencyMin: in.LatencyMin, LatencyMax: in.LatencyMax, Sampled: in.Sampled,
+		TraceID: in.TraceID, Filter: in.Filter,
 		hasRequestSizeMax: in.hasRequestSizeMax, hasResponseSizeMax: in.hasResponseSizeMax, hasLatencyMax: in.hasLatencyMax,
 	}
 }
@@ -122,6 +133,9 @@ func (s *Service) requestTimeline(ctx context.Context, in *requestTimelineInput)
 		return nil, err
 	}
 	step := timelineStep(to.Sub(from))
+	if fixed, ok := timelineBucketWidths[in.Bucket]; ok && to.Sub(from) <= fixed*maxFixedBuckets {
+		step = fixed
+	}
 	seconds := int64(step / time.Second)
 	where, args := tenantFilter(p.ProjectID, in.Env)
 	clauses, args, err := requestFilter(in.filter(), []string{where, "timestamp >= ?", "timestamp < ?"}, append(args, from, to))

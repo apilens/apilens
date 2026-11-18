@@ -5976,6 +5976,17 @@
             "maxLength": 64,
             "type": "string"
           },
+          "filters": {
+            "description": "field:op:value conditions, as the filter parameter of GET /api/v1/requests.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "ip": {
             "description": "Only requests from this client IP address (exact match).",
             "maxLength": 64,
@@ -6066,6 +6077,31 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "FacetValue": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "description": "Requests with this value.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "label": {
+            "description": "The consumer's name for a consumer id; empty for every other field.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value: a status code, method, app id, environment, route template, consumer id or group.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label",
+          "count"
+        ],
         "type": "object"
       },
       "HandoffBody": {
@@ -10349,6 +10385,39 @@
           "expires_at",
           "download_url",
           "download_url_expires_at"
+        ],
+        "type": "object"
+      },
+      "RequestFacetsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RequestFacetsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "field": {
+            "description": "The field counted.",
+            "type": "string"
+          },
+          "values": {
+            "description": "Most requests first, then by value.",
+            "items": {
+              "$ref": "#/components/schemas/FacetValue"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "values"
         ],
         "type": "object"
       },
@@ -28998,7 +29067,7 @@
     },
     "/api/v1/requests": {
       "get": {
-        "description": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to narrow the window inside the range. An invalid status filter or cursor answers 422. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to narrow the window inside the range. An invalid status filter, filter condition or cursor answers 422. filter: Repeatable field:op:value conditions, the Explore URL scheme. Fields and operators: path, url, consumer, consumer_group, ip, user_agent and trace_id take eq, neq, contains and ncontains; method, app, env and status take eq and neq (status values are codes 404, classes 4xx or ranges 500-503); latency (ms), request_size and response_size (bytes) take gt (at least), lt (at most) and between (a-b); payload takes contains; sampled takes eq true or false. The values of one field's eq or contains are alternatives; its neq and ncontains values are all excluded; everything else is ANDed. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-requests",
         "parameters": [
           {
@@ -29241,6 +29310,23 @@
             }
           },
           {
+            "description": "Repeatable field:op:value conditions, as the operation describes.",
+            "explode": true,
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "description": "Repeatable field:op:value conditions, as the operation describes.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
             "description": "next_cursor of the previous page; omitted means the first page.",
             "explode": false,
             "in": "query",
@@ -29319,6 +29405,174 @@
           }
         ],
         "summary": "Request log: filtered requests, newest first, with cursor pagination",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/requests/facets": {
+      "get": {
+        "description": "How many requests of the range carry each value of field (status code, method, app id, environment, route template, consumer id or consumer group), most first, at most limit values. Takes the filters of list-requests; the filter conditions on field itself are left out, so every value of the field is counted under the other filters. search narrows path, consumer and consumer_group to values containing it, ignoring case. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-request-facets",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The field to count values of.",
+            "explode": false,
+            "in": "query",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "description": "The field to count values of.",
+              "enum": [
+                "status",
+                "method",
+                "app",
+                "env",
+                "path",
+                "consumer",
+                "consumer_group"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only values containing this text, ignoring case (path, consumer and consumer_group).",
+            "explode": false,
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "description": "Only values containing this text, ignoring case (path, consumer and consumer_group).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most values to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Most values to list.",
+              "format": "int64",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Start of the window (RFC 3339, inclusive); clamped to the range.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of the window (RFC 3339, inclusive); clamped to the range.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of the window (RFC 3339, exclusive); clamped to the range.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of the window (RFC 3339, exclusive); clamped to the range.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "field:op:value conditions, as in GET /api/v1/requests; those on field are left out.",
+            "explode": true,
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "description": "field:op:value conditions, as in GET /api/v1/requests; those on field are left out.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestFacetsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Request facets: requests per value of one field of the filtered request log",
         "tags": [
           "Dashboard"
         ]
@@ -29435,7 +29689,7 @@
     },
     "/api/v1/requests/timeline": {
       "get": {
-        "description": "The same filters as list-requests, counted per bucket by status class, for the timeline above the log. Every bucket of the window is listed, empty ones with zeros. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "The same filters as list-requests, counted per bucket by status class, for the timeline above the log. Every bucket of the window is listed, empty ones with zeros. filter: Repeatable field:op:value conditions, the Explore URL scheme. Fields and operators: path, url, consumer, consumer_group, ip, user_agent and trace_id take eq, neq, contains and ncontains; method, app, env and status take eq and neq (status values are codes 404, classes 4xx or ranges 500-503); latency (ms), request_size and response_size (bytes) take gt (at least), lt (at most) and between (a-b); payload takes contains; sampled takes eq true or false. The values of one field's eq or contains are alternatives; its neq and ncontains values are all excluded; everything else is ANDed. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-request-timeline",
         "parameters": [
           {
@@ -29684,6 +29938,49 @@
               "enum": [
                 "true",
                 "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "trace_id",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": true,
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Bucket width: minute, hour or day. Omitted, or when it would draw more than 1440 bars, the finest width that draws the window in at most 100 bars.",
+            "explode": false,
+            "in": "query",
+            "name": "bucket",
+            "schema": {
+              "description": "Bucket width: minute, hour or day. Omitted, or when it would draw more than 1440 bars, the finest width that draws the window in at most 100 bars.",
+              "enum": [
+                "minute",
+                "hour",
+                "day"
               ],
               "type": "string"
             }

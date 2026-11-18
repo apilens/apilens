@@ -36,25 +36,26 @@ const maxStatusTerms = 20
 
 type requestsInput struct {
 	RangeInput
-	App             string  `query:"app" format:"uuid" doc:"Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing."`
-	ConsumerID      string  `query:"consumer_id" maxLength:"256" doc:"Only requests from this consumer: its id or its name, exactly."`
-	ConsumerGroup   string  `query:"consumer_group" maxLength:"256" doc:"Only requests from consumers of this group."`
-	IP              string  `query:"ip" maxLength:"64" doc:"Only requests from this client IP address (exact match)."`
-	Method          string  `query:"method" pattern:"^[A-Za-z]{1,16}$" doc:"Only requests with this HTTP method (case-insensitive)."`
-	Path            string  `query:"path" maxLength:"1024" doc:"Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or <param>) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests."`
-	URLContains     string  `query:"url_contains" maxLength:"1024" doc:"Only requests whose raw URL path (with query string) contains this text, ignoring case."`
-	PayloadContains string  `query:"payload_contains" maxLength:"1024" doc:"Only requests whose request or response body contains this text, ignoring case. Bodies are only kept for sampled requests with body capture on."`
-	RequestSizeMin  uint64  `query:"request_size_min" doc:"Only requests with a request body of at least this many bytes."`
-	RequestSizeMax  uint64  `query:"request_size_max" doc:"Only requests with a request body of at most this many bytes."`
-	ResponseSizeMin uint64  `query:"response_size_min" doc:"Only requests with a response body of at least this many bytes."`
-	ResponseSizeMax uint64  `query:"response_size_max" doc:"Only requests with a response body of at most this many bytes."`
-	Status          string  `query:"status" maxLength:"256" default:"all" doc:"Comma-separated status codes (404), classes (4xx) and inclusive ranges (500-503); a request matches when its status matches any term. all (the default) means every status."`
-	LatencyMin      float64 `query:"latency_min" minimum:"0" doc:"Only requests that took at least this many milliseconds."`
-	LatencyMax      float64 `query:"latency_max" minimum:"0" doc:"Only requests that took at most this many milliseconds."`
-	Sampled         string  `query:"sampled" enum:"true,false" doc:"Only requests the SDK kept in full (true) or sampled out to a base record (false); omitted means both."`
-	TraceID         string  `query:"trace_id" maxLength:"64" doc:"Only requests of this trace."`
-	Cursor          string  `query:"cursor" maxLength:"256" doc:"next_cursor of the previous page; omitted means the first page."`
-	Limit           int     `query:"limit" minimum:"1" maximum:"200" default:"100" doc:"Page size."`
+	App             string   `query:"app" format:"uuid" doc:"Only requests served by this app (id); empty means every app of the project. An app of another project matches nothing."`
+	ConsumerID      string   `query:"consumer_id" maxLength:"256" doc:"Only requests from this consumer: its id or its name, exactly."`
+	ConsumerGroup   string   `query:"consumer_group" maxLength:"256" doc:"Only requests from consumers of this group."`
+	IP              string   `query:"ip" maxLength:"64" doc:"Only requests from this client IP address (exact match)."`
+	Method          string   `query:"method" pattern:"^[A-Za-z]{1,16}$" doc:"Only requests with this HTTP method (case-insensitive)."`
+	Path            string   `query:"path" maxLength:"1024" doc:"Route template, e.g. /orders/{id}, matched exactly. A value that is not a template (no {param}, :param or <param>) also matches requests whose raw URL path contains it, ignoring case, so a URL copied from the log finds its requests."`
+	URLContains     string   `query:"url_contains" maxLength:"1024" doc:"Only requests whose raw URL path (with query string) contains this text, ignoring case."`
+	PayloadContains string   `query:"payload_contains" maxLength:"1024" doc:"Only requests whose request or response body contains this text, ignoring case. Bodies are only kept for sampled requests with body capture on."`
+	RequestSizeMin  uint64   `query:"request_size_min" doc:"Only requests with a request body of at least this many bytes."`
+	RequestSizeMax  uint64   `query:"request_size_max" doc:"Only requests with a request body of at most this many bytes."`
+	ResponseSizeMin uint64   `query:"response_size_min" doc:"Only requests with a response body of at least this many bytes."`
+	ResponseSizeMax uint64   `query:"response_size_max" doc:"Only requests with a response body of at most this many bytes."`
+	Status          string   `query:"status" maxLength:"256" default:"all" doc:"Comma-separated status codes (404), classes (4xx) and inclusive ranges (500-503); a request matches when its status matches any term. all (the default) means every status."`
+	LatencyMin      float64  `query:"latency_min" minimum:"0" doc:"Only requests that took at least this many milliseconds."`
+	LatencyMax      float64  `query:"latency_max" minimum:"0" doc:"Only requests that took at most this many milliseconds."`
+	Sampled         string   `query:"sampled" enum:"true,false" doc:"Only requests the SDK kept in full (true) or sampled out to a base record (false); omitted means both."`
+	TraceID         string   `query:"trace_id" maxLength:"64" doc:"Only requests of this trace."`
+	Filter          []string `query:"filter,explode" maxItems:"50" doc:"Repeatable field:op:value conditions, as the operation describes."`
+	Cursor          string   `query:"cursor" maxLength:"256" doc:"next_cursor of the previous page; omitted means the first page."`
+	Limit           int      `query:"limit" minimum:"1" maximum:"200" default:"100" doc:"Page size."`
 
 	// A narrower window inside the range: the Explore timeline's zoom and jump (#587).
 	From time.Time `query:"from" doc:"Only requests at or after this time (RFC 3339); clamped to the range."`
@@ -279,6 +280,12 @@ func requestFilter(in *requestsInput, clauses []string, args []any) ([]string, [
 			args = append(args, r.lo, r.hi)
 		}
 		clauses = append(clauses, "("+strings.Join(or, " OR ")+")")
+	}
+	if len(in.Filter) > 0 {
+		var err error
+		if clauses, args, err = conditionFilter(in.Filter, clauses, args); err != nil {
+			return nil, nil, err
+		}
 	}
 	if in.Cursor != "" {
 		c, err := decodeRequestCursor(in.Cursor)

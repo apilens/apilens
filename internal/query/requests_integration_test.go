@@ -107,6 +107,23 @@ func TestRequestLogFilters(t *testing.T) {
 		{"sampled true", "sampled=true&method=PUT", []string{"/payments/10"}},
 		{"trace_id", "trace_id=aaaa0000000000000000000000000004", []string{"/orders"}},
 		{"combined", "consumer_group=pro&status=4xx&latency_max=10", []string{"/orders/2"}},
+		{"filter status neq", "filter=" + url.QueryEscape("status:neq:5xx"), []string{"/orders/1?expand=items", "/orders/2", "/orders", "/orders"}},
+		{"filter status eq alternatives", "filter=" + url.QueryEscape("status:eq:404") + "&" + "filter=" + url.QueryEscape("status:eq:500"), []string{"/orders/2", "/payments/9"}},
+		{"filter method neq", "filter=" + url.QueryEscape("method:neq:get"), []string{"/orders", "/orders", "/payments/9", "/payments/10"}},
+		{"filter path contains", "filter=" + url.QueryEscape("path:contains:PAY"), []string{"/payments/9", "/payments/10"}},
+		{"filter path ncontains", "filter=" + url.QueryEscape("path:ncontains:orders"), []string{"/payments/9", "/payments/10"}},
+		{"filter path neq template", "filter=" + url.QueryEscape("path:neq:/orders/{id}"), []string{"/orders", "/orders", "/payments/9", "/payments/10"}},
+		{"filter consumer eq", "filter=" + url.QueryEscape("consumer:eq:alice"), []string{"/orders/1?expand=items", "/orders"}},
+		{"filter consumer neq", "filter=" + url.QueryEscape("consumer:neq:bob") + "&" + "filter=" + url.QueryEscape("consumer:neq:alice"), []string{"/orders", "/payments/10"}},
+		{"filter url contains", "filter=" + url.QueryEscape("url:contains:expand"), []string{"/orders/1?expand=items"}},
+		{"filter ip neq", "filter=" + url.QueryEscape("ip:neq:10.0.0.1"), []string{"/orders/2", "/orders", "/payments/9", "/payments/10"}},
+		{"filter trace_id", "filter=" + url.QueryEscape("trace_id:eq:aaaa0000000000000000000000000004"), []string{"/orders"}},
+		{"filter latency between", "filter=" + url.QueryEscape("latency:between:10-120"), []string{"/orders/1?expand=items", "/orders", "/orders"}},
+		{"filter latency gt", "filter=" + url.QueryEscape("latency:gt:900"), []string{"/payments/9", "/payments/10"}},
+		{"filter response_size lt", "filter=" + url.QueryEscape("response_size:lt:64"), []string{"/orders/2", "/payments/9", "/payments/10"}},
+		{"filter payload", "filter=" + url.QueryEscape("payload:contains:red-shoe"), []string{"/orders/1?expand=items"}},
+		{"filter sampled", "filter=" + url.QueryEscape("sampled:eq:false"), []string{"/payments/9"}},
+		{"filter with legacy", "filter=" + url.QueryEscape("status:eq:4xx") + "&consumer_group=pro", []string{"/orders/2", "/orders"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var out requestLog
@@ -131,7 +148,9 @@ func TestRequestLogFilters(t *testing.T) {
 		t.Fatalf("row = %+v", r)
 	}
 
-	for _, bad := range []string{"status=6xx", "status=" + url.QueryEscape("503-500"), "cursor=" + url.QueryEscape("%%"), "limit=201", "sampled=maybe", "method=" + url.QueryEscape("G T")} {
+	for _, bad := range []string{"status=6xx", "status=" + url.QueryEscape("503-500"), "cursor=" + url.QueryEscape("%%"), "limit=201", "sampled=maybe", "method=" + url.QueryEscape("G T"),
+		"filter=" + url.QueryEscape("nope:eq:1"), "filter=" + url.QueryEscape("method:contains:G"), "filter=" + url.QueryEscape("status:eq:7xx"),
+		"filter=" + url.QueryEscape("app:eq:not-a-uuid"), "filter=" + url.QueryEscape("latency:between:9-1"), "filter=status"} {
 		if code := get(mine.ReadKey, "/api/v1/requests?range=1h&"+bad, nil); code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: status %d, want 422", bad, code)
 		}
