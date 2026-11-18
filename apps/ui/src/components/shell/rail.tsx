@@ -125,11 +125,9 @@ export function Rail({
         </nav>
         {drawer ? null : (
           <div className="rl-foot">
-            <button ref={controlRef} type="button" className={`rl-item rl-control${control ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={control} aria-label="Sidebar control" data-tip={tips && mode === "collapsed" && !control ? "Sidebar control" : undefined} onClick={() => setControl((c) => !c)}>
-              <span className="rl-ic">
-                <RailIcon name="panel" />
-              </span>
-              <span className="rl-lb">Sidebar control</span>
+            {/* Supabase's control is an icon-only tiny text Button (Sidebar.tsx:117-122), no label. */}
+            <button ref={controlRef} type="button" className={`rl-control${control ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={control} aria-label="Sidebar control" data-tip={tips && mode === "collapsed" && !control ? "Sidebar control" : undefined} onClick={() => setControl((c) => !c)}>
+              <RailIcon name="panel" />
             </button>
             <PopMenu open={control} onClose={() => setControl(false)} triggerRef={controlRef} label="Sidebar control" align="side-up">
               <p className="menu-label">Sidebar control</p>

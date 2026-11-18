@@ -30,8 +30,8 @@
 .ca-confirm { padding: var(--space-3) 12px var(--space-3); border-top: 1px solid var(--border); }
 .ca-confirm p { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ca-confirm .row { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-3); }
-.ca-btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
-.ca-btn-danger:hover { filter: brightness(1.08); }
+.ca-btn-danger { background: var(--error); border-color: var(--error); color: var(--on-accent); } /* Supabase danger, Button.tsx:80-88 */
+.ca-btn-danger:hover { background: color-mix(in srgb, var(--error) 88%, var(--ink)); }
 .ca .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 .ca-confirm .ah-btn.is-loading:disabled { opacity: 1; }
 

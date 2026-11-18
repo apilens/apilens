@@ -127,7 +127,7 @@ export function OrgSelector({ orgs, org }: { orgs: ContextOrg[]; org: ContextOrg
       name={`${org.name}, ${roleLabel(org.role)}. Organization menu`}
       trigger={
         <>
-          <span className="st-mark">{orgMark(org)}</span>
+          <Icon name="boxes" />
           <span className="tb-name">{org.name}</span>
           <span className="tb-badge">{roleLabel(org.role)}</span>
         </>
@@ -158,7 +158,12 @@ export function ProjectSelector({ org, project, view }: { org: ContextOrg; proje
       meta={(p) => plural(p.app_count, "app")}
       mark={(p) => p.name[0].toUpperCase()}
       name={`Project ${project.name}. Switch project`}
-      trigger={<span className="tb-name">{project.name}</span>}
+      trigger={
+        <>
+          <Icon name="box" />
+          <span className="tb-name">{project.name}</span>
+        </>
+      }
       footer={(close) => (
         <>
           <MenuLink href={orgHref(org.slug)} icon="grid" onClick={close}>
