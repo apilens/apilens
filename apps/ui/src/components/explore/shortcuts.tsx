@@ -7,8 +7,7 @@ const KEYS: [string, string][] = [
   ["↑ ↓ or k j", "Move the open row"],
   ["Shift ↑ ↓", "Extend the selection"],
   ["Enter", "Open the focused row"],
-  ["Esc", "Close the panel, then clear the selection"],
-  ["⌘ B", "Show or hide the filters"],
+  ["Esc", "Close the drawer, then clear the selection"],
   ["Shift F", "Focus the filter bar"],
   ["F then C", "Clear filters"],
   ["⌘ J", "Pause or resume Live"],
@@ -26,7 +25,7 @@ export function Shortcuts() {
         ref={trigger}
         id="ex-shortcuts"
         type="button"
-        className="ex-tbtn ex-tbtn--icon"
+        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Keyboard shortcuts"

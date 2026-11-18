@@ -35,7 +35,7 @@ export function ColumnsMenu({ prefs, auto, onPrefs }: { prefs: ColumnPrefs; auto
 
   return (
     <>
-      <button ref={trigger} type="button" className="ex-tbtn" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} title="Columns">
+      <button ref={trigger} type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} title="Columns">
         <svg viewBox="0 0 16 16" aria-hidden="true" className="ex-tbtn__icon">
           <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5" />
           <path d="M6.25 2.75v10.5M9.75 2.75v10.5" />

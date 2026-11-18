@@ -79,7 +79,7 @@ export function ExportMenu({ project, query: q, rangeLabel }: { project: string;
       <button
         ref={trigger}
         type="button"
-        className="ex-tbtn"
+        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {

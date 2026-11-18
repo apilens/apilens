@@ -2,10 +2,11 @@
 
 import { type FormEvent, type KeyboardEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { METHODS } from "@/lib/explore-filters";
-import { type Cond, FIELDS, type FieldKey, OP_LABEL, type Op, condWords, dedupe, fieldDef, makeCond, typedCond, valueText } from "@/lib/explore-query";
+import { type Cond, type ExploreQuery, FIELDS, type FieldKey, OP_LABEL, type Op, condWords, dedupe, fieldDef, makeCond, parseDuration, typedCond, typedTime, valueText } from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
 import { PopMenu } from "../pop-menu";
 import { useAppNames } from "./app-names";
+import { type RangePick, TimePill } from "./range-menu";
 
 type Option = { key: string; text: string; detail?: string; run: () => void };
 type Editing = { index: number | null; field: FieldKey; op: Op; value: string };
@@ -18,15 +19,24 @@ const STATUS_SUGGEST = ["2xx", "3xx", "4xx", "5xx", "400", "401", "403", "404", 
  * removes the last one. Focusing the input lists the fields to filter by; typed text becomes a
  * condition on Enter (`status:500`, `method != GET`, `latency > 500`), anything else a path
  * `contains`. The facets edit the same list, so ticking a value adds its `=` pill.
+ *
+ * The time range is the box's first pill (#1061, as Supabase's LogsFilterBar keeps its `date`
+ * condition in the FilterBar): click it for the date picker, or type `time:2h` / `date:24h`.
+ * Markup and sizes after ui-patterns FilterBar (FilterBar.tsx:61-98, FilterCondition.tsx:278-488):
+ * a bordered box with a 16px search icon, 26px pills, 12px text.
  */
 export function PillBar({
   conds,
   onChange,
+  query,
+  onRange,
   inputRef,
   apps,
   environments,
 }: {
   conds: Cond[];
+  query: ExploreQuery;
+  onRange: (r: RangePick) => void;
   onChange: (conds: Cond[]) => void;
   inputRef: RefObject<HTMLInputElement | null>;
   apps: readonly NamedApp[] | null;
@@ -50,9 +60,21 @@ export function PillBar({
   };
 
   const t = text.trim();
-  const typed = t ? typedCond(t) : null;
+  const time = t ? typedTime(t, Date.now()) : null;
+  const typed = t && !time && !/^(time|date)\s*[:=]/i.test(t) ? typedCond(t) : null;
   const options: Option[] = [];
-  if (t && typed) {
+  if (time) {
+    const d = parseDuration(t.replace(/^(time|date)\s*[:=]\s*/i, ""));
+    options.push({
+      key: "time",
+      text: `Time range: ${d?.words ?? t}`,
+      detail: "Enter",
+      run: () => {
+        onRange(time);
+        setText("");
+      },
+    });
+  } else if (t && typed) {
     options.push({
       key: "typed",
       text: typed.field === "path" && typed.op === "contains" && !/^path\b/i.test(t) ? `Path contains “${typed.value}”` : condWords(typed, names),
@@ -62,6 +84,9 @@ export function PillBar({
         setText("");
       },
     });
+  }
+  if (!t || "time range".includes(t.toLowerCase()) || "date".startsWith(t.toLowerCase())) {
+    options.push({ key: "time-range", text: "Time range", detail: "time:2h", run: () => setText("time:") });
   }
   for (const f of FIELDS) {
     if (t && !f.label.toLowerCase().includes(t.toLowerCase()) && !f.key.includes(t.toLowerCase())) continue;
@@ -91,18 +116,21 @@ export function PillBar({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const o = menu ? options[at] : typed ? options[0] : undefined;
+      const o = menu ? options[at] : typed || time ? options[0] : undefined;
       o?.run();
     }
   };
 
   return (
     <div className="exp" ref={bar}>
-      <svg className="exp-icon" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M2.5 3.5h11l-4.25 5v4l-2.5 1v-5z" />
-      </svg>
-      {conds.length ? (
-        <ul className="exp-pills" aria-label="Active filters">
+      <span className="exp-lead" aria-hidden="true" onClick={() => inputRef.current?.focus()}>
+        <svg className="exp-icon" viewBox="0 0 16 16">
+          <circle cx="7" cy="7" r="4.75" />
+          <path d="M10.5 10.5L14 14" />
+        </svg>
+      </span>
+      <ul className="exp-pills" aria-label="Active filters">
+          <TimePill query={query} onRange={onRange} />
           {conds.map((c, i) => {
             const words = condWords(c, names);
             return (
@@ -120,8 +148,7 @@ export function PillBar({
               </li>
             );
           })}
-        </ul>
-      ) : null}
+      </ul>
       <div className="exp-field">
         <input
           ref={inputRef}
@@ -133,7 +160,7 @@ export function PillBar({
           aria-controls={`${id}-menu`}
           aria-autocomplete="list"
           aria-activedescendant={menu && options[at] ? `${id}-o-${options[at].key}` : undefined}
-          placeholder={conds.length ? "Add filter…" : "Filter by path, status, consumer… (Shift+F)"}
+          placeholder={conds.length ? "Add filter…" : "Search or filter… (Shift+F)"}
           value={text}
           spellCheck={false}
           autoComplete="off"

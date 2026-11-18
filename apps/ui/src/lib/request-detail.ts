@@ -7,7 +7,8 @@ import { zoneLabel, zoned } from "./time-zone";
 
 /** The drawer's tabs, in order. */
 export const DRAWER_TABS = [
-  { slug: "overview", label: "Overview" },
+  { slug: "request", label: "Request" },
+  { slug: "response", label: "Response" },
   { slug: "timeline", label: "Timeline" },
   { slug: "consumer", label: "Consumer" },
   { slug: "raw", label: "Raw" },

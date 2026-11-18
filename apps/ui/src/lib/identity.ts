@@ -2347,32 +2347,6 @@ export interface PutEndpointSettingsRequest {
   excluded: boolean;
 }
 
-/** A saved view's dashboard surface (#578). */
-export type ViewSurface = "explore" | "endpoints" | "errors" | "performance" | "consumers" | "apps";
-
-/**
- * `GET|POST /projects/{slug}/views`, `GET|PUT|DELETE /projects/{slug}/views/{id}` (#578): a named
- * filter set of one surface. Shared views are listed for everyone who can view the project.
- */
-export interface SavedView {
-  id: string;
-  name: string;
-  surface: ViewSurface;
-  /** The surface's filter state, opaque to the server. */
-  filter: Record<string, unknown>;
-  shared: boolean;
-  /** Null once the creator's user is gone. */
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SavedViewBody {
-  name: string;
-  filter: Record<string, unknown>;
-  shared: boolean;
-}
-
 /**
  * The body of `POST /projects/{project}/exports` (#579): the request log filter of an export, the
  * fields meaning what the query parameters of `GET /requests` mean. `{}` exports the last 24 hours.
@@ -2875,16 +2849,6 @@ export function createClient(config: ClientConfig) {
       request<PrivacyPolicy>("GET", `/projects/${seg(projectSlug)}/privacy-policy`, o),
     putPrivacyPolicy: (projectSlug: string, body: PutPrivacyPolicyRequest, o: Authed) =>
       request<PrivacyPolicy>("PUT", `/projects/${seg(projectSlug)}/privacy-policy`, { ...o, body }),
-
-    // query: saved views (#578), the Explore view switcher (#589) ------------------------
-    listSavedViews: (projectSlug: string, surface: ViewSurface, o: Authed) =>
-      request<{ views: SavedView[] | null }>("GET", `/projects/${seg(projectSlug)}/views`, { ...o, query: { surface } }),
-    createSavedView: (projectSlug: string, body: SavedViewBody & { surface: ViewSurface }, o: Authed) =>
-      request<SavedView>("POST", `/projects/${seg(projectSlug)}/views`, { ...o, body }),
-    updateSavedView: (projectSlug: string, id: string, body: SavedViewBody, o: Authed) =>
-      request<SavedView>("PUT", `/projects/${seg(projectSlug)}/views/${seg(id)}`, { ...o, body }),
-    deleteSavedView: (projectSlug: string, id: string, o: Authed) =>
-      request<void>("DELETE", `/projects/${seg(projectSlug)}/views/${seg(id)}`, o),
 
     // query: request log exports (#579) -----------------------------------------------------
     createRequestExport: (projectSlug: string, body: ExportFilterBody, o: Authed) =>

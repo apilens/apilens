@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { rowKey } from "@/lib/explore";
 import { type ColumnId, type ColumnPrefs, DEFAULT_PREFS, autoHidden, isPrefs, readPrefs } from "@/lib/explore-columns";
 import { exportFileName, neighborId, rangeKeys, toCsv, toJson, windowAround } from "@/lib/explore-detail";
@@ -20,7 +21,7 @@ import {
 } from "@/lib/explore-query";
 import { logPoll } from "@/lib/explore";
 import { timelinePoll } from "@/lib/explore-timeline";
-import type { NamedApp, RequestRow, RequestTimeline, SavedView } from "@/lib/identity";
+import type { NamedApp, RequestRow, RequestTimeline } from "@/lib/identity";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { ObIcon } from "../onboarding/ob";
 import { AppNamesProvider } from "./app-names";
@@ -28,18 +29,17 @@ import { ColumnsMenu } from "./columns-menu";
 import { download, ExportMenu } from "./export-dialog";
 import { filterActions } from "./field-actions";
 import { FieldMenu } from "./field-menu";
-import { FACETS_MIN, FacetPanel, FacetSidebar } from "./facets";
+import { FacetPanel } from "./facets";
 import { LogTable } from "./log-table";
 import { PillBar } from "./pill-bar";
-import { RangeMenu } from "./range-menu";
-import { type Dock, PanelFrame, RequestPanel } from "./request-panel";
-import { SavedViews, ViewPrompt, ViewSwitcher } from "./saved-views";
+import { RequestDrawer, RequestPanel } from "./request-panel";
 import { Shortcuts } from "./shortcuts";
+import { FACETS_ACTIONS_ID, FACETS_SLOT_ID } from "./slots";
 import { StatusChart } from "./status-chart";
-import { isBool, isNum, useStored } from "./use-stored";
+import { useStored } from "./use-stored";
 
-/** Under this viewport width the facets open as a bottom sheet. */
-const SHEET_BELOW = 760;
+/** At and under this viewport width the shell's sidebar (and so the facets) sits in its drawer (shell.css). */
+const DRAWER_AT = 860;
 /** How many of its own URL writes the page recognises when the server answers with them. */
 const SENT_KEPT = 8;
 /** How long after F the C of "F then C" (clear filters) counts. */
@@ -48,7 +48,7 @@ const CHORD_MS = 1000;
 function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
-    const m = window.matchMedia(`(max-width: ${SHEET_BELOW - 1}px)`);
+    const m = window.matchMedia(`(max-width: ${DRAWER_AT}px)`);
     const read = () => setNarrow(m.matches);
     read();
     m.addEventListener("change", read);
@@ -57,9 +57,12 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-const isDock = (v: unknown): v is Dock => v === "right" || v === "bottom";
-const isSizes = (v: unknown): v is Record<Dock, number> =>
-  typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).right === "number" && typeof (v as Record<string, unknown>).bottom === "number";
+/** An element of the shell's Explore sidebar (ExploreMenu) to portal into, once mounted. */
+function useSlot(id: string): HTMLElement | null {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => setEl(document.getElementById(id)), [id]);
+  return el;
+}
 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
@@ -67,12 +70,15 @@ const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isCon
 const dataUrl = (project: string, q: ExploreQuery) => exploreUrl(project, { ...q, id: undefined });
 
 /**
- * Explore (#585, revamped after Supabase Unified Logs in #1052): a full-height page of a facet
- * sidebar, one toolbar row, a 60px status chart and the request table. The state (range or window,
- * conditions) lives here and in the URL: a change shows at once, and the URL follows 250ms later
- * (replace, so typing does not fill the history), which reads the rows again on the server while
- * the chart and table fade. Live (on by default) reads newer rows every 10 s; picking a range
- * pauses it. Keyboard: Shift+F the filter bar, F then C clears filters, ⌘B the sidebar, ⌘J Live,
+ * Explore (#585, revamped after Supabase Unified Logs in #1052 and #1061): the facets in the
+ * shell's secondary sidebar (portalled into ExploreMenu's slots), then a full-height page of one
+ * toolbar row (UnifiedLogs.tsx:688 `flex flex-wrap items-center gap-2 px-2 border-b`: the filter
+ * box with the time range in it, then Refresh, Columns, Export, shortcuts and Live), the 60px chart
+ * and the request table; a request opens in a drawer over the page from the right. The state
+ * (range or window, conditions) lives here and in the URL: a change shows at once, and the URL
+ * follows 250ms later (replace, so typing does not fill the history), which reads the rows again
+ * on the server while the chart and table fade. Live (on by default) reads newer rows every 10 s;
+ * picking a range pauses it. Keyboard: Shift+F the filter bar, F then C clears filters, ⌘J Live,
  * ⌘U resets the columns.
  */
 export function ExploreApp({
@@ -83,8 +89,6 @@ export function ExploreApp({
   rows: initialRows,
   cursor: initialCursor,
   timeline: initialTimeline,
-  views,
-  me,
   now: serverNow,
   notice,
 }: {
@@ -95,8 +99,6 @@ export function ExploreApp({
   rows: RequestRow[] | null;
   cursor: string;
   timeline: RequestTimeline | null;
-  views: SavedView[] | null;
-  me: string;
   now: number;
   notice?: ReactNode;
 }) {
@@ -124,11 +126,8 @@ export function ExploreApp({
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
-  const [dock, setDock] = useStored<Dock>("apilens.explore.panel.dock", "right", isDock);
-  const [sizes, setSizes] = useStored<Record<Dock, number>>("apilens.explore.panel.size", { right: 480, bottom: 400 }, isSizes);
-  const [sheet, setSheet] = useState(false);
-  const [sideOpen, setSideOpen] = useStored("apilens.explore.facets.shown", true, isBool);
-  const [sideWidth, setSideWidth] = useStored("apilens.explore.facets.width", FACETS_MIN, isNum);
+  const facetSlot = useSlot(FACETS_SLOT_ID);
+  const actionSlot = useSlot(FACETS_ACTIONS_ID);
   const [storedPrefs, setPrefs] = useStored<ColumnPrefs>("apilens.explore.columns", DEFAULT_PREFS, isPrefs);
   const prefs = readPrefs(storedPrefs);
 
@@ -340,11 +339,7 @@ export function ExploreApp({
       const mod = e.metaKey || e.ctrlKey;
       if (mod && !e.shiftKey && !e.altKey) {
         const k = e.key.toLowerCase();
-        if (k === "b") {
-          e.preventDefault();
-          if (narrow) setSheet((s) => !s);
-          else setSideOpen((o) => !o);
-        } else if (k === "j") {
+        if (k === "j") {
           e.preventDefault();
           toggleLive();
         } else if (k === "u") {
@@ -396,177 +391,172 @@ export function ExploreApp({
 
   return (
     <AppNamesProvider apps={apps}>
-      <SavedViews project={project} me={me} conds={q.conds} apply={setConds} initial={views}>
-        <div className="exr">
-          {!narrow && sideOpen ? (
-            <FacetSidebar width={sideWidth} onWidth={setSideWidth}>
-              {facets}
-            </FacetSidebar>
-          ) : null}
-          <div className="exr-main">
-            <div className="exr-title">
-              <h1>Explore</h1>
+      {facetSlot ? createPortal(facets, facetSlot) : null}
+      {actionSlot && q.conds.length
+        ? createPortal(
+            <button type="button" className="exf-reset" onClick={() => setConds([])} title="Clear filters (F then C)">
+              Reset
+            </button>,
+            actionSlot,
+          )
+        : null}
+      <div className="exr">
+        <div className="exr-main">
+          {notice}
+          <div className="exr-tools" role="toolbar" aria-label="Explore">
+            <div className="exr-filter">
+              <PillBar conds={q.conds} onChange={setConds} query={q} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
             </div>
-            {notice}
-            <div className="exr-tools" role="toolbar" aria-label="Explore">
-              {narrow ? (
-                <button type="button" className="ex-tbtn" aria-haspopup="dialog" aria-expanded={sheet} onClick={() => setSheet(true)}>
-                  Filters{q.conds.length ? ` (${q.conds.length})` : ""}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="ex-tbtn ex-tbtn--icon"
-                  aria-pressed={sideOpen}
-                  aria-label={sideOpen ? "Hide filters" : "Show filters"}
-                  title={`${sideOpen ? "Hide" : "Show"} filters (⌘B)`}
-                  onClick={() => setSideOpen((o) => !o)}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true" className="ex-tbtn__icon">
-                    <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5" />
-                    <path d="M6.25 2.75v10.5" />
-                  </svg>
-                </button>
-              )}
-              <RangeMenu query={q} onRange={setRange} />
-              <PillBar conds={q.conds} onChange={setConds} inputRef={filterInput} apps={apps} environments={environments} />
-              <div className="exr-tools__end">
-                <button type="button" className="ex-tbtn ex-tbtn--icon" aria-label="Refresh" title="Refresh" onClick={reload}>
-                  <svg viewBox="0 0 16 16" aria-hidden="true" className={`ex-tbtn__icon${pending ? " is-spinning" : ""}`}>
-                    <path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.75v3h-3" />
-                  </svg>
-                </button>
-                <ViewSwitcher />
-                <ColumnsMenu prefs={prefs} auto={auto} onPrefs={setPrefs} />
-                <ExportMenu project={project} query={q} rangeLabel={rangeText(q, tz)} />
-                <Shortcuts />
-                <button
-                  type="button"
-                  className={`ex-tbtn exr-live${liveOn ? " is-on" : ""}`}
-                  aria-pressed={liveOn}
-                  title={`${liveOn ? "Pause" : "Resume"} live updates (⌘J)`}
-                  onClick={toggleLive}
-                >
-                  <span className="exr-live__dot" aria-hidden="true" />
-                  Live
-                </button>
-              </div>
-            </div>
-            {!liveOn && canLive && !stale ? (
-              <p className="exr-paused" role="status">
-                Live paused.{" "}
-                <button type="button" className="exf-link" onClick={goLive}>
-                  Back to live
-                </button>
-              </p>
-            ) : !canLive ? (
-              <p className="exr-paused" role="status">
-                Showing a past window.{" "}
-                <button type="button" className="exf-link" onClick={goLive}>
-                  Back to live
-                </button>
-              </p>
+            {narrow ? (
+              // Phones: the facets are in the shell's drawer, under the page links.
+              <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" aria-haspopup="dialog" onClick={() => document.querySelector<HTMLButtonElement>(".tb-menu")?.click()}>
+                Filters{q.conds.length ? ` (${q.conds.length})` : ""}
+              </button>
             ) : null}
-            {pollFailed && rows !== null && rows.length > 0 ? (
-              <p className="exr-banner" role="status">
-                Couldn’t refresh. These are the last rows we read.{" "}
-                <button type="button" className="exf-link" onClick={reload}>
-                  Retry
-                </button>
-              </p>
-            ) : null}
-            <div className={`exr-work exr-work--${dock}`}>
-            <div className={`exr-data${stale ? " is-stale" : ""}`} aria-busy={stale || undefined}>
-              <StatusChart timeline={timeline} shown={shownClasses(q.conds)} onRange={(from, to) => setRange({ range: q.range, from, to })} />
-              {rows === null && !stale ? (
-                <div className="ex-notice ex-notice--error" role="alert">
-                  <ObIcon name="info" />
-                  <p>
-                    We couldn’t load requests just now.{" "}
-                    <button type="button" className="exf-link" onClick={reload}>
-                      Retry
-                    </button>
-                  </p>
-                </div>
-              ) : rows !== null && rows.length === 0 && !stale ? (
-                <div className="exr-empty" role="status">
-                  {query.conds.length ? (
+            <div className="exr-tools__end">
+              {/* Supabase's RefreshButton (DataTable/RefreshButton.tsx:34-41): tiny, 26px wide, RefreshCcw, LoaderCircle spinning while loading. */}
+              <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>
+                {pending ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="ex-tbtn__icon is-spinning">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="ex-tbtn__icon">
+                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                    <path d="M16 16h5v5" />
+                  </svg>
+                )}
+              </button>
+              <ColumnsMenu prefs={prefs} auto={auto} onPrefs={setPrefs} />
+              <ExportMenu project={project} query={q} rangeLabel={rangeText(q, tz)} />
+              <Shortcuts />
+              {/* Supabase's LiveButton (DataTable/LiveButton.tsx:68-77): tiny, primary when live and default when not, CirclePause / CirclePlay at 16px, "Live". */}
+              <button
+                type="button"
+                className={`ah-btn ah-btn--sm ex-tbtn exr-live${liveOn ? " ah-btn--primary is-on" : " ah-btn--secondary"}`}
+                aria-pressed={liveOn}
+                title={`${liveOn ? "Pause live mode" : "Start live mode"} (⌘J)`}
+                onClick={toggleLive}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="exr-live__icon">
+                  <circle cx="12" cy="12" r="10" />
+                  {liveOn ? (
                     <>
-                      <p className="exr-empty__title">No requests match these filters</p>
-                      <p>In {rangeSentence(query, tz)}.</p>
-                      <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => setConds([])}>
-                        Clear filters
-                      </button>
+                      <path d="M10 15V9" />
+                      <path d="M14 15V9" />
                     </>
                   ) : (
-                    <>
-                      <p className="exr-empty__title">No requests in {rangeSentence(query, tz)}</p>
-                      <p>Once your app reports requests through the SDK, they show up here within seconds.</p>
-                    </>
+                    <path d="M10 8l6 4-6 4z" />
                   )}
-                </div>
-              ) : (
-                <LogTable
-                  rows={rows === null || (stale && rows.length === 0) ? null : rows}
-                  prefs={prefs}
-                  now={now}
-                  dimBefore={liveOn ? dimBefore : null}
-                  total={total}
-                  hasMore={Boolean(cursor)}
-                  loadingMore={loadingMore}
-                  onLoadMore={loadMore}
-                  onOpen={onRow}
-                  openId={q.id ?? null}
-                  selected={selected}
-                  onSelect={onSelect}
-                  onExtend={onExtend}
-                  cellMenu={cellMenu}
-                />
-              )}
-              <ViewPrompt />
-            </div>
-            {selectedRows.length >= 2 ? (
-              <PanelFrame dock={dock} size={sizes[dock]} onSize={(n) => setSizes((s) => ({ ...s, [dock]: n }))}>
-                <SelectionPanel
-                  rows={selectedRows}
-                  onClear={() => setSelected(new Set())}
-                  fileName={(ext) => exportFileName(project, isCustom(q) ? rangeText(q, tz) : q.range, Date.now(), ext)}
-                />
-              </PanelFrame>
-            ) : q.id ? (
-              <PanelFrame dock={dock} size={sizes[dock]} onSize={(n) => setSizes((s) => ({ ...s, [dock]: n }))}>
-                <RequestPanel
-                  key={q.id}
-                  project={project}
-                  id={q.id}
-                  row={openRow}
-                  inList={openRow !== null || rows === null}
-                  link={exploreUrl(project, q)}
-                  api={filterApi}
-                  dock={dock}
-                  onDock={setDock}
-                  onClose={() => openRequest(undefined)}
-                  onMove={move}
-                  canPrev={Boolean(rows && openRow && rows[0]?.id !== q.id)}
-                  canNext={Boolean(rows && openRow && rows[rows.length - 1]?.id !== q.id)}
-                  onShowInList={(at) => {
-                    // Ten minutes around it, without the filters that may leave it out.
-                    const w = windowAround(at, 5);
-                    if (!w) return;
-                    setLive(false);
-                    update({ ...q, ...w, conds: [] });
-                  }}
-                />
-              </PanelFrame>
-            ) : null}
+                </svg>
+                Live
+              </button>
             </div>
           </div>
+          {pollFailed && rows !== null && rows.length > 0 ? (
+            <p className="exr-banner" role="status">
+              Couldn’t refresh. These are the last rows we read.{" "}
+              <button type="button" className="exf-link" onClick={reload}>
+                Retry
+              </button>
+            </p>
+          ) : null}
+          <div className={`exr-data${stale ? " is-stale" : ""}`} aria-busy={stale || undefined}>
+            <StatusChart timeline={timeline} shown={shownClasses(q.conds)} onRange={(from, to) => setRange({ range: q.range, from, to })} />
+            {!liveOn && !stale ? (
+              <p className="exr-paused" role="status">
+                {canLive ? "Live paused." : "Showing a past window."}{" "}
+                <button type="button" className="exf-link" onClick={goLive}>
+                  Back to live
+                </button>
+              </p>
+            ) : null}
+            {rows === null && !stale ? (
+              <div className="ex-notice ex-notice--error" role="alert">
+                <ObIcon name="info" />
+                <p>
+                  We couldn’t load requests just now.{" "}
+                  <button type="button" className="exf-link" onClick={reload}>
+                    Retry
+                  </button>
+                </p>
+              </div>
+            ) : rows !== null && rows.length === 0 && !stale ? (
+              <div className="exr-empty" role="status">
+                {query.conds.length ? (
+                  <>
+                    <p className="exr-empty__title">No requests match these filters</p>
+                    <p>In {rangeSentence(query, tz)}.</p>
+                    <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" onClick={() => setConds([])}>
+                      Clear filters
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="exr-empty__title">No requests in {rangeSentence(query, tz)}</p>
+                    <p>Once your app reports requests through the SDK, they show up here within seconds.</p>
+                  </>
+                )}
+              </div>
+            ) : (
+              <LogTable
+                rows={rows === null || (stale && rows.length === 0) ? null : rows}
+                prefs={prefs}
+                now={now}
+                dimBefore={liveOn ? dimBefore : null}
+                total={total}
+                hasMore={Boolean(cursor)}
+                loadingMore={loadingMore}
+                onLoadMore={loadMore}
+                onOpen={onRow}
+                openId={q.id ?? null}
+                selected={selected}
+                onSelect={onSelect}
+                onExtend={onExtend}
+                cellMenu={cellMenu}
+              />
+            )}
+          </div>
         </div>
-        {narrow && sheet ? <FacetSheet onClose={() => setSheet(false)}>{facets}</FacetSheet> : null}
-      </SavedViews>
+      </div>
+      {selectedRows.length >= 2 ? (
+        <RequestDrawer label="Selected requests" onClose={() => setSelected(new Set())}>
+          <SelectionPanel
+            rows={selectedRows}
+            onClear={() => setSelected(new Set())}
+            fileName={(ext) => exportFileName(project, isCustom(q) ? rangeText(q, tz) : q.range, Date.now(), ext)}
+          />
+        </RequestDrawer>
+      ) : q.id ? (
+        <RequestDrawer label="Request details" onClose={() => openRequest(undefined)}>
+          <RequestPanel
+            key={q.id}
+            project={project}
+            id={q.id}
+            row={openRow}
+            inList={openRow !== null || rows === null}
+            link={exploreUrl(project, q)}
+            api={filterApi}
+            onClose={() => openRequest(undefined)}
+            onMove={move}
+            canPrev={Boolean(rows && openRow && rows[0]?.id !== q.id)}
+            canNext={Boolean(rows && openRow && rows[rows.length - 1]?.id !== q.id)}
+            onShowInList={(at) => {
+              // Ten minutes around it, without the filters that may leave it out.
+              const w = windowAround(at, 5);
+              if (!w) return;
+              setLive(false);
+              update({ ...q, ...w, conds: [] });
+            }}
+          />
+        </RequestDrawer>
+      ) : null}
     </AppNamesProvider>
   );
 }
+
 
 /** Two or more rows selected: how many, Copy as JSON, Export selected and Clear selection. */
 function SelectionPanel({ rows, onClear, fileName }: { rows: RequestRow[]; onClear: () => void; fileName: (ext: "csv" | "json") => string }) {
@@ -603,33 +593,5 @@ function SelectionPanel({ rows, onClear, fileName }: { rows: RequestRow[]; onCle
       </div>
       <p className="exd-keys exd-sel__hint">Shift-click or Shift ↑ ↓ to extend, ⌘ or Ctrl-click to add one, Esc to clear.</p>
     </section>
-  );
-}
-
-/** Phones: the facets in a bottom sheet over the page. */
-function FacetSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>("button, input")?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      prev?.focus();
-    };
-  }, [onClose]);
-  return (
-    <div className="exs">
-      <div className="exs-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="exs-sheet" role="dialog" aria-modal="true" aria-label="Filters" ref={ref}>
-        <button type="button" className="exs-close ah-btn ah-btn--secondary ah-btn--sm" onClick={onClose}>
-          Done
-        </button>
-        {children}
-      </div>
-    </div>
   );
 }

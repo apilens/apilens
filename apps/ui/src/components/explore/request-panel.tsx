@@ -1,8 +1,8 @@
 "use client";
 
-import { type KeyboardEvent, type PointerEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, statusClass } from "@/lib/explore";
-import { type LeadSection, TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
+import { TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
 import { shownPath } from "@/lib/first-data";
 import { statusText } from "@/lib/http-status";
 import type { RequestDetail, RequestDetailRead, RequestRow, TraceLog, TraceSpan } from "@/lib/identity";
@@ -46,18 +46,48 @@ const LINE_OVERSCAN = 20;
 
 type Load = { kind: "loading" } | { kind: "detail"; data: RequestDetailRead } | { kind: "not_found" } | { kind: "error" };
 
-/** Where the panel docks: beside the table (the default) or under it. */
-export type Dock = "right" | "bottom";
+/**
+ * The drawer the request panel sits in (#1061): Supabase's Sheet from the right
+ * (packages/ui shadcn/ui/sheet.tsx: `fixed inset-y-0 right-0 h-full border-l bg-popover shadow-lg`,
+ * slide in 300ms, sheet.tsx:200-214) without its overlay (`hasOverlay={false}`, sheet.tsx:164), so
+ * the table behind it stays readable and never reflows. Its width is the sheet's default
+ * `lg:w-1/3` with the 400px floor of Supabase's log panel (ServiceFlowPanel.tsx `minSize={400}`);
+ * the whole screen on phones. A click outside it closes it, except on a row of the table, which
+ * opens that row instead; Esc closes it from the page.
+ */
+export function RequestDrawer({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || ref.current?.contains(t)) return;
+      // Rows switch the request; popovers and menus (portalled) keep it open.
+      if (t.closest?.(".exl-body .exl-row, .org-pop, .exc-menu, .ah-dialog, [role='dialog']")) return;
+      close.current();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
+  return (
+    <div ref={ref} className="exd-sheet" role="dialog" aria-modal="false" aria-label={label}>
+      {children}
+    </div>
+  );
+}
 
 /**
- * The request panel (#1053, after Supabase's ServiceFlowPanel; replaces the #588 drawer): one
- * request inside Explore, beside or under the table, read from `GET /requests/{id}`. The header
- * names the status with its reason phrase, the method, the path (clipped from the left), the
- * latency and the time, with Copy link, Copy as cURL, Copy JSON and Close (Esc). It opens on the
- * failure (validation, then the exception, then the response body, #988). Tabs: Overview
- * (collapsible sections, each value with a ⋯ menu to filter by it, #986), Timeline (the trace's
- * spans and logs on one rail), Consumer and Raw. `row` is the loaded row when the request is in the
- * list; `inList` false says it is outside it, with "Show it in the list".
+ * The request panel (#1053, in a drawer since #1061, after Supabase's ServiceFlowPanel): one
+ * request read from `GET /requests/{id}`. A 36px header (ServiceFlowPanel.tsx:91: `h-9 px-4
+ * gap-3`, title `text-sm font-medium leading-6`) names the status, method and path, with Copy
+ * link, Copy as cURL, Copy JSON and Close (Esc). Tabs as Supabase's `ui` Tabs
+ * (ServiceFlowPanel.tsx:120 `gap-x-5 px-4`, triggers `py-2.5`, tabs.tsx:69 `text-sm`, a 2px
+ * underline on the active one): Request (summary, client, query, headers, body), Response (the
+ * failure first, then status, headers and body), Timeline, Consumer and Raw. It opens on Response
+ * when the request failed (#988). The footer (`border-t py-1.5 pl-4 pr-3 text-xs`) holds the keys
+ * and previous / next. `row` is the loaded row when the request is in the list; `inList` false
+ * says it is outside it, with "Show it in the list".
  */
 export function RequestPanel({
   project,
@@ -66,8 +96,6 @@ export function RequestPanel({
   inList,
   link,
   api,
-  dock,
-  onDock,
   onClose,
   onMove,
   canPrev,
@@ -81,8 +109,6 @@ export function RequestPanel({
   /** The page path with this request open, for Copy link. */
   link: string;
   api: FilterApi;
-  dock: Dock;
-  onDock: (d: Dock) => void;
   onClose: () => void;
   onMove: (delta: number) => void;
   canPrev: boolean;
@@ -92,9 +118,8 @@ export function RequestPanel({
   const tz = useTimeZone();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [tab, setTab] = useState<DrawerTab>("overview");
+  const [picked, setPicked] = useState<DrawerTab | null>(null);
   const [said, setSaid] = useState<string | null>(null);
-  const [dockOpen, setDockOpen] = useState(false);
   const titleId = useId();
   const tabsId = useId();
 
@@ -118,6 +143,9 @@ export function RequestPanel({
   const detail = load.kind === "detail" ? load.data : null;
   const r: RequestRow | null = detail?.request ?? row;
   const cls = r ? statusClass(r.status_code) : "other";
+  // Until the reader picks a tab: Response when the request failed, else Request (#988).
+  const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : (row?.status_code ?? 0) >= 400;
+  const tab: DrawerTab = picked ?? (failed ? "response" : "request");
 
   const copy = async (text: string, ok: string) => {
     try {
@@ -132,19 +160,15 @@ export function RequestPanel({
     const next = moveTab(e.key, tab);
     if (next === null) return;
     e.preventDefault();
-    setTab(next);
+    setPicked(next);
     document.getElementById(`${tabsId}-${next}-tab`)?.focus();
   };
 
   const path = r ? shownPath(r) : "";
-  const t = r ? logTime(r.timestamp, Date.now(), tz) : null;
 
   return (
-    <section className={`exd exd--${dock}`} aria-labelledby={titleId}>
+    <section className="exd" aria-labelledby={titleId}>
       <header className="exd-head">
-        <button type="button" className="exd-back ah-btn ah-btn--ghost ah-btn--sm" onClick={onClose}>
-          ← Back
-        </button>
         <h2 id={titleId} className="exd-title">
           {r ? (
             <>
@@ -191,7 +215,7 @@ export function RequestPanel({
           </button>
         </div>
       </header>
-      {r && t ? (
+      {r ? (
         <p className="exd-sub">
           <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
           <time dateTime={r.timestamp} title={formatExact(r.timestamp, tz)}>
@@ -221,10 +245,12 @@ export function RequestPanel({
             aria-controls={`${tabsId}-panel`}
             aria-selected={tab === x.slug}
             tabIndex={tab === x.slug ? 0 : -1}
-            onClick={() => setTab(x.slug)}
+            onClick={() => setPicked(x.slug)}
           >
             {x.label}
-            {x.slug === "timeline" && detail ? <span className="rd-count">{(detail.spans?.length ?? 0) + (detail.logs?.length ?? 0) || null}</span> : null}
+            {x.slug === "timeline" && detail && (detail.spans?.length ?? 0) + (detail.logs?.length ?? 0) > 0 ? (
+              <span className="rd-count">{(detail.spans?.length ?? 0) + (detail.logs?.length ?? 0)}</span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -245,8 +271,10 @@ export function RequestPanel({
               Try again
             </button>
           </Notice>
-        ) : tab === "overview" ? (
-          <Overview key={id} data={load.data} project={project} api={api} />
+        ) : tab === "request" ? (
+          <RequestTab key={id} data={load.data} project={project} api={api} />
+        ) : tab === "response" ? (
+          <ResponseTab key={id} data={load.data} api={api} />
         ) : tab === "timeline" ? (
           <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
         ) : tab === "consumer" ? (
@@ -257,7 +285,7 @@ export function RequestPanel({
       </div>
 
       <footer className="exd-foot">
-        <span className="exd-keys">↑ ↓ to move · Shift ↑ ↓ to select</span>
+        <span className="exd-keys">↑ ↓ to move · Shift ↑ ↓ to select · Esc to close</span>
         <button type="button" className="exd-nav" aria-label="Previous request" disabled={!canPrev} onClick={() => onMove(-1)}>
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path d="M4 10l4-4 4 4" />
@@ -268,83 +296,8 @@ export function RequestPanel({
             <path d="M4 6l4 4 4-4" />
           </svg>
         </button>
-        <span className="exd-dock">
-          <button type="button" className="exd-act" aria-haspopup="menu" aria-expanded={dockOpen} onClick={() => setDockOpen((o) => !o)}>
-            Dock {dock === "right" ? "right" : "bottom"}
-          </button>
-          {dockOpen ? (
-            <span className="exd-dock__menu" role="menu" aria-label="Dock the panel">
-              {(["right", "bottom"] as const).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={dock === d}
-                  className="cp-sitem"
-                  onClick={() => {
-                    setDockOpen(false);
-                    onDock(d);
-                  }}
-                >
-                  <span className="lb">Dock {d}</span>
-                </button>
-              ))}
-            </span>
-          ) : null}
-        </span>
       </footer>
     </section>
-  );
-}
-
-/**
- * The frame of the panel: its remembered size along the dock (right: 480px, 400px to 60% of the
- * width; bottom: 400px, at least 300px) with a handle that drags it (arrow keys: 16px).
- */
-export function PanelFrame({ dock, size, onSize, children }: { dock: Dock; size: number; onSize: (n: number) => void; children: ReactNode }) {
-  const drag = useRef<{ at: number; size: number } | null>(null);
-  const frame = useRef<HTMLDivElement>(null);
-  const clamp = useCallback(
-    (n: number) => {
-      const host = frame.current?.parentElement?.getBoundingClientRect();
-      if (dock === "right") return Math.round(Math.max(400, Math.min(n, Math.max(400, (host?.width ?? 1200) * 0.6))));
-      return Math.round(Math.max(300, Math.min(n, Math.max(300, (host?.height ?? 800) - 160))));
-    },
-    [dock],
-  );
-  const pos = (e: PointerEvent) => (dock === "right" ? e.clientX : e.clientY);
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    drag.current = { at: pos(e), size };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (drag.current) onSize(clamp(drag.current.size - (pos(e) - drag.current.at)));
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const grow = dock === "right" ? (e.key === "ArrowLeft" ? 16 : e.key === "ArrowRight" ? -16 : 0) : e.key === "ArrowUp" ? 16 : e.key === "ArrowDown" ? -16 : 0;
-    if (!grow) return;
-    e.preventDefault();
-    e.stopPropagation();
-    onSize(clamp(size + grow));
-  };
-  return (
-    <div ref={frame} className={`exd-frame exd-frame--${dock}`} style={dock === "right" ? { width: size } : { height: size }}>
-      <div
-        className="exd-handle"
-        role="separator"
-        aria-orientation={dock === "right" ? "vertical" : "horizontal"}
-        aria-label="Resize the request panel"
-        aria-valuenow={size}
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onKeyDown={onKeyDown}
-      />
-      {children}
-    </div>
   );
 }
 
@@ -444,21 +397,20 @@ function Field({ label, children, copy, actions = [] }: { label: string; childre
 
 const DEFAULT_OPEN: Record<string, boolean> = { error: true, summary: true, request: true, response: true, client: false, consumer: true, validation: true, exception: true };
 
-function Overview({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
-  const tz = useTimeZone();
-  const r = data.request;
-  const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
-  const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
-  const lead: LeadSection = leadSection(r, Boolean(exc));
-  const summary = errorSummary(r, excInfo);
+/** Which sections are open: remembered per section, the failure's always open (#988). */
+function useSections(forced: SectionId | null) {
   const [stored, setStored] = useStored<Record<string, boolean>>("apilens.explore.panel.sections", DEFAULT_OPEN, isOpenMap);
-  // The lead section opens whatever was remembered: the failure is what the reader came for.
-  const [forced] = useState<SectionId | null>(lead === "summary" ? null : lead === "response" ? "response" : lead);
   const isOpen = (s: SectionId) => s === forced || (stored[s] ?? DEFAULT_OPEN[s]);
   const toggle = (s: SectionId) => setStored((m) => ({ ...m, [s]: !isOpen(s) }));
+  return { isOpen, toggle };
+}
 
+/** The Request tab (#1061): the summary, the client, then query parameters, headers and body. */
+function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
+  const tz = useTimeZone();
+  const r = data.request;
+  const { isOpen, toggle } = useSections(null);
   const app = useAppName(r.app_id);
-  const consumer = consumerOf(r);
   const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
   const minute = sameWindow(r.timestamp, "minute");
   const hour = sameWindow(r.timestamp, "hour");
@@ -467,155 +419,158 @@ function Overview({ data, project, api }: { data: RequestDetailRead; project: st
     ...(hour ? [{ label: "Same hour", run: () => api.setWindow(hour.from, hour.to) }] : []),
   ];
   const query = queryPairs(r.raw_path);
-  const validation = r.validation_errors ?? [];
   const url = r.base_url ? `${r.base_url.replace(/\/+$/, "")}${r.raw_path}` : r.raw_path;
-
-  const sections: Record<SectionId, ReactNode> = {
-    error: summary ? (
-      <div className="exd-error">
-        <p className="exd-error__title">{summary.title}</p>
-        {summary.detail ? <p className="exd-error__detail">{summary.detail}</p> : null}
-        {summary.body ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
-      </div>
-    ) : null,
-    validation: validation.length ? <ValidationTable errors={validation} /> : null,
-    exception: exc ? (
-      <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
-    ) : null,
-    summary: (
-      <dl className="exd-dl">
-        <Field label="Status" copy={String(r.status_code)} actions={fa("status", String(r.status_code))}>
-          <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
-        </Field>
-        <Field label="Method" copy={r.method} actions={fa("method", r.method)}>
-          {r.method.toUpperCase()}
-        </Field>
-        <Field
-          label="Route"
-          copy={r.path}
-          actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}
-        >
-          <code>{r.path}</code>
-        </Field>
-        <Field label="URL" copy={url} actions={fa("url", r.raw_path)}>
-          <code>{url}</code>
-        </Field>
-        <Field label="Latency" copy={String(r.response_time_ms)}>
-          {formatLatency(r.response_time_ms)}
-        </Field>
-        <Field label="Request size" copy={String(r.request_size ?? "")}>
-          {formatBytes(r.request_size)}
-        </Field>
-        <Field label="Response size" copy={String(r.response_size ?? "")}>
-          {formatBytes(r.response_size)}
-        </Field>
-        <Field label="Time" copy={r.timestamp} actions={timeActions}>
-          {formatExact(r.timestamp, tz)}
-        </Field>
-        <Field label="App" copy={app ?? r.app_id} actions={fa("app", r.app_id ?? "")}>
-          {app ?? r.app_id}
-        </Field>
-        <Field label="Environment" copy={r.environment} actions={fa("env", r.environment)}>
-          {r.environment}
-        </Field>
-        <Field
-          label="Trace ID"
-          copy={r.trace_id}
-          actions={r.trace_id ? [{ label: "Show this trace’s requests", run: () => api.setConds([...api.conds.filter((c) => c.field !== "trace_id"), { field: "trace_id", op: "eq", value: r.trace_id }]) }, ...fa("trace_id", r.trace_id).slice(1)] : []}
-        >
-          {r.trace_id ? <code>{r.trace_id}</code> : null}
-        </Field>
-        <Field label="Release" copy={r.release}>
-          {r.release}
-        </Field>
-        <Field label="Commit" copy={r.commit}>
-          {r.commit ? <code>{r.commit}</code> : null}
-        </Field>
-      </dl>
-    ),
-    request: isSampledOut(r) ? (
-      <Notice>{SAMPLED_OUT}</Notice>
-    ) : (
-      <>
-        {query.length ? (
-          <table className="rd-table rd-table--kv" aria-label="Query parameters">
-            <caption className="rd-cap">Query parameters</caption>
-            <tbody>
-              {query.map(([k, v], i) => (
-                <tr key={`${k}#${i}`}>
-                  <th scope="row">{k}</th>
-                  <td>
-                    <Marked text={v} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : null}
-        <HeaderTable title="Request headers" text={r.request_headers} />
-        <BodyView text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
-      </>
-    ),
-    response: isSampledOut(r) ? (
-      <Notice>{SAMPLED_OUT}</Notice>
-    ) : (
-      <>
-        <HeaderTable title="Response headers" text={r.response_headers} />
-        <BodyView text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
-      </>
-    ),
-    client: (
-      <dl className="exd-dl">
-        <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
-          {r.ip_address ? <code>{r.ip_address}</code> : null}
-        </Field>
-        <Field label="User agent" copy={r.user_agent} actions={fa("user_agent", r.user_agent)}>
-          {r.user_agent}
-        </Field>
-      </dl>
-    ),
-    consumer: consumer ? (
-      <dl className="exd-dl">
-        <Field
-          label="Consumer"
-          copy={r.consumer_id || consumer}
-          actions={[...fa("consumer", r.consumer_id || consumer), ...(r.consumer_id ? [{ label: "Open consumer", href: `${projectHref(project, "consumers")}?consumer=${encodeURIComponent(r.consumer_id)}` }] : [])]}
-        >
-          {consumer}
-        </Field>
-        <Field label="Consumer ID" copy={r.consumer_id}>
-          {r.consumer_id ? <code>{r.consumer_id}</code> : null}
-        </Field>
-        <Field label="Group" copy={r.consumer_group} actions={fa("consumer_group", r.consumer_group ?? "")}>
-          {r.consumer_group}
-        </Field>
-      </dl>
-    ) : (
-      <p className="rd-empty">No consumer: the app did not identify who made this request.</p>
-    ),
-  };
-
-  // The failure first (#988): Error, then the lead section, then the rest in their usual order.
-  const order: SectionId[] = ["error", "validation", "exception", "summary", "request", "response", "client", "consumer"];
-  if (lead === "response") order.splice(order.indexOf("response"), 1), order.splice(3, 0, "response");
   const attrs = Object.entries(r.attributes ?? {});
 
   return (
     <div className="exd-overview">
-      {isSampledOut(r) ? <Notice>{SAMPLED_OUT}</Notice> : null}
-      {order
-        .filter((s) => sections[s] !== null)
-        .map((s) => (
-          <Section key={s} id={s} open={isOpen(s)} onToggle={() => toggle(s)} count={s === "validation" ? validation.length : undefined}>
-            {sections[s]}
-          </Section>
-        ))}
+      <Section id="summary" open={isOpen("summary")} onToggle={() => toggle("summary")}>
+        <dl className="exd-dl">
+          <Field label="Method" copy={r.method} actions={fa("method", r.method)}>
+            {r.method.toUpperCase()}
+          </Field>
+          <Field
+            label="Route"
+            copy={r.path}
+            actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}
+          >
+            <code>{r.path}</code>
+          </Field>
+          <Field label="URL" copy={url} actions={fa("url", r.raw_path)}>
+            <code>{url}</code>
+          </Field>
+          <Field label="Request size" copy={String(r.request_size ?? "")}>
+            {formatBytes(r.request_size)}
+          </Field>
+          <Field label="Time" copy={r.timestamp} actions={timeActions}>
+            {formatExact(r.timestamp, tz)}
+          </Field>
+          <Field label="App" copy={app ?? r.app_id} actions={fa("app", r.app_id ?? "")}>
+            {app ?? r.app_id}
+          </Field>
+          <Field label="Environment" copy={r.environment} actions={fa("env", r.environment)}>
+            {r.environment}
+          </Field>
+          <Field
+            label="Trace ID"
+            copy={r.trace_id}
+            actions={r.trace_id ? [{ label: "Show this trace’s requests", run: () => api.setConds([...api.conds.filter((c) => c.field !== "trace_id"), { field: "trace_id", op: "eq", value: r.trace_id }]) }, ...fa("trace_id", r.trace_id).slice(1)] : []}
+          >
+            {r.trace_id ? <code>{r.trace_id}</code> : null}
+          </Field>
+          <Field label="Release" copy={r.release}>
+            {r.release}
+          </Field>
+          <Field label="Commit" copy={r.commit}>
+            {r.commit ? <code>{r.commit}</code> : null}
+          </Field>
+        </dl>
+      </Section>
+      <Section id="client" open={isOpen("client")} onToggle={() => toggle("client")}>
+        <dl className="exd-dl">
+          <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
+            {r.ip_address ? <code>{r.ip_address}</code> : null}
+          </Field>
+          <Field label="User agent" copy={r.user_agent} actions={fa("user_agent", r.user_agent)}>
+            {r.user_agent}
+          </Field>
+          <Field label="Consumer" copy={r.consumer_id || consumerOf(r) || undefined} actions={fa("consumer", r.consumer_id || consumerOf(r) || "")}>
+            {consumerOf(r)}
+          </Field>
+        </dl>
+      </Section>
+      <Section id="request" open={isOpen("request")} onToggle={() => toggle("request")}>
+        {isSampledOut(r) ? (
+          <Notice>{SAMPLED_OUT}</Notice>
+        ) : (
+          <>
+            {query.length ? (
+              <table className="rd-table rd-table--kv" aria-label="Query parameters">
+                <caption className="rd-cap">Query parameters</caption>
+                <tbody>
+                  {query.map(([k, v], i) => (
+                    <tr key={`${k}#${i}`}>
+                      <th scope="row">{k}</th>
+                      <td>
+                        <Marked text={v} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+            <HeaderTable title="Request headers" text={r.request_headers} />
+            <BodyView text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
+          </>
+        )}
+      </Section>
       {attrs.length ? (
         <section className="rd-section" aria-label="Attributes">
           <h3 className="rd-h">Attributes</h3>
           <AttrTable attrs={attrs} label="Request attributes" />
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The Response tab (#1061): for a failure the Error block, the validation errors and the
+ * exception first (#988), then the status, latency and size, the headers and the body.
+ */
+function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
+  const r = data.request;
+  const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
+  const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
+  const lead = leadSection(r, Boolean(exc));
+  const summary = errorSummary(r, excInfo);
+  const [forced] = useState<SectionId | null>(lead === "summary" ? null : lead === "response" ? "response" : lead);
+  const { isOpen, toggle } = useSections(forced);
+  const validation = r.validation_errors ?? [];
+  const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
+
+  return (
+    <div className="exd-overview">
+      {summary ? (
+        <Section id="error" open={isOpen("error")} onToggle={() => toggle("error")}>
+          <div className="exd-error">
+            <p className="exd-error__title">{summary.title}</p>
+            {summary.detail ? <p className="exd-error__detail">{summary.detail}</p> : null}
+            {summary.body ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
+          </div>
+        </Section>
+      ) : null}
+      {validation.length ? (
+        <Section id="validation" open={isOpen("validation")} onToggle={() => toggle("validation")} count={validation.length}>
+          <ValidationTable errors={validation} />
+        </Section>
+      ) : null}
+      {exc ? (
+        <Section id="exception" open={isOpen("exception")} onToggle={() => toggle("exception")}>
+          <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
+        </Section>
+      ) : null}
+      <Section id="response" open={isOpen("response")} onToggle={() => toggle("response")}>
+        <dl className="exd-dl exd-dl--top">
+          <Field label="Status" copy={String(r.status_code)} actions={fa("status", String(r.status_code))}>
+            <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
+          </Field>
+          <Field label="Latency" copy={String(r.response_time_ms)}>
+            {formatLatency(r.response_time_ms)}
+          </Field>
+          <Field label="Response size" copy={String(r.response_size ?? "")}>
+            {formatBytes(r.response_size)}
+          </Field>
+        </dl>
+        {isSampledOut(r) ? (
+          <Notice>{SAMPLED_OUT}</Notice>
+        ) : (
+          <>
+            <HeaderTable title="Response headers" text={r.response_headers} />
+            <BodyView text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
+          </>
+        )}
+      </Section>
     </div>
   );
 }
