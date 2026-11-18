@@ -71,7 +71,7 @@ export default async function ErrorsPage({ params, searchParams }: { params: Pro
       <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
       {/* "I’ll do this later" on the onboarding install step (#333) lands on the home view (#994), which can be this one. */}
       {raw[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
-      <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} />
+      <ErrorsView project={project} projectName={found.project.name} environments={found.project.environments ?? []} query={q} tab={tab} detail={detailLoad} tz={resolveTimeZone(context.user.preferences)} now={Date.now()} />
     </AppShell>
   );
 }

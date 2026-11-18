@@ -49,6 +49,12 @@ async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = 
   await page.waitForURL((url) => url.pathname === new URL(next, "http://x").pathname);
 }
 
+/**
+ * A relative time (#1002): `13 days ago`, or the day once it is 30 days back. The seeded times are
+ * fixed, so the text depends on today; the exact time is checked in the title instead.
+ */
+const AGO = /^(just now|\d+ (min|h|days?) ago|[A-Z][a-z]{2} \d{1,2}, \d{4})$/;
+
 const tiles = (page: Page) => page.locator(".er > dl.er-tiles");
 const statusTable = (page: Page) => page.getByRole("table", { name: "Error status codes" });
 const modal = (page: Page, name: string) => page.getByRole("dialog", { name });
@@ -77,7 +83,7 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
   await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["8,200", "4.0%", "330", "2"]);
   await expect(tiles(page).locator(".tr-tile__sub")).toHaveText(["in the last 24 hours", "332 errors", "4.0% of requests", "<0.1% of requests"]);
 
-  await expect(page.getByRole("list", { name: "Errors by status class legend" }).getByRole("listitem")).toHaveText(["4xx", "5xx"]);
+  await expect(page.getByRole("list", { name: "Errors by status class legend" }).getByRole("listitem")).toHaveText(["4xx", "5xx", "Error rate (0–10%)"]);
   const chart = page.getByRole("img", { name: /Errors by status class/ });
   await expect(chart).toHaveAttribute("aria-label", /330 4xx and 2 5xx responses in the last 24 hours/);
   await expect(chart.locator("g")).toHaveCount(4);
@@ -87,12 +93,15 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
   await plot.press("Home");
   await plot.press("ArrowRight");
   await expect(plot.locator(".ct-tip")).toContainText("140");
-  await expect(page.locator(".tr-chart").first().locator(".ct-sr")).toHaveText(/4xx: 140, 5xx: 0, Total: 140/);
+  await expect(page.locator(".tr-chart").first().locator(".ct-sr")).toHaveText(/4xx: 140, 5xx: 0, Total: 140, Error rate: 6\.4%/);
 
-  await expect(statusTable(page).getByRole("columnheader")).toHaveText(["Status", "Responses", "Share of requests", "Endpoints", "Consumers", "Over time", "Last seen"]);
+  await expect(statusTable(page).getByRole("columnheader")).toHaveText(["Status", "Responses", "Share of requests", "Endpoints", "Consumers", "Over time", "First seen", "Last seen"]);
   await expect(statusTable(page).locator("tbody tr")).toHaveCount(3);
-  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["404 Not Found", "250", "3.0%", "2", "2", "", "Nov 5, 2026, 10:30 AM UTC"]);
-  await expect(statusTable(page).locator("tbody tr").nth(1).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "1", "1", "", "Nov 5, 2026, 10:15 AM UTC"]);
+  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["404 Not Found", "250", "3.0%", "2", "2", "", AGO, AGO]);
+  await expect(statusTable(page).locator("tbody tr").nth(0).locator("time").first()).toHaveAttribute("title", "Nov 5, 2026, 10:00 AM UTC");
+  await expect(statusTable(page).locator("tbody tr").nth(0).locator("time").nth(1)).toHaveAttribute("title", "Nov 5, 2026, 10:30 AM UTC");
+  // The only endpoint is named instead of counted as 1 (#1002).
+  await expect(statusTable(page).locator("tbody tr").nth(1).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "POST /invoices", "1", "", AGO, AGO]);
   await expect(statusTable(page).locator("tbody tr").nth(2).getByRole("cell").first()).toHaveText("500 Internal Server Error");
 
   const a11y = await new AxeBuilder({ page }).include(".er").analyze();
@@ -142,7 +151,9 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(dialog.locator(".tr-tiles dt")).toHaveText(["Responses", "Frequency", "Affected consumers", "Endpoints"]);
   await expect(dialog.locator(".tr-tiles .tr-tile__value")).toHaveText(["250", "10.4/h", "2", "2"]);
   await expect(dialog.locator(".tr-tiles .tr-tile__sub")).toHaveText(["3.0% of requests", "over 24 hours", "200 responses to identified consumers", "answered with 404"]);
-  await expect(dialog.locator(".er-seen dd")).toHaveText(["Nov 5, 2026, 10:00 AM UTC", "Nov 5, 2026, 10:30 AM UTC"]);
+  await expect(dialog.locator(".er-seen dd")).toHaveText([AGO, AGO]);
+  await expect(dialog.locator(".er-seen time").first()).toHaveAttribute("title", "Nov 5, 2026, 10:00 AM UTC");
+  await expect(dialog.locator(".er-seen time").last()).toHaveAttribute("title", "Nov 5, 2026, 10:30 AM UTC");
   const freq = dialog.getByRole("img", { name: /404 responses over time/ });
   await expect(freq.locator("g")).toHaveCount(4);
   const freqPlot = dialog.getByRole("group", { name: /^404 responses over time/ });
@@ -160,7 +171,7 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(after.getByText("50 of 250 responses came from requests without a consumer")).toBeVisible();
   const consumers = after.getByRole("table", { name: "Consumer breakdown" });
   await expect(consumers.getByRole("columnheader")).toHaveText(["Consumer", "Responses", "Share", "Last seen"]);
-  await expect(consumers.locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["Acme Corp", "140", "56.0%", "Nov 5, 2026, 10:30 AM UTC"]);
+  await expect(consumers.locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["Acme Corp", "140", "56.0%", AGO]);
   // A consumer without a name shows its id.
   await expect(consumers.locator("tbody tr").nth(1).getByRole("cell").first()).toHaveText("c_globex");
 
@@ -170,7 +181,8 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(details.getByRole("listitem")).toHaveCount(2);
   const orders = details.getByRole("listitem").first();
   await expect(orders).toContainText("GET /invoices/{id}");
-  await expect(orders).toContainText("210 responses, 2 consumers, last Nov 5, 2026, 10:30 AM UTC");
+  await expect(orders).toContainText(/210 responses, 2 consumers, last seen (\d+ days ago|[A-Z][a-z]{2} \d{1,2}, \d{4})/);
+  await expect(orders.locator("time")).toHaveAttribute("title", "Nov 5, 2026, 10:30 AM UTC");
   await expect(orders).toContainText("No validation errors, no server exceptions");
   await expect(orders.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/project/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all");
 
@@ -216,7 +228,7 @@ test("marking a status code as expected updates the error rate on every surface"
   await page.waitForURL((url) => !url.search.includes("code="));
   await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["8,200", "1.5%", "120", "2"]);
   await expect(page.getByRole("img", { name: /Errors by status class/ })).toHaveAttribute("aria-label", /120 4xx and 2 5xx/);
-  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "1", "1", "", "Nov 5, 2026, 10:15 AM UTC"]);
+  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "POST /invoices", "1", "", AGO, AGO]);
   await expect(statusTable(page).getByRole("row").filter({ hasText: "404 Not Found" }).getByRole("cell").nth(1)).toHaveText("40");
 
   // Issues no longer list GET /invoices/{id} 404.
@@ -246,10 +258,70 @@ test("Issues tab: failed requests by endpoint and status, each opening the endpo
   const issues = page.getByRole("table", { name: "Issues" });
   await expect(issues.getByRole("columnheader")).toHaveText(["Endpoint", "Status", "Responses", "Consumers", "Last seen"]);
   await expect(issues.locator("tbody tr")).toHaveCount(4);
-  await expect(issues.locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["GET /invoices/{id}", "404", "210", "2", "Nov 5, 2026, 10:30 AM UTC"]);
+  await expect(issues.locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["GET /invoices/{id}", "404", "210", "2", AGO]);
+  await expect(issues.locator("tbody tr").nth(0).locator("time")).toHaveAttribute("title", "Nov 5, 2026, 10:30 AM UTC");
   await expect(issues.getByRole("link", { name: "POST /invoices" })).toHaveAttribute("href", "/project/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=production");
   const a11y = await new AxeBuilder({ page }).include(".er").analyze();
   expect(a11y.violations).toEqual([]);
+});
+
+test("since when and for whom: first seen, relative times, the only endpoint, the error-rate line and consumer identification (#1002)", async ({ page }) => {
+  // Times relative to now, so the relative text is known; 503 has one endpoint and no consumer.
+  const now = Date.now();
+  const buckets = [3, 2, 1, 0].map((h) => new Date(now - h * 3_600_000 - 5.5 * 60_000).toISOString());
+  const rows = [
+    { method: "GET", path: "/orders/{id}", status_code: 404, bucket: 0, count: 30, consumer_id: "c_acme", consumer_name: "Acme Corp" },
+    { method: "GET", path: "/carts/{id}", status_code: 404, bucket: 2, count: 10, consumer_id: "c_acme", consumer_name: "Acme Corp" },
+    { method: "POST", path: "/checkout", status_code: 503, bucket: 1, count: 4 },
+    { method: "POST", path: "/checkout", status_code: 503, bucket: 3, count: 6 },
+  ];
+  const res = await fetch(`${IDENTITY}/__fake/errors`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", buckets, requests: [1000, 400, 1000, 200], rows }),
+  });
+  expect(res.status).toBe(204);
+  await signIn(page);
+
+  // The error-rate line runs over the counts on its own scale (3%, 1%, 1%, 3% → 0–5%), and the
+  // tooltip reads each bucket's rate.
+  const chart = page.getByRole("img", { name: /Errors by status class/ });
+  await expect(chart).toHaveAttribute("aria-label", /the error rate peaked at 3\.0%/);
+  await expect(chart.locator("path.er-rate-line")).toHaveCount(1);
+  await expect(chart.locator("path.er-rate-line")).toHaveAttribute("d", /^M[\d.]+,[\d.]+(L[\d.]+,[\d.]+){3}$/);
+  await expect(page.getByRole("list", { name: "Errors by status class legend" }).getByRole("listitem").last()).toHaveText("Error rate (0–5%)");
+  const tip = await tipAt(page, /^Errors by status class/, 1);
+  await expect(tip).toContainText("Error rate");
+  await expect(tip).toContainText("1.0%");
+
+  const table = statusTable(page);
+  await expect(table.getByRole("columnheader")).toHaveText(["Status", "Responses", "Share of requests", "Endpoints", "Consumers", "Over time", "First seen", "Last seen"]);
+  const r404 = table.getByRole("row").filter({ hasText: "404 Not Found" });
+  await expect(r404.getByRole("cell")).toHaveText(["404 Not Found", "40", "1.5%", "2", "1", "", "3 h ago", "1 h ago"]);
+  const r503 = table.getByRole("row").filter({ hasText: "503 Service Unavailable" });
+  await expect(r503.getByRole("cell")).toHaveText(["503 Service Unavailable", "10", "0.4%", "POST /checkout", "None identified", "", "2 h ago", "5 min ago"]);
+  // The exact time, in the user's zone, is in the title.
+  const exact = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(Date.parse(buckets[3]));
+  await expect(r503.locator("time").last()).toHaveAttribute("title", `${exact} UTC`);
+  await expect(r503.locator("time").last()).toHaveAttribute("datetime", buckets[3]);
+  // No consumer identified: a link to how to identify them, not a bare 0.
+  const identify = r503.getByRole("link", { name: "None identified" });
+  await expect(identify).toHaveAttribute("href", /\/sdk-reference\/consumers$/);
+  await expect(identify).toHaveAttribute("target", "_blank");
+
+  const a11y = await new AxeBuilder({ page }).include(".er").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  // The modal names the only endpoint, and its empty Consumers view links to identification.
+  await page.goto(allEnvs(`${PAGE}?code=503`));
+  const dialog = modal(page, "503 Service Unavailable");
+  await expect(dialog.locator(".tr-tiles dt")).toHaveText(["Responses", "Frequency", "Affected consumers", "Endpoint"]);
+  await expect(dialog.locator(".tr-tiles .tr-tile__value").last()).toHaveText("POST /checkout");
+  await expect(dialog.locator(".er-seen dd")).toHaveText(["2 h ago", "5 min ago"]);
+  await page.goto(allEnvs(`${PAGE}?code=503&view=consumers`));
+  const empty = modal(page, "503 Service Unavailable").getByRole("status").filter({ hasText: "No identified consumers got 503 responses." });
+  await expect(empty).toContainText("Set the consumer on each request in the SDK to see who is affected.");
+  await expect(empty.getByRole("link", { name: "How to identify consumers" })).toHaveAttribute("href", /\/sdk-reference\/consumers$/);
 });
 
 test("says so when there were no requests or no errors, and when the dashboard cannot load", async ({ page }) => {

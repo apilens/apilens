@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { errorsHref, errorsScopeText, formatPerHour, isErrorCode, markExpectedError, parseErrorsQuery, reasonPhrase, statusClass, withExpectedCode } from "./errors";
+import {
+  consumerIdentificationUrl,
+  errorRates,
+  errorsHref,
+  errorsScopeText,
+  formatPerHour,
+  formatRateTop,
+  isErrorCode,
+  markExpectedError,
+  parseErrorsQuery,
+  rateTop,
+  reasonPhrase,
+  seenAgo,
+  statusClass,
+  withExpectedCode,
+} from "./errors";
 
 describe("parseErrorsQuery", () => {
   it("reads the defaults from an empty query", () => {
@@ -110,5 +125,48 @@ describe("withExpectedCode", () => {
 
   it("answers null when the code already is expected", () => {
     expect(withExpectedCode({ expected_status_codes: [404], latency_threshold_ms: null, excluded: false }, 404)).toBeNull();
+  });
+});
+
+describe("since when and for whom (#1002)", () => {
+  const now = Date.parse("2026-11-18T12:00:00Z");
+  const before = (ms: number) => new Date(now - ms).toISOString();
+
+  it("says how long ago an error was seen", () => {
+    expect(seenAgo(before(20_000), "UTC", now)).toBe("just now");
+    expect(seenAgo(before(5 * 60_000), "UTC", now)).toBe("5 min ago");
+    expect(seenAgo(before(3 * 3_600_000 + 59 * 60_000), "UTC", now)).toBe("3 h ago");
+    expect(seenAgo(before(26 * 3_600_000), "UTC", now)).toBe("1 day ago");
+    expect(seenAgo(before(12 * 86_400_000), "UTC", now)).toBe("12 days ago");
+    // A time ahead of the clock (skew) is "just now", never "-3 min ago".
+    expect(seenAgo(new Date(now + 180_000).toISOString(), "UTC", now)).toBe("just now");
+    expect(seenAgo("not a time", "UTC", now)).toBe("");
+  });
+
+  it("names the day, in the user's zone, from 30 days back", () => {
+    // 2026-10-01 20:00 UTC is already Oct 2 in Kolkata (UTC+5:30).
+    expect(seenAgo("2026-10-01T20:00:00Z", "UTC", now)).toBe("Oct 1, 2026");
+    expect(seenAgo("2026-10-01T20:00:00Z", "Asia/Kolkata", now)).toBe("Oct 2, 2026");
+  });
+
+  it("computes each bucket's error rate and a round scale top for it", () => {
+    const rates = errorRates([
+      { requests: 200, client_errors: 6, server_errors: 2 },
+      { requests: 0, client_errors: 0, server_errors: 0 },
+      { requests: 100, client_errors: 0, server_errors: 3 },
+    ]);
+    expect(rates).toEqual([0.04, 0, 0.03]);
+    expect(rateTop(rates)).toBe(0.05);
+    expect(rateTop([])).toBe(0.01);
+    expect(rateTop([0.003])).toBe(0.01);
+    expect(rateTop([0.3, Number.NaN])).toBe(0.5);
+    expect(rateTop([1])).toBe(1);
+    expect(formatRateTop(0.05)).toBe("5%");
+    expect(formatRateTop(0.25)).toBe("25%");
+    expect(formatRateTop(1)).toBe("100%");
+  });
+
+  it("links the consumer identification docs", () => {
+    expect(consumerIdentificationUrl("https://apilens.ai/docs/")).toBe("https://apilens.ai/docs/sdk-reference/consumers");
   });
 });

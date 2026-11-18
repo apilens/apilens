@@ -10,6 +10,7 @@ import { type StatusRow, formatLatency, latencyTop, lineY, linePath, plotWidth }
 import { ChartAnnounce, ChartTooltip, Crosshair, type TooltipRow } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { timeFraction, timeTicks } from "@/lib/chart-ticks";
 
 /** The viewBox width drawn before the box is measured (server render), stretched by CSS. */
 const FALLBACK_W = 960;
@@ -23,7 +24,7 @@ export const PLOT_HEIGHT = H;
  * client paint already uses it. This replaces v1's recharts ResponsiveContainer, which rendered at
  * `width(-1)` and then late or blank.
  */
-function useMeasuredWidth<T extends HTMLElement>() {
+export function useMeasuredWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState<number | null>(null);
   useLayoutEffect(() => {
@@ -74,13 +75,23 @@ export function Plot({
   label,
   summary,
   top,
+  scale,
   hover,
+  overlay,
   children,
 }: {
   label: string;
   summary: string;
-  top: string;
+  /** The top value's label above the plot (the older layout, without a value axis). */
+  top?: string;
+  /**
+   * The value axis (#1004): the plot's top value and how to write a value. The top, the midline and
+   * 0 are labelled in a gutter left of the plot; pair it with `<TimeAxis inset />`.
+   */
+  scale?: PlotScale;
   hover?: PlotHover;
+  /** HTML drawn over the plot at width `w` (text the stretched SVG cannot carry: bar labels, marks). */
+  overlay?: (w: number) => ReactNode;
   children: (w: number, active: number | null) => ReactNode;
 }) {
   const [measureRef, measured] = useMeasuredWidth<HTMLDivElement>();
@@ -127,16 +138,18 @@ export function Plot({
       }
     : {};
   const hint = links ? ` Press Enter to see a ${hover?.noun ?? "bucket"}’s requests in Explore.` : "";
-  return (
+  const plot = (
     <>
       <div
         className={`tr-plot${interactive ? " tr-plot--hover ct-box" : ""}${links ? " tr-plot--open" : ""}`}
         ref={setRef}
         {...(interactive ? { role: "group", "aria-label": `${label}. Use the arrow keys to read each ${hover.noun ?? "bucket"}.${hint}`, ...h.bind, ...open } : {})}
       >
-        <span className="tr-axis-top" aria-hidden="true">
-          {top}
-        </span>
+        {scale ? null : (
+          <span className="tr-axis-top" aria-hidden="true">
+            {top}
+          </span>
+        )}
         <svg viewBox={`0 0 ${w} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${label}. ${summary}`} data-measured={measured ?? undefined}>
           <line className="tr-grid" x1="0" x2={w} y1={0.5} y2={0.5} />
           <line className="tr-grid" x1="0" x2={w} y1={H / 2} y2={H / 2} />
@@ -144,6 +157,11 @@ export function Plot({
           {children(w, i)}
           {hover?.marks && i !== null ? hover.marks(i, w) : null}
         </svg>
+        {overlay ? (
+          <div className="tr-plot__overlay" aria-hidden="true">
+            {overlay(w)}
+          </div>
+        ) : null}
         {interactive && i !== null && h.width > 0 ? (
           <ChartTooltip x={pointX(i, h.width, hover.count, "slot")} boxWidth={h.width} title={title} rows={rows} placement="inside" hint={links ? OPEN_HINT : undefined} />
         ) : null}
@@ -151,7 +169,33 @@ export function Plot({
       {interactive ? <ChartAnnounce text={i !== null ? tooltipText(title, rows) : ""} /> : null}
     </>
   );
+  if (!scale) return plot;
+  return (
+    <div className="tr-yplot">
+      <div className="tr-axis-y" aria-hidden="true">
+        {yTicks(scale.top).map((v) => (
+          <span key={v} style={{ top: `${(1 - v / scale.top) * 100}%` }}>
+            {scale.format(v)}
+          </span>
+        ))}
+      </div>
+      {plot}
+    </div>
+  );
 }
+
+/** A plot's value axis: its top value and how a value is written on it. */
+export interface PlotScale {
+  top: number;
+  format: (v: number) => string;
+}
+
+/** The labelled values of a value axis: the top, the midline and 0 (the plot's three grid lines). */
+export const yTicks = (top: number): number[] => (top > 0 ? [top, top / 2, 0] : [0]);
+
+const COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+/** A count on a value axis: `0`, `0.5`, `250`, `12.5K`, `1.2M`. */
+export const formatAxisCount = (n: number) => COMPACT.format(n);
 
 /** The hovered bucket on a line chart: a crosshair at its centre and a dot on each line. */
 export function LineMarks({ i, count, w, dots }: { i: number; count: number; w: number; dots: readonly { y: number; className: string }[] }) {
@@ -166,15 +210,36 @@ export function LineMarks({ i, count, w, dots }: { i: number; count: number; w: 
   );
 }
 
-export function TimeAxis({ rows, range }: { rows: { ts: string }[]; range: QueryRange }) {
+/**
+ * The time axis under a plot (#1004): 3–5 round times in the user's time zone (fewer on a narrow
+ * plot), each under the instant it names. With `inset` it lines up with a plot that has a value axis
+ * (`scale`) and names the zone in the gutter; without, the first label carries the zone.
+ */
+export function TimeAxis({ rows, range, inset = false }: { rows: readonly { ts: string }[]; range: QueryRange; inset?: boolean }) {
   const tz = useTimeZone();
-  const firstTs = rows[0]?.ts;
-  const lastTs = rows[rows.length - 1]?.ts;
-  if (!firstTs || !lastTs) return null;
+  const [ref, measured] = useMeasuredWidth<HTMLDivElement>();
+  const n = rows.length;
+  const first = n ? Date.parse(rows[0].ts) : Number.NaN;
+  const last = n ? Date.parse(rows[n - 1].ts) : Number.NaN;
+  if (Number.isNaN(first) || Number.isNaN(last)) return null;
+  // Buckets are equal: the axis runs from the first bucket's start to the last one's end.
+  const step = n > 1 ? (last - first) / (n - 1) : 0;
+  const w = measured ?? FALLBACK_W;
+  const { ticks, zone } = timeTicks(first, first + step * n, tz, w < 360 ? 3 : w < 560 ? 4 : 5);
+  const labels = ticks.length
+    ? ticks.map((t) => ({ key: t.at, at: timeFraction(t.at, first, step, n), text: t.label }))
+    : [{ key: first, at: 0, text: formatBucket(rows[0].ts, range, tz).replace(` ${zone}`, "") }];
   return (
-    <figcaption className="tr-axis-x" aria-hidden="true">
-      <span>{formatBucket(firstTs, range, tz)}</span>
-      <span>{formatBucket(lastTs, range, tz)}</span>
+    <figcaption className={`tr-axis-x tr-axis-x--ticks${inset ? " tr-axis-x--inset" : ""}`} aria-hidden="true">
+      {inset ? <span className="tr-axis-x__zone">{zone}</span> : null}
+      <div className="tr-axis-x__track" ref={ref}>
+        {labels.map((t, k) => (
+          <span key={t.key} className={`tr-tick${t.at < 0.06 ? " tr-tick--start" : t.at > 0.94 ? " tr-tick--end" : ""}`} style={{ left: `${t.at * 100}%` }}>
+            {t.text}
+            {!inset && k === 0 ? ` ${zone}` : ""}
+          </span>
+        ))}
+      </div>
     </figcaption>
   );
 }
@@ -229,7 +294,7 @@ export function StatusChart({
           </li>
         ))}
       </ul>
-      <Plot label={label} summary={summary} top={formatCount(top)} hover={hover}>
+      <Plot label={label} summary={summary} scale={{ top, format: formatAxisCount }} hover={hover}>
         {(w, active) =>
           stackBars(rows, keys, w, H).bars.map((b) => (
             <g key={b.index} className="tr-bucket">
@@ -241,7 +306,7 @@ export function StatusChart({
           ))
         }
       </Plot>
-      <TimeAxis rows={rows} range={range} />
+      <TimeAxis rows={rows} range={range} inset />
     </figure>
   );
 }
@@ -265,7 +330,7 @@ export function LatencyChart({ label, summary, rows, range }: { label: string; s
           p95
         </li>
       </ul>
-      <Plot label={label} summary={summary} top={formatLatency(top)} hover={hover}>
+      <Plot label={label} summary={summary} scale={{ top, format: formatLatency }} hover={hover}>
         {(w, active) => {
           const slot = rows.length ? w / rows.length : w;
           return (
@@ -278,7 +343,7 @@ export function LatencyChart({ label, summary, rows, range }: { label: string; s
           );
         }}
       </Plot>
-      <TimeAxis rows={rows} range={range} />
+      <TimeAxis rows={rows} range={range} inset />
     </figure>
   );
 }

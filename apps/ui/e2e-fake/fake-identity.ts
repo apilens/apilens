@@ -2367,6 +2367,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           consumers: consumers(list),
           first_seen: firstSeen(list),
           last_seen: lastSeen(list),
+          // The only endpoint is named (#1002), as internal/query/error_status.go does.
+          ...(new Set(list.map((r) => `${r.method} ${r.path}`)).size === 1 ? { endpoint: { method: list[0].method, path: list[0].path } } : {}),
         }))
         .sort((a, b) => b.count - a.count || a.status_code - b.status_code);
       return send(res, 200, {

@@ -197,6 +197,22 @@ test("draws the charts at their measured width on first load, never blank", asyn
   await expect(page.getByRole("img", { name: /Requests by status/ })).not.toHaveAttribute("data-measured", String(before));
 });
 
+test("labels 0, the midline and the top on the value axis, and 3–5 times in the display time zone (#1004)", async ({ page }) => {
+  await seed();
+  await signIn(page);
+  const chart = (name: RegExp) => page.locator("figure.tr-chart").filter({ has: page.getByRole("img", { name }) });
+  // Requests stack up to 3,400 under a round top of 5,000.
+  await expect(chart(/Requests by status/).locator(".tr-axis-y span")).toHaveText(["5K", "2.5K", "0"]);
+  await expect(chart(/Response time/).locator(".tr-axis-y span")).toHaveText(["1.00 s", "500 ms", "0 ms"]);
+  // Four 15-minute buckets from 10:00 UTC: a tick every 15 minutes on the hour's quarters.
+  const status = chart(/Requests by status/);
+  await expect(status.locator(".tr-axis-x__zone")).toHaveText("UTC");
+  const ticks = await status.locator(".tr-tick").allTextContents();
+  expect(ticks.length).toBeGreaterThanOrEqual(3);
+  expect(ticks.length).toBeLessThanOrEqual(5);
+  expect(ticks.slice(0, 2)).toEqual(["10:00", "10:15"]);
+});
+
 test("draws the charts before JavaScript runs", async ({ browser }) => {
   // Server-rendered at the fixed viewBox, stretched to the box: the first paint already has bars.
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -481,6 +497,22 @@ test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(2);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // The filters fold behind one button (#1004), the charts come first.
+  const filters = page.getByRole("button", { name: "Filters" });
+  await expect(filters).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("combobox", { name: "Environment" })).toBeHidden();
+  await filters.click();
+  await expect(filters).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("combobox", { name: "Environment" })).toBeVisible();
+  // The time axis keeps its labels inside the chart.
+  const figure = page.locator("figure.tr-chart").first();
+  const ticks = figure.locator(".tr-tick");
+  expect(await ticks.count()).toBeGreaterThanOrEqual(2);
+  const box = await figure.boundingBox();
+  for (const t of await ticks.all()) {
+    const b = await t.boundingBox();
+    expect(b && box && b.x >= box.x - 1 && b.x + b.width <= box.x + box.width + 1).toBe(true);
+  }
   // The row's settings button stays on the row and opens its menu.
   await endpointsTable(page).getByRole("button", { name: "Settings for POST /charge" }).click();
   await expect(page.getByRole("menu", { name: "Settings for POST /charge" })).toBeInViewport();

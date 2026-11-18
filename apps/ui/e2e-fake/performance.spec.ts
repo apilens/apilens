@@ -143,7 +143,13 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram, the slow
   await expect(point.locator("dd")).toHaveText(["29 ms", "58 ms", "610 ms"]);
 
   const hist = page.getByRole("img", { name: /Response time histogram/ });
-  await expect(hist.locator(".tr-hit")).toHaveCount(14);
+  // #1004: the two empty buckets at the end (5 s and up) are left out; p50, p95 and T are marked.
+  await expect(hist.locator(".tr-hit")).toHaveCount(12);
+  await expect(page.getByRole("list", { name: "Response time histogram marks" }).getByRole("listitem")).toHaveText(["p50 31 ms", "p95 413 ms", "T 500 ms"]);
+  await expect(hist.locator("line.ep-mark")).toHaveCount(3);
+  const histFigure = page.locator("figure.tr-chart").filter({ has: hist });
+  await expect(histFigure.locator(".ep-bar-label").first()).toBeVisible();
+  await expect(histFigure.locator(".tr-tick--bar").first()).toHaveText("0–1 ms");
   const bar = await tipAt(page, /^Response time histogram\. Use the arrow keys/, 5);
   await expect(bar.locator(".ct-tip__title")).toHaveText("20–50 ms");
   await expect(bar.locator("dd").first()).toHaveText("4,600");
@@ -340,6 +346,9 @@ test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await expect(page.getByRole("table", { name: "Slowest requests" }).locator("tbody tr")).toHaveCount(3);
   await page.getByRole("button", { name: "How Apdex is scored" }).focus();
   await expect(page.locator("[role=tooltip]")).toBeVisible();
+  // The filters fold behind one button (#1004).
+  await expect(page.getByRole("button", { name: "Filters" })).toBeVisible();
+  await expect(page.getByLabel("Environment")).toBeHidden();
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });

@@ -5539,6 +5539,24 @@
         ],
         "type": "object"
       },
+      "ErrorStatusOnlyEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "description": "HTTP method.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path"
+        ],
+        "type": "object"
+      },
       "ErrorStatusOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -5744,6 +5762,10 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/ErrorStatusOnlyEndpoint",
+            "description": "The endpoint that answered with it when it is the only one; left out when several did."
           },
           "endpoints": {
             "description": "Distinct endpoints (method + route) that answered with it.",

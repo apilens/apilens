@@ -6,6 +6,9 @@
 import { pointX, tooltipText } from "@/lib/chart-hover";
 import { formatBucket, formatCount, stackBars } from "@/lib/consumers";
 import type { QueryRange } from "@/lib/identity";
+import { formatRateTop } from "@/lib/errors";
+import { formatPercent } from "@/lib/format";
+import { lineY, linePath } from "@/lib/traffic";
 import { ChartAnnounce, ChartTooltip } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
 import { PLOT_HEIGHT as H, Plot, TimeAxis } from "../traffic/charts";
@@ -21,9 +24,21 @@ export interface BarSeries<K extends string> {
 type Row<K extends string> = { ts: string } & Record<K, number>;
 
 /**
+ * A rate drawn as a line over the bars on its own scale (#1002), such as the error rate over the
+ * error counts: one rate (0–1) per row, scaled from 0 at the baseline to `top` at the plot's top,
+ * which the legend names (`Error rate (0–5%)`). Plain data, so a Server Component can pass it.
+ */
+export interface RateLine {
+  label: string;
+  values: readonly number[];
+  top: number;
+}
+
+/**
  * Counts over time as stacked bars, one bar per bucket, with a legend naming every series (so no
  * series is told apart by color alone) and the shared hover tooltip listing each series' count and,
- * with more than one series, their total.
+ * with more than one series, their total. With `line`, a line on its own scale runs over the bars,
+ * and the legend (with its scale) and the tooltip name it too.
  */
 export function CountBars<K extends string>({
   label,
@@ -31,12 +46,14 @@ export function CountBars<K extends string>({
   rows,
   series,
   range,
+  line,
 }: {
   label: string;
   summary: string;
   rows: readonly Row<K>[];
   series: readonly BarSeries<K>[];
   range: QueryRange;
+  line?: RateLine;
 }) {
   const tz = useTimeZone();
   const keys = series.map((s) => s.key);
@@ -51,6 +68,7 @@ export function CountBars<K extends string>({
     ? [
         ...series.map((s) => ({ label: s.label, value: formatCount(row[s.key]), swatch: s.className })),
         ...(series.length > 1 ? [{ label: "Total", value: formatCount(keys.reduce((sum, k) => sum + row[k], 0)) }] : []),
+        ...(line && i !== null ? [{ label: line.label, value: formatPercent(line.values[i] ?? 0), swatch: "tr-sw-line" }] : []),
       ]
     : [];
   return (
@@ -62,6 +80,12 @@ export function CountBars<K extends string>({
             {s.label}
           </li>
         ))}
+        {line ? (
+          <li>
+            <span className="tr-swatch tr-fill-line" aria-hidden="true" />
+            {line.label} <span className="er-scale">(0–{formatRateTop(line.top)})</span>
+          </li>
+        ) : null}
       </ul>
       <div className="ct-box er-bars" ref={hover.ref} role="group" aria-label={`${label}. ${summary} Use the arrow keys to read each bucket.`} {...hover.bind}>
         <Plot label={label} summary={summary} top={formatCount(top)}>
@@ -78,6 +102,10 @@ export function CountBars<K extends string>({
                     ))}
                   </g>
                 ))}
+                {line ? <path className="tr-line er-rate-line" d={linePath(line.values, w, H, line.top)} /> : null}
+                {line && i !== null ? (
+                  <circle className="ct-dot tr-dot tr-dot--accent" cx={i * slot + slot / 2} cy={lineY(line.values[i] ?? 0, H, line.top)} r={3.5} aria-hidden="true" />
+                ) : null}
               </>
             );
           }}
