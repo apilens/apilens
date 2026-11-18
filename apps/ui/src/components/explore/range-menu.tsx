@@ -149,7 +149,7 @@ function DatePicker({ query: q, tz, onPick }: { query: ExploreQuery; tz: string;
           </p>
         ) : null}
         <div className="ext-foot">
-          <button type="submit" className="ex-tbtn ex-tbtn--primary">
+          <button type="submit" className="ah-btn ah-btn--primary ah-btn--sm ex-tbtn">
             Apply
           </button>
         </div>

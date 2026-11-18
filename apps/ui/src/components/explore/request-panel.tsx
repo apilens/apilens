@@ -248,7 +248,9 @@ export function RequestPanel({
             onClick={() => setPicked(x.slug)}
           >
             {x.label}
-            {x.slug === "timeline" && detail ? <span className="rd-count">{(detail.spans?.length ?? 0) + (detail.logs?.length ?? 0) || null}</span> : null}
+            {x.slug === "timeline" && detail && (detail.spans?.length ?? 0) + (detail.logs?.length ?? 0) > 0 ? (
+              <span className="rd-count">{(detail.spans?.length ?? 0) + (detail.logs?.length ?? 0)}</span>
+            ) : null}
           </button>
         ))}
       </div>

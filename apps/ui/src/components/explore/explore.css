@@ -20,34 +20,23 @@
 .exr-filter { flex: 1 1 0; min-width: 0; padding: 8px 0; }
 .exr-tools__end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
-/* Toolbar buttons at Supabase's `size="tiny"` (packages/ui Button.tsx:103, lib/constants.ts:47-61):
-   26px tall, `px-2.5` (10px), `text-xs` (12/16) medium, `rounded-md` (raised-control-surface.ts:2),
-   a 14px icon (Button.tsx:137) 8px from the label (`space-x-2`, Button.tsx:18). Icon-only ones are
-   26px square (RefreshButton.tsx:38 `w-[26px]`). `default` is the raised surface, `primary` the
-   accent. TODO(#1061 B4): fold into the shared tiny button once the shell lane adds it. */
-.ex-tbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 500 12px/16px var(--font-sans); white-space: nowrap; cursor: pointer; box-sizing: border-box; transition: background-color .2s cubic-bezier(.22, 1, .36, 1), border-color .2s cubic-bezier(.22, 1, .36, 1); }
-.ex-tbtn:hover { background: var(--surface-2); border-color: var(--border-strong); }
-.ex-tbtn:active:not(:disabled) { transform: scale(.97); }
-.ex-tbtn:disabled { opacity: .5; cursor: not-allowed; }
-.ex-tbtn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+/* Toolbar buttons are the shared tiny button (`.ah-btn.ah-btn--sm` = Supabase `size="tiny"`, #1062:
+   26px, `px-2.5`, 12/16 medium, 14px icons 8px from the label); `secondary` = Supabase `default`,
+   `primary` for Live on (LiveButton.tsx:70). Icon-only ones are 26px square (RefreshButton.tsx:38
+   `w-[26px]`). */
 .ex-tbtn--icon { width: 26px; padding: 0; }
-.ex-tbtn--primary { border-color: transparent; background: var(--accent); color: var(--on-accent); }
-.ex-tbtn--primary:hover { background: var(--accent); border-color: transparent; filter: brightness(1.08); }
-.ex-tbtn .cp-ic { width: 14px; height: 14px; color: var(--ink-muted); }
 .ex-tbtn__icon, .exr-live__icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ex-tbtn__icon.is-spinning { animation: ex-spin 1s linear infinite; }
 @keyframes ex-spin { to { transform: rotate(360deg); } }
-.exr-live .exr-live__icon path { fill: none; }
-.exr-live:not(.is-on) .exr-live__icon path { fill: none; }
 
 .exr-paused, .exr-banner { flex: none; margin: 0; padding: 4px 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .exr-banner { margin: 0 8px 4px; border-radius: 6px; background: var(--warn-soft); color: var(--ink); }
 
 /* The filter box (ui-patterns FilterBar.tsx:61-98, pill variant): one bordered `rounded-md` box,
-   `bg-foreground/[.026]`, a 16px search icon in an 8px-padded lead, then the conditions as 26px
+   (Studio's 8px), `bg-foreground/[.026]`, a 16px search icon in an 8px-padded lead, then the conditions as 26px
    pills (FilterCondition.tsx:281: `h-[26px] rounded-sm border bg-muted`), 12px text
    (LogsFilterBar.tsx:213). */
-.exp { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 32px; padding: 2px 4px 2px 0; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--ink) 2.6%, var(--bg)); box-sizing: border-box; cursor: text; }
+.exp { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 32px; padding: 2px 4px 2px 0; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--ink) 2.6%, var(--bg)); box-sizing: border-box; cursor: text; }
 .exp:focus-within { border-color: var(--border-strong); }
 .exp-lead { flex: none; display: flex; align-items: center; padding: 0 8px; }
 .exp-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
@@ -139,7 +128,7 @@
 /* ChartHighlightActions (ChartHighlightActions.tsx:102-145; dropdown-menu.tsx:70, 105, 167, 179):
    `min-w-32 rounded-md p-1 flex flex-col gap-1`, a centred `font-mono text-xs` range label with a
    10px arrow, a hairline, and the 12px search icon item `px-2 py-1.5 text-xs gap-1.5`. */
-.exc-menu { position: absolute; z-index: 7; display: flex; flex-direction: column; gap: 4px; min-width: 128px; padding: 4px; border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); cursor: default; }
+.exc-menu { position: absolute; z-index: 7; display: flex; flex-direction: column; gap: 4px; min-width: 128px; padding: 4px; border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); cursor: default; }
 .exc-menu__label { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 6px 8px; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
 .exc-menu__label svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .exc-menu hr { width: auto; margin: 0 -4px; border: 0; border-top: 1px solid var(--border); }
@@ -164,7 +153,7 @@
 /* ServiceFlowPanel.tsx:91-104: a 36px header (`h-9 px-4 gap-3`), the title `text-sm font-medium
    leading-6`, the actions `-mr-1 h-6 gap-1`. */
 .exd-head { flex: none; display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 16px; box-sizing: border-box; }
-.exd-title { flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 500 14px/24px var(--font-sans); }
+.exd-title { flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 500 13px/24px var(--font-sans); }
 .exd-badge { flex: none; padding: 0 6px; border-radius: 4px; font: 500 12px/18px var(--font-mono); background: var(--surface-2); color: var(--ink); }
 .exd-badge--4xx { background: var(--warn-soft); color: var(--warn); }
 .exd-badge--5xx { background: var(--error-soft); color: var(--error); }
@@ -183,10 +172,10 @@
 .exd-said:empty { display: none; }
 .exd-outside { margin: 0 16px 8px; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/16px var(--font-sans); }
 /* Tabs (ServiceFlowPanel.tsx:32, 120; packages/ui tabs.tsx:36, 49, 69-71): the list `border-b
-   gap-x-5 px-4`, each trigger `py-2.5 text-sm`, `text-foreground-lighter`, active `text-foreground`
+   gap-x-5 px-4`, each trigger `py-2.5 text-sm` (Studio's 13px, weight 450), `text-foreground-lighter`, active `text-foreground`
    with a 2px `bg-foreground` underline. */
 .exd-tabs { flex: none; display: flex; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
-.exd-tabs button { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-bottom: -1px; padding: 10px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); font: 400 14px/20px var(--font-sans); white-space: nowrap; cursor: pointer; transition: color .15s; }
+.exd-tabs button { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-bottom: -1px; padding: 10px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); font: 450 13px/20px var(--font-sans); white-space: nowrap; cursor: pointer; transition: color .15s; }
 .exd-tabs button:hover { color: var(--ink); }
 .exd-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
 .exd-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) 16px var(--space-6); }
@@ -213,7 +202,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .exl-bone, .ex-tbtn__icon.is-spinning, .exd-sheet { animation: none; }
-  .exr-data, .exf-facet__title .cp-ic, .exf-expand .cp-ic, .ex-tbtn { transition: none; }
+  .exr-data, .exf-facet__title .cp-ic, .exf-expand .cp-ic { transition: none; }
 }
 
 /* The table. */

@@ -409,13 +409,13 @@ export function ExploreApp({
             </div>
             {narrow ? (
               // Phones: the facets are in the shell's drawer, under the page links.
-              <button type="button" className="ex-tbtn" aria-haspopup="dialog" onClick={() => document.querySelector<HTMLButtonElement>(".tb-menu")?.click()}>
+              <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" aria-haspopup="dialog" onClick={() => document.querySelector<HTMLButtonElement>(".tb-menu")?.click()}>
                 Filters{q.conds.length ? ` (${q.conds.length})` : ""}
               </button>
             ) : null}
             <div className="exr-tools__end">
               {/* Supabase's RefreshButton (DataTable/RefreshButton.tsx:34-41): tiny, 26px wide, RefreshCcw, LoaderCircle spinning while loading. */}
-              <button type="button" className="ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>
+              <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>
                 {pending ? (
                   <svg viewBox="0 0 24 24" aria-hidden="true" className="ex-tbtn__icon is-spinning">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -435,7 +435,7 @@ export function ExploreApp({
               {/* Supabase's LiveButton (DataTable/LiveButton.tsx:68-77): tiny, primary when live and default when not, CirclePause / CirclePlay at 16px, "Live". */}
               <button
                 type="button"
-                className={`ex-tbtn exr-live${liveOn ? " ex-tbtn--primary is-on" : ""}`}
+                className={`ah-btn ah-btn--sm ex-tbtn exr-live${liveOn ? " ah-btn--primary is-on" : " ah-btn--secondary"}`}
                 aria-pressed={liveOn}
                 title={`${liveOn ? "Pause live mode" : "Start live mode"} (⌘J)`}
                 onClick={toggleLive}
@@ -489,7 +489,7 @@ export function ExploreApp({
                   <>
                     <p className="exr-empty__title">No requests match these filters</p>
                     <p>In {rangeSentence(query, tz)}.</p>
-                    <button type="button" className="ex-tbtn" onClick={() => setConds([])}>
+                    <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" onClick={() => setConds([])}>
                       Clear filters
                     </button>
                   </>

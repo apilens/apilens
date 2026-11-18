@@ -25,7 +25,7 @@ export function Shortcuts() {
         ref={trigger}
         id="ex-shortcuts"
         type="button"
-        className="ex-tbtn ex-tbtn--icon"
+        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Keyboard shortcuts"
