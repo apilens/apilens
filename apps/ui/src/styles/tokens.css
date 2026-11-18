@@ -60,6 +60,21 @@
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-pill: 999px;
+  --page-gutter: 24px;
+  --stack-gap: 16px;
+  --section-gap: 32px;
+  --card-pad: 16px;
+  --card-gap: 16px;
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --control-h: 32px;
+  --page-narrow: 960px;
+  --section-menu-w: 256px;
   --font-sans: var(--f-sans), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--f-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (max-width: 860px) {
+  :root {
+    --page-gutter: 16px;
+  }
 }

@@ -11,11 +11,11 @@
 .om-status.ok { color: var(--ok); }
 .om-status.err { color: var(--error); }
 
-.om-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.om-wrap { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); }
 .om-table { width: 100%; border-collapse: collapse; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .om-table thead th { padding: 10px var(--space-4); border-bottom: 1px solid var(--border); background: var(--surface-2); text-align: left; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
-.om-table thead th:first-child { border-top-left-radius: var(--radius-lg); }
-.om-table thead th:last-child { border-top-right-radius: var(--radius-lg); }
+.om-table thead th:first-child { border-top-left-radius: var(--radius-card); }
+.om-table thead th:last-child { border-top-right-radius: var(--radius-card); }
 .om-table tbody th, .om-table td { padding: 10px var(--space-4); border-top: 1px solid var(--border); text-align: left; vertical-align: middle; font-weight: 400; }
 .om-table tbody tr:first-child > * { border-top: 0; }
 .om-table td { white-space: nowrap; color: var(--ink-muted); }
@@ -52,7 +52,7 @@
 .om-roles dd { margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
 /* Dialogs: remove, transfer ownership, invite. */
-.om-dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.om-dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
 .om-dialog::backdrop { background: color-mix(in srgb, #000 45%, transparent); }
 .om-dialog__in { padding: var(--space-6); }
 .om-dialog h2 { margin: 0 0 var(--space-2); font: 600 16px/22px var(--font-sans); color: var(--ink); }

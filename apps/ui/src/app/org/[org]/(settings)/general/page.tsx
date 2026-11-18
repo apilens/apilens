@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { AppShell } from "@/components/app-shell";
 import { OrgGeneralSettings } from "@/components/org-settings/general";
 import { getContext, getSession } from "@/lib/auth/server";
 import { ORG_SETTINGS } from "@/lib/data";
@@ -54,12 +53,10 @@ export default async function OrgSettingsPage({ params, searchParams }: { params
   const detail = await loadOrg(org, next);
   const deletedProjects = await loadDeleted(detail, next);
   return (
-    <AppShell context={context} org={org} view="general">
-      <OrgGeneralSettings
-        org={detail}
-        deletedProject={typeof deleted === "string" && PROJECT_SLUG.test(deleted) ? deleted : null}
-        deletedProjects={deletedProjects}
-      />
-    </AppShell>
+    <OrgGeneralSettings
+      org={detail}
+      deletedProject={typeof deleted === "string" && PROJECT_SLUG.test(deleted) ? deleted : null}
+      deletedProjects={deletedProjects}
+    />
   );
 }

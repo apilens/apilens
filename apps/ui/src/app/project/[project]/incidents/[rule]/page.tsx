@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { LoadFailed } from "@/components/alerts/common";
+import { ErrorState } from "@/components/states";
 import { IncidentTimeline } from "@/components/alerts/timeline";
-import { AppShell } from "@/components/app-shell";
 import { getContext } from "@/lib/auth/server";
 import { EVENTS_PAGE, incidentHref } from "@/lib/alerts";
 import { type SearchParams, parseTrail, trailCursor } from "@/lib/pagination";
@@ -37,28 +36,24 @@ export default async function IncidentPage({ params, searchParams }: { params: P
     rule && hasSeries(rule.metric)
       ? await load(next, (api, o) => api.trafficTimeseries(project, { range, app: rule.app_id, env: rule.environment }, o))
       : null;
-  return (
-    <AppShell context={context} project={project} view="incidents">
-      {rule === null ? (
-        <div className="page al">
-          <LoadFailed text="We couldn’t load this alert rule just now." href={next} />
-        </div>
-      ) : (
-        <IncidentTimeline
-          project={project}
-          projectName={found.project.name}
-          rule={rule}
-          app={appNames(apps)[rule.app_id]}
-          events={events ? (events.events ?? []) : null}
-          nextCursor={events?.next_cursor ?? null}
-          params={sp}
-          now={now}
-          tz={resolveTimeZone(context.user.preferences)}
-          series={series}
-          range={range}
-          links={incidentLinks(project, rule, apps, events?.events?.[0]?.started_at, now)}
-        />
-      )}
-    </AppShell>
+  return rule === null ? (
+    <div className="page al">
+      <ErrorState text="We couldn’t load this alert rule just now." href={next} />
+    </div>
+  ) : (
+    <IncidentTimeline
+      project={project}
+      projectName={found.project.name}
+      rule={rule}
+      app={appNames(apps)[rule.app_id]}
+      events={events ? (events.events ?? []) : null}
+      nextCursor={events?.next_cursor ?? null}
+      params={sp}
+      now={now}
+      tz={resolveTimeZone(context.user.preferences)}
+      series={series}
+      range={range}
+      links={incidentLinks(project, rule, apps, events?.events?.[0]?.started_at, now)}
+    />
   );
 }

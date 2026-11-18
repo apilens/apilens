@@ -106,7 +106,7 @@ export function exploreHref(project: string, d: Pick<DeployChange, "deployed_at"
 
 /** The deploy's own page. */
 export function deployHref(project: string, id: string): string {
-  return projectHref(project, "changes", encodeURIComponent(id));
+  return projectHref(project, "deploys", encodeURIComponent(id));
 }
 
 /** The list's filters: an app id and an environment, empty for all. */

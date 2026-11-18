@@ -53,7 +53,7 @@ export function CaptureSettings({ project, projectName, userId, load }: { projec
 
   return (
     <div className="page page--measure os cps">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Capture" className="os-head" />
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Capture" className="os-head" />
 
       {apps === null ? (
         <p className="pk-load-err" role="alert">

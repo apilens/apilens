@@ -24,6 +24,7 @@ import { Histogram, LinesChart } from "../endpoint/charts";
 import { ScopeFilters, ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
+import { PageToolbar } from "../page-toolbar";
 import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
 import { CompareLine } from "../traffic/compare";
@@ -33,6 +34,7 @@ import { AppThresholdMenu } from "./threshold";
 import "../traffic/traffic.css";
 import "../endpoint/endpoint.css";
 import "./performance.css";
+import { ErrorState } from "../states";
 
 /**
  * The project's apps (null when the API could not answer), the app the settings dialog opens on
@@ -91,30 +93,29 @@ export function PerformanceView({
 
   return (
     <div className="page tr pf">
-      <PageHeader
-        project={project}
-        projectName={projectName}
-        title="Performance"
-        lead="How fast your API answers: response time percentiles, Apdex, the slowest requests and where the time goes."
-        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => href({ range: r })} />}
-      />
+      <PageHeader title="Performance" lead="How fast your API answers: response time percentiles, Apdex, the slowest requests and where the time goes." />
 
-      <div className="tr-bar">
-        <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
-          <ScopeSelect
-            label="Environment"
-            value={q.env}
-            options={[{ value: "", label: "All environments", href: href({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: href({ env: e }) }))]}
-          />
-          {apps && (apps.length > 1 || q.app) ? (
-            <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: href({ app: o.value }) }))} />
-          ) : null}
-        </ScopeFilters>
-        <div className="pf-bar__end">
-          {apps && app && settings ? <AppThresholdMenu key={app.id} project={project} apps={apps} app={app} settings={settings} /> : null}
-          <LiveControl />
-        </div>
-      </div>
+      <PageToolbar
+        range={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => href({ range: r })} />}
+        scope={
+          <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
+            <ScopeSelect
+              label="Environment"
+              value={q.env}
+              options={[{ value: "", label: "All environments", href: href({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: href({ env: e }) }))]}
+            />
+            {apps && (apps.length > 1 || q.app) ? (
+              <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: href({ app: o.value }) }))} />
+            ) : null}
+          </ScopeFilters>
+        }
+        secondary={
+          <>
+            {apps && app && settings ? <AppThresholdMenu key={app.id} project={project} apps={apps} app={app} settings={settings} /> : null}
+            <LiveControl />
+          </>
+        }
+      />
       {app && !settings ? (
         <p className="ep-note pf-note" role="status">
           We couldn’t load the response time threshold of {app.name} just now.
@@ -122,7 +123,7 @@ export function PerformanceView({
       ) : null}
 
       {latency === null ? (
-        <LoadFailed text={PERFORMANCE_LOAD_FAILED} href={href({})} />
+        <ErrorState text={PERFORMANCE_LOAD_FAILED} href={href({})} />
       ) : latency.summary.requests === 0 ? (
         <div className="tr-notice" role="status">
           <ObIcon name="info" />
@@ -158,7 +159,7 @@ export function PerformanceView({
           <section className="tr-card tr-card--table" aria-labelledby="pf-slowest">
             <h2 id="pf-slowest">Slowest requests</h2>
             {slowest === null ? (
-              <LoadFailed text={SLOWEST_LOAD_FAILED} href={href({})} />
+              <ErrorState text={SLOWEST_LOAD_FAILED} href={href({})} />
             ) : (
               <SlowestTable project={project} q={q} scope={scope} requests={slowest} apps={appColumn} now={now} tz={tz} />
             )}
@@ -166,7 +167,7 @@ export function PerformanceView({
           <section className="tr-card tr-card--table" aria-labelledby="pf-time-spent">
             <h2 id="pf-time-spent">Time spent</h2>
             {endpoints === null ? (
-              <LoadFailed text={PERF_ENDPOINTS_LOAD_FAILED} href={href({})} />
+              <ErrorState text={PERF_ENDPOINTS_LOAD_FAILED} href={href({})} />
             ) : (
               <TimeSpentTable project={project} q={q} scope={scope} endpoints={endpoints} apps={appColumn} />
             )}
@@ -177,19 +178,6 @@ export function PerformanceView({
   );
 }
 
-function LoadFailed({ text, href }: { text: string; href: string }) {
-  return (
-    <div className="tr-notice tr-notice--error" role="alert">
-      <ObIcon name="info" />
-      <p>
-        {text}{" "}
-        <a className="cp-link" href={href}>
-          Try again
-        </a>
-      </p>
-    </div>
-  );
-}
 
 function Tiles({
   latency,

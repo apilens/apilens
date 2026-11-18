@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
-import { AppShell } from "@/components/app-shell";
-import { ProjectSettingsFrame } from "@/components/project-settings/frame";
 import { NotBuiltSection } from "@/components/project-settings/not-built";
 import { movedKeysHref } from "@/lib/access";
 import { KEYS_SECTION, keysPath } from "@/lib/api-keys";
 import { getContext } from "@/lib/auth/server";
 import { PROJECT_SETTINGS } from "@/lib/data";
 import type { SearchParams } from "@/lib/pagination";
-import { projectSection, projectSectionTitle, visibleProjectSections } from "@/lib/project-settings";
+import { projectSection, projectSectionTitle } from "@/lib/project-settings";
 import { findProject } from "@/lib/scope";
 import { SECTION_CONTENT } from "../sections";
 import type { SectionContext } from "../sections/types";
@@ -38,12 +36,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
   if (!scoped) notFound();
   const ctx: SectionContext = { project, projectName: scoped.project.name, context, search: await searchParams, next };
 
+  // The shell and the section menu come from `../layout.tsx` (#1051); this is the content pane.
   const content = SECTION_CONTENT[found.slug];
-  return (
-    <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
-      <ProjectSettingsFrame project={project} sections={visibleProjectSections(context.capabilities, project, found.slug)} current={found.slug}>
-        {content ? await content(ctx) : <NotBuiltSection project={project} projectName={ctx.projectName} section={found} />}
-      </ProjectSettingsFrame>
-    </AppShell>
-  );
+  return content ? await content(ctx) : <NotBuiltSection project={project} projectName={ctx.projectName} section={found} />;
 }

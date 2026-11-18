@@ -55,7 +55,7 @@ export function ProjectDangerZone({
 }) {
   return (
     <div className="page page--measure os pdz">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Danger zone" className="os-head" />
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Danger zone" className="os-head" />
       {loaded === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s settings. Reload the page to try again.

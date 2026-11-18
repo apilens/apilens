@@ -36,6 +36,7 @@ import { ScopeFilters, ScopeSelect } from "../endpoint/filters";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { PageHeader } from "../page-header";
+import { PageToolbar } from "../page-toolbar";
 import { Pagination } from "../pagination/pagination";
 import { RangePicker } from "../range-picker";
 import { LatencyChart, Sparkline, StatusChart } from "./charts";
@@ -43,6 +44,7 @@ import { CompareLine } from "./compare";
 import { EnvPicker } from "./env-picker";
 import { LiveControl, LiveNumber } from "./live";
 import "./traffic.css";
+import { ErrorState } from "../states";
 
 /**
  * `/project/<project>/traffic` (#592). The project's API traffic in a range and environment: tiles for
@@ -89,26 +91,23 @@ export function TrafficView({
   const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
   return (
     <div className="page tr">
-      <PageHeader
-        project={project}
-        projectName={projectName}
-        title="Traffic"
-        lead="Requests, errors and response times of your API, overall and per endpoint."
-        actions={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => trafficHref(project, { ...q, range: r })} />}
+      <PageHeader title="Traffic" lead="Requests, errors and response times of your API, overall and per endpoint." />
+
+      <PageToolbar
+        range={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => trafficHref(project, { ...q, range: r })} />}
+        scope={
+          <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
+            <EnvPicker project={project} query={q} environments={environments} />
+            {apps && (apps.length > 1 || q.app) ? (
+              <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: trafficHref(project, { ...q, app: o.value }) }))} />
+            ) : null}
+          </ScopeFilters>
+        }
+        secondary={<LiveControl />}
       />
 
-      <div className="tr-bar">
-        <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
-          <EnvPicker project={project} query={q} environments={environments} />
-          {apps && (apps.length > 1 || q.app) ? (
-            <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: trafficHref(project, { ...q, app: o.value }) }))} />
-          ) : null}
-        </ScopeFilters>
-        <LiveControl />
-      </div>
-
       {summary === null ? (
-        <LoadFailed text={TRAFFIC_LOAD_FAILED} href={trafficHref(project, q)} />
+        <ErrorState text={TRAFFIC_LOAD_FAILED} href={trafficHref(project, q)} />
       ) : summary.requests === 0 ? (
         <div className="tr-notice" role="status">
           <ObIcon name="info" />
@@ -120,7 +119,7 @@ export function TrafficView({
           <section className="tr-card" aria-labelledby="tr-over-time">
             <h2 id="tr-over-time">Requests over time</h2>
             {points === null ? (
-              <LoadFailed text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
+              <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
             ) : (
               <div className="tr-charts">
                 <StatusChart
@@ -142,7 +141,7 @@ export function TrafficView({
           <section className="tr-card tr-card--table" aria-labelledby="tr-endpoints">
             <h2 id="tr-endpoints">Endpoints</h2>
             {endpoints === null ? (
-              <LoadFailed text={ENDPOINTS_LOAD_FAILED} href={trafficHref(project, q)} />
+              <ErrorState text={ENDPOINTS_LOAD_FAILED} href={trafficHref(project, q)} />
             ) : endpoints.length === 0 ? (
               <p className="tr-empty" role="status">
                 No endpoints with requests in {scope}.
@@ -230,19 +229,6 @@ function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: st
   );
 }
 
-function LoadFailed({ text, href }: { text: string; href: string }) {
-  return (
-    <div className="tr-notice tr-notice--error" role="alert">
-      <ObIcon name="info" />
-      <p>
-        {text}{" "}
-        <a className="cp-link" href={href}>
-          Try again
-        </a>
-      </p>
-    </div>
-  );
-}
 
 function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points: TrafficPoint[]; range: QueryRange }) {
   const errors = s.client_errors + s.server_errors;

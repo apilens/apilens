@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { RulesView } from "@/components/alerts/rules";
-import { AppShell } from "@/components/app-shell";
 import { getContext } from "@/lib/auth/server";
 import { rulesHref } from "@/lib/alerts";
 import { findProject } from "@/lib/scope";
@@ -22,14 +21,12 @@ export default async function RulesPage({ params }: { params: Promise<{ project:
     loadApps(project, next),
   ]);
   return (
-    <AppShell context={context} project={project} view="incidents">
-      <RulesView
-        project={project}
-        projectName={found.project.name}
-        rules={rules ? (rules.rules ?? []) : null}
-        apps={appNames(apps)}
-        channels={Object.fromEntries((channels?.channels ?? []).map((c) => [c.id, c.name]))}
-      />
-    </AppShell>
+    <RulesView
+      project={project}
+      projectName={found.project.name}
+      rules={rules ? (rules.rules ?? []) : null}
+      apps={appNames(apps)}
+      channels={Object.fromEntries((channels?.channels ?? []).map((c) => [c.id, c.name]))}
+    />
   );
 }

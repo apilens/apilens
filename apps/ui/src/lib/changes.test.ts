@@ -93,7 +93,7 @@ describe("formatting", () => {
   });
 
   it("links to the deploy page", () => {
-    expect(deployHref("shop", "9f3a1b2c")).toBe("/project/shop/changes/9f3a1b2c");
+    expect(deployHref("shop", "9f3a1b2c")).toBe("/project/shop/deploys/9f3a1b2c");
   });
 
   it("formats the deploy time and how late the report came", () => {

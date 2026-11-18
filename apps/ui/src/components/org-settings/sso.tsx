@@ -1,7 +1,7 @@
 "use client";
 
 import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
-import { deleteSSOConnection, saveSSOConnection, testSSOConnection } from "@/app/org/[org]/sso/actions";
+import { deleteSSOConnection, saveSSOConnection, testSSOConnection } from "@/app/org/[org]/(settings)/sso/actions";
 import type { OrgRole, SSOConnection, SSOTestResult } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { addDomains } from "@/lib/org-settings";
@@ -65,7 +65,7 @@ export function OrgSSOSettings({ org, connection }: { org: OrgRef; connection: S
   const owner = canManageSSO(org.role);
   const [conn, setConn] = useState(connection);
   return (
-    <OrgSettingsFrame org={org.slug} role={org.role} current="sso" title="Single sign-on" measure>
+    <OrgSettingsFrame org={org.slug} role={org.role} current="sso" title="SSO" measure>
 
       {owner ? (
         <>

@@ -52,7 +52,7 @@
 .ak-snippet:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 
 /* Create dialog */
-.ak-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.ak-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
 .ak-dialog::backdrop { background: color-mix(in srgb, var(--ink) 40%, transparent); }
 .ak-dialog__head { padding: var(--space-6) var(--space-6) 0; }
 .ak-dialog__head h2 { margin: 0; font: 600 16px/24px var(--font-sans); color: var(--ink); }
@@ -62,7 +62,7 @@
 .ak-dialog__body .ob-f { margin-top: var(--space-4); }
 .ak-dialog__body .ob-in { height: 40px; font-size: 14px; }
 .ak-dialog__body > .ob-err { margin-top: var(--space-4); }
-.ak-dialog__foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.ak-dialog__foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-card) var(--radius-card); }
 .ak-dialog .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
 .ak-scopes { margin-left: 0; margin-right: 0; padding: 0; border: 0; min-width: 0; }

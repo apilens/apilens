@@ -1,6 +1,6 @@
 /* Errors (#594), on top of traffic.css. Tokens from tokens.css only. Chart color carries meaning:
    4xx --warn and 5xx --error, as on Traffic and the endpoint page. Every chart has a legend. */
-.er-tabs { padding: 0; margin-bottom: var(--space-6); overflow-x: auto; }
+.er-tabs { padding: 0; margin-bottom: var(--stack-gap); overflow-x: auto; }
 .er-tabs a, .er-dtabs a { white-space: nowrap; }
 .er-tabs a:hover, .er-dtabs a:hover { color: var(--ink); }
 .er-tabs a:focus-visible, .er-dtabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
@@ -49,7 +49,7 @@
 .er-code-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 
 /* The status code modal */
-.er-modal { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.er-modal { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
 .er-modal::backdrop { background: color-mix(in srgb, var(--bg) 55%, transparent); }
 .er-modal__in { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); }
 .er-modal__head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
@@ -88,7 +88,7 @@
 .er-err { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
 
 @media (max-width: 760px) {
-  .er-tabs, .er-dtabs { margin-left: calc(-1 * var(--page-pad-x)); margin-right: calc(-1 * var(--page-pad-x)); padding: 0 var(--page-pad-x); }
+  .er-tabs, .er-dtabs { margin-left: calc(-1 * var(--page-gutter)); margin-right: calc(-1 * var(--page-gutter)); padding: 0 var(--page-gutter); }
   .er-modal__in { padding: var(--space-4); }
   .er-modal .tr-table { border: 0; }
   .er-trend { width: auto; }

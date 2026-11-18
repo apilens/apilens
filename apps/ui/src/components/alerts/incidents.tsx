@@ -23,7 +23,8 @@ import { formatExact } from "@/lib/passkey-settings";
 import { Pagination } from "../pagination/pagination";
 import { ObIcon } from "../onboarding/ob";
 import { RangePicker } from "../range-picker";
-import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
+import { EmptyState, ErrorState } from "../states";
+import { AlertsHeader, StatusBadge } from "./common";
 
 /**
  * `/project/<project>/incidents` (#610), the project's home view: each alert rule with incidents in the
@@ -90,11 +91,11 @@ export function IncidentsView({
       </div>
 
       {incidents === null ? (
-        <LoadFailed text={INCIDENTS_LOAD_FAILED} href={incidentsHref(project, range)} />
+        <ErrorState text={INCIDENTS_LOAD_FAILED} href={incidentsHref(project, range)} />
       ) : (
         <>
           {open.length === 0 ? (
-            <Empty>No open incidents. Every alert rule is within its threshold.</Empty>
+            <EmptyState>No open incidents. Every alert rule is within its threshold.</EmptyState>
           ) : (
             <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} quiet={quiet} now={now} params={params} paging={OPEN_PAGING} tz={tz} />
           )}
@@ -108,7 +109,7 @@ export function IncidentsView({
             </div>
           </div>
           {resolved.length === 0 ? (
-            <Empty>
+            <EmptyState>
               No incidents resolved in the last {label}.{" "}
               {open.length === 0 ? (
                 <>
@@ -119,7 +120,7 @@ export function IncidentsView({
                   breaches its threshold.
                 </>
               ) : null}
-            </Empty>
+            </EmptyState>
           ) : (
             <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} quiet={quiet} now={now} params={params} paging={RESOLVED_PAGING} tz={tz} />
           )}

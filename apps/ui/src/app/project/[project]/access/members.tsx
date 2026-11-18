@@ -1,7 +1,7 @@
 // Access › Members (`/project/<project>/access`, #806): everyone who can reach the project, their effective
 // role and where it comes from (#753 D3). The header and tabs render at once; the list streams in
 // behind a skeleton while `GET /projects/{slug}/access` answers.
-import { type ReactNode, Suspense, cache } from "react";
+import { Suspense, cache } from "react";
 import { DefaultAccessCard, RestrictedLabel } from "@/components/access/default-access";
 import { AccessMembers, AccessMembersLoading, MembersFrame } from "@/components/access/members";
 import { type Candidate, addCandidates } from "@/lib/access-changes";
@@ -105,12 +105,11 @@ async function Restricted({ ctx }: { ctx: SectionContext }) {
   return <RestrictedLabel defaultAccess={data?.defaultAccess ?? null} />;
 }
 
-export function render(ctx: SectionContext, nav: ReactNode) {
+export function render(ctx: SectionContext) {
   return (
     <MembersFrame
       project={ctx.project}
       projectName={ctx.projectName}
-      nav={nav}
       badge={
         <Suspense fallback={null}>
           <Restricted ctx={ctx} />

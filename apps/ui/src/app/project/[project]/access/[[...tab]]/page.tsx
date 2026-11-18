@@ -2,9 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ActivityFrame, ActivityNotAllowed, ActivitySkeleton } from "@/components/access/activity";
-import { AccessNav } from "@/components/access/nav";
 import { NotBuiltAccessTab } from "@/components/access/not-built";
-import { AppShell } from "@/components/app-shell";
 import { accessTab, accessTitle, visibleAccessTabs } from "@/lib/access";
 import { getContext } from "@/lib/auth/server";
 import type { SearchParams } from "@/lib/pagination";
@@ -16,9 +14,6 @@ import * as members from "../members";
 import { projectHref } from "@/lib/routes";
 
 type Params = { project: string; tab?: string[] };
-
-/** The Access view's slug in the sidebar (`VIEWS` in `lib/data.ts`). */
-const VIEW = "access";
 
 const pathOf = (project: string, tab: string[] | undefined) => `${projectHref(project, "access")}${tab?.[0] ? `/${tab[0]}` : ""}`;
 
@@ -41,27 +36,22 @@ export default async function AccessPage({ params, searchParams }: { params: Pro
   const denied = !found && accessTab(tab)?.slug === "activity";
   if (!found && !denied) notFound();
   const ctx: SectionContext = { project, projectName: scoped.project.name, context, search: await searchParams, next };
-  const nav = <AccessNav project={project} tabs={tabs} current={found?.slug ?? "activity"} />;
-
-  return (
-    <AppShell context={context} project={project} view={VIEW}>
-      {!found ? (
-        <ActivityFrame project={ctx.project} projectName={ctx.projectName} nav={nav}>
-          <ActivityNotAllowed />
-        </ActivityFrame>
-      ) : found.slug === "activity" ? (
-        <ActivityFrame project={ctx.project} projectName={ctx.projectName} nav={nav}>
-          <Suspense key={JSON.stringify(ctx.search)} fallback={<ActivitySkeleton />}>
-            <ActivityTab {...ctx} />
-          </Suspense>
-        </ActivityFrame>
-      ) : found.slug === "keys" ? (
-        keys.render(await keys.load(ctx), ctx, nav)
-      ) : found.slug === "" ? (
-        members.render(ctx, nav)
-      ) : (
-        <NotBuiltAccessTab project={ctx.project} projectName={ctx.projectName} tab={found} nav={nav} />
-      )}
-    </AppShell>
+  // The shell and the section menu (Members, API keys, Activity) come from `../layout.tsx` (#1051).
+  return !found ? (
+    <ActivityFrame project={ctx.project} projectName={ctx.projectName}>
+      <ActivityNotAllowed />
+    </ActivityFrame>
+  ) : found.slug === "activity" ? (
+    <ActivityFrame project={ctx.project} projectName={ctx.projectName}>
+      <Suspense key={JSON.stringify(ctx.search)} fallback={<ActivitySkeleton />}>
+        <ActivityTab {...ctx} />
+      </Suspense>
+    </ActivityFrame>
+  ) : found.slug === "keys" ? (
+    keys.render(await keys.load(ctx), ctx)
+  ) : found.slug === "" ? (
+    members.render(ctx)
+  ) : (
+    <NotBuiltAccessTab project={ctx.project} projectName={ctx.projectName} tab={found} />
   );
 }

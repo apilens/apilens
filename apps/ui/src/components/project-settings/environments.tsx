@@ -41,7 +41,7 @@ export function EnvironmentsSection({ project, projectName, list }: { project: s
   const manage = useCan("project.update").allowed;
   return (
     <div className="page page--measure os cps env">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Environments" className="os-head">
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Environments" className="os-head">
         <p className="env-lede">SDKs register an environment the first time they send data from it. Its order, colour and production label apply wherever environments are listed.</p>
       </PageHeader>
       {list === null ? (

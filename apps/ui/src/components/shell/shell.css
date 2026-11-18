@@ -2,8 +2,11 @@
    expands to 208px (always, never, or while hovered). Tokens from tokens.css only. */
 .shell { --tb-h: 48px; --rl-w: 48px; --rl-open: 208px; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
 .shell-body { flex: 1; min-height: 0; display: flex; }
-.shell .app-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
+/* The content pane: the one part of the app that scrolls (#1051). Pages bring their own gutters (.page). */
+.shell .app-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 0; }
 .shell-scrim { display: none; }
+/* The rail and, in a section with sub-pages, its secondary sidebar: fixed, side by side. */
+.shell-side { position: relative; z-index: 30; flex: none; display: flex; min-height: 0; }
 
 /* ---------------------------------------------------------------- top bar */
 .tb { height: var(--tb-h); flex: none; display: flex; align-items: center; gap: 2px; padding: 0 10px 0 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
@@ -101,6 +104,44 @@
 .rl--expanded .rl-dot, .rl--drawer .rl-dot, .rl--hover .rl-panel:hover .rl-dot, .rl--hover .rl-panel:focus-within .rl-dot { display: none; }
 .rl-foot { flex: none; padding: 8px; }
 
+/* ---------------------------------------------------------------- secondary sidebar (#1051)
+   Supabase's product menu (ProjectLayout ResizablePanel, ProductMenuBar, ProductMenu): 256px,
+   resizable to 512px, a 48px header bar with the section title, UPPERCASE mono group titles,
+   hairlines between groups and pill items with the rail's states. The panel (.sp) is generic;
+   the menu (.sm) is its content. */
+.shell-menu { position: relative; z-index: 20; flex: none; display: flex; min-height: 0; }
+.sp { position: relative; display: flex; flex-direction: column; width: var(--sp-w, var(--section-menu-w)); min-height: 0; box-shadow: inset -1px 0 0 var(--border); background: var(--bg); overflow: hidden; }
+.sp--enter { animation: sp-in .12s ease-out; }
+@keyframes sp-in { from { width: 0; opacity: 0; } }
+.shell-menu-exit { flex: none; box-shadow: inset -1px 0 0 var(--border); animation: sp-out .12s ease-out forwards; }
+@keyframes sp-out { to { width: 0; opacity: 0; } }
+.sp-head { flex: none; display: flex; align-items: center; gap: var(--space-2); height: var(--tb-h); padding: 0 var(--space-6); border-bottom: 1px solid var(--border); }
+.sp-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px/20px var(--font-sans); color: var(--ink); }
+.sp-actions { display: flex; align-items: center; gap: var(--space-1); flex: none; }
+/* Its own scroll; the scrollbar shows only while hovered. */
+.sp-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.sp-body:hover { scrollbar-width: thin; }
+.sp-body::-webkit-scrollbar { width: 0; }
+.sp-body:hover::-webkit-scrollbar { width: 6px; }
+.sp-handle { position: absolute; z-index: 2; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; touch-action: none; }
+.sp-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background-color .1s; }
+.sp-handle:hover::after, .sp-handle:active::after { background: var(--border-strong); }
+.sp-handle:focus-visible { outline: none; }
+.sp-handle:focus-visible::after { background: var(--accent-ink); }
+
+.sm { padding: 0 var(--space-3); }
+.sm-group { padding: var(--space-4) 0 var(--space-2); }
+.sm-group + .sm-group { border-top: 1px solid var(--border); }
+.sm-gt { margin: 0 0 var(--space-2); padding: 0 var(--space-2); font: 500 11px/16px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-muted); }
+.sm-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.sm-item { display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); font: 400 14px/20px var(--font-sans); text-decoration: none; white-space: nowrap; transition: background-color .1s, color .1s; }
+.sm-item:hover { background: color-mix(in srgb, var(--surface-2) 50%, transparent); color: var(--ink); }
+.sm-item.on { background: var(--surface-2); color: var(--ink); font-weight: 500; }
+.sm-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-ink); }
+.sm-item--danger:not(.on) { color: var(--error); }
+.sm-lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sm-ct { flex: none; padding: 0 6px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font: 500 11px/18px var(--font-mono); }
+
 /* ---------------------------------------------------------------- phones: drawer */
 @media (max-width: 860px) {
   .tb-menu { display: grid; }
@@ -110,12 +151,26 @@
   .tb-crumb--view .tb-here { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; }
   .tb-home, .tb-crumb--org > .tb-slash, .tb-badge, .tb-search span, .tb-search kbd { display: none; }
   .tb-search { min-width: 0; width: 30px; padding: 0; justify-content: center; border: 0; background: transparent; }
+  /* Account scope has no organization crumb (#1051): home / Organizations or Account settings. */
+  .tb:not(:has(.tb-crumb--org)) .tb-home { display: grid; }
   .tb-name { max-width: 120px; }
-  .shell-rail { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 288px; transform: translateX(-100%); transition: transform .15s ease-out; }
-  .shell.is-open .shell-rail { transform: none; }
-  .shell-rail .rl-panel { width: 288px; box-shadow: inset -1px 0 0 var(--border), var(--shadow-frame); }
+  /* The drawer: the rail's links, then the section menu's groups under them (#1051), one scroll. */
+  .shell-side { position: fixed; z-index: 45; inset: var(--tb-h) auto 0 0; width: 288px; flex-direction: column; overflow-y: auto; background: var(--bg); box-shadow: inset -1px 0 0 var(--border), var(--shadow-frame); transform: translateX(-100%); transition: transform .15s ease-out; }
+  .shell.is-open .shell-side { transform: none; }
+  .shell-rail, .shell-side .rl { width: auto; height: auto; }
+  .shell-rail .rl-panel, .rl--hover .rl-panel:hover, .rl--hover .rl-panel:focus-within { position: static; width: auto; box-shadow: none; }
+  .shell-rail .rl-nav { overflow: visible; }
+  .shell-menu { display: block; border-top: 1px solid var(--border); }
+  .shell-menu .sp { width: auto; box-shadow: none; animation: none; }
+  .shell-menu .sp-head { height: auto; padding: var(--space-4) var(--space-4) 0; border-bottom: 0; }
+  .shell-menu .sp-title { font: 500 11px/16px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-muted); }
+  .shell-menu .sp-body { overflow: visible; }
+  .shell-menu .sp-handle, .shell-menu-exit { display: none; }
+  .shell-menu .sm { padding: 0 var(--space-2); }
+  .shell-menu .sm-item { height: 32px; }
   .shell.is-open .shell-scrim { display: block; position: fixed; inset: var(--tb-h) 0 0 0; z-index: 44; background: color-mix(in srgb, var(--bg) 72%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rl-panel, .rl-lb, .shell-rail { transition: none; }
+  .rl-panel, .rl-lb, .shell-rail, .shell-side { transition: none; }
+  .sp--enter { animation: none; }
 }

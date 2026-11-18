@@ -42,7 +42,7 @@ export function HealthChecks({ project, projectName, load, search = {} }: { proj
   const appName = (id: string) => apps?.find((a) => a.id === id)?.name ?? "Unknown app";
   return (
     <div className="page page--measure os cps hc">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="Health checks" className="os-head">
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="Health checks" className="os-head">
         <p className="hc-lede">{PROBE_POLICY} A failing check notifies every notification channel of the project.</p>
       </PageHeader>
 

@@ -1,7 +1,7 @@
 /* Endpoint detail (#593), on top of traffic.css. Tokens from tokens.css only. Chart color carries
    meaning: 4xx --warn and 5xx --error as on Traffic; latency percentiles step from muted ink (p50)
    to the accent (p95); bytes in are muted ink and bytes out the accent. Every chart has a legend. */
-.ep-head { margin-bottom: var(--space-6); }
+.ep-head { margin-bottom: var(--stack-gap); }
 .ep-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); overflow-wrap: anywhere; }
 .ep-title code { font: 500 1em/1.25 var(--font-mono); }
 .ep-method { font: 600 0.7em/1 var(--font-mono); color: var(--ink-muted); }
@@ -26,7 +26,7 @@
 .ep-chip b { font: 500 13px/1 var(--font-mono); color: var(--ink); }
 .ep-chip .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 
-.ep-tabs { padding: 0; margin-bottom: var(--space-6); overflow-x: auto; }
+.ep-tabs { padding: 0; margin-bottom: var(--stack-gap); overflow-x: auto; }
 .ep-tabs a { white-space: nowrap; }
 .ep-tabs a:hover { color: var(--ink); }
 .ep-tabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
@@ -58,7 +58,7 @@
 .ep-mark-tag--end { transform: translateX(calc(-100% - 3px)); }
 
 .ep-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
-.ep-pair .tr-card { margin-bottom: var(--space-6); }
+.ep-pair .tr-card { margin-bottom: var(--card-gap); }
 
 .ep-status { display: inline-block; padding: 1px 6px; border-radius: var(--radius-sm); font: 500 12px/18px var(--font-mono); }
 .ep-status--4xx { background: var(--warn-soft); color: var(--ink); }
@@ -81,7 +81,7 @@
 .ep-exc details > .tr-empty { padding: 0 var(--space-4) var(--space-4); }
 
 /* Settings dialog */
-.ep-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.ep-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
 .ep-dialog::backdrop { background: color-mix(in srgb, var(--bg) 55%, transparent); }
 .ep-dialog__in { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); }
 .ep-dialog h2 { margin: 0; font: 600 16px/24px var(--font-sans); }
@@ -129,7 +129,7 @@
   .ep-settings, .ep-explore { margin-left: 0; }
   .ep-locked { flex-direction: column; width: 100%; }
   .ep-locked > div + div { border-left: 0; border-top: 1px solid var(--border); }
-  .ep-tabs { margin-left: calc(-1 * var(--page-pad-x)); margin-right: calc(-1 * var(--page-pad-x)); padding: 0 var(--page-pad-x); }
+  .ep-tabs { margin-left: calc(-1 * var(--page-gutter)); margin-right: calc(-1 * var(--page-gutter)); padding: 0 var(--page-gutter); }
   .tr-table td.ep-rowmenu__cell { position: absolute; top: var(--space-2); right: var(--space-2); width: auto; padding: 0; }
   .tr-table tr.tr-row:has(.ep-rowmenu__cell) td.tr-ep { padding-right: 40px; }
 }

@@ -10,7 +10,7 @@
 .ss .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 .ss .ah-btn--ghost.is-loading::after { border-color: var(--ink); border-right-color: transparent; }
 
-.ss-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
+.ss-wrap { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); overflow: hidden; }
 .ss-table { width: 100%; border-collapse: collapse; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ss-table thead th { padding: 10px var(--space-4); border-bottom: 1px solid var(--border); background: var(--surface-2); text-align: left; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
 .ss-table tbody th, .ss-table td { padding: 12px var(--space-4); border-top: 1px solid var(--border); text-align: left; vertical-align: middle; font-weight: 400; }
@@ -28,7 +28,7 @@
 .ss-revoke { color: var(--error); }
 .ss-revoke:hover { background: var(--error-soft); color: var(--error); }
 
-.ss-empty { margin: 0; padding: var(--space-6); border: 1px dashed var(--border); border-radius: var(--radius-lg); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ss-empty { margin: 0; padding: var(--space-6); border: 1px dashed var(--border); border-radius: var(--radius-card); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .ss-note { margin: var(--space-3) 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
 /* Narrow: each session is a card; cells become label/value lines. */

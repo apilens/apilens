@@ -1,6 +1,6 @@
 /* Security → Two-factor (#342). Tokens from tokens.css only; the code entry reuses .ob-code6,
    inputs .ob-in, the checkbox .ob-keep. */
-.tf-card { max-width: 760px; margin-top: var(--space-6); padding: var(--space-4) var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.tf-card { max-width: 760px; margin-top: var(--space-6); padding: var(--space-4) var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); }
 .tf-card__row { display: flex; align-items: flex-start; gap: var(--space-4); }
 .tf-card__ic { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--ink-muted); }
 .tf-card__t { flex: 1; min-width: 0; }
@@ -22,7 +22,7 @@
 .tf-card .ah-btn:disabled, .tf-dialog .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; filter: none; }
 
 /* Modal dialog */
-.tf-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: 0 24px 64px rgb(0 0 0 / .28); }
+.tf-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink); box-shadow: 0 24px 64px rgb(0 0 0 / .28); }
 .tf-dialog::backdrop { background: color-mix(in srgb, var(--bg) 72%, transparent); }
 .tf-dialog__head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-6) 0; }
 .tf-dialog__head h2 { flex: 1; margin: 0; font: 600 16px/24px var(--font-sans); }

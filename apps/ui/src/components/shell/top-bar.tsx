@@ -24,8 +24,9 @@ function Slash() {
 /**
  * The top bar, Supabase style: home, then organization / project as switchable crumbs on the left
  * (each name links to its scope's home, its chevron switches); the scope search (⌘K), docs and your
- * account on the right. In account scope the last crumb is `accountLabel` (Account settings; empty,
- * so none, on Organizations); in organization scope there is no project crumb and no page title. Below 860px (#998) the bar
+ * account on the right. In account scope there is no organization crumb, only home / `accountLabel`
+ * (Account settings, or Organizations), as Supabase's `/account/*` and `/organizations` (#1051);
+ * in organization scope there is no project crumb and no page title. Below 860px (#998) the bar
  * also names the page (`label`, the nav label) and, when any are open, links the open incident
  * count to Incidents keeping the current scope.
  */
@@ -53,27 +54,32 @@ export function TopBar({
   accountLabel?: string;
   label: string;
   openIncidents: number;
-  onMenu: () => void;
+  /** Opens the phone drawer; without it (a page with no rail or menu) there is no menu button. */
+  onMenu?: () => void;
   onSearch: () => void;
 }) {
   const search = useSearchParams();
   const open = badgeText(openIncidents);
   const scoped = project && !orgScope && !account ? project : undefined;
   return (
-    <header className="tb" aria-label="Top bar">
-      <button type="button" className="tb-icon tb-menu" aria-label="Open navigation" onClick={onMenu}>
-        <Icon name="menu" />
-      </button>
+    <header className={`tb${onMenu ? "" : " tb--bare"}`} aria-label="Top bar">
+      {onMenu ? (
+        <button type="button" className="tb-icon tb-menu" aria-label="Open navigation" onClick={onMenu}>
+          <Icon name="menu" />
+        </button>
+      ) : null}
       <Link href="/" className="tb-home" aria-label="APILens home">
         <Logo variant="icon" />
       </Link>
       <nav className="tb-crumbs" aria-label="Scope">
-        <span className="tb-crumb tb-crumb--org">
-          <Slash />
-          <OrgSelector orgs={orgs} org={org} />
-        </span>
+        {account ? null : (
+          <span className="tb-crumb tb-crumb--org">
+            <Slash />
+            <OrgSelector orgs={orgs} org={org} />
+          </span>
+        )}
         {account && accountLabel ? (
-          <span className="tb-crumb">
+          <span className="tb-crumb tb-crumb--account">
             <Slash />
             <span className="tb-here">{accountLabel}</span>
           </span>

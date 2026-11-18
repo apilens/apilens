@@ -30,7 +30,7 @@ export function ProjectGeneralSettings({ project, projectName, loaded }: { proje
   const edit = useCan("project.update").allowed;
   return (
     <div className="page page--measure os pgen">
-      <PageHeader project={project} projectName={projectName} title={PROJECT_SETTINGS.label} section="General" className="os-head" />
+      <PageHeader title={PROJECT_SETTINGS.label} lead={PROJECT_SETTINGS.lead} section="General" className="os-head" />
       {loaded === null ? (
         <p className="pk-load-err" role="alert">
           Couldn’t load this project’s settings. Reload the page to try again.

@@ -63,7 +63,6 @@ export function AppDetailView({ project, projectName, slug, app, status, summary
     <div className="page ap ap-detail">
       <header className="pagehead">
         <p className="cp-h">
-          {projectName} ·{" "}
           <a className="cp-link" href={appsHref(project)}>
             Apps
           </a>

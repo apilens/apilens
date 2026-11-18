@@ -44,7 +44,7 @@ const PATHS = {
       <path d="M12 22V12" />
     </>
   ),
-  changes: (
+  deploys: (
     <>
       <circle cx="12" cy="12" r="3" />
       <path d="M3 12h6" />

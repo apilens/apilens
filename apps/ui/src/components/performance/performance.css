@@ -3,7 +3,6 @@
    bands carry meaning: unacceptable and poor --error-soft, fair --warn-soft, good and excellent
    --ok-soft; the rating is written under the score and the meter has a text value, so color is
    never the only cue. */
-.pf-bar__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .pf-settings { margin-left: 0; }
 .pf-note { margin: 0 0 var(--space-4); }
 
@@ -54,6 +53,5 @@
 .pf-share__bar > span { display: block; height: 100%; background: var(--accent); }
 
 @media (max-width: 760px) {
-  .pf-bar__end { width: 100%; justify-content: space-between; }
   .pf-help__tip { left: auto; width: min(280px, calc(100vw - 64px)); min-width: 0; }
 }

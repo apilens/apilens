@@ -2,8 +2,8 @@
    project cards. Tokens from tokens.css only. */
 .org-count { margin: 0 0 var(--space-3); font: 500 13px/20px var(--font-sans); color: var(--ink-muted); }
 
-.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
-.org-card { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: var(--space-3); row-gap: var(--space-4); height: 100%; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); color: var(--ink); text-decoration: none; transition: border-color .12s ease, background-color .12s ease; }
+.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--card-gap); margin: 0; padding: 0; list-style: none; }
+.org-card { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: var(--space-3); row-gap: var(--space-4); height: 100%; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink); text-decoration: none; transition: border-color .12s ease, background-color .12s ease; }
 .org-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
 .org-card:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .org-card__mark { width: 32px; height: 32px; border-radius: 8px; font-size: 14px; }
@@ -14,6 +14,22 @@
 
 .org-badge { flex: none; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/14px var(--font-sans); color: var(--ink-muted); }
 
-.org-empty { padding: var(--space-12) var(--space-6); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); text-align: center; }
+.org-empty { padding: var(--space-12) var(--space-6); border: 1px dashed var(--border-strong); border-radius: var(--radius-card); text-align: center; }
 .org-empty__t { margin: 0; font: 500 14px/20px var(--font-sans); color: var(--ink); }
 .org-empty__p { margin: 4px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+/* `/organizations` (#1051), Supabase's: no rail, centred at most 1200px, a search row, then cards
+   of about 70px in one, two (768px+) or three (1024px+) columns. */
+.org-page--all { max-width: calc(1200px + 2 * var(--page-gutter)); margin-inline: auto; }
+.org-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--stack-gap); }
+.org-search { display: flex; width: 256px; max-width: 100%; }
+.org-search input { width: 100%; height: var(--control-h); padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-1); color: var(--ink); font: 400 13px/1 var(--font-sans); }
+.org-search input::placeholder { color: var(--ink-muted); }
+.org-search input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.org-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.org-grid--all { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 768px) { .org-grid--all { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .org-grid--all { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.org-card--row { grid-template-rows: auto; align-items: center; min-height: 70px; padding: var(--space-3) var(--card-pad); }
+.org-card__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+@media (max-width: 860px) { .org-search { width: 100%; } }

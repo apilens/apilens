@@ -1,6 +1,6 @@
 /* Project settings → Privacy (#599). Tokens from tokens.css only; cards and notes reuse .os-*
    (org settings), inputs .ob-in, errors .ob-err. */
-.prv .os-card + .os-card { margin-top: var(--space-6); }
+.prv .os-card + .os-card { margin-top: var(--card-gap); }
 .prv .os-card__head code { font: 400 12px/18px var(--font-mono); color: var(--ink); }
 
 .prv-list { margin: 0; padding: 0; border: 0; min-width: 0; }

@@ -1,7 +1,7 @@
 "use client";
 
 import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
-import { type OrgActionResult, deleteOrganization, saveOrgDomains, saveOrgName } from "@/app/org/[org]/general/actions";
+import { type OrgActionResult, deleteOrganization, saveOrgDomains, saveOrgName } from "@/app/org/[org]/(settings)/general/actions";
 import type { DeletedProject, Org } from "@/lib/identity";
 import { addDomains, canDeleteOrg, canManageOrg, checkOrgName, deleteConfirmed, MAX_ORG_NAME } from "@/lib/org-settings";
 import { roleLabel } from "@/lib/scope";

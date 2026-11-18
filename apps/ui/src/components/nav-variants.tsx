@@ -10,7 +10,7 @@ const LINKS: Link[] = [
   { slug: "incidents", label: "Incidents", count: "1", warn: true },
   { slug: "explore", label: "Explore" },
   { slug: "apps", label: "Apps", count: "3", warn: true },
-  { slug: "changes", label: "Changes" },
+  { slug: "deploys", label: "Deploys" },
   { slug: "access", label: "Access" },
   { slug: "settings", label: "Project settings" },
 ];
