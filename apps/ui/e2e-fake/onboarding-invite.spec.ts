@@ -151,6 +151,16 @@ test("invite passes axe in light and dark at 1440 and 390 px", async ({ page }) 
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      // Buttons ease their colours over 120 ms (`.ah-btn`); axe reading one mid-change measures a
+      // blend. Wait for the running finite transitions to end (the spinner's loop never does).
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY)
+            .map((a) => a.finished.catch(() => undefined)),
+        ),
+      );
       const { violations } = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
         .analyze();
