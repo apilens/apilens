@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, moveFocus, rowKey, statusClass, visibleWindow } from "@/lib/explore";
 import { type ColumnId, type ColumnPrefs, autoHidden, columnDef, gridTemplate, visibleColumns } from "@/lib/explore-columns";
 import { formatCount } from "@/lib/consumers";
@@ -19,6 +19,9 @@ export const ROW_H_PHONE = 52;
 export const PHONE_W = 640;
 /** How close to the end (px) the next page starts loading (Supabase's 300px). */
 const LOAD_AHEAD_PX = 300;
+/** How a click on a row was made: Shift extends the selection, ⌘/Ctrl toggles one row. */
+export type RowClick = { shift: boolean; toggle: boolean };
+
 /** Shimmer rows while the first page loads. */
 const SKELETON_ROWS = 12;
 
@@ -45,6 +48,11 @@ export function LogTable({
   onLoadMore,
   onOpen,
   caption,
+  openId = null,
+  selected,
+  onSelect,
+  onExtend,
+  cellMenu,
 }: {
   /** null draws the shimmer rows of a first load. */
   rows: RequestRow[] | null;
@@ -57,8 +65,19 @@ export function LogTable({
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
-  onOpen?: (row: RequestRow) => void;
+  /** A click (or Enter) on a row; `how` says whether it selects instead of opening. */
+  onOpen?: (row: RequestRow, how: RowClick) => void;
   caption?: ReactNode;
+  /** The id of the request open in the panel: its row is marked and kept in view. */
+  openId?: string | null;
+  /** The selected rows' keys (#1053 multi-select). */
+  selected?: ReadonlySet<string>;
+  /** The row's checkbox. */
+  onSelect?: (row: RequestRow, on: boolean) => void;
+  /** Shift+↑/↓ from row `from` to row `to`. */
+  onExtend?: (from: RequestRow, to: RequestRow) => void;
+  /** The ⋯ menu of a cell, or null when the column has none. */
+  cellMenu?: (row: RequestRow, col: ColumnId) => ReactNode;
 }) {
   const tz = useTimeZone();
   const scroller = useRef<HTMLDivElement>(null);
@@ -134,17 +153,34 @@ export function LogTable({
     requestAnimationFrame(() => el.querySelector<HTMLElement>(`[data-index="${index}"]`)?.focus({ preventScroll: true }));
   };
 
+  // The open request's row stays in view as ↑/↓ walk the panel through the rows.
+  const openIndex = openId && rows ? rows.findIndex((r) => r.id === openId) : -1;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || openIndex < 0) return;
+    const top = openIndex * rowH;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + rowH > el.scrollTop + el.clientHeight - ROW_H) el.scrollTop = top + rowH + ROW_H - el.clientHeight;
+    setScrollTop(el.scrollTop);
+  }, [openIndex, rowH]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.metaKey || e.ctrlKey || e.altKey || !rows) return;
-    if (e.key === "Enter" && onOpen && rows[focusIndex] && (e.target as HTMLElement).dataset.index !== undefined) {
+    if ((e.target as HTMLElement).dataset.index === undefined) return;
+    if (e.key === "Enter" && onOpen && rows[focusIndex]) {
       e.preventDefault();
-      onOpen(rows[focusIndex]);
+      onOpen(rows[focusIndex], { shift: false, toggle: false });
       return;
     }
+    const key = e.key === "j" ? "ArrowDown" : e.key === "k" ? "ArrowUp" : e.key;
     const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 0) / rowH) - 1);
-    const next = moveFocus(e.key, focusIndex, rows.length, page);
+    const next = moveFocus(key, focusIndex, rows.length, page);
     if (next === null) return;
     e.preventDefault();
+    e.stopPropagation();
+    if (e.shiftKey && onExtend && rows[focusIndex] && rows[next]) onExtend(rows[focusIndex], rows[next]);
+    // With a request open, moving the focus moves the panel with it.
+    else if (openId && onOpen && rows[next]?.id) onOpen(rows[next], { shift: false, toggle: false });
     focusRow(next);
   };
 
@@ -167,6 +203,11 @@ export function LogTable({
           onFocus={setFocusKey}
           onOpen={onOpen}
           rowId={keys[i]}
+          open={Boolean(openId) && rows[i].id === openId}
+          checked={selected?.has(keys[i]) ?? false}
+          selecting={(selected?.size ?? 0) > 0}
+          onSelect={onSelect}
+          cellMenu={cellMenu}
         />
       ) : (
         <SkeletonRow key={i} index={i} cols={phone ? (["path"] as ColumnId[]) : cols} template={template} rowH={rowH} />
@@ -240,8 +281,18 @@ const LogRow = memo(function LogRow({
   onFocus,
   onOpen,
   rowId,
+  open,
+  checked,
+  selecting,
+  onSelect,
+  cellMenu,
 }: {
   row: RequestRow;
+  open: boolean;
+  checked: boolean;
+  selecting: boolean;
+  onSelect?: (row: RequestRow, on: boolean) => void;
+  cellMenu?: (row: RequestRow, col: ColumnId) => ReactNode;
   cols: readonly ColumnId[];
   phone: boolean;
   rowH: number;
@@ -251,25 +302,41 @@ const LogRow = memo(function LogRow({
   dim: boolean;
   focusable: boolean;
   onFocus: (key: string) => void;
-  onOpen?: (row: RequestRow) => void;
+  onOpen?: (row: RequestRow, how: RowClick) => void;
   rowId: string;
 }) {
   const tz = useTimeZone();
   const cls = statusClass(r.status_code);
   const openable = Boolean(onOpen && r.id);
+  const click = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button, a, input, .exa")) return;
+    if (e.shiftKey) window.getSelection()?.removeAllRanges();
+    onOpen?.(r, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
+  };
   return (
     <div
-      className={`exl-row${openable ? " is-openable" : ""}${cls === "4xx" || cls === "5xx" ? ` is-${cls}` : ""}${dim ? " is-old" : ""}${phone ? " is-phone" : ""}`}
+      className={`exl-row${openable ? " is-openable" : ""}${cls === "4xx" || cls === "5xx" ? ` is-${cls}` : ""}${dim ? " is-old" : ""}${phone ? " is-phone" : ""}${checked ? " is-checked" : ""}${selecting ? " is-selecting" : ""}`}
       role="row"
       aria-rowindex={index + 2}
+      aria-selected={open || checked || undefined}
       data-index={index}
       tabIndex={focusable ? 0 : -1}
       onFocus={() => onFocus(rowId)}
-      onClick={openable ? () => onOpen?.(r) : undefined}
+      onClick={openable ? click : undefined}
       style={{ transform: `translateY(${index * rowH}px)`, height: rowH, gridTemplateColumns: template }}
     >
       <div role="gridcell" className="exl-cell exl-cell--dot">
         <span className={`exl-dot exl-dot--${cls}`} title={statusText(r.status_code)} />
+        {onSelect ? (
+          <input
+            type="checkbox"
+            className="exl-check"
+            checked={checked}
+            aria-label={`Select ${r.method.toUpperCase()} ${r.raw_path || r.path} at ${r.timestamp}`}
+            tabIndex={-1}
+            onChange={(e) => onSelect(r, e.target.checked)}
+          />
+        ) : null}
       </div>
       {phone ? (
         <div role="gridcell" className="exl-cell exl-cell--stack">
@@ -279,7 +346,7 @@ const LogRow = memo(function LogRow({
           </span>
         </div>
       ) : (
-        cols.map((id) => <Cell key={id} id={id} row={r} now={now} tz={tz} />)
+        cols.map((id) => <Cell key={id} id={id} row={r} now={now} tz={tz} menu={cellMenu?.(r, id)} />)
       )}
     </div>
   );
@@ -311,7 +378,7 @@ function PathText({ row: r }: { row: RequestRow }) {
   );
 }
 
-function Cell({ id, row: r, now, tz }: { id: ColumnId; row: RequestRow; now: number; tz: string }) {
+function Cell({ id, row: r, now, tz, menu }: { id: ColumnId; row: RequestRow; now: number; tz: string; menu?: ReactNode }) {
   const app = useAppName(r.app_id);
   const cls = statusClass(r.status_code);
   const content = (() => {
@@ -358,8 +425,9 @@ function Cell({ id, row: r, now, tz }: { id: ColumnId; row: RequestRow; now: num
     }
   })();
   return (
-    <div role="gridcell" className={`exl-cell exl-cell--${id}`}>
+    <div role="gridcell" className={`exl-cell exl-cell--${id}${menu ? " has-menu" : ""}`}>
       {content}
+      {menu}
     </div>
   );
 }

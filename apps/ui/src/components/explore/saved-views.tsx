@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createExploreView, deleteExploreView, updateExploreView } from "@/app/project/[project]/explore/actions";
-import type { Cond } from "@/lib/explore-query";
+import { type Cond, OP_LABEL, condString, condWords, fieldDef, valueText } from "@/lib/explore-query";
 import {
   MAX_VIEW_NAME,
   PENDING_PREFIX,
@@ -10,6 +10,7 @@ import {
   VIEW_EDIT_DENIED,
   activeView,
   canEditView,
+  sameSet,
   canSaveFilters,
   checkViewName,
   filtersOfView,
@@ -22,6 +23,8 @@ import type { SavedView } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
+import { useAppNames } from "./app-names";
+import { readStored, writeStored } from "./use-stored";
 
 type Said = { tone: "ok" | "err"; text: string } | null;
 
@@ -35,8 +38,11 @@ interface Scope {
   views: SavedView[] | null;
   said: Said;
   save: (name: string, shared: boolean) => void;
-  change: (v: SavedView, next: { name: string; shared: boolean }, said: string) => void;
+  change: (v: SavedView, next: { name: string; shared: boolean; filter?: SavedView["filter"] }, said: string) => void;
   remove: (v: SavedView) => void;
+  /** The view last picked from the menu, to notice when its filters change. */
+  loaded: string | null;
+  setLoaded: (id: string | null) => void;
 }
 
 const ViewsScope = createContext<Scope | null>(null);
@@ -100,11 +106,11 @@ export function SavedViews({
   );
 
   const change = useCallback(
-    (v: SavedView, next: { name: string; shared: boolean }, ok: string) => {
-      const optimistic = { ...v, ...next };
+    (v: SavedView, next: { name: string; shared: boolean; filter?: SavedView["filter"] }, ok: string) => {
+      const optimistic = { ...v, ...next, filter: next.filter ?? v.filter };
       setViews((vs) => upsertView(vs ?? [], optimistic));
       setSaid(null);
-      void track(updateExploreView(project, v.id, { name: next.name, filter: v.filter, shared: next.shared })).then((r) => {
+      void track(updateExploreView(project, v.id, { name: next.name, filter: optimistic.filter, shared: next.shared })).then((r) => {
         if (r.ok) {
           setViews((vs) => upsertView(vs ?? [], r.view));
           setSaid({ tone: "ok", text: ok });
@@ -133,7 +139,8 @@ export function SavedViews({
     [project],
   );
 
-  return <ViewsScope.Provider value={{ project, me, conds, apply, views, said, save, change, remove }}>{children}</ViewsScope.Provider>;
+  const [loaded, setLoaded] = useState<string | null>(null);
+  return <ViewsScope.Provider value={{ project, me, conds, apply, views, said, save, change, remove, loaded, setLoaded }}>{children}</ViewsScope.Provider>;
 }
 
 /**
@@ -143,11 +150,12 @@ export function SavedViews({
  * everyone else sees those items disabled with the reason.
  */
 export function ViewSwitcher() {
-  const { me, conds, apply, views, said, change, remove } = useViews();
+  const { me, conds, apply, views, said, change, remove, setLoaded } = useViews();
+  const appName = useAppNames();
   const admin = useCan("capture.manage").allowed;
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"menu" | "rename" | "delete">("menu");
+  const [mode, setMode] = useState<"menu" | "rename" | "delete" | "save">("menu");
   const [name, setName] = useState("");
   const [nameErr, setNameErr] = useState<string | null>(null);
   const ids = { menu: useId(), name: useId(), err: useId() };
@@ -179,10 +187,11 @@ export function ViewSwitcher() {
     return () => cancelAnimationFrame(frame);
   }, [open, mode, ids.menu]);
 
-  const pick = (next: Cond[]) => {
+  const pick = (next: Cond[], id: string | null = null) => {
     close();
     trigger.current?.focus();
     // A view sets the conditions; the range stays.
+    setLoaded(id);
     apply(next);
   };
 
@@ -199,7 +208,8 @@ export function ViewSwitcher() {
     if (checked.name !== current.name) change(current, { name: checked.name, shared: current.shared }, `Renamed ${current.name} to ${checked.name}.`);
   };
 
-  const menuLabel = mode === "rename" ? `Rename ${current?.name ?? "view"}` : mode === "delete" ? `Delete ${current?.name ?? "view"}` : "Saved views";
+  const menuLabel =
+    mode === "rename" ? `Rename ${current?.name ?? "view"}` : mode === "delete" ? `Delete ${current?.name ?? "view"}` : mode === "save" ? "Save these filters as a view" : "Saved views";
 
   return (
     <div className="ex-views">
@@ -211,7 +221,9 @@ export function ViewSwitcher() {
         aria-expanded={open}
         onClick={() => (open ? close() : (setMode("menu"), setOpen(true)))}
       >
-        <Icon name="layers" />
+        <svg viewBox="0 0 16 16" aria-hidden="true" className="ex-tbtn__icon">
+          <path d="M4.5 2.5h7v11L8 11l-3.5 2.5z" />
+        </svg>
         <span className="ex-tl__sr">View: </span>
         <span className="ex-views__name">{label}</span>
         {current?.shared ? <span className="ex-views__badge">Shared</span> : null}
@@ -221,7 +233,14 @@ export function ViewSwitcher() {
         {said?.text ?? ""}
       </p>
       <PopMenu open={open} onClose={close} triggerRef={trigger} label={menuLabel} role={mode === "menu" ? "menu" : "dialog"} id={ids.menu}>
-        {mode === "rename" && current ? (
+        {mode === "save" ? (
+          <SaveForm
+            onDone={() => {
+              close();
+              trigger.current?.focus();
+            }}
+          />
+        ) : mode === "rename" && current ? (
           <form className="ex-views__form" onSubmit={onRename} noValidate>
             <label htmlFor={ids.name}>View name</label>
             <input
@@ -293,8 +312,11 @@ export function ViewSwitcher() {
               <>
                 <p className="menu-label">Saved views</p>
                 {list.map((v) => (
-                  <button key={v.id} type="button" role="menuitemradio" aria-checked={v === current} className="cp-sitem" onClick={() => pick(filtersOfView(v))}>
-                    <span className="lb">{v.name}</span>
+                  <button key={v.id} type="button" role="menuitemradio" aria-checked={v === current} className="cp-sitem ex-views__item" onClick={() => pick(filtersOfView(v), v.id)}>
+                    <span className="lb">
+                      {v.name}
+                      <span className="ex-views__sum">{filtersOfView(v).map((c) => condWords(c, { app: appName })).join(" · ") || "No filters"}</span>
+                    </span>
                     {v.shared ? <span className="ex-views__badge">Shared</span> : null}
                     {v === current ? (
                       <span className="sl">
@@ -305,6 +327,17 @@ export function ViewSwitcher() {
                 ))}
               </>
             )}
+            <hr />
+            {views !== null && canSaveFilters(list, conds) ? (
+              <button type="button" role="menuitem" aria-haspopup="dialog" className="cp-sitem" onClick={() => setMode("save")}>
+                <span className="lb">Save current view…</span>
+              </button>
+            ) : null}
+            {filtered ? (
+              <button type="button" role="menuitem" className="cp-sitem" onClick={() => pick([])}>
+                <span className="lb">Clear all filters</span>
+              </button>
+            ) : null}
             {current ? (
               <>
                 <hr />
@@ -358,93 +391,169 @@ export function ViewSwitcher() {
   );
 }
 
+/** The conditions as read-only pills, for the save dialog. */
+function Pills({ conds }: { conds: Cond[] }) {
+  const appName = useAppNames();
+  return (
+    <ul className="exp-pills ex-views__pills" aria-label="Filters to save">
+      {conds.map((c) => (
+        <li key={condString(c)} className={`exp-pill${c.op === "neq" || c.op === "ncontains" ? " is-not" : ""}`}>
+          <span className="exp-pill__body">
+            <span className="exp-pill__field">{fieldDef(c.field).label}</span>
+            <span className="exp-pill__op">{OP_LABEL[c.op]}</span>
+            <span className="exp-pill__value">{valueText(c, { app: appName })}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * Save view in the filter bar (#589): names the filters on now as a view, private or shared with
- * the project. Shown while some filters are on that no saved view holds.
+ * The save form (#589, #1053): the filters on now as pills, a name, and whether the project sees
+ * it. `onDone` runs after a save or Cancel.
  */
-export function SaveView() {
-  const { me, conds, views, save } = useViews();
-  const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+function SaveForm({ onDone }: { onDone: () => void }) {
+  const { me, conds, views, save, setLoaded } = useViews();
   const [name, setName] = useState("");
   const [shared, setShared] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const ids = { form: useId(), name: useId(), err: useId(), share: useId() };
-
-  const close = useCallback(() => setOpen(false), []);
+  const ids = { name: useId(), err: useId(), share: useId() };
 
   useEffect(() => {
-    if (!open) return;
     const frame = requestAnimationFrame(() => document.getElementById(ids.name)?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [open, ids.name]);
-
-  if (views === null || !canSaveFilters(views, conds)) return null;
+  }, [ids.name]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const checked = checkViewName(name, views, me);
+    const checked = checkViewName(name, views ?? [], me);
     if (!checked.ok) {
       setErr(checked.error);
       return;
     }
-    setOpen(false);
-    setName("");
-    setShared(false);
+    setLoaded(null);
     save(checked.name, shared);
+    onDone();
   };
 
   return (
-    <>
+    <form className="ex-views__form" onSubmit={submit} noValidate>
+      <Pills conds={conds} />
+      <label htmlFor={ids.name}>View name</label>
+      <input
+        id={ids.name}
+        className="ex-input"
+        value={name}
+        placeholder="Checkout 5xx in production"
+        maxLength={MAX_VIEW_NAME + 20}
+        autoComplete="off"
+        aria-invalid={err ? true : undefined}
+        aria-describedby={err ? ids.err : undefined}
+        onChange={(e) => {
+          setName(e.target.value);
+          setErr(null);
+        }}
+      />
+      {err ? (
+        <p id={ids.err} className="ex-error" role="alert">
+          {err}
+        </p>
+      ) : null}
+      <label className="ex-views__check" htmlFor={ids.share}>
+        <input id={ids.share} type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+        Share with everyone in the project
+      </label>
+      <div className="ex-views__actions">
+        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onDone}>
+          Cancel
+        </button>
+        <button type="submit" className="ah-btn ah-btn--primary ah-btn--sm">
+          Save view
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Where dismissed "save these filters?" prompts are remembered, per project. */
+const DISMISSED_KEY = (project: string) => `apilens.explore.views.dismissed.${project}`;
+const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+/** A filter set's key, in any order. */
+const setKey = (conds: Cond[]) => conds.map(condString).sort().join("\n");
+
+/**
+ * The floating view prompts (#1053, after Supabase's views): at 2 or more filters that no view
+ * holds, "Save these N filters as a view?" (Save, Dismiss; a dismissal is remembered for that set);
+ * when the filters of the view picked last change, "View changed: Update · Save as new".
+ */
+export function ViewPrompt() {
+  const { project, me, conds, views, loaded, setLoaded, change } = useViews();
+  const admin = useCan("capture.manage").allowed;
+  const [saving, setSaving] = useState(false);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  useEffect(() => setDismissed(readStored(DISMISSED_KEY(project), isList) ?? []), [project]);
+  if (views === null) return null;
+  const view = loaded ? (views.find((v) => v.id === loaded) ?? null) : null;
+  const key = setKey(conds);
+
+  if (view && !sameSet(filtersOfView(view), conds) && conds.length) {
+    const editable = !isPending(view) && canEditView(view, me, admin);
+    return (
+      <div className="ex-prompt" role="status">
+        <span>
+          View changed: <strong>{view.name}</strong>
+        </span>
+        {editable ? (
+          <button
+            type="button"
+            className="ah-btn ah-btn--secondary ah-btn--sm"
+            onClick={() => change(view, { name: view.name, shared: view.shared, filter: viewFilter(conds) }, `Updated ${view.name}.`)}
+          >
+            Update
+          </button>
+        ) : null}
+        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => (setLoaded(null), setSaving(true))}>
+          Save as new
+        </button>
+        {saving ? <SavePop onDone={() => setSaving(false)} /> : null}
+      </div>
+    );
+  }
+  if (saving) {
+    return (
+      <div className="ex-prompt" role="status">
+        <SavePop onDone={() => setSaving(false)} />
+      </div>
+    );
+  }
+  if (conds.length < 2 || !canSaveFilters(views, conds) || dismissed.includes(key)) return null;
+  return (
+    <div className="ex-prompt" role="status">
+      <span>Save these {conds.length} filters as a view?</span>
+      <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => setSaving(true)}>
+        Save
+      </button>
       <button
-        ref={trigger}
         type="button"
         className="ah-btn ah-btn--ghost ah-btn--sm"
-        aria-haspopup="dialog"
-        aria-expanded={open}
         onClick={() => {
-          setErr(null);
-          setOpen((o) => !o);
+          const next = [...dismissed.filter((k) => k !== key), key].slice(-50);
+          setDismissed(next);
+          writeStored(DISMISSED_KEY(project), next);
         }}
       >
-        Save view
+        Dismiss
       </button>
-      <PopMenu open={open} onClose={close} triggerRef={trigger} label="Save these filters as a view" role="dialog" id={ids.form}>
-        <form className="ex-views__form" onSubmit={submit} noValidate>
-          <label htmlFor={ids.name}>View name</label>
-          <input
-            id={ids.name}
-            className="ex-input"
-            value={name}
-            placeholder="Checkout 5xx in production"
-            maxLength={MAX_VIEW_NAME + 20}
-            autoComplete="off"
-            aria-invalid={err ? true : undefined}
-            aria-describedby={err ? ids.err : undefined}
-            onChange={(e) => {
-              setName(e.target.value);
-              setErr(null);
-            }}
-          />
-          {err ? (
-            <p id={ids.err} className="ex-error" role="alert">
-              {err}
-            </p>
-          ) : null}
-          <label className="ex-views__check" htmlFor={ids.share}>
-            <input id={ids.share} type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
-            Share with everyone in the project
-          </label>
-          <div className="ex-views__actions">
-            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={close}>
-              Cancel
-            </button>
-            <button type="submit" className="ah-btn ah-btn--primary ah-btn--sm">
-              Save view
-            </button>
-          </div>
-        </form>
-      </PopMenu>
-    </>
+    </div>
+  );
+}
+
+/** The save form in a small card over the prompt. */
+function SavePop({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="ex-prompt__form" role="dialog" aria-label="Save these filters as a view">
+      <SaveForm onDone={onDone} />
+    </div>
   );
 }

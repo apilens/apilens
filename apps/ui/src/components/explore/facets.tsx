@@ -17,7 +17,7 @@ import {
 import { classWords, statusText } from "@/lib/http-status";
 import { Icon } from "../icons";
 import { useAppNames } from "./app-names";
-import { isBool, useStored } from "./use-stored";
+import { isOpenMap, useStored } from "./use-stored";
 
 /** The facet sidebar's width in px: Supabase's 256 default and minimum, 512 at most. */
 export const FACETS_MIN = 256;
@@ -82,8 +82,6 @@ function useFacetValues(project: string, q: ExploreQuery, field: FacetField, sea
   }, [path, enabled, refresh, retry, search]);
   return [read, () => setRetry((n) => n + 1)];
 }
-
-const isOpenMap = (v: unknown): v is Record<string, boolean> => typeof v === "object" && v !== null && Object.values(v).every(isBool);
 
 /**
  * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): Status, App,

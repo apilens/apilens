@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { rowKey } from "@/lib/explore";
-import { type ColumnPrefs, DEFAULT_PREFS, autoHidden, isPrefs, readPrefs } from "@/lib/explore-columns";
+import { type ColumnId, type ColumnPrefs, DEFAULT_PREFS, autoHidden, isPrefs, readPrefs } from "@/lib/explore-columns";
+import { exportFileName, neighborId, rangeKeys, toCsv, toJson, windowAround } from "@/lib/explore-detail";
 import {
   type Cond,
   type ExploreQuery,
@@ -13,6 +14,7 @@ import {
   exploreUrl,
   isCustom,
   rangeSentence,
+  rangeText,
   routeSearch,
   shownClasses,
 } from "@/lib/explore-query";
@@ -23,13 +25,16 @@ import { useTimeZone } from "@/lib/time-zone-context";
 import { ObIcon } from "../onboarding/ob";
 import { AppNamesProvider } from "./app-names";
 import { ColumnsMenu } from "./columns-menu";
-import { ExportMenu } from "./export";
+import { download, ExportMenu } from "./export-dialog";
+import { filterActions } from "./field-actions";
+import { FieldMenu } from "./field-menu";
 import { FACETS_MIN, FacetPanel, FacetSidebar } from "./facets";
 import { LogTable } from "./log-table";
 import { PillBar } from "./pill-bar";
 import { RangeMenu } from "./range-menu";
-import { RequestDrawer } from "./request-drawer";
-import { SaveView, SavedViews, ViewSwitcher } from "./saved-views";
+import { type Dock, PanelFrame, RequestPanel } from "./request-panel";
+import { SavedViews, ViewPrompt, ViewSwitcher } from "./saved-views";
+import { Shortcuts } from "./shortcuts";
 import { StatusChart } from "./status-chart";
 import { isBool, isNum, useStored } from "./use-stored";
 
@@ -51,6 +56,10 @@ function useNarrow(): boolean {
   }, []);
   return narrow;
 }
+
+const isDock = (v: unknown): v is Dock => v === "right" || v === "bottom";
+const isSizes = (v: unknown): v is Record<Dock, number> =>
+  typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).right === "number" && typeof (v as Record<string, unknown>).bottom === "number";
 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
@@ -96,6 +105,8 @@ export function ExploreApp({
   const narrow = useNarrow();
   const [pending, startTransition] = useTransition();
   const [q, setQ] = useState<ExploreQuery>(query);
+  const qRef = useRef(q);
+  qRef.current = q;
   const sent = useRef<string[]>([dataUrl(project, query)]);
   const timer = useRef(0);
   const filterInput = useRef<HTMLInputElement>(null);
@@ -111,7 +122,10 @@ export function ExploreApp({
   const [live, setLive] = useState(true);
   const [dimBefore, setDimBefore] = useState<number | null>(null);
   const [refresh, setRefresh] = useState(0);
-  const [opened, setOpened] = useState<(RequestRow & { id: string }) | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const anchor = useRef<string | null>(null);
+  const [dock, setDock] = useStored<Dock>("apilens.explore.panel.dock", "right", isDock);
+  const [sizes, setSizes] = useStored<Record<Dock, number>>("apilens.explore.panel.size", { right: 480, bottom: 400 }, isSizes);
   const [sheet, setSheet] = useState(false);
   const [sideOpen, setSideOpen] = useStored("apilens.explore.facets.shown", true, isBool);
   const [sideWidth, setSideWidth] = useStored("apilens.explore.facets.width", FACETS_MIN, isNum);
@@ -144,14 +158,30 @@ export function ExploreApp({
   const update = useCallback(
     (next: ExploreQuery) => {
       setQ(next);
+      qRef.current = next;
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => {
-        const url = dataUrl(project, next);
-        sent.current = [...sent.current.slice(-(SENT_KEPT - 1)), url];
-        startTransition(() => router.replace(exploreUrl(project, next), { scroll: false }));
+        // The latest state, the open request included.
+        const now = qRef.current;
+        sent.current = [...sent.current.slice(-(SENT_KEPT - 1)), dataUrl(project, now)];
+        startTransition(() => router.replace(exploreUrl(project, now), { scroll: false }));
       }, URL_DEBOUNCE_MS);
     },
     [project, router],
+  );
+
+  /**
+   * Opens (or closes, with undefined) a request in the panel: `?id=` changes in place (no new read
+   * of the rows), so reload and shared links open the same request.
+   */
+  const openRequest = useCallback(
+    (id: string | undefined) => {
+      const next = { ...qRef.current, id };
+      setQ(next);
+      qRef.current = next;
+      window.history.replaceState(window.history.state, "", exploreUrl(project, next));
+    },
+    [project],
   );
 
   const setConds = useCallback((conds: Cond[]) => update({ ...q, conds }), [q, update]);
@@ -239,6 +269,65 @@ export function ExploreApp({
     }
   }, [cursor, loadingMore, project, query]);
 
+  // Multi-select (#1053): Shift-click and Shift+↑/↓ extend from the anchor, ⌘/Ctrl-click toggles.
+  const keys = rows?.map(rowKey) ?? [];
+  const onRow = (r: RequestRow, how: { shift: boolean; toggle: boolean }) => {
+    const k = rowKey(r, keys.indexOf(r.id ?? ""));
+    if (how.shift && anchor.current) {
+      setSelected(new Set(rangeKeys(keys, anchor.current, k)));
+      return;
+    }
+    if (how.toggle) {
+      setSelected((s) => {
+        const next = new Set(s);
+        if (next.has(k)) next.delete(k);
+        else next.add(k);
+        return next;
+      });
+      anchor.current = k;
+      return;
+    }
+    anchor.current = k;
+    setSelected(new Set());
+    if (r.id) openRequest(r.id);
+  };
+  const onExtend = (from: RequestRow, to: RequestRow) => {
+    const a = anchor.current ?? rowKey(from, 0);
+    anchor.current = a;
+    setSelected(new Set(rangeKeys(keys, a, rowKey(to, 0))));
+  };
+  const onSelect = (r: RequestRow, on: boolean) => {
+    const k = rowKey(r, 0);
+    anchor.current = k;
+    setSelected((s) => {
+      const next = new Set(s);
+      if (on) next.add(k);
+      else next.delete(k);
+      return next;
+    });
+  };
+  const selectedRows = (rows ?? []).filter((r, i) => selected.has(rowKey(r, i)));
+
+  const filterApi = {
+    conds: q.conds,
+    setConds,
+    setWindow: (from: string, to: string) => setRange({ range: q.range, from, to }),
+  };
+  const cellMenu = (r: RequestRow, col: ColumnId) => {
+    const value =
+      col === "status" ? String(r.status_code) : col === "path" ? r.path : col === "app" ? (r.app_id ?? "") : col === "env" ? r.environment : col === "method" ? r.method : col === "consumer" ? r.consumer_id || r.consumer_name : "";
+    const field = col === "status" ? "status" : col === "path" ? "path" : col === "app" ? "app" : col === "env" ? "env" : col === "method" ? "method" : col === "consumer" ? "consumer" : null;
+    if (!field || !value) return null;
+    return <FieldMenu label={col === "env" ? "Environment" : col[0].toUpperCase() + col.slice(1)} copy={value} actions={filterActions(filterApi, field, value)} />;
+  };
+
+  const openRow = q.id ? ((rows ?? []).find((r) => r.id === q.id) ?? null) : null;
+  const move = (delta: number) => {
+    if (!q.id || !rows) return;
+    const next = neighborId(rows, q.id, delta);
+    if (next) openRequest(next);
+  };
+
   const reload = () => {
     setRefresh((n) => n + 1);
     startTransition(() => router.refresh());
@@ -265,6 +354,23 @@ export function ExploreApp({
         return;
       }
       if (isTyping(e.target) || mod || e.altKey) return;
+      if (e.key === "Escape") {
+        if (document.querySelector(".org-pop")) return;
+        if (qRef.current.id) openRequest(undefined);
+        else if (selected.size) setSelected(new Set());
+        return;
+      }
+      // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way).
+      if (qRef.current.id && !(e.target as HTMLElement).closest?.(".exl-grid") && ["ArrowDown", "ArrowUp", "j", "k"].includes(e.key) && !e.shiftKey) {
+        e.preventDefault();
+        move(e.key === "ArrowDown" || e.key === "j" ? 1 : -1);
+        return;
+      }
+      if (e.key === "?") {
+        e.preventDefault();
+        document.getElementById("ex-shortcuts")?.click();
+        return;
+      }
       if (e.key === "F" && e.shiftKey) {
         e.preventDefault();
         filterInput.current?.focus();
@@ -331,9 +437,9 @@ export function ExploreApp({
                   </svg>
                 </button>
                 <ViewSwitcher />
-                <SaveView />
                 <ColumnsMenu prefs={prefs} auto={auto} onPrefs={setPrefs} />
-                <ExportMenu project={project} query={q} className="ex-tbtn" />
+                <ExportMenu project={project} query={q} rangeLabel={rangeText(q, tz)} />
+                <Shortcuts />
                 <button
                   type="button"
                   className={`ex-tbtn exr-live${liveOn ? " is-on" : ""}`}
@@ -369,6 +475,7 @@ export function ExploreApp({
                 </button>
               </p>
             ) : null}
+            <div className={`exr-work exr-work--${dock}`}>
             <div className={`exr-data${stale ? " is-stale" : ""}`} aria-busy={stale || undefined}>
               <StatusChart timeline={timeline} shown={shownClasses(q.conds)} onRange={(from, to) => setRange({ range: q.range, from, to })} />
               {rows === null && !stale ? (
@@ -408,16 +515,94 @@ export function ExploreApp({
                   hasMore={Boolean(cursor)}
                   loadingMore={loadingMore}
                   onLoadMore={loadMore}
-                  onOpen={(r) => r.id && setOpened({ ...r, id: r.id })}
+                  onOpen={onRow}
+                  openId={q.id ?? null}
+                  selected={selected}
+                  onSelect={onSelect}
+                  onExtend={onExtend}
+                  cellMenu={cellMenu}
                 />
               )}
+              <ViewPrompt />
+            </div>
+            {selectedRows.length >= 2 ? (
+              <PanelFrame dock={dock} size={sizes[dock]} onSize={(n) => setSizes((s) => ({ ...s, [dock]: n }))}>
+                <SelectionPanel
+                  rows={selectedRows}
+                  onClear={() => setSelected(new Set())}
+                  fileName={(ext) => exportFileName(project, isCustom(q) ? rangeText(q, tz) : q.range, Date.now(), ext)}
+                />
+              </PanelFrame>
+            ) : q.id ? (
+              <PanelFrame dock={dock} size={sizes[dock]} onSize={(n) => setSizes((s) => ({ ...s, [dock]: n }))}>
+                <RequestPanel
+                  key={q.id}
+                  project={project}
+                  id={q.id}
+                  row={openRow}
+                  inList={openRow !== null || rows === null}
+                  link={exploreUrl(project, q)}
+                  api={filterApi}
+                  dock={dock}
+                  onDock={setDock}
+                  onClose={() => openRequest(undefined)}
+                  onMove={move}
+                  canPrev={Boolean(rows && openRow && rows[0]?.id !== q.id)}
+                  canNext={Boolean(rows && openRow && rows[rows.length - 1]?.id !== q.id)}
+                  onShowInList={(at) => {
+                    // Ten minutes around it, without the filters that may leave it out.
+                    const w = windowAround(at, 5);
+                    if (!w) return;
+                    setLive(false);
+                    update({ ...q, ...w, conds: [] });
+                  }}
+                />
+              </PanelFrame>
+            ) : null}
             </div>
           </div>
         </div>
         {narrow && sheet ? <FacetSheet onClose={() => setSheet(false)}>{facets}</FacetSheet> : null}
-        {opened ? <RequestDrawer key={opened.id} project={project} row={opened} onClose={() => setOpened(null)} /> : null}
       </SavedViews>
     </AppNamesProvider>
+  );
+}
+
+/** Two or more rows selected: how many, Copy as JSON, Export selected and Clear selection. */
+function SelectionPanel({ rows, onClear, fileName }: { rows: RequestRow[]; onClear: () => void; fileName: (ext: "csv" | "json") => string }) {
+  const [said, setSaid] = useState<string | null>(null);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(toJson(rows));
+      setSaid(`Copied ${rows.length} requests as JSON.`);
+    } catch {
+      setSaid("Couldn’t copy. Your browser blocked the clipboard.");
+    }
+  };
+  return (
+    <section className="exd exd-sel" aria-label="Selected requests">
+      <header className="exd-head">
+        <h2 className="exd-title">{rows.length} requests selected</h2>
+      </header>
+      <p className="exd-said" role="status">
+        {said}
+      </p>
+      <div className="exd-sel__actions">
+        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={copy}>
+          Copy as JSON
+        </button>
+        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => download(toCsv(rows), fileName("csv"), "text/csv")}>
+          Export CSV
+        </button>
+        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => download(toJson(rows), fileName("json"), "application/json")}>
+          Export JSON
+        </button>
+        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onClear}>
+          Clear selection
+        </button>
+      </div>
+      <p className="exd-keys exd-sel__hint">Shift-click or Shift ↑ ↓ to extend, ⌘ or Ctrl-click to add one, Esc to clear.</p>
+    </section>
   );
 }
 
