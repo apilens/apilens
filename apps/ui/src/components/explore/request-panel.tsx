@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, stampText, statusClass } from "@/lib/explore";
 import { TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
@@ -143,15 +143,9 @@ export function RequestPanel({
   const detail = load.kind === "detail" ? load.data : null;
   const r: RequestRow | null = detail?.request ?? row;
   const cls = r ? statusClass(r.status_code) : "other";
-  const tab: DrawerTab = picked ?? "overview";
-  // Overview's nested sections (the side panel); until the reader picks one, Error when the
-  // request failed (#988), else Info.
-  const sections = useMemo(() => (detail ? overviewSections(detail) : []), [detail]);
-  const [pickedSection, setPickedSection] = useState<OverviewSection | null>(null);
-  const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : false;
-  const section: OverviewSection =
-    pickedSection && sections.some((x) => x.slug === pickedSection) ? pickedSection : failed && sections.some((x) => x.slug === "error") ? "error" : "info";
-  const sideNav = tab === "overview" && sections.length > 0;
+  // Until the reader picks a tab: Response when the request failed, else Request (#988).
+  const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : (row?.status_code ?? 0) >= 400;
+  const tab: DrawerTab = picked ?? (failed ? "response" : "request");
 
   // The sections are a row of tabs across the top: ←/→ (Home/End) move between them; ↑/↓ keep
   // walking the requests, everywhere in the drawer.
@@ -162,18 +156,6 @@ export function RequestPanel({
     e.stopPropagation();
     setPicked(next);
     document.getElementById(`${tabsId}-${next}-tab`)?.focus();
-  };
-
-  // The nested sections are a vertical tablist: ↑/↓ (Home/End) move between them there.
-  const onSectionKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const i = sections.findIndex((x) => x.slug === section);
-    const n = sections.length;
-    const j = e.key === "ArrowDown" ? (i + 1) % n : e.key === "ArrowUp" ? (i - 1 + n) % n : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : -1;
-    if (j < 0 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setPickedSection(sections[j].slug);
-    document.getElementById(`${tabsId}-s-${sections[j].slug}`)?.focus();
   };
 
   const path = r ? shownPath(r) : "";
@@ -262,32 +244,9 @@ export function RequestPanel({
       </div>
 
       <div className="exd-split">
-        {sideNav ? (
-          <aside className="exd-side" aria-label="Overview sections">
-            <div className="exd-sub" role="tablist" aria-label="Overview sections" aria-orientation="vertical" onKeyDown={onSectionKey}>
-              {sections.map((x, k) => (
-                <Fragment key={x.slug}>
-                  {x.group && x.group !== sections[k - 1]?.group ? (
-                    <p className="exd-sub__group" role="presentation">
-                      {x.group}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    role="tab"
-                    id={`${tabsId}-s-${x.slug}`}
-                    aria-controls={`${tabsId}-panel`}
-                    aria-selected={section === x.slug}
-                    tabIndex={section === x.slug ? 0 : -1}
-                    className={x.tone ? `is-${x.tone}` : undefined}
-                    onClick={() => setPickedSection(x.slug)}
-                  >
-                    <span>{x.label}</span>
-                    {x.n ? <span className="exd-menu__n">{x.n}</span> : null}
-                  </button>
-                </Fragment>
-              ))}
-            </div>
+        {r ? (
+          <aside className="exd-side" aria-label="Request facts">
+            <Facts r={r} tz={tz} />
           </aside>
         ) : null}
         <div className="exd-main" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
@@ -306,8 +265,10 @@ export function RequestPanel({
                 Try again
               </button>
             </Notice>
-          ) : tab === "overview" ? (
-            <OverviewPanel key={`${id}:${section}`} section={section} data={load.data} project={project} api={api} />
+          ) : tab === "request" ? (
+            <RequestTab key={id} data={load.data} project={project} api={api} />
+          ) : tab === "response" ? (
+            <ResponseTab key={id} data={load.data} api={api} />
           ) : tab === "timeline" ? (
             <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
           ) : tab === "consumer" ? (
@@ -340,9 +301,10 @@ export function RequestPanel({
 }
 
 /**
- * The request's key facts, at the top of Overview's Info section: status, time, latency, sizes,
- * app, environment, consumer and trace id, each a small muted label over its value (mono, cut
- * with an ellipsis, the whole value in its title), as many to a row as fit.
+ * The drawer's key facts, a column left of the section content (under the tabs): status, time,
+ * latency, sizes, app, environment, consumer and trace id, each a small muted label over its value
+ * (mono, cut with an ellipsis, the whole value in its title). On phones they wrap in two columns
+ * above the content.
  */
 function Facts({ r, tz }: { r: RequestRow; tz: string }) {
   const app = useAppName(r.app_id);
@@ -531,78 +493,9 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="rd-none">{children}</p>;
 }
 
-type OverviewSection = "info" | "error" | "query" | "req-headers" | "req-body" | "attributes" | "res-headers" | "res-body";
-
-/**
- * Overview's nested sections, in the side panel's order: Info, Error (a failure's summary,
- * validation errors and exception), then the request's Query parameters, Headers, Body and
- * Attributes and the response's Headers and Body. A sampled-out request has no headers or bodies;
- * empty optional sections are left out.
- */
-function overviewSections(d: RequestDetailRead): { slug: OverviewSection; label: string; group?: string; tone?: "error"; n?: number }[] {
-  const r = d.request;
-  const exc = exceptionLog(d.logs ?? []);
-  const summary = errorSummary(r, exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null);
-  const sampled = isSampledOut(r);
-  const query = queryPairs(r.raw_path);
-  const attrs = Object.keys(r.attributes ?? {}).length;
-  const out: { slug: OverviewSection; label: string; group?: string; tone?: "error"; n?: number }[] = [{ slug: "info", label: "Info" }];
-  if (summary || (r.validation_errors ?? []).length || exc) out.push({ slug: "error", label: "Error", tone: "error" });
-  if (!sampled && query.length) out.push({ slug: "query", label: "Query parameters", group: "Request", n: query.length });
-  if (!sampled) out.push({ slug: "req-headers", label: "Headers", group: "Request", n: parseHeaders(r.request_headers)?.length });
-  if (!sampled) out.push({ slug: "req-body", label: "Body", group: "Request" });
-  if (attrs) out.push({ slug: "attributes", label: "Attributes", group: "Request", n: attrs });
-  if (!sampled) out.push({ slug: "res-headers", label: "Headers", group: "Response", n: parseHeaders(r.response_headers)?.length });
-  if (!sampled) out.push({ slug: "res-body", label: "Body", group: "Response" });
-  return out;
-}
-
-/** The Overview tab's content: the section picked in the side panel. */
-function OverviewPanel({ section, data, project, api }: { section: OverviewSection; data: RequestDetailRead; project: string; api: FilterApi }) {
+/** The Request section (#1061, redesigned in b5): Overview, Query parameters, Headers, Body, Attributes, each its own titled block. */
+function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
-  switch (section) {
-    case "info":
-      return <InfoSection data={data} project={project} api={api} />;
-    case "error":
-      return <ErrorSection data={data} />;
-    case "query":
-      return (
-        <Block title="Query parameters" meta={[String(queryPairs(r.raw_path).length)]}>
-          <KvTable pairs={queryPairs(r.raw_path)} label="Query parameters" />
-        </Block>
-      );
-    case "req-headers":
-    case "res-headers": {
-      const req = section === "req-headers";
-      const headers = parseHeaders(req ? r.request_headers : r.response_headers);
-      return (
-        <Block title={req ? "Request headers" : "Response headers"} meta={[headers ? String(headers.length) : null]}>
-          {headers ? <KvTable pairs={headers} label={req ? "Request headers" : "Response headers"} /> : <Empty>The {req ? "request" : "response"} headers were not captured.</Empty>}
-        </Block>
-      );
-    }
-    case "req-body":
-      return <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />;
-    case "res-body":
-      return <BodyBlock text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />;
-    case "attributes": {
-      const attrs = Object.entries(r.attributes ?? {});
-      return (
-        <Block title="Attributes" meta={[String(attrs.length)]}>
-          <KvTable pairs={attrs} label="Request attributes" />
-        </Block>
-      );
-    }
-  }
-}
-
-/**
- * Info: the request's key facts (status, time, latency, sizes, app, environment, consumer, trace)
- * as a grid, then its details with their ⋯ menus (route, URL, time, client, trace, release).
- */
-function InfoSection({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
-  const r = data.request;
-  const tz = useTimeZone();
   const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
   const minute = sameWindow(r.timestamp, "minute");
   const hour = sameWindow(r.timestamp, "hour");
@@ -610,15 +503,15 @@ function InfoSection({ data, project, api }: { data: RequestDetailRead; project:
     ...(minute ? [{ label: "Same minute", run: () => api.setWindow(minute.from, minute.to) }] : []),
     ...(hour ? [{ label: "Same hour", run: () => api.setWindow(hour.from, hour.to) }] : []),
   ];
+  const tz = useTimeZone();
+  const query = queryPairs(r.raw_path);
   const url = r.base_url ? `${r.base_url.replace(/\/+$/, "")}${r.raw_path}` : r.raw_path;
+  const attrs = Object.entries(r.attributes ?? {});
+  const headers = parseHeaders(r.request_headers);
 
   return (
     <div className="rd-blocks">
-      <Block title="Info">
-        <Facts r={r} tz={tz} />
-      </Block>
-      {isSampledOut(r) ? <Notice>{SAMPLED_OUT}</Notice> : null}
-      <Block title="Details">
+      <Block title="Overview">
         <dl className="exd-dl">
           <Field label="Route" copy={r.path} actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}>
             <code>
@@ -652,17 +545,45 @@ function InfoSection({ data, project, api }: { data: RequestDetailRead; project:
           </Field>
         </dl>
       </Block>
+      {isSampledOut(r) ? (
+        <Notice>{SAMPLED_OUT}</Notice>
+      ) : (
+        <>
+          {query.length ? (
+            <Block title="Query parameters" meta={[String(query.length)]}>
+              <KvTable pairs={query} label="Query parameters" />
+            </Block>
+          ) : null}
+          <Block title="Headers" meta={[headers ? String(headers.length) : null]}>
+            {headers ? <KvTable pairs={headers} label="Request headers" /> : <Empty>The request headers were not captured.</Empty>}
+          </Block>
+          <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
+        </>
+      )}
+      {attrs.length ? (
+        <Block title="Attributes" meta={[String(attrs.length)]}>
+          <KvTable pairs={attrs} label="Request attributes" />
+        </Block>
+      ) : null}
     </div>
   );
 }
 
-/** Error: a failure's summary (with the start of the body), its validation errors and its exception (#988). */
-function ErrorSection({ data }: { data: RequestDetailRead }) {
+/**
+ * The Response section (#1061, redesigned in b5): for a failure the Error block, the validation
+ * errors and the exception lead (#988), then Headers and Body. Status, latency and size are in
+ * the facts beside it, so they are not repeated here; nor is the body inside the Error block.
+ */
+function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
   const r = data.request;
   const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
   const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
   const summary = errorSummary(r, excInfo);
   const validation = r.validation_errors ?? [];
+  const headers = parseHeaders(r.response_headers);
+  // The Body block shows the response body; the Error block repeats it only when that block can't.
+  const bodyBelow = !isSampledOut(r) && Boolean(r.response_body);
+
   return (
     <div className="rd-blocks">
       {summary ? (
@@ -670,7 +591,7 @@ function ErrorSection({ data }: { data: RequestDetailRead }) {
           <div className="exd-error">
             <p className="exd-error__title">{summary.title}</p>
             {summary.detail ? <p className="exd-error__detail">{summary.detail}</p> : null}
-            {summary.body ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
+            {summary.body && !bodyBelow ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
           </div>
         </Block>
       ) : null}
@@ -684,6 +605,16 @@ function ErrorSection({ data }: { data: RequestDetailRead }) {
           <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
         </Block>
       ) : null}
+      {isSampledOut(r) ? (
+        <Notice>{SAMPLED_OUT}</Notice>
+      ) : (
+        <>
+          <Block title="Headers" meta={[headers ? String(headers.length) : null]}>
+            {headers ? <KvTable pairs={headers} label="Response headers" /> : <Empty>The response headers were not captured.</Empty>}
+          </Block>
+          <BodyBlock text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
+        </>
+      )}
     </div>
   );
 }

@@ -757,15 +757,7 @@ span.rd-j-tog { cursor: default; }
 .exd-menu button[aria-selected="true"] { color: var(--ink); font-weight: 500; }
 .exd-menu button[aria-selected="true"]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--ink); }
 .exd-menu__n { padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-1); font: 500 11px/16px var(--font-mono); color: var(--ink-muted); }
-.exd-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 24px; margin: 0; }
-/* Overview's nested sections (the side panel): a vertical list of tabs, grouped Request / Response. */
-.exd-sub { display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; }
-.exd-sub button { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 450 13px/20px var(--font-sans); text-align: left; cursor: pointer; }
-.exd-sub button:hover { background: var(--surface-2); color: var(--ink); }
-.exd-sub button[aria-selected="true"] { background: var(--surface-2); color: var(--ink); font-weight: 500; }
-.exd-sub button.is-error { color: var(--error); }
-.exd-sub button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.exd-sub__group { margin: 10px 8px 2px; font: 500 11px/16px var(--font-sans); color: var(--ink-muted); }
+.exd-facts { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px 16px; }
 .exd-fact { min-width: 0; }
 .exd-fact dt { font: 400 11px/16px var(--font-sans); color: var(--ink-muted); }
 .exd-fact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-mono); color: var(--ink); }
@@ -829,15 +821,12 @@ span.rd-j-tog { cursor: default; }
 .exd-step__bar.is-tick { width: 2px; background: var(--ink-muted); }
 .exd-step__dur { min-width: 56px; text-align: right; }
 
-/* Narrow (phones, or a drawer squeezed under 760px of window): Overview's sections become a
-   scrolling row above the content, the facts two columns, and the copy actions hide. */
+/* Narrow (phones, or a drawer squeezed under 760px of window): the facts go above the content in
+   two columns and the copy actions hide; the section tabs already scroll sideways. */
 @media (max-width: 759px) {
   .exd-split { flex-direction: column; overflow-y: auto; }
   .exd-side { width: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); }
-  .exd-facts { grid-template-columns: 1fr 1fr; gap: 8px 16px; }
-  .exd-sub { flex-direction: row; overflow-x: auto; scrollbar-width: none; padding: 8px 12px; }
-  .exd-sub button { flex: none; }
-  .exd-sub__group { display: none; }
+  .exd-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
   .exd-main { overflow: visible; }
   .exd-step__track { display: none; }
   .exd-actions .exd-act { display: none; }
