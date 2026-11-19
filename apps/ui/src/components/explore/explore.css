@@ -534,6 +534,10 @@ select.ex-input { padding-right: 28px; background: var(--surface-1) url("data:im
 .rd-j-tog { display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; margin-right: 2px; padding: 0; border: 0; border-radius: 3px; background: transparent; font: 400 10px/1 var(--font-sans); color: var(--ink-muted); cursor: pointer; }
 span.rd-j-tog { cursor: default; }
 .rd-j-tog:hover { background: var(--surface-1); color: var(--ink); }
+/* The toggle's chevron: right when closed, down when open (text arrows rendered as a smudge). */
+.rd-j-tog svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s ease; }
+.rd-j-tog[aria-expanded="true"] svg { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .rd-j-tog svg { transition: none; } }
 .rd-j-key { color: var(--ink); }
 .rd-j-idx, .rd-j-punc, .rd-j-size, .rd-j-null { color: var(--ink-muted); }
 .rd-j-str { color: var(--ok); }

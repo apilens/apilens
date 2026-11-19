@@ -1121,7 +1121,9 @@ function Line({ line: l, index, onToggle }: { line: JsonLine; index: number; onT
     >
       {toggles ? (
         <button type="button" className="rd-j-tog" aria-expanded={l.kind === "open"} aria-label={`${l.kind === "open" ? "Collapse" : "Expand"} ${l.key === undefined ? "body" : String(l.key)}`} onClick={() => onToggle(l.path)}>
-          {l.kind === "open" ? "▾" : "▸"}
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 4l4 4-4 4" />
+          </svg>
         </button>
       ) : (
         <span className="rd-j-tog" aria-hidden="true" />
