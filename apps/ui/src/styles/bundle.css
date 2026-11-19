@@ -26,8 +26,8 @@
 .ah-btn--ghost svg, .ah-btn--ghost .ob-ic, .ah-btn--secondary svg, .ah-btn--secondary .ob-ic { color: var(--ink-muted); }
 .ah-btn--outline { background: transparent; color: var(--ink); border-color: var(--border-strong); }
 .ah-btn--outline:hover, .ah-btn--outline[aria-expanded="true"] { border-color: var(--ink-muted); }
-.ah-btn--danger { background: var(--error); color: var(--on-accent); border-color: var(--error); box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04); }
-.ah-btn--danger:hover { background: color-mix(in srgb, var(--error) 88%, var(--ink)); }
+.ah-btn--danger { background: var(--error-fill); color: var(--on-accent); border-color: var(--error-fill); box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04); }
+.ah-btn--danger:hover { background: color-mix(in srgb, var(--error-fill) 88%, var(--ink)); }
 .ah-btn--sm { height: 32px; padding: 0 12px; font-size: 13px; border-radius: 7px; }
 .ah-btn--lg { height: 44px; padding: 0 20px; font-size: 15px; }
 /* Disabled: opacity-50 cursor-not-allowed (Button.tsx:114). */
@@ -382,7 +382,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-tile.on .mono { background: var(--accent); color: var(--on-accent); } .ob-tile.on .ob-ic { color: var(--accent-ink); }
 .ob-sw { width: 34px; height: 20px; border-radius: 10px; background: var(--border-strong); position: relative; flex: none; }
 .ob-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface-1); }
-.ob-sw.on { background: var(--accent); } .ob-sw.on::after { left: 16px; background: #fff; }
+.ob-sw.on { background: var(--accent); } .ob-sw.on::after { left: 16px; background: var(--on-accent); }
 .ob-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); }
 .ob-row + .ob-row { margin-top: 8px; }
 .ob-row > .ob-ic { color: var(--ink-muted); }
@@ -530,8 +530,8 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .al-logo { display: inline-flex; align-items: center; gap: 9px; font: 650 16px/1 var(--font-sans); letter-spacing: -.02em; color: var(--ink); text-decoration: none; }
 .al-mark { width: 26px; height: 26px; flex: none; display: block; }
 .al-mark .bg { fill: var(--accent); }
-.al-mark .fg { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
-.al-mark .dot { fill: #fff; }
+.al-mark .fg { fill: none; stroke: var(--on-accent); stroke-width: 2; stroke-linecap: round; }
+.al-mark .dot { fill: var(--on-accent); }
 .al-logo .w2 { color: var(--accent-ink); }
 /* third-party marks (Simple Icons, loaded by URL) recoloured to our tokens */
 .al-brand { display: inline-block; width: 18px; height: 18px; flex: none; background: currentColor;
@@ -558,7 +558,7 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-goal small { display: block; margin-top: 2px; font: 400 12px/17px var(--font-sans); color: var(--ink-muted); }
 .ob-goal .mk { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--border-strong); background: var(--surface-1); display: grid; place-items: center; }
 .ob-goal.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.ob-goal.on .mk { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ob-goal.on .mk { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ob-goal.on .mk .ob-ic { width: 12px; height: 12px; stroke-width: 2.2; }
 .art .ln { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
 .art .ac { fill: none; stroke: var(--accent-ink); stroke-width: 1.5; }

@@ -1,11 +1,7 @@
 /* Project settings → Environments (#816). Cards reuse .os-* (org settings), form fields .ob-*
    (onboarding), the empty line .cps-empty (Capture). The eight dot colours are the API's fixed
-   palette (`projects.Colors`), mid tones that read on light and dark surfaces; each dot sits next
+   palette (`projects.Colors`) as --env-* tokens (design/tokens.json; calmer in dark); each dot sits next
    to its colour's name, so colour is never the only signal. */
-.env {
-  --env-gray: #8b93a7; --env-red: #e5484d; --env-orange: #f2803a; --env-yellow: #e3b341;
-  --env-green: #3fae6a; --env-teal: #2fa8a0; --env-blue: #3e8ae6; --env-purple: #8e6cf0;
-}
 .env .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .env-lede { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 

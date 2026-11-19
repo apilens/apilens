@@ -32,14 +32,14 @@
 .ep-tabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 
 /* Series colors */
-.ep-c-4xx { fill: var(--warn); stroke: var(--warn); background: var(--warn); }
-.ep-c-5xx { fill: var(--error); stroke: var(--error); background: var(--error); }
-.ep-c-p50 { stroke: var(--ink-muted); background: var(--ink-muted); }
+.ep-c-4xx { fill: var(--chart-warn); stroke: var(--chart-warn); background: var(--chart-warn); }
+.ep-c-5xx { fill: var(--chart-error); stroke: var(--chart-error); background: var(--chart-error); }
+.ep-c-p50 { stroke: var(--chart-neutral); background: var(--chart-neutral); }
 .ep-c-p75 { stroke: var(--info); background: var(--info); }
-.ep-c-p95 { stroke: var(--accent); background: var(--accent); }
-.ep-c-in { fill: var(--ink-muted); background: var(--ink-muted); }
-.ep-c-out { fill: var(--accent); background: var(--accent); }
-.ep-c-bar { fill: var(--accent); }
+.ep-c-p95 { stroke: var(--chart-accent); background: var(--chart-accent); }
+.ep-c-in { fill: var(--chart-neutral); background: var(--chart-neutral); }
+.ep-c-out { fill: var(--chart-accent); background: var(--chart-accent); }
+.ep-c-bar { fill: var(--chart-accent); }
 .ep-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
 .ep-swatch-line { height: 2px; border-radius: 1px; }
 

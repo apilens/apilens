@@ -50,7 +50,7 @@
 .pf-when { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
 .pf-share { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 .pf-share__bar { display: inline-block; width: 64px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
-.pf-share__bar > span { display: block; height: 100%; background: var(--accent); }
+.pf-share__bar > span { display: block; height: 100%; background: var(--chart-accent); }
 
 @media (max-width: 760px) {
   .pf-help__tip { left: auto; width: min(280px, calc(100vw - 64px)); min-width: 0; }
