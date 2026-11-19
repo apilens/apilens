@@ -387,8 +387,7 @@
 .exf-list--async .exf-label { padding: 0; font-size: 12px; }
 .exf-list--async .exf-count { padding-right: 0; }
 .exf-list--async .exf-only { padding: 0 8px; }
-.exf-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
-.exf-path bdi { direction: ltr; unicode-bidi: isolate; }
+.exf-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* While the API answers: the input's trailing addon (InputWithAddons.tsx:32-35, `border-input
    bg-muted/50 border-l px-3 py-2`) holds a 12px Loader2 animate-spin; an empty list is a
    `px-2 py-3` box with a 14px spinner (DataTableFilterCheckboxAsync.tsx:37, 55-58). */

@@ -280,8 +280,8 @@ function Facet({
   );
 }
 
-/** A path clipped from the left, so the last segment (the part that differs) stays in view; the
- *  full path is the row's title. Supabase truncates the end (UnifiedLogs.fields.tsx:121-126). */
+/** A path cut at the end, as Supabase's pathname option (UnifiedLogs.fields.tsx:121-126): clipping
+ *  from the left put the hover "Only" over the tail too, cutting both ends. The full path is the row's title. */
 function PathText({ path }: { path: string }) {
   return (
     <span className="exf-path">
