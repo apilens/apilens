@@ -23,7 +23,7 @@ const contrast = (a: string, b: string) => {
 };
 
 const grounds = ["bg", "surface-1", "surface-2"];
-const TEXT = ["ink", "ink-muted", "accent-ink", "ok", "warn", "error"];
+const TEXT = ["ink", "ink-soft", "ink-muted", "accent-ink", "ok", "warn", "error"];
 const GRAPHICS = ["chart-neutral", "chart-accent", "chart-warn", "chart-error"];
 const PAIRS: [string, string, number][] = [
   ...grounds.flatMap((g) => TEXT.map((t): [string, string, number] => [t, g, 4.5])),
