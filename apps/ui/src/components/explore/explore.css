@@ -863,3 +863,11 @@ span.rd-j-tog { cursor: default; }
 /* A tooltip's wrapper inside a pill lets the value still shrink and stays vertically centred. */
 .exp-pill > .ex-tipw { min-width: 0; align-items: center; }
 .exp-pill > .ex-tipw:first-child { flex: 0 1 auto; }
+
+/* The Request tab's nested section tabs: a segmented row under the drawer's tabs, so they read as
+   a level below them. */
+.exd-subtabs { display: flex; gap: 2px; width: max-content; max-width: 100%; padding: 2px; overflow-x: auto; scrollbar-width: none; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.exd-subtabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 450 12px/16px var(--font-sans); cursor: pointer; }
+.exd-subtabs button:hover { color: var(--ink); }
+.exd-subtabs button[aria-selected="true"] { background: var(--surface-1); color: var(--ink); font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / .2); }
+.exd-subtabs button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }

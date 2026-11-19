@@ -493,7 +493,12 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="rd-none">{children}</p>;
 }
 
-/** The Request section (#1061, redesigned in b5): Overview, Query parameters, Headers, Body, Attributes, each its own titled block. */
+type RequestSub = "overview" | "query" | "headers" | "body" | "attributes";
+
+/**
+ * The Request tab (#1061, redesigned in b5): its sections, Overview, Query parameters, Headers,
+ * Body and Attributes, as nested tabs (←/→ between them), one shown at a time.
+ */
 function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
   const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
@@ -509,62 +514,103 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
   const attrs = Object.entries(r.attributes ?? {});
   const headers = parseHeaders(r.request_headers);
 
+  // The Request tab's own sections as nested tabs (Overview first); a sampled-out request has
+  // only its Overview, the rest were not kept.
+  const sampled = isSampledOut(r);
+  const subs: { slug: RequestSub; label: string; n?: number }[] = [
+    { slug: "overview", label: "Overview" },
+    ...(!sampled && query.length ? [{ slug: "query" as const, label: "Query parameters", n: query.length }] : []),
+    ...(!sampled ? [{ slug: "headers" as const, label: "Headers", n: headers?.length }, { slug: "body" as const, label: "Body" }] : []),
+    ...(attrs.length ? [{ slug: "attributes" as const, label: "Attributes", n: attrs.length }] : []),
+  ];
+  const [picked, setPicked] = useState<RequestSub>("overview");
+  const sub = subs.some((x) => x.slug === picked) ? picked : "overview";
+  const subId = useId();
+  const onSubKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const k = subs.findIndex((x) => x.slug === sub);
+    const n = subs.length;
+    const j = e.key === "ArrowRight" ? (k + 1) % n : e.key === "ArrowLeft" ? (k - 1 + n) % n : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : -1;
+    if (j < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setPicked(subs[j].slug);
+    document.getElementById(`${subId}-${subs[j].slug}`)?.focus();
+  };
+
   return (
     <div className="rd-blocks">
-      <Block title="Overview">
-        <dl className="exd-dl">
-          <Field label="Route" copy={r.path} actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}>
-            <code>
-              {r.method.toUpperCase()} {r.path}
-            </code>
-          </Field>
-          <Field label="URL" copy={url} actions={fa("url", r.raw_path)}>
-            <code>{url}</code>
-          </Field>
-          <Field label="Time" copy={r.timestamp} actions={timeActions}>
-            <code>{formatExact(r.timestamp, tz)}</code>
-          </Field>
-          <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
-            {r.ip_address ? <code>{r.ip_address}</code> : null}
-          </Field>
-          <Field label="User agent" copy={r.user_agent} actions={fa("user_agent", r.user_agent)}>
-            {r.user_agent ? <code>{r.user_agent}</code> : null}
-          </Field>
-          <Field
-            label="Trace ID"
-            copy={r.trace_id}
-            actions={r.trace_id ? [{ label: "Show this trace’s requests", run: () => api.setConds([...api.conds.filter((c) => c.field !== "trace_id"), { field: "trace_id", op: "eq", value: r.trace_id }]) }, ...fa("trace_id", r.trace_id).slice(1)] : []}
+      <div className="exd-subtabs" role="tablist" aria-label="Request sections" onKeyDown={onSubKey}>
+        {subs.map((x) => (
+          <button
+            key={x.slug}
+            type="button"
+            role="tab"
+            id={`${subId}-${x.slug}`}
+            aria-controls={`${subId}-panel`}
+            aria-selected={sub === x.slug}
+            tabIndex={sub === x.slug ? 0 : -1}
+            onClick={() => setPicked(x.slug)}
           >
-            {r.trace_id ? <code>{r.trace_id}</code> : null}
-          </Field>
-          <Field label="Release" copy={r.release}>
-            {r.release ? <code>{r.release}</code> : null}
-          </Field>
-          <Field label="Commit" copy={r.commit}>
-            {r.commit ? <code>{r.commit}</code> : null}
-          </Field>
-        </dl>
-      </Block>
-      {isSampledOut(r) ? (
-        <Notice>{SAMPLED_OUT}</Notice>
-      ) : (
-        <>
-          {query.length ? (
-            <Block title="Query parameters" meta={[String(query.length)]}>
-              <KvTable pairs={query} label="Query parameters" />
+            {x.label}
+            {x.n ? <span className="exd-menu__n">{x.n}</span> : null}
+          </button>
+        ))}
+      </div>
+      <div className="rd-blocks" role="tabpanel" id={`${subId}-panel`} aria-labelledby={`${subId}-${sub}`}>
+        {sub === "overview" ? (
+          <>
+            <Block title="Overview">
+              <dl className="exd-dl">
+                <Field label="Route" copy={r.path} actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}>
+                  <code>
+                    {r.method.toUpperCase()} {r.path}
+                  </code>
+                </Field>
+                <Field label="URL" copy={url} actions={fa("url", r.raw_path)}>
+                  <code>{url}</code>
+                </Field>
+                <Field label="Time" copy={r.timestamp} actions={timeActions}>
+                  <code>{formatExact(r.timestamp, tz)}</code>
+                </Field>
+                <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
+                  {r.ip_address ? <code>{r.ip_address}</code> : null}
+                </Field>
+                <Field label="User agent" copy={r.user_agent} actions={fa("user_agent", r.user_agent)}>
+                  {r.user_agent ? <code>{r.user_agent}</code> : null}
+                </Field>
+                <Field
+                  label="Trace ID"
+                  copy={r.trace_id}
+                  actions={r.trace_id ? [{ label: "Show this trace’s requests", run: () => api.setConds([...api.conds.filter((c) => c.field !== "trace_id"), { field: "trace_id", op: "eq", value: r.trace_id }]) }, ...fa("trace_id", r.trace_id).slice(1)] : []}
+                >
+                  {r.trace_id ? <code>{r.trace_id}</code> : null}
+                </Field>
+                <Field label="Release" copy={r.release}>
+                  {r.release ? <code>{r.release}</code> : null}
+                </Field>
+                <Field label="Commit" copy={r.commit}>
+                  {r.commit ? <code>{r.commit}</code> : null}
+                </Field>
+              </dl>
             </Block>
-          ) : null}
+            {sampled ? <Notice>{SAMPLED_OUT}</Notice> : null}
+          </>
+        ) : sub === "query" ? (
+          <Block title="Query parameters" meta={[String(query.length)]}>
+            <KvTable pairs={query} label="Query parameters" />
+          </Block>
+        ) : sub === "headers" ? (
           <Block title="Headers" meta={[headers ? String(headers.length) : null]}>
             {headers ? <KvTable pairs={headers} label="Request headers" /> : <Empty>The request headers were not captured.</Empty>}
           </Block>
+        ) : sub === "body" ? (
           <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
-        </>
-      )}
-      {attrs.length ? (
-        <Block title="Attributes" meta={[String(attrs.length)]}>
-          <KvTable pairs={attrs} label="Request attributes" />
-        </Block>
-      ) : null}
+        ) : (
+          <Block title="Attributes" meta={[String(attrs.length)]}>
+            <KvTable pairs={attrs} label="Request attributes" />
+          </Block>
+        )}
+      </div>
     </div>
   );
 }
