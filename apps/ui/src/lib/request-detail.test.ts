@@ -10,6 +10,8 @@ import {
   levelTone,
   markerSegments,
   moveTab,
+  eventDelta,
+  streamSummary,
   offsetMs,
   contentTypeOf,
   parseBody,
@@ -303,3 +305,47 @@ describe("detailRead", () => {
     expect(detailRead(200, { ok: true })).toEqual({ kind: "error", code: "network_error" });
   });
 });
+
+describe("streamSummary", () => {
+  const ev = (event: string, data: unknown) => ({ event, data, text: JSON.stringify(data), partial: false });
+  it("counts types, groups runs, joins content deltas and collects ids", () => {
+    const s = streamSummary([
+      ev("RunStarted", { run_id: "r1", session_id: "s1", agent_name: "Mira", model: "gpt-x" }),
+      ev("RunContent", { run_id: "r1", content: "Hel" }),
+      ev("RunContent", { run_id: "r1", content: "lo" }),
+      ev("ToolCallStarted", { run_id: "r1", tool: { tool_name: "search" } }),
+      ev("RunContent", { run_id: "r1", content: "!" }),
+      ev("RunCompleted", { run_id: "r1", content: "Hello!" }),
+    ]);
+    expect(s.types).toEqual([
+      { name: "RunStarted", count: 1 },
+      { name: "RunContent", count: 3 },
+      { name: "ToolCallStarted", count: 1 },
+      { name: "RunCompleted", count: 1 },
+    ]);
+    expect(s.groups.map((g) => [g.name, g.from, g.to])).toEqual([
+      ["RunStarted", 0, 0],
+      ["RunContent", 1, 2],
+      ["ToolCallStarted", 3, 3],
+      ["RunContent", 4, 4],
+      ["RunCompleted", 5, 5],
+    ]);
+    expect(s.output).toBe("Hello!");
+    expect(s.chunks).toBe(3);
+    expect(s.ids.map((i) => [i.label, i.values])).toEqual([
+      ["Run", ["r1"]],
+      ["Session", ["s1"]],
+      ["Agent", ["Mira"]],
+      ["Model", ["gpt-x"]],
+      ["Tools", ["search"]],
+    ]);
+  });
+
+  it("reads OpenAI and Anthropic deltas and ignores plain messages", () => {
+    expect(eventDelta(ev("message", { choices: [{ delta: { content: "Hi" } }] }))).toBe("Hi");
+    expect(eventDelta(ev("content_block_delta", { delta: { type: "text_delta", text: "yo" } }))).toBe("yo");
+    expect(eventDelta(ev("message", { content: "whole" }))).toBeNull();
+    expect(eventDelta(ev("message", "plain"))).toBeNull();
+  });
+});
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, createContext, useContext, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, stampText, statusClass } from "@/lib/explore";
 import { TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
@@ -24,6 +24,7 @@ import {
   jsonLines,
   markerSegments,
   moveTab,
+  streamSummary,
   offsetMs,
   parseBody,
   parseHeaders,
@@ -240,6 +241,7 @@ export function RequestPanel({
             <Facts r={r} tz={tz} />
           </aside>
         ) : null}
+        <DrawerNav.Provider value={r?.trace_id ? { traceId: r.trace_id, openTimeline: () => setPicked("timeline") } : null}>
         <div className="exd-main" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
           {load.kind === "loading" ? (
             <div className="rd-loading" aria-busy="true" aria-label="Loading the request">
@@ -268,6 +270,7 @@ export function RequestPanel({
             <RawTab data={load.data} />
           )}
         </div>
+        </DrawerNav.Provider>
       </div>
 
       <footer className="exd-foot">
@@ -635,8 +638,8 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
 
 /**
  * The Response section (#1061, redesigned in b5): for a failure the Error block, the validation
- * errors and the exception lead (#988), then Headers and Body. Status, latency and size are in
- * the facts beside it, so they are not repeated here; nor is the body inside the Error block.
+ * errors and the exception lead (#988), then Headers and Body, under one line with the status
+ * code, latency, size and type. The body is not repeated inside the Error block.
  */
 function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
   const r = data.request;
@@ -650,6 +653,12 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 
   return (
     <div className="rd-blocks">
+      <p className="rd-status" aria-label="Response status">
+        <span className={`exd-badge exd-badge--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
+        <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
+        <span>{formatBytes(r.response_size)}</span>
+        {contentTypeOf(r.response_headers) ? <span>{contentTypeOf(r.response_headers)}</span> : null}
+      </p>
       {summary ? (
         <Block title="Error" tone="error">
           <div className="exd-error">
@@ -1021,47 +1030,157 @@ function ListBar({ hint, anyOpen, onAll, onNone }: { hint: string; anyOpen: bool
   );
 }
 
-/** A server-sent event stream: one row per event; clicking a row opens its data as a JSON tree. */
+/** Lets a section deep in the drawer open Timeline for the request's trace. */
+const DrawerNav = createContext<{ traceId: string; openTimeline: () => void } | null>(null);
+
+/** The streamed output shows this many characters until Show all. */
+const OUTPUT_PREVIEW = 1200;
+
+/**
+ * A server-sent event stream, summed up before it is listed: its count and types (each a filter),
+ * the ids it carries (run, session, agent, model, tools; the trace opens Timeline), the text it
+ * streamed joined from its content deltas, then the events with runs of the same event folded
+ * into one row (`RunContent × 120`). A row opens its events; an event opens its data as JSON.
+ */
 function EventStream({ events }: { events: StreamEvent[] }) {
-  const { open, toggle, all, none } = useOpenRows(events.length);
+  const sum = useMemo(() => streamSummary(events), [events]);
+  const nav = useContext(DrawerNav);
+  const [only, setOnly] = useState<string | null>(null);
+  const [allOutput, setAllOutput] = useState(false);
+  const { open, toggle, none } = useOpenRows(events.length);
+  const [openGroups, setOpenGroups] = useState<Set<number>>(new Set());
   const id = useId();
+  const toggleGroup = (g: number) =>
+    setOpenGroups((s) => {
+      const next = new Set(s);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
+
+  const row = (e: StreamEvent, i: number) => {
+    const preview = eventPreview(e);
+    const isOpen = open.has(i);
+    return (
+      <li key={i} className={isOpen ? "is-open" : undefined}>
+        <button type="button" className="rd-events__row" aria-expanded={isOpen} aria-controls={`${id}-${i}`} onClick={() => toggle(i)}>
+          <Chevron />
+          <span className="rd-events__n">{i + 1}</span>
+          <code className="rd-events__name">{e.event}</code>
+          {preview ? <span className="rd-events__preview">{preview}</span> : null}
+          {e.partial ? <span className="rd-events__cut">cut at the capture limit</span> : null}
+        </button>
+        {isOpen ? (
+          <div className="rd-events__data" id={`${id}-${i}`}>
+            {e.data !== null && typeof e.data === "object" ? (
+              <JsonView value={e.data} />
+            ) : (
+              <pre className="rd-pre">
+                <Marked text={e.text} />
+              </pre>
+            )}
+          </div>
+        ) : null}
+      </li>
+    );
+  };
+
+  const shownOutput = allOutput || sum.output.length <= OUTPUT_PREVIEW ? sum.output : `${sum.output.slice(0, OUTPUT_PREVIEW)}…`;
+
   return (
-    <>
-      <p className="rd-meta">
-        {events.length} {events.length === 1 ? "event" : "events"} in the stream, in the order they were sent
-      </p>
-      <div className="rd-list">
-        <ListBar hint="Click an event to see its data; click again to close it." anyOpen={open.size > 0} onAll={all} onNone={none} />
-        <ol className="rd-events">
-          {events.map((e, i) => {
-            const preview = eventPreview(e);
-            const isOpen = open.has(i);
-            return (
-              <li key={i} className={isOpen ? "is-open" : undefined}>
-                <button type="button" className="rd-events__row" aria-expanded={isOpen} aria-controls={`${id}-${i}`} onClick={() => toggle(i)}>
-                  <Chevron />
-                  <span className="rd-events__n">{i + 1}</span>
-                  <code className="rd-events__name">{e.event}</code>
-                  {preview ? <span className="rd-events__preview">{preview}</span> : null}
-                  {e.partial ? <span className="rd-events__cut">cut at the capture limit</span> : null}
+    <div className="rd-stream">
+      <div className="rd-stream__types" role="group" aria-label="Filter events by type">
+        <button type="button" aria-pressed={only === null} onClick={() => setOnly(null)}>
+          All <b>{events.length}</b>
+        </button>
+        {sum.types.map((t) => (
+          <button key={t.name} type="button" aria-pressed={only === t.name} onClick={() => setOnly(only === t.name ? null : t.name)}>
+            {t.name} <b>{t.count}</b>
+          </button>
+        ))}
+      </div>
+
+      {sum.ids.length || (nav?.traceId && nav.openTimeline) ? (
+        <dl className="rd-stream__ids" aria-label="Correlated">
+          {sum.ids.map((x) => (
+            <div key={x.key}>
+              <dt>{x.label}</dt>
+              <dd>
+                <code title={x.values.join(", ")}>{x.values.join(", ")}</code>
+                {x.key !== "tools" ? <CopyButton text={x.values.join(", ")} label={x.label.toLowerCase()} /> : null}
+              </dd>
+            </div>
+          ))}
+          {nav?.traceId ? (
+            <div>
+              <dt>Trace</dt>
+              <dd>
+                <code>{nav.traceId}</code>
+                <button type="button" className="exf-link" onClick={nav.openTimeline}>
+                  Open in Timeline
                 </button>
-                {isOpen ? (
-                  <div className="rd-events__data" id={`${id}-${i}`}>
-                    {e.data !== null && typeof e.data === "object" ? (
-                      <JsonView value={e.data} />
-                    ) : (
-                      <pre className="rd-pre">
-                        <Marked text={e.text} />
-                      </pre>
-                    )}
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
+
+      {sum.output ? (
+        <section className="rd-stream__out" aria-label="Streamed output">
+          <header>
+            <span>
+              Streamed output <span className="rd-block__meta">{sum.chunks} chunks</span>
+            </span>
+            <CopyButton text={sum.output} label="streamed output" />
+          </header>
+          <pre className="rd-pre">{shownOutput}</pre>
+          {sum.output.length > OUTPUT_PREVIEW ? (
+            <button type="button" className="exf-link" onClick={() => setAllOutput((a) => !a)}>
+              {allOutput ? "Show less" : `Show all ${sum.output.length.toLocaleString("en-US")} characters`}
+            </button>
+          ) : null}
+        </section>
+      ) : null}
+
+      <div className="rd-list">
+        <div className="rd-listbar">
+          <span className="rd-listbar__hint">{only ? `${sum.types.find((t) => t.name === only)?.count ?? 0} ${only} events` : `${events.length} events, repeats folded`}</span>
+          <button
+            type="button"
+            className="ah-btn ah-btn--ghost ah-btn--sm"
+            onClick={() => {
+              none();
+              setOpenGroups(new Set());
+            }}
+            disabled={open.size === 0 && openGroups.size === 0}
+          >
+            Collapse all
+          </button>
+        </div>
+        <ol className="rd-events">
+          {only
+            ? events.map((e, i) => (e.event === only ? row(e, i) : null))
+            : sum.groups.map((g, k) =>
+                g.from === g.to ? (
+                  row(events[g.from], g.from)
+                ) : (
+                  <li key={`g${k}`} className={`rd-events__group${openGroups.has(k) ? " is-open" : ""}`}>
+                    <button type="button" className="rd-events__row" aria-expanded={openGroups.has(k)} onClick={() => toggleGroup(k)}>
+                      <Chevron />
+                      <span className="rd-events__n">
+                        {g.from + 1}–{g.to + 1}
+                      </span>
+                      <code className="rd-events__name">{g.name}</code>
+                      <span className="rd-events__times">× {g.to - g.from + 1}</span>
+                      <span className="rd-events__preview">{eventPreview(events[g.from])}</span>
+                    </button>
+                    {openGroups.has(k) ? <ol className="rd-events rd-events--nested">{events.slice(g.from, g.to + 1).map((e, n) => row(e, g.from + n))}</ol> : null}
+                  </li>
+                ),
+              )}
         </ol>
       </div>
-    </>
+    </div>
   );
 }
 

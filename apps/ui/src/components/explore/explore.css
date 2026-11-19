@@ -879,3 +879,27 @@ span.rd-j-tog { cursor: default; }
 .exd-subbar .rd-copy { opacity: 1; }
 .rd-bare { display: grid; gap: 8px; }
 .rd-bare__bar { display: flex; justify-content: flex-end; }
+
+/* The Response tab's first line: the status code as a badge, then latency, size and type. */
+.rd-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+.rd-status .exd-badge { font-size: 12px; }
+
+/* Event streams (EventStream): type filters, correlated ids, the streamed output, folded events. */
+.rd-stream { display: grid; gap: 12px; min-width: 0; }
+.rd-stream__types { display: flex; flex-wrap: wrap; gap: 6px; }
+.rd-stream__types button { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: none; color: var(--ink-muted); font: 400 12px/16px var(--font-mono); cursor: pointer; }
+.rd-stream__types button b { font-weight: 500; color: var(--ink); }
+.rd-stream__types button:hover { color: var(--ink); }
+.rd-stream__types button[aria-pressed="true"] { border-color: var(--ink-muted); background: var(--surface-2); color: var(--ink); }
+.rd-stream__types button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.rd-stream__ids { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 20px; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.rd-stream__ids dt { font: 400 11px/16px var(--font-sans); color: var(--ink-muted); }
+.rd-stream__ids dd { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 2px 0 0; }
+.rd-stream__ids code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-mono); color: var(--ink); }
+.rd-stream__ids .rd-copy { opacity: 1; }
+.rd-stream__out { display: grid; gap: 6px; }
+.rd-stream__out header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 500 13px/20px var(--font-sans); }
+.rd-stream__out .rd-copy { opacity: 1; }
+.rd-stream__out .rd-pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rd-events__times { flex: none; font: 500 11px/16px var(--font-mono); color: var(--ink-muted); }
+.rd-events--nested { margin: 0 0 4px 22px; border-left: 1px solid var(--border); }

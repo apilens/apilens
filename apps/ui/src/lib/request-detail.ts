@@ -164,6 +164,101 @@ export function parseEventStream(text: string): StreamEvent[] {
   return out;
 }
 
+/** One run of consecutive events of the same name, as the stream view groups them (indices into the events). */
+export interface StreamGroup {
+  name: string;
+  from: number;
+  to: number;
+}
+
+/** A correlated value the stream carries (run, session, agent, model, tools), its distinct values in order. */
+export interface StreamId {
+  key: string;
+  label: string;
+  values: string[];
+}
+
+/** What a stream adds up to: its event types, its runs, the text it streamed and the ids it carries. */
+export interface StreamSummary {
+  types: { name: string; count: number }[];
+  groups: StreamGroup[];
+  /** The streamed text, joined from the content deltas; "" when the events carry none. */
+  output: string;
+  /** How many events added to `output`. */
+  chunks: number;
+  ids: StreamId[];
+}
+
+/** Fields that tie a stream's events to runs, sessions, agents and models (Agno, OpenAI, Anthropic shapes). */
+const STREAM_IDS: [string, string][] = [
+  ["run_id", "Run"],
+  ["session_id", "Session"],
+  ["agent_name", "Agent"],
+  ["agent_id", "Agent ID"],
+  ["team_name", "Team"],
+  ["workflow_id", "Workflow"],
+  ["user_id", "User"],
+  ["model", "Model"],
+  ["model_provider", "Provider"],
+];
+/** The most distinct values one id row lists. */
+const STREAM_ID_MAX = 3;
+
+const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
+/**
+ * The text one event adds to the streamed output, or null: `content` / `delta` / `text` of a
+ * content or delta event (Agno RunContent, Anthropic content_block_delta), or OpenAI's
+ * `choices[0].delta.content`. Completed events repeat the whole output, so they add nothing.
+ */
+export function eventDelta(e: Pick<StreamEvent, "event" | "data">): string | null {
+  const d = record(e.data);
+  if (!d) return null;
+  const name = `${e.event} ${typeof d.event === "string" ? d.event : ""}`.toLowerCase();
+  if (/complete|done|end|stop/.test(name)) return null;
+  const choice = record(Array.isArray(d.choices) ? d.choices[0] : null);
+  const openai = record(choice?.delta)?.content;
+  if (typeof openai === "string") return openai;
+  if (!/content|delta|chunk|token/.test(name)) return null;
+  for (const v of [d.content, d.delta, d.text, record(d.delta)?.text]) if (typeof v === "string") return v;
+  return null;
+}
+
+/** A stream's summary for the drawer (see StreamSummary). */
+export function streamSummary(events: readonly StreamEvent[]): StreamSummary {
+  const counts = new Map<string, number>();
+  const groups: StreamGroup[] = [];
+  const found = new Map<string, string[]>();
+  const tools: string[] = [];
+  let output = "";
+  let chunks = 0;
+  events.forEach((e, i) => {
+    counts.set(e.event, (counts.get(e.event) ?? 0) + 1);
+    const last = groups.at(-1);
+    if (last && last.name === e.event) last.to = i;
+    else groups.push({ name: e.event, from: i, to: i });
+    const delta = eventDelta(e);
+    if (delta !== null) {
+      output += delta;
+      chunks++;
+    }
+    const d = record(e.data);
+    if (!d) return;
+    for (const [key] of STREAM_IDS) {
+      const v = d[key];
+      if (typeof v !== "string" && typeof v !== "number") continue;
+      const list = found.get(key) ?? [];
+      if (!list.includes(String(v)) && list.length < STREAM_ID_MAX) list.push(String(v));
+      found.set(key, list);
+    }
+    const tool = record(d.tool)?.tool_name ?? d.tool_name;
+    if (typeof tool === "string" && !tools.includes(tool)) tools.push(tool);
+  });
+  const ids: StreamId[] = STREAM_IDS.filter(([k]) => found.get(k)?.length).map(([key, label]) => ({ key, label, values: found.get(key) ?? [] }));
+  if (tools.length) ids.push({ key: "tools", label: "Tools", values: tools });
+  return { types: [...counts].map(([name, count]) => ({ name, count })), groups, output, chunks, ids };
+}
+
 /**
  * Reads a stored body: JSON objects and arrays become a tree; a form body (by `contentType`) its
  * fields; an event stream its events; anything else (a truncated JSON body too) stays text.
