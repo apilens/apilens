@@ -48,9 +48,28 @@ describe("timelineSteps", () => {
     ]);
     expect(steps[0].kind === "log" && steps[0].level).toBe("warn");
     expect(steps[1].kind === "span" && steps[1].failed).toBe(true);
-    expect(offsetText(12.44)).toBe("+12.4 ms");
+    expect(offsetText(0)).toBe("0 ms");
+    expect(offsetText(5.24)).toBe("+5.2 ms");
+    expect(offsetText(12.44)).toBe("+12 ms");
     expect(offsetText(-0.8)).toBe("−0.8 ms");
-    expect(offsetText(12_345)).toBe("+12,345 ms");
+    expect(offsetText(1_404)).toBe("+1.40 s");
+    expect(offsetText(12_345)).toBe("+12.3 s");
+  });
+
+  it("nests spans under their parent and logs under their span", () => {
+    const at = "2026-11-05T10:00:00.000Z";
+    const sp = (id: string, parent: string, ms: number) => ({ ...span(`2026-11-05T10:00:00.${String(ms).padStart(3, "0")}Z`), span_id: id, parent_span_id: parent, name: id }) as TraceSpan;
+    const lg = (sid: string, ms: number) => ({ ...log(`2026-11-05T10:00:00.${String(ms).padStart(3, "0")}Z`, "info"), span_id: sid, message: `in ${sid}` }) as TraceLog;
+    const steps = timelineSteps([sp("db", "root", 30), sp("root", "", 0), sp("llm", "root", 10), sp("orphan", "gone", 5)], [lg("root", 2), lg("db", 31), lg("", 1)], at);
+    expect(steps.map((s) => [s.kind === "span" ? s.span.name : s.log.message, s.depth])).toEqual([
+      ["root", 0],
+      ["in root", 1],
+      ["llm", 1],
+      ["db", 1],
+      ["in db", 2],
+      ["in ", 0],
+      ["orphan", 0],
+    ]);
   });
 });
 

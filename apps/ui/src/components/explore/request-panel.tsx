@@ -1,6 +1,7 @@
 "use client";
 
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { copyText } from "@/lib/clipboard";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, stampText, statusClass } from "@/lib/explore";
 import { TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
@@ -237,7 +238,7 @@ export function RequestPanel({
       <div className="exd-split">
         {r ? (
           <aside className="exd-side" aria-label="Request facts">
-            <Facts r={r} tz={tz} />
+            <Facts r={r} tz={tz} project={project} api={api} />
           </aside>
         ) : null}
         <div className="exd-main" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
@@ -262,8 +263,6 @@ export function RequestPanel({
             <ResponseTab key={id} data={load.data} api={api} />
           ) : tab === "timeline" ? (
             <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
-          ) : tab === "consumer" ? (
-            <ConsumerTab project={project} r={load.data.request} api={api} />
           ) : (
             <RawTab data={load.data} />
           )}
@@ -297,7 +296,7 @@ export function RequestPanel({
  * (mono, cut with an ellipsis, the whole value in its title). On phones they wrap in two columns
  * above the content.
  */
-function Facts({ r, tz }: { r: RequestRow; tz: string }) {
+function Facts({ r, tz, project, api }: { r: RequestRow; tz: string; project: string; api: FilterApi }) {
   const app = useAppName(r.app_id);
   const cls = statusClass(r.status_code);
   const at = Date.parse(r.timestamp);
@@ -308,7 +307,7 @@ function Facts({ r, tz }: { r: RequestRow; tz: string }) {
     ["Sent · received", `${formatBytes(r.request_size)} · ${formatBytes(r.response_size)}`, `Request ${r.request_size ?? 0} B, response ${r.response_size ?? 0} B`],
     ["App", app ?? r.app_id ?? "", app ?? r.app_id ?? ""],
     ["Environment", r.environment, r.environment],
-    ["Consumer", consumerOf(r) ?? "", r.consumer_id || ""],
+    ["Consumer", r.consumer_id ? <ConsumerHover key="c" project={project} r={r} api={api} /> : (consumerOf(r) ?? ""), ""],
     ["Trace ID", r.trace_id, r.trace_id],
   ];
   return (
@@ -332,7 +331,6 @@ function Notice({ children, error = false }: { children: ReactNode; error?: bool
   );
 }
 
-const SAMPLED_OUT = "Sampled out: the SDK kept a base record of this request without headers or bodies.";
 
 /** Text with the SDK's markers styled apart, each saying what it means. */
 function Marked({ text }: { text: string }) {
@@ -556,11 +554,7 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
           <KvTable pairs={attrs} label="Request attributes" />
         </Block>
       ) : null}
-      {sampled ? (
-        <Notice>{SAMPLED_OUT}</Notice>
-      ) : (
-        <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} first="headers" query={query} />
-      )}
+      <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} first="headers" query={query} sampled={sampled} />
     </div>
   );
 }
@@ -611,11 +605,7 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
           <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
         </Block>
       ) : null}
-      {isSampledOut(r) ? (
-        <Notice>{SAMPLED_OUT}</Notice>
-      ) : (
-        <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} first="body" />
-      )}
+      <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} first="body" sampled={isSampledOut(r)} />
     </div>
   );
 }
@@ -632,15 +622,18 @@ function HeadersBodyTabs({
   body,
   size,
   first,
-  query = [],
+  query,
+  sampled = false,
 }: {
   what: "request" | "response";
   headersText: string;
   body: string;
   size: number | undefined;
   first: "headers" | "body";
-  /** The request's query parameters, a tab of their own when there are any. */
+  /** The request's query parameters: a tab of their own on Request, shown (with 0) even when empty. */
   query?: [string, string][];
+  /** Sampled out: the tabs stay, each saying its part was not kept. */
+  sampled?: boolean;
 }) {
   type Sub = "headers" | "query" | "body";
   const [sub, setSub] = useState<Sub>(first);
@@ -657,10 +650,12 @@ function HeadersBodyTabs({
       else next.delete(sub);
       return next;
     });
-  const view = sub === "body" ? bodyViewName(parsed.kind) : sub === "headers" ? (headers ? "Table" : null) : "Table";
+  // The view switch only where there is something to switch.
+  const view = sampled ? null : sub === "body" ? bodyViewName(parsed.kind) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
   const id = useId();
-  const headersTab = { slug: "headers" as Sub, label: "Headers", n: headers?.length };
-  const queryTab = query.length ? [{ slug: "query" as Sub, label: "Query parameters", n: query.length }] : [];
+  // Every tab is always there, with its count (0 too), so nothing appears or vanishes per request.
+  const headersTab = { slug: "headers" as Sub, label: "Headers", n: sampled ? 0 : (headers?.length ?? 0) };
+  const queryTab = query ? [{ slug: "query" as Sub, label: "Query parameters", n: sampled ? 0 : query.length }] : [];
   const bodyTab = { slug: "body" as Sub, label: "Body" };
   const tabs: { slug: Sub; label: string; n?: number }[] = first === "body" ? [bodyTab, headersTab, ...queryTab] : [headersTab, ...queryTab, bodyTab];
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -689,7 +684,7 @@ function HeadersBodyTabs({
               onClick={() => setSub(x.slug)}
             >
               {x.label}
-              {x.n ? <span className="exd-menu__n">{x.n}</span> : null}
+              {x.n !== undefined ? <span className={`exd-menu__n${x.n === 0 ? " is-zero" : ""}`}>{x.n}</span> : null}
             </button>
           ))}
         </div>
@@ -707,7 +702,9 @@ function HeadersBodyTabs({
         </span>
       </div>
       <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${sub}`}>
-        {sub === "headers" ? (
+        {sampled ? (
+          <Empty>Not kept: this request was sampled out, so the SDK stored a base record without its headers, query parameters or bodies.</Empty>
+        ) : sub === "headers" ? (
           headers ? (
             raw ? (
               <RawText text={headersJson(headers)} what={`the ${what} headers as JSON`} />
@@ -718,7 +715,13 @@ function HeadersBodyTabs({
             <Empty>The {what} headers were not captured.</Empty>
           )
         ) : sub === "query" ? (
-          raw ? <RawText text={headersJson(query)} what="the query parameters as JSON" /> : <KvTable pairs={query} label="Query parameters" />
+          !query?.length ? (
+            <Empty>No query parameters: the URL has no query string.</Empty>
+          ) : raw ? (
+            <RawText text={headersJson(query)} what="the query parameters as JSON" />
+          ) : (
+            <KvTable pairs={query} label="Query parameters" />
+          )
         ) : (
           <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
         )}
@@ -761,9 +764,10 @@ function ErrorBody({ text, start, more }: { text: string; start: string; more: b
 // ---------------------------------------------------------------- timeline
 
 /**
- * The Timeline tab: the trace's spans and logs on one rail, oldest first, each with a level dot,
- * its name, its duration and its offset from the request ("+12.4 ms"). The first three show, then
- * "+N more". A span or log opens its attributes, events and payload inline.
+ * The Timeline tab: the trace as a tree, spans under their parent and logs under their span,
+ * siblings by time. A row is its marker (a span's bar, a log's dot), its name, its place on the
+ * waterfall, its duration and its start from the request. The first TIMELINE_FIRST show, then
+ * "Show N more" under them. A row opens what it reported (attributes, events, payload).
  */
 function Timeline({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: TraceLog[]; at: string; traced: boolean }) {
   const steps = useMemo(() => timelineSteps(spans, logs, at), [spans, logs, at]);
@@ -777,7 +781,7 @@ function Timeline({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trace
   // The waterfall's scale: from the earliest step (or the request) to the latest end.
   const lo = Math.min(0, ...steps.map((s) => s.offset));
   const hi = Math.max(1, ...steps.map((s) => s.offset + (s.kind === "span" ? s.span.duration_ms : 0)));
-  const span = hi - lo;
+  const range = hi - lo;
   const toggle = (i: number) =>
     setOpen((cur) => {
       const next = new Set(cur);
@@ -785,29 +789,40 @@ function Timeline({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trace
       else next.add(i);
       return next;
     });
+  const nSpans = steps.filter((s) => s.kind === "span").length;
   return (
-    <section className="rd-section" aria-label="Timeline">
+    <section className="rd-section exd-tl" aria-label="Timeline">
+      <p className="exd-tl__head">
+        <span>
+          {nSpans} {nSpans === 1 ? "span" : "spans"} · {steps.length - nSpans} {steps.length - nSpans === 1 ? "log" : "logs"}
+        </span>
+        <span>{formatLatency(range)}</span>
+      </p>
       <ol className="exd-rail">
         {shown.map((s, i) => {
           const tone = s.kind === "span" ? (s.failed ? "error" : "plain") : s.level;
           const isOpen = open.has(i);
+          const name = s.kind === "span" ? s.span.name || s.span.span_id : s.log.message;
           return (
-            <li key={`${s.kind}${s.at}#${i}`} className={`exd-step exd-step--${tone}${isOpen ? " is-open" : ""}`}>
+            <li key={`${s.kind}${s.at}#${i}`} className={`exd-step exd-step--${s.kind} exd-step--${tone}${isOpen ? " is-open" : ""}`}>
               <button type="button" className="exd-step__row" aria-expanded={isOpen} aria-controls={`${id}-${i}`} onClick={() => toggle(i)}>
-                <span className="exd-step__dot" aria-hidden="true" />
-                <span className="exd-step__kind">{s.kind === "span" ? "Span" : s.log.level || "Log"}</span>
-                <span className="exd-step__name">{s.kind === "span" ? s.span.name || s.span.span_id : <Marked text={s.log.message} />}</span>
+                <span className="exd-step__name" style={{ paddingLeft: `${s.depth * 14}px` }} title={name}>
+                  <span className="exd-step__mark" aria-hidden="true" />
+                  {s.kind === "log" && s.level !== "plain" ? <span className="exd-step__lvl">{s.log.level.toLowerCase()}</span> : null}
+                  <span className="exd-step__text">{s.kind === "span" ? name : <Marked text={name} />}</span>
+                  {s.kind === "span" && s.span.service_name ? <span className="exd-step__svc">{s.span.service_name}</span> : null}
+                </span>
                 <span className="exd-step__track" aria-hidden="true">
                   <span
                     className={`exd-step__bar${s.kind === "log" ? " is-tick" : ""}`}
-                    style={{ left: `${((s.offset - lo) / span) * 100}%`, width: s.kind === "span" ? `max(2px, ${(s.span.duration_ms / span) * 100}%)` : undefined }}
+                    style={{ left: `${((s.offset - lo) / range) * 100}%`, width: s.kind === "span" ? `max(2px, ${(s.span.duration_ms / range) * 100}%)` : undefined }}
                   />
                 </span>
                 <span className="exd-step__dur">{s.kind === "span" ? formatLatency(s.span.duration_ms) : ""}</span>
                 <span className="exd-step__off">{offsetText(s.offset)}</span>
               </button>
               {isOpen ? (
-                <div className="exd-step__detail" id={`${id}-${i}`}>
+                <div className="exd-step__detail" id={`${id}-${i}`} style={{ marginLeft: `${s.depth * 14 + 16}px` }}>
                   {s.kind === "span" ? <SpanDetail span={s.span} at={at} /> : <LogDetail log={s.log} />}
                 </div>
               ) : null}
@@ -816,8 +831,8 @@ function Timeline({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trace
         })}
       </ol>
       {!all && steps.length > TIMELINE_FIRST ? (
-        <button type="button" className="exf-link exd-more" onClick={() => setAll(true)}>
-          +{steps.length - TIMELINE_FIRST} more
+        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm exd-tl__more" onClick={() => setAll(true)}>
+          Show {steps.length - TIMELINE_FIRST} more
         </button>
       ) : null}
     </section>
@@ -832,96 +847,139 @@ type ConsumerRead =
   | { kind: "error" }
   | { kind: "ok"; c: { consumer_id: string; consumer_name: string; consumer_group: string; first_seen: string; last_seen: string; requests: number; recent: RequestRow[] } };
 
-/** The Consumer tab: who made the request, "Filter by this consumer" and their last 24 hours. */
-function ConsumerTab({ project, r, api }: { project: string; r: RequestDetail; api: FilterApi }) {
+/** How long a hover waits before the consumer card opens, and before it closes once left. */
+const HOVER_OPEN_MS = 250;
+const HOVER_CLOSE_MS = 150;
+
+/**
+ * The Consumer fact: the consumer's name, which opens a card on hover or focus (read once, when
+ * it first opens): who it is (id, group, first and last seen) with "Filter by this consumer" and
+ * "Open consumer". The card stays while the pointer is on it; Esc closes it.
+ */
+function ConsumerHover({ project, r, api }: { project: string; r: RequestRow; api: FilterApi }) {
   const tz = useTimeZone();
-  const [read, setRead] = useState<ConsumerRead>({ kind: "loading" });
   const cid = r.consumer_id;
+  const trigger = useRef<HTMLButtonElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const [read, setRead] = useState<ConsumerRead | null>(null);
+  const cardId = useId();
+
+  const schedule = (fn: () => void, ms: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(fn, ms);
+  };
+  const open = () => {
+    const b = trigger.current?.getBoundingClientRect();
+    if (!b) return;
+    setAt({ top: Math.max(8, Math.min(b.top - 8, window.innerHeight - 260)), left: Math.min(b.right + 12, window.innerWidth - 300) });
+  };
+  const close = () => setAt(null);
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
   useEffect(() => {
-    if (!cid) return setRead({ kind: "none" });
-    const ctl = new AbortController();
+    if (!at) return;
+    const key = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      close();
+      trigger.current?.focus();
+    };
+    document.addEventListener("keydown", key, true);
+    return () => document.removeEventListener("keydown", key, true);
+  }, [at]);
+
+  // Read the consumer the first time the card opens.
+  useEffect(() => {
+    if (!at || read) return;
     setRead({ kind: "loading" });
-    fetch(`/api/projects/${encodeURIComponent(project)}/consumers/${encodeURIComponent(cid)}`, { signal: ctl.signal, cache: "no-store", headers: { accept: "application/json" } })
+    fetch(`/api/projects/${encodeURIComponent(project)}/consumers/${encodeURIComponent(cid)}`, { cache: "no-store", headers: { accept: "application/json" } })
       .then(async (res) => {
         const b = (await res.json().catch(() => null)) as { ok?: boolean; consumer?: Extract<ConsumerRead, { kind: "ok" }>["c"]; code?: string; next?: string } | null;
         if (res.status === 401 && b?.code === "session_expired") return window.location.assign(b.next ?? "/sign-in");
         setRead(b?.ok && b.consumer ? { kind: "ok", c: b.consumer } : b?.code === "not_found" ? { kind: "none" } : { kind: "error" });
       })
-      .catch((err: Error) => {
-        if (err.name !== "AbortError") setRead({ kind: "error" });
-      });
-    return () => ctl.abort();
-  }, [project, cid]);
+      .catch(() => setRead({ kind: "error" }));
+  }, [at, read, project, cid]);
 
-  if (!cid) return <p className="rd-empty">No consumer: the app did not identify who made this request.</p>;
-  if (read.kind === "loading") return <div className="rd-loading" aria-busy="true" aria-label="Loading the consumer" />;
-  if (read.kind === "error") return <Notice error>We couldn’t load this consumer just now.</Notice>;
-  const c = read.kind === "ok" ? read.c : null;
-  const all = `/project/${encodeURIComponent(project)}/explore?range=24h&filter=${encodeURIComponent(`consumer:eq:${cid}`)}`;
+  const c = read?.kind === "ok" ? read.c : null;
+  const name = c?.consumer_name || r.consumer_name || cid;
+  const stay = { onPointerEnter: () => timer.current && clearTimeout(timer.current), onPointerLeave: () => schedule(close, HOVER_CLOSE_MS) };
+
   return (
-    <div className="exd-consumer">
-      <div className="exd-card">
-        <p className="exd-card__name">{c?.consumer_name || r.consumer_name || cid}</p>
-        <dl className="exd-dl">
-          <Field label="ID">
-            <code>{cid}</code>
-          </Field>
-          <Field label="Group">{c?.consumer_group || r.consumer_group}</Field>
-          <Field label="First seen">{c?.first_seen ? formatExact(c.first_seen, tz) : null}</Field>
-          <Field label="Last seen">{c?.last_seen ? formatExact(c.last_seen, tz) : null}</Field>
-        </dl>
-        <div className="exd-card__actions">
-          <button
-            type="button"
-            className="ah-btn ah-btn--secondary ah-btn--sm"
-            onClick={() => api.setConds([...api.conds.filter((x) => x.field !== "consumer"), { field: "consumer", op: "eq", value: cid }])}
-          >
-            Filter by this consumer
-          </button>
-          <a className="ah-btn ah-btn--ghost ah-btn--sm" href={`${projectHref(project, "consumers")}?consumer=${encodeURIComponent(cid)}`}>
-            Open consumer
-          </a>
-        </div>
-      </div>
-      <h3 className="rd-h">Last 24 hours</h3>
-      {c && c.recent.length ? (
-        <table className="rd-table exd-mini" aria-label="The consumer’s latest requests">
-          <thead>
-            <tr>
-              <th scope="col">Time</th>
-              <th scope="col">Status</th>
-              <th scope="col">Request</th>
-            </tr>
-          </thead>
-          <tbody>
-            {c.recent.slice(0, 10).map((x, i) => {
-              const t = logTime(x.timestamp, Date.now(), tz);
-              return (
-                <tr key={x.id ?? `${x.timestamp}#${i}`}>
-                  <td className="rd-num">
-                    {t.day ? `${t.day} ` : ""}
-                    {t.clock}
-                  </td>
-                  <td>
-                    <span className={`exl-status exl-status--${statusClass(x.status_code)}`}>{x.status_code}</span>
-                  </td>
-                  <td>
-                    <code>
-                      {x.method.toUpperCase()} {shownPath(x)}
-                    </code>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      ) : (
-        <p className="rd-empty">No requests from this consumer in the last 24 hours.</p>
-      )}
-      <a className="exf-link" href={all}>
-        View all in Explore
-      </a>
-    </div>
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className={`exd-consumer-trigger${at ? " is-open" : ""}`}
+        aria-expanded={Boolean(at)}
+        aria-controls={at ? cardId : undefined}
+        onPointerEnter={() => schedule(open, HOVER_OPEN_MS)}
+        onPointerLeave={() => schedule(close, HOVER_CLOSE_MS)}
+        onFocus={open}
+        onBlur={(e) => {
+          if (!document.getElementById(cardId)?.contains(e.relatedTarget as Node)) close();
+        }}
+        onClick={() => (at ? close() : open())}
+      >
+        {consumerOf(r) ?? cid}
+      </button>
+      {at
+        ? createPortal(
+            <div className="exd-ccard" id={cardId} role="dialog" aria-label={`Consumer ${name}`} style={{ top: at.top, left: at.left }} {...stay}>
+              <p className="exd-ccard__name">{name}</p>
+              {read?.kind === "error" ? <p className="rd-empty">We couldn’t load this consumer just now.</p> : null}
+              <dl className="exd-ccard__dl">
+                <div>
+                  <dt>ID</dt>
+                  <dd>
+                    <code>{cid}</code>
+                  </dd>
+                </div>
+                {c?.consumer_group || r.consumer_group ? (
+                  <div>
+                    <dt>Group</dt>
+                    <dd>{c?.consumer_group || r.consumer_group}</dd>
+                  </div>
+                ) : null}
+                {c?.first_seen ? (
+                  <div>
+                    <dt>First seen</dt>
+                    <dd>{formatExact(c.first_seen, tz)}</dd>
+                  </div>
+                ) : null}
+                {c?.last_seen ? (
+                  <div>
+                    <dt>Last seen</dt>
+                    <dd>{formatExact(c.last_seen, tz)}</dd>
+                  </div>
+                ) : null}
+                {read?.kind === "loading" ? (
+                  <div>
+                    <dt>Seen</dt>
+                    <dd className="exl-faint">Loading…</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <div className="exd-ccard__actions">
+                <button
+                  type="button"
+                  className="ah-btn ah-btn--secondary ah-btn--sm"
+                  onClick={() => {
+                    close();
+                    api.setConds([...api.conds.filter((x) => x.field !== "consumer"), { field: "consumer", op: "eq", value: cid }]);
+                  }}
+                >
+                  Filter by this consumer
+                </button>
+                <a className="ah-btn ah-btn--ghost ah-btn--sm" href={`${projectHref(project, "consumers")}?consumer=${encodeURIComponent(cid)}`}>
+                  Open consumer
+                </a>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -1220,7 +1278,6 @@ function SpanDetail({ span: s, at }: { span: TraceSpan; at: string }) {
   const events = s.events ?? [];
   return (
     <section className="rd-section rd-span" aria-label={`Span ${s.name || s.span_id}`}>
-      <h3 className="rd-h">Span: {s.name || s.span_id}</h3>
       <dl className="rd-dl">
         {items
           .filter(([, v]) => v !== null && v !== undefined && v !== "")
@@ -1231,9 +1288,13 @@ function SpanDetail({ span: s, at }: { span: TraceSpan; at: string }) {
             </div>
           ))}
       </dl>
-      <h4 className="rd-h rd-h--sub">Attributes</h4>
-      {attrs.length ? <AttrTable attrs={attrs} label="Span attributes" /> : <p className="rd-empty">No attributes were reported for this span.</p>}
-      <h4 className="rd-h rd-h--sub">Events</h4>
+      {attrs.length ? (
+        <>
+          <h4 className="rd-h rd-h--sub">Attributes</h4>
+          <AttrTable attrs={attrs} label="Span attributes" />
+        </>
+      ) : null}
+      {events.length ? <h4 className="rd-h rd-h--sub">Events</h4> : null}
       {events.length ? (
         <ol className="rd-spanevents">
           {events.map((e, i) => {
@@ -1256,9 +1317,7 @@ function SpanDetail({ span: s, at }: { span: TraceSpan; at: string }) {
             );
           })}
         </ol>
-      ) : (
-        <p className="rd-empty">No events were reported for this span.</p>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -1270,24 +1329,17 @@ function AttrTable({ attrs, label }: { attrs: [string, string][]; label: string 
 function LogDetail({ log: l }: { log: TraceLog }) {
   const attrs = Object.entries(l.attributes ?? {});
   const payload = l.payload ?? "";
+  if (!payload && !attrs.length && l.logger_name !== EXCEPTION_LOGGER) return <p className="rd-empty">This log reported only its message.</p>;
   return (
     <div className="rd-logdetail">
-      {l.logger_name === EXCEPTION_LOGGER ? <p className="rd-logdetail__exc">This log is the request’s exception; Overview shows it in full.</p> : null}
-      <div className="rd-exc__bar">
-        <h3 className="rd-h rd-h--sub">Payload</h3>
-        {payload ? (
-          <SectionCopy text={() => payload} what="the payload" label="Copy payload" />
-        ) : null}
-      </div>
-      {payload ? (
-        <pre className="rd-pre rd-logdetail__payload" tabIndex={0} aria-label="Log payload">
-          <Marked text={payload} />
-        </pre>
-      ) : (
-        <p className="rd-empty">No payload was reported for this log.</p>
-      )}
-      <h3 className="rd-h rd-h--sub">Attributes</h3>
-      {attrs.length ? <AttrTable attrs={attrs} label="Log attributes" /> : <p className="rd-empty">No attributes were reported for this log.</p>}
+      {l.logger_name === EXCEPTION_LOGGER ? <p className="rd-logdetail__exc">This log is the request’s exception; Response shows it in full.</p> : null}
+      {payload ? <RawText text={payload} what="the payload" /> : null}
+      {attrs.length ? (
+        <>
+          <h3 className="rd-h rd-h--sub">Attributes</h3>
+          <AttrTable attrs={attrs} label="Log attributes" />
+        </>
+      ) : null}
     </div>
   );
 }

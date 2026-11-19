@@ -48,10 +48,15 @@ export function queryPairs(rawPath: string): [string, string][] {
 
 /** One step of the Timeline rail: a span or a log of the request's trace. */
 export type Step =
-  | { kind: "span"; at: string; offset: number; span: TraceSpan; failed: boolean }
-  | { kind: "log"; at: string; offset: number; log: TraceLog; level: "error" | "warn" | "plain" };
+  | { kind: "span"; at: string; offset: number; depth: number; span: TraceSpan; failed: boolean }
+  | { kind: "log"; at: string; offset: number; depth: number; log: TraceLog; level: "error" | "warn" | "plain" };
 
-/** The spans and logs of a request on one rail, by time, each with its offset (ms) from the request. */
+/**
+ * The spans and logs of a request on one rail as a tree: each span under its parent and each log
+ * under the span it was written in (`depth` says how deep), siblings by time, a span before a log
+ * at the same time. Spans whose parent is not in the trace, and logs outside any span, are roots.
+ * Every step has its offset (ms) from the request.
+ */
 export function timelineSteps(spans: readonly TraceSpan[], logs: readonly TraceLog[], requestAt: string): Step[] {
   const t0 = Date.parse(requestAt);
   const off = (at: string) => (Number.isNaN(t0) ? 0 : Date.parse(at) - t0);
@@ -61,21 +66,43 @@ export function timelineSteps(spans: readonly TraceSpan[], logs: readonly TraceL
     if (v === "warn" || v === "warning") return "warn";
     return "plain";
   };
-  const steps: Step[] = [
-    ...spans.map((s) => ({ kind: "span" as const, at: s.start, offset: off(s.start), span: s, failed: s.status.toLowerCase() === "error" || s.status_code >= 500 })),
-    ...logs.map((l) => ({ kind: "log" as const, at: l.timestamp, offset: off(l.timestamp), log: l, level: level(l.level) })),
+  type Node = Omit<Step, "depth"> & { key: string; parent: string };
+  const ids = new Set(spans.map((s) => s.span_id).filter(Boolean));
+  const nodes: Node[] = [
+    ...spans.map((s) => ({ kind: "span" as const, at: s.start, offset: off(s.start), span: s, failed: s.status.toLowerCase() === "error" || s.status_code >= 500, key: s.span_id, parent: ids.has(s.parent_span_id) && s.parent_span_id !== s.span_id ? s.parent_span_id : "" })),
+    ...logs.map((l) => ({ kind: "log" as const, at: l.timestamp, offset: off(l.timestamp), log: l, level: level(l.level), key: "", parent: ids.has(l.span_id) ? l.span_id : "" })),
   ];
-  return steps.sort((a, b) => a.offset - b.offset || (a.kind === b.kind ? 0 : a.kind === "span" ? -1 : 1));
+  const byTime = (a: Node, b: Node) => a.offset - b.offset || (a.kind === b.kind ? 0 : a.kind === "span" ? -1 : 1);
+  const children = new Map<string, Node[]>();
+  for (const n of nodes) children.set(n.parent, [...(children.get(n.parent) ?? []), n]);
+  const out: Step[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string, depth: number) => {
+    for (const n of (children.get(parent) ?? []).sort(byTime)) {
+      const { key, parent: _p, ...step } = n;
+      out.push({ ...step, depth } as Step);
+      if (n.kind === "span" && key && !seen.has(key)) {
+        seen.add(key);
+        walk(key, depth + 1);
+      }
+    }
+  };
+  walk("", 0);
+  return out;
 }
 
-/** How many Timeline steps show before "+N more". */
-export const TIMELINE_FIRST = 3;
+/** How many Timeline steps show before "Show N more". */
+export const TIMELINE_FIRST = 50;
 
-/** An offset in words: `+12.4 ms`, `+1,204 ms`, `−0.8 ms`. */
+/** An offset in words: `0 ms`, `+5.2 ms`, `+120 ms`, `+1.4 s`, `−0.8 ms`. */
 export function offsetText(ms: number): string {
   if (!Number.isFinite(ms)) return "";
   const a = Math.abs(ms);
-  return `${ms < 0 ? "−" : "+"}${a < 10_000 ? a.toFixed(1) : Math.round(a).toLocaleString("en-US")} ms`;
+  if (a < 0.05) return "0 ms";
+  const sign = ms < 0 ? "−" : "+";
+  if (a < 10) return `${sign}${a.toFixed(1)} ms`;
+  if (a < 1000) return `${sign}${Math.round(a)} ms`;
+  return `${sign}${(a / 1000).toFixed(a < 10_000 ? 2 : 1)} s`;
 }
 
 /** The id `delta` rows from `id` in the loaded rows (clamped), or null when `id` is not among them. */

@@ -653,19 +653,13 @@ span.rd-j-tog { cursor: default; }
 .exl-body > .exl-row.is-4xx[aria-selected="true"] { background: color-mix(in srgb, var(--warn) 20%, transparent); }
 .exl-body > .exl-row.is-5xx[aria-selected="true"] { background: color-mix(in srgb, var(--error) 20%, transparent); }
 /* Timeline rail. */
-.exd-rail { position: relative; margin: 0; padding: 0 0 0 4px; list-style: none; }
-.exd-rail::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 9px; width: 1px; background: var(--border); }
+.exd-rail { margin: 0; padding: 0; list-style: none; }
 .exd-step__row { position: relative; display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 32px; padding: 4px 4px 4px 0; border: 0; border-radius: 4px; background: none; color: var(--ink); font: 400 12px/18px var(--font-sans); text-align: left; cursor: pointer; }
 .exd-step__row:hover { background: var(--surface-2); }
-.exd-step__dot { flex: none; width: 11px; height: 11px; border: 2px solid var(--bg); border-radius: 50%; background: var(--border-strong); }
-.exd-step--warn .exd-step__dot { background: var(--warn); }
-.exd-step--error .exd-step__dot { background: var(--error); }
-.exd-step__kind { flex: none; min-width: 44px; font: 500 11px/16px var(--font-mono); color: var(--ink-muted); text-transform: uppercase; }
-.exd-step__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exd-step__name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; box-sizing: border-box; overflow: hidden; }
 .exd-step__dur, .exd-step__off { flex: none; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
-.exd-step__off { min-width: 72px; text-align: right; }
-.exd-step__detail { margin: 0 0 var(--space-2) 20px; }
-.exd-more { margin: 6px 0 0 20px; }
+.exd-step__off { min-width: 60px; text-align: right; }
+.exd-step__detail { margin: 2px 0 10px; }
 /* Consumer tab. */
 .exd-card { padding: var(--space-3); border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); }
 .exd-card__name { margin: 0 0 var(--space-2); font: 500 14px/20px var(--font-sans); }
@@ -796,7 +790,7 @@ span.rd-j-tog { cursor: default; }
 .rd-block .rd-json { border-radius: 8px; }
 .rd-json__scroll { max-height: 480px; min-height: 0; }
 /* The timeline as a waterfall: kind, name, an aligned track with each span's bar, duration, offset. */
-.exd-step__track { position: relative; flex: none; width: 28%; height: 6px; border-radius: 3px; background: var(--surface-2); }
+.exd-step__track { position: relative; flex: none; width: 24%; height: 6px; border-radius: 3px; background: var(--surface-2); }
 .exd-step__bar { position: absolute; top: 0; height: 6px; border-radius: 3px; background: var(--accent); }
 .exd-step--error .exd-step__bar { background: var(--error); }
 .exd-step__bar.is-tick { width: 2px; background: var(--ink-muted); }
@@ -874,3 +868,32 @@ span.rd-j-tog { cursor: default; }
 /* Keep the body and stream views inside the drawer: long lines cut, never widen it. */
 .exd-subsec > [role="tabpanel"], .rd-bare { min-width: 0; }
 
+
+/* Timeline (Timeline): a head line, then the tree; a span's mark is a small bar, a log's a dot,
+   coloured by outcome or level; "Show N more" sits under the rows. */
+.exd-tl { display: grid; gap: 6px; }
+.exd-tl__head { display: flex; justify-content: space-between; margin: 0 0 2px; padding: 0 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
+.exd-step__mark { flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+.exd-step--log .exd-step__mark { border-radius: 50%; background: var(--border-strong); }
+.exd-step--warn .exd-step__mark { background: var(--warn); }
+.exd-step--error .exd-step__mark { background: var(--error); }
+.exd-step__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-sans); color: var(--ink); }
+.exd-step--log .exd-step__text { color: var(--ink-muted); }
+.exd-step__lvl { flex: none; font: 500 10px/14px var(--font-mono); text-transform: lowercase; color: var(--warn); }
+.exd-step--error .exd-step__lvl { color: var(--error); }
+.exd-step__svc { flex: none; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
+.exd-tl__more { justify-self: stretch; justify-content: center; margin-top: 4px; }
+.exd-menu__n.is-zero { opacity: .6; }
+
+/* The Consumer fact opens a card (ConsumerHover). */
+.exd-consumer-trigger { padding: 0; border: 0; border-bottom: 1px dashed var(--border-strong); background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.exd-consumer-trigger:hover, .exd-consumer-trigger.is-open { border-bottom-color: var(--ink-muted); }
+.exd-consumer-trigger:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
+.exd-ccard { position: fixed; z-index: 95; box-sizing: border-box; width: 288px; padding: 12px; display: grid; gap: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/18px var(--font-sans); color: var(--ink); }
+.exd-ccard__name { margin: 0; font: 500 13px/18px var(--font-sans); }
+.exd-ccard__dl { display: grid; gap: 6px; margin: 0; }
+.exd-ccard__dl > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; }
+.exd-ccard__dl dt { color: var(--ink-muted); }
+.exd-ccard__dl dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exd-ccard__dl code { font: 400 12px/18px var(--font-mono); }
+.exd-ccard__actions { display: flex; flex-wrap: wrap; gap: 8px; }
