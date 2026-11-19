@@ -3,7 +3,7 @@
 // parsing, the collapsible JSON lines, cURL, the waterfall, the Route Handler's answer), unit-tested
 // in request-detail.test.ts.
 import type { RequestDetail, RequestDetailRead, TraceLog, TraceSpan } from "./identity";
-import { zoneLabel, zoned } from "./time-zone";
+import { zoneLabel, zonedParts } from "./time-zone";
 
 /** The drawer's tabs, in order. */
 export const DRAWER_TABS = [
@@ -69,20 +69,39 @@ export const MARKER_TITLE: Record<Marker, string> = {
 
 // ---------------------------------------------------------------- headers and bodies
 
+/** A header value as text: arrays joined with ", ", objects as JSON. */
+const headerValue = (x: unknown): string => (Array.isArray(x) ? x.map(headerValue).join(", ") : x === null || x === undefined ? "" : typeof x === "object" ? JSON.stringify(x) : String(x));
+
 /**
- * Stored headers (a JSON object text) as [name, value] pairs, in stored order. Array values join
- * with ", ". Empty text is null (not captured); text that is not an object is one pair named "".
+ * Stored headers as [name, value] pairs, in stored order: a JSON object (`{"accept": "*\/*"}`,
+ * array values joined with ", "), a JSON list of pairs (`[["accept", "*\/*"]]`) or of
+ * `{name, value}` objects, or raw `Name: value` lines (one header per line, as on the wire), so
+ * no format shows as one run-on line. Empty text is null (not captured); text that is none of
+ * these is one pair named "".
  */
 export function parseHeaders(text: string): [string, string][] | null {
   if (!text.trim()) return null;
   try {
     const v: unknown = JSON.parse(text);
     if (v && typeof v === "object" && !Array.isArray(v)) {
-      return Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, Array.isArray(x) ? x.map(String).join(", ") : x === null ? "" : typeof x === "object" ? JSON.stringify(x) : String(x)]);
+      return Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, headerValue(x)]);
+    }
+    if (Array.isArray(v)) {
+      const pairs: [string, string][] = [];
+      for (const item of v) {
+        if (Array.isArray(item) && item.length >= 1 && typeof item[0] === "string") pairs.push([item[0], headerValue(item.length > 2 ? item.slice(1) : item[1])]);
+        else if (item && typeof item === "object" && typeof (item as { name?: unknown }).name === "string") pairs.push([(item as { name: string }).name, headerValue((item as { value?: unknown }).value)]);
+        else if (item && typeof item === "object" && typeof (item as { key?: unknown }).key === "string") pairs.push([(item as { key: string }).key, headerValue((item as { value?: unknown }).value)]);
+        else return [["", text]];
+      }
+      return pairs;
     }
   } catch {
-    // Not JSON: shown as stored.
+    // Not JSON: header lines, or text shown as stored.
   }
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const pairs = lines.map((l) => /^([!#$%&'*+.^_`|~0-9A-Za-z-]+)\s*:\s?(.*)$/.exec(l));
+  if (pairs.length && pairs.every((m) => m !== null)) return pairs.map((m) => [m?.[1] ?? "", (m?.[2] ?? "").trim()]);
   return [["", text]];
 }
 
@@ -356,21 +375,19 @@ export function spanName(spans: readonly TraceSpan[], log: Pick<TraceLog, "span_
 
 // ---------------------------------------------------------------- time
 
-const CLOCK: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  fractionalSecondDigits: 3,
-  hourCycle: "h23",
-};
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
 
-/** An exact time in `tz`: `Nov 5, 2026, 14:03:12.345 UTC`; empty for an unreadable one. */
+/**
+ * An exact time in `tz`: `Nov 5, 2026, 14:03:12.345 UTC`; empty for an unreadable one. Built from
+ * parts: engines join a formatted date and time differently (Node writes ", ", Safari and newer
+ * ICU " at "), which broke hydration of the server-rendered drawer in Safari.
+ */
 export function formatExact(at: string, tz: string): string {
   const t = Date.parse(at);
-  return Number.isNaN(t) ? "" : `${zoned("en-US", CLOCK, tz).format(t)} ${zoneLabel(tz, t)}`;
+  if (Number.isNaN(t)) return "";
+  const p = zonedParts(t, tz);
+  return `${MONTHS[p.month]} ${p.day}, ${p.year}, ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}.${pad(p.millisecond, 3)} ${zoneLabel(tz, t)}`;
 }
 
 /** A log line's offset from the request: `+12.4 ms`, `-0.8 ms`. */

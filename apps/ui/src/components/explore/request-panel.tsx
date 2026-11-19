@@ -2,10 +2,10 @@
 
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
-import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, statusClass } from "@/lib/explore";
+import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, stampText, statusClass } from "@/lib/explore";
 import { TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
 import { shownPath } from "@/lib/first-data";
-import { statusText } from "@/lib/http-status";
+import { reasonPhrase, statusText } from "@/lib/http-status";
 import type { RequestDetail, RequestDetailRead, RequestRow, TraceLog, TraceSpan } from "@/lib/identity";
 import {
   DETAIL_LOAD_FAILED,
@@ -38,7 +38,6 @@ import { ObIcon } from "../onboarding/ob";
 import { useAppName } from "./app-names";
 import { type FilterApi, filterActions } from "./field-actions";
 import { type FieldAction, FieldMenu } from "./field-menu";
-import { isOpenMap, useStored } from "./use-stored";
 
 /** Height of one JSON line in px; the viewer's virtual window depends on it, so the CSS uses the same number. */
 const LINE_HEIGHT = 20;
@@ -151,15 +150,20 @@ export function RequestPanel({
   // Written inside the click (lib/clipboard), as Safari asks.
   const copy = (text: string, ok: string) => copyText(text).then((done) => setSaid(done ? ok : "Couldn’t copy. Your browser blocked the clipboard."));
 
+  // The section nav is a vertical tablist (a row of tabs on phones): ↑/↓ (and ←/→) move between
+  // sections there; elsewhere in the drawer ↑/↓ keep walking the requests.
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const next = moveTab(e.key, tab);
+    const key = e.key === "ArrowDown" ? "ArrowRight" : e.key === "ArrowUp" ? "ArrowLeft" : e.key;
+    const next = moveTab(key, tab);
     if (next === null) return;
     e.preventDefault();
+    e.stopPropagation();
     setPicked(next);
     document.getElementById(`${tabsId}-${next}-tab`)?.focus();
   };
 
   const path = r ? shownPath(r) : "";
+  const counts: Partial<Record<DrawerTab, number>> = detail ? { timeline: (detail.spans?.length ?? 0) + (detail.logs?.length ?? 0) } : {};
 
   return (
     <section className="exd" aria-labelledby={titleId}>
@@ -180,12 +184,12 @@ export function RequestPanel({
           )}
         </h2>
         <div className="exd-actions">
-          <button type="button" className="exd-act" aria-label="Copy link" title="Copy link" onClick={() => copy(`${window.location.origin}${link}`, "Copied the link to this request.")}>
+          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" aria-label="Copy link" title="Copy link" onClick={() => copy(`${window.location.origin}${link}`, "Copied the link to this request.")}>
             Link
           </button>
           <button
             type="button"
-            className="exd-act"
+            className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
             aria-label="Copy as cURL"
             title="Copy as cURL"
             disabled={!detail}
@@ -195,7 +199,7 @@ export function RequestPanel({
           </button>
           <button
             type="button"
-            className="exd-act"
+            className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
             aria-label="Copy JSON"
             title="Copy JSON"
             disabled={!detail}
@@ -210,14 +214,6 @@ export function RequestPanel({
           </button>
         </div>
       </header>
-      {r ? (
-        <p className="exd-sub">
-          <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
-          <time dateTime={r.timestamp} title={formatExact(r.timestamp, tz)}>
-            {formatExact(r.timestamp, tz)}
-          </time>
-        </p>
-      ) : null}
       <p className="exd-said" role="status">
         {said}
       </p>
@@ -230,53 +226,56 @@ export function RequestPanel({
         </div>
       ) : null}
 
-      <div className="exd-tabs" role="tablist" aria-label="Request details" onKeyDown={onTabKey}>
-        {DRAWER_TABS.map((x) => (
-          <button
-            key={x.slug}
-            type="button"
-            role="tab"
-            id={`${tabsId}-${x.slug}-tab`}
-            aria-controls={`${tabsId}-panel`}
-            aria-selected={tab === x.slug}
-            tabIndex={tab === x.slug ? 0 : -1}
-            onClick={() => setPicked(x.slug)}
-          >
-            {x.label}
-            {x.slug === "timeline" && detail && (detail.spans?.length ?? 0) + (detail.logs?.length ?? 0) > 0 ? (
-              <span className="rd-count">{(detail.spans?.length ?? 0) + (detail.logs?.length ?? 0)}</span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-
-      <div className="exd-body" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
-        {load.kind === "loading" ? (
-          <div className="rd-loading" aria-busy="true" aria-label="Loading the request">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <span key={i} className="exl-bone" aria-hidden="true" />
+      <div className="exd-split">
+        <aside className="exd-side" aria-label="Request facts and sections">
+          <div className="exd-menu" role="tablist" aria-label="Request details" aria-orientation="vertical" onKeyDown={onTabKey}>
+            {DRAWER_TABS.map((x) => (
+              <button
+                key={x.slug}
+                type="button"
+                role="tab"
+                id={`${tabsId}-${x.slug}-tab`}
+                aria-controls={`${tabsId}-panel`}
+                aria-selected={tab === x.slug}
+                tabIndex={tab === x.slug ? 0 : -1}
+                onClick={() => setPicked(x.slug)}
+              >
+                <span>{x.label}</span>
+                {counts[x.slug] ? <span className="exd-menu__n">{counts[x.slug]}</span> : null}
+              </button>
             ))}
           </div>
-        ) : load.kind === "not_found" ? (
-          <Notice>{DETAIL_NOT_FOUND}</Notice>
-        ) : load.kind === "error" ? (
-          <Notice error>
-            {DETAIL_LOAD_FAILED}{" "}
-            <button type="button" className="rd-linkbtn" onClick={() => setAttempt((a) => a + 1)}>
-              Try again
-            </button>
-          </Notice>
-        ) : tab === "request" ? (
-          <RequestTab key={id} data={load.data} project={project} api={api} />
-        ) : tab === "response" ? (
-          <ResponseTab key={id} data={load.data} api={api} />
-        ) : tab === "timeline" ? (
-          <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
-        ) : tab === "consumer" ? (
-          <ConsumerTab project={project} r={load.data.request} api={api} />
-        ) : (
-          <RawTab data={load.data} onCopy={(text) => copy(text, "Copied the stored request.")} />
-        )}
+          {r ? <Facts r={r} tz={tz} /> : null}
+        </aside>
+
+        <div className="exd-main" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
+          {load.kind === "loading" ? (
+            <div className="rd-loading" aria-busy="true" aria-label="Loading the request">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} className="exl-bone" aria-hidden="true" />
+              ))}
+            </div>
+          ) : load.kind === "not_found" ? (
+            <Notice>{DETAIL_NOT_FOUND}</Notice>
+          ) : load.kind === "error" ? (
+            <Notice error>
+              {DETAIL_LOAD_FAILED}{" "}
+              <button type="button" className="rd-linkbtn" onClick={() => setAttempt((a) => a + 1)}>
+                Try again
+              </button>
+            </Notice>
+          ) : tab === "request" ? (
+            <RequestTab key={id} data={load.data} project={project} api={api} />
+          ) : tab === "response" ? (
+            <ResponseTab key={id} data={load.data} api={api} />
+          ) : tab === "timeline" ? (
+            <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
+          ) : tab === "consumer" ? (
+            <ConsumerTab project={project} r={load.data.request} api={api} />
+          ) : (
+            <RawTab data={load.data} onCopy={(text) => copy(text, "Copied the stored request.")} />
+          )}
+        </div>
       </div>
 
       <footer className="exd-foot">
@@ -293,6 +292,37 @@ export function RequestPanel({
         </button>
       </footer>
     </section>
+  );
+}
+
+/**
+ * The drawer's key facts, under the section nav: status, method, time, latency, sizes, app,
+ * environment, consumer and trace id, each a small muted label over its value (mono, cut with an
+ * ellipsis, the whole value in its title). On phones they wrap in two columns above the content.
+ */
+function Facts({ r, tz }: { r: RequestRow; tz: string }) {
+  const app = useAppName(r.app_id);
+  const cls = statusClass(r.status_code);
+  const at = Date.parse(r.timestamp);
+  const facts: [string, ReactNode, string][] = [
+    ["Status", <span key="s" className={`exl-status exl-status--${cls}`}>{r.status_code} {reasonPhrase(r.status_code)}</span>, statusText(r.status_code)],
+    ["Time", Number.isNaN(at) ? r.timestamp : stampText(at, tz), formatExact(r.timestamp, tz)],
+    ["Latency", <span key="l" className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>, `${r.response_time_ms} ms`],
+    ["Sent · received", `${formatBytes(r.request_size)} · ${formatBytes(r.response_size)}`, `Request ${r.request_size ?? 0} B, response ${r.response_size ?? 0} B`],
+    ["App", app ?? r.app_id ?? "", app ?? r.app_id ?? ""],
+    ["Environment", r.environment, r.environment],
+    ["Consumer", consumerOf(r) ?? "", r.consumer_id || ""],
+    ["Trace ID", r.trace_id, r.trace_id],
+  ];
+  return (
+    <dl className="exd-facts">
+      {facts.map(([k, v, title]) => (
+        <div key={k} className="exd-fact">
+          <dt>{k}</dt>
+          <dd title={title || undefined}>{v === "" || v === null || v === undefined ? <span className="exl-faint">–</span> : v}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -324,54 +354,27 @@ function Marked({ text }: { text: string }) {
   );
 }
 
-// ---------------------------------------------------------------- overview
+// ---------------------------------------------------------------- sections
 
-type SectionId = "error" | "summary" | "request" | "response" | "client" | "consumer" | "validation" | "exception";
-
-const SECTION_ICON: Record<SectionId, ReactNode> = {
-  error: <path d="M8 2.5l6 10.5H2zM8 6.5v3M8 11.3v.2" />,
-  summary: <path d="M3 4h10M3 8h10M3 12h6" />,
-  request: <path d="M3 8h9M9 5l3 3-3 3" />,
-  response: <path d="M13 8H4M7 5L4 8l3 3" />,
-  client: <path d="M2.5 3.5h11v7h-11zM6 13h4" />,
-  consumer: <path d="M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 13.5c.8-2.2 2.7-3.3 5-3.3s4.2 1.1 5 3.3" />,
-  validation: <path d="M3 8.5l3 3 7-7" />,
-  exception: <path d="M8 2.5l6 10.5H2zM8 6.5v3M8 11.3v.2" />,
-};
-
-const SECTION_LABEL: Record<SectionId, string> = {
-  error: "Error",
-  summary: "Summary",
-  request: "Request",
-  response: "Response",
-  client: "Client",
-  consumer: "Consumer",
-  validation: "Validation",
-  exception: "Exception",
-};
-
-/** A collapsible Overview section with its icon; open or closed is remembered per section. */
-function Section({ id, open, onToggle, count, children }: { id: SectionId; open: boolean; onToggle: () => void; count?: number; children: ReactNode }) {
-  const bodyId = useId();
+/**
+ * One titled block of a section (Supabase's sheet blocks): a 28px header row holding the title,
+ * its facts after middots (`Headers · 9`, `Body · 260 B · application/json`) and its actions on
+ * the right, then the content. Blocks are 16px apart with a hairline between them.
+ */
+function Block({ title, meta = [], actions, tone, children }: { title: string; meta?: (string | null | undefined | false)[]; actions?: ReactNode; tone?: "error"; children: ReactNode }) {
+  const facts = meta.filter((m): m is string => Boolean(m));
   return (
-    <section className={`exd-sec exd-sec--${id}${open ? " is-open" : ""}`} aria-label={SECTION_LABEL[id]} data-section={id}>
-      <h3 className="exd-sec__h">
-        <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={onToggle}>
-          <svg className="exd-sec__icon" viewBox="0 0 16 16" aria-hidden="true">
-            {SECTION_ICON[id]}
-          </svg>
-          {SECTION_LABEL[id]}
-          {count ? <span className="rd-count">{count}</span> : null}
-          <svg className="exd-sec__chev" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" />
-          </svg>
-        </button>
-      </h3>
-      {open ? (
-        <div className="exd-sec__body" id={bodyId}>
-          {children}
-        </div>
-      ) : null}
+    <section className={`rd-block${tone ? ` rd-block--${tone}` : ""}`} aria-label={title}>
+      <header className="rd-block__h">
+        <h3 className="rd-block__title">{title}</h3>
+        {facts.map((m) => (
+          <span key={m} className="rd-block__meta">
+            {m}
+          </span>
+        ))}
+        {actions ? <span className="rd-block__actions">{actions}</span> : null}
+      </header>
+      {children}
     </section>
   );
 }
@@ -390,22 +393,101 @@ function Field({ label, children, copy, actions = [] }: { label: string; childre
   );
 }
 
-const DEFAULT_OPEN: Record<string, boolean> = { error: true, summary: true, request: true, response: true, client: false, consumer: true, validation: true, exception: true };
-
-/** Which sections are open: remembered per section, the failure's always open (#988). */
-function useSections(forced: SectionId | null) {
-  const [stored, setStored] = useStored<Record<string, boolean>>("apilens.explore.panel.sections", DEFAULT_OPEN, isOpenMap);
-  const isOpen = (s: SectionId) => s === forced || (stored[s] ?? DEFAULT_OPEN[s]);
-  const toggle = (s: SectionId) => setStored((m) => ({ ...m, [s]: !isOpen(s) }));
-  return { isOpen, toggle };
+/** A value that is JSON (`{"same":true}`), parsed, or undefined. */
+function jsonValue(text: string): unknown {
+  const t = text.trim();
+  if (!(t.startsWith("{") || t.startsWith("["))) return undefined;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return undefined;
+  }
 }
 
-/** The Request tab (#1061): the summary, the client, then query parameters, headers and body. */
+/** A JSON value on one line, tinted as the JSON viewer is (keys, strings, numbers, punctuation). */
+function InlineJson({ value }: { value: unknown }) {
+  const out: ReactNode[] = [];
+  let n = 0;
+  const walk = (v: unknown) => {
+    if (v === null) out.push(<span key={n++} className="rd-j-null">null</span>);
+    else if (typeof v === "string") out.push(<span key={n++} className="rd-j-str"><Marked text={JSON.stringify(v)} /></span>);
+    else if (typeof v === "number" || typeof v === "boolean") out.push(<span key={n++} className={`rd-j-${typeof v}`}>{String(v)}</span>);
+    else if (Array.isArray(v)) {
+      out.push(<span key={n++} className="rd-j-punc">[</span>);
+      v.forEach((x, i) => {
+        if (i) out.push(<span key={n++} className="rd-j-punc">, </span>);
+        walk(x);
+      });
+      out.push(<span key={n++} className="rd-j-punc">]</span>);
+    } else if (typeof v === "object") {
+      out.push(<span key={n++} className="rd-j-punc">{"{"}</span>);
+      Object.entries(v as Record<string, unknown>).forEach(([k, x], i) => {
+        if (i) out.push(<span key={n++} className="rd-j-punc">, </span>);
+        out.push(<span key={n++} className="rd-j-key">{JSON.stringify(k)}</span>, <span key={n++} className="rd-j-punc">: </span>);
+        walk(x);
+      });
+      out.push(<span key={n++} className="rd-j-punc">{"}"}</span>);
+    }
+  };
+  walk(value);
+  return <code className="rd-inline-json">{out}</code>;
+}
+
+/** A key/value value: inline JSON when it is JSON, else text with the SDK's markers as badges. */
+function KvValue({ text }: { text: string }) {
+  const json = jsonValue(text);
+  if (json !== undefined) return <InlineJson value={json} />;
+  if (text === "") return <span className="exl-faint">empty</span>;
+  return <Marked text={text} />;
+}
+
+/**
+ * Key/value rows (headers, query parameters, form fields, attributes): names in a fixed muted
+ * column, values in mono that wrap anywhere, a copy button on hover or focus of a row.
+ */
+function KvTable({ pairs, label }: { pairs: [string, string][]; label: string }) {
+  return (
+    <dl className="rd-kv" aria-label={label}>
+      {pairs.map(([k, v], i) => (
+        <div key={`${k}#${i}`} className="rd-kv__row">
+          <dt title={k}>{k || <span className="exl-faint">(unnamed)</span>}</dt>
+          <dd>
+            <span className="rd-kv__v">
+              <KvValue text={v} />
+            </span>
+            <CopyButton text={v} label={k || label} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** A 20px copy button (lib/clipboard), a check for a second once copied. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const t = window.setTimeout(() => setDone(false), 1000);
+    return () => window.clearTimeout(t);
+  }, [done]);
+  return (
+    <button type="button" className={`rd-copy${done ? " is-done" : ""}`} aria-label={done ? `Copied ${label}` : `Copy ${label}`} title={done ? "Copied" : "Copy"} onClick={() => copyText(text).then((ok) => ok && setDone(true))}>
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        {done ? <path d="M3.5 8.5l3 3 6-7" /> : <path d="M5.5 5.5h7v7h-7zM10.5 5.5v-2h-7v7h2" />}
+      </svg>
+    </button>
+  );
+}
+
+/** "Not captured" and "No … body" lines, set apart from data. */
+function Empty({ children }: { children: ReactNode }) {
+  return <p className="rd-none">{children}</p>;
+}
+
+/** The Request section (#1061, redesigned in b5): Overview, Query parameters, Headers, Body, Attributes, each its own titled block. */
 function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
-  const tz = useTimeZone();
   const r = data.request;
-  const { isOpen, toggle } = useSections(null);
-  const app = useAppName(r.app_id);
   const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
   const minute = sameWindow(r.timestamp, "minute");
   const hour = sameWindow(r.timestamp, "hour");
@@ -413,38 +495,32 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
     ...(minute ? [{ label: "Same minute", run: () => api.setWindow(minute.from, minute.to) }] : []),
     ...(hour ? [{ label: "Same hour", run: () => api.setWindow(hour.from, hour.to) }] : []),
   ];
+  const tz = useTimeZone();
   const query = queryPairs(r.raw_path);
   const url = r.base_url ? `${r.base_url.replace(/\/+$/, "")}${r.raw_path}` : r.raw_path;
   const attrs = Object.entries(r.attributes ?? {});
+  const headers = parseHeaders(r.request_headers);
 
   return (
-    <div className="exd-overview">
-      <Section id="summary" open={isOpen("summary")} onToggle={() => toggle("summary")}>
+    <div className="rd-blocks">
+      <Block title="Overview">
         <dl className="exd-dl">
-          <Field label="Method" copy={r.method} actions={fa("method", r.method)}>
-            {r.method.toUpperCase()}
-          </Field>
-          <Field
-            label="Route"
-            copy={r.path}
-            actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}
-          >
-            <code>{r.path}</code>
+          <Field label="Route" copy={r.path} actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}>
+            <code>
+              {r.method.toUpperCase()} {r.path}
+            </code>
           </Field>
           <Field label="URL" copy={url} actions={fa("url", r.raw_path)}>
             <code>{url}</code>
           </Field>
-          <Field label="Request size" copy={String(r.request_size ?? "")}>
-            {formatBytes(r.request_size)}
-          </Field>
           <Field label="Time" copy={r.timestamp} actions={timeActions}>
-            {formatExact(r.timestamp, tz)}
+            <code>{formatExact(r.timestamp, tz)}</code>
           </Field>
-          <Field label="App" copy={app ?? r.app_id} actions={fa("app", r.app_id ?? "")}>
-            {app ?? r.app_id}
+          <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
+            {r.ip_address ? <code>{r.ip_address}</code> : null}
           </Field>
-          <Field label="Environment" copy={r.environment} actions={fa("env", r.environment)}>
-            {r.environment}
+          <Field label="User agent" copy={r.user_agent} actions={fa("user_agent", r.user_agent)}>
+            {r.user_agent ? <code>{r.user_agent}</code> : null}
           </Field>
           <Field
             label="Trace ID"
@@ -454,118 +530,94 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
             {r.trace_id ? <code>{r.trace_id}</code> : null}
           </Field>
           <Field label="Release" copy={r.release}>
-            {r.release}
+            {r.release ? <code>{r.release}</code> : null}
           </Field>
           <Field label="Commit" copy={r.commit}>
             {r.commit ? <code>{r.commit}</code> : null}
           </Field>
         </dl>
-      </Section>
-      <Section id="client" open={isOpen("client")} onToggle={() => toggle("client")}>
-        <dl className="exd-dl">
-          <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
-            {r.ip_address ? <code>{r.ip_address}</code> : null}
-          </Field>
-          <Field label="User agent" copy={r.user_agent} actions={fa("user_agent", r.user_agent)}>
-            {r.user_agent}
-          </Field>
-          <Field label="Consumer" copy={r.consumer_id || consumerOf(r) || undefined} actions={fa("consumer", r.consumer_id || consumerOf(r) || "")}>
-            {consumerOf(r)}
-          </Field>
-        </dl>
-      </Section>
-      <Section id="request" open={isOpen("request")} onToggle={() => toggle("request")}>
-        {isSampledOut(r) ? (
-          <Notice>{SAMPLED_OUT}</Notice>
-        ) : (
-          <>
-            {query.length ? (
-              <table className="rd-table rd-table--kv" aria-label="Query parameters">
-                <caption className="rd-cap">Query parameters</caption>
-                <tbody>
-                  {query.map(([k, v], i) => (
-                    <tr key={`${k}#${i}`}>
-                      <th scope="row">{k}</th>
-                      <td>
-                        <Marked text={v} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : null}
-            <HeaderTable title="Request headers" text={r.request_headers} />
-            <BodyView text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
-          </>
-        )}
-      </Section>
+      </Block>
+      {isSampledOut(r) ? (
+        <Notice>{SAMPLED_OUT}</Notice>
+      ) : (
+        <>
+          {query.length ? (
+            <Block title="Query parameters" meta={[String(query.length)]}>
+              <KvTable pairs={query} label="Query parameters" />
+            </Block>
+          ) : null}
+          <Block title="Headers" meta={[headers ? String(headers.length) : null]}>
+            {headers ? <KvTable pairs={headers} label="Request headers" /> : <Empty>The request headers were not captured.</Empty>}
+          </Block>
+          <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
+        </>
+      )}
       {attrs.length ? (
-        <section className="rd-section" aria-label="Attributes">
-          <h3 className="rd-h">Attributes</h3>
-          <AttrTable attrs={attrs} label="Request attributes" />
-        </section>
+        <Block title="Attributes" meta={[String(attrs.length)]}>
+          <KvTable pairs={attrs} label="Request attributes" />
+        </Block>
       ) : null}
     </div>
   );
 }
 
 /**
- * The Response tab (#1061): for a failure the Error block, the validation errors and the
- * exception first (#988), then the status, latency and size, the headers and the body.
+ * The Response section (#1061, redesigned in b5): for a failure the Error block, the validation
+ * errors and the exception lead (#988), then Status, Headers and Body blocks.
  */
 function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
   const r = data.request;
   const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
   const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
-  const lead = leadSection(r, Boolean(exc));
   const summary = errorSummary(r, excInfo);
-  const [forced] = useState<SectionId | null>(lead === "summary" ? null : lead === "response" ? "response" : lead);
-  const { isOpen, toggle } = useSections(forced);
   const validation = r.validation_errors ?? [];
+  const headers = parseHeaders(r.response_headers);
   const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
 
   return (
-    <div className="exd-overview">
+    <div className="rd-blocks">
       {summary ? (
-        <Section id="error" open={isOpen("error")} onToggle={() => toggle("error")}>
+        <Block title="Error" tone="error">
           <div className="exd-error">
             <p className="exd-error__title">{summary.title}</p>
             {summary.detail ? <p className="exd-error__detail">{summary.detail}</p> : null}
             {summary.body ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
           </div>
-        </Section>
+        </Block>
       ) : null}
       {validation.length ? (
-        <Section id="validation" open={isOpen("validation")} onToggle={() => toggle("validation")} count={validation.length}>
+        <Block title="Validation" meta={[`${validation.length} ${validation.length === 1 ? "field" : "fields"}`]} tone="error">
           <ValidationTable errors={validation} />
-        </Section>
+        </Block>
       ) : null}
       {exc ? (
-        <Section id="exception" open={isOpen("exception")} onToggle={() => toggle("exception")}>
+        <Block title="Exception" tone="error">
           <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
-        </Section>
+        </Block>
       ) : null}
-      <Section id="response" open={isOpen("response")} onToggle={() => toggle("response")}>
-        <dl className="exd-dl exd-dl--top">
+      <Block title="Status">
+        <dl className="exd-dl">
           <Field label="Status" copy={String(r.status_code)} actions={fa("status", String(r.status_code))}>
             <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
           </Field>
           <Field label="Latency" copy={String(r.response_time_ms)}>
-            {formatLatency(r.response_time_ms)}
+            <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
           </Field>
-          <Field label="Response size" copy={String(r.response_size ?? "")}>
+          <Field label="Size" copy={String(r.response_size ?? "")}>
             {formatBytes(r.response_size)}
           </Field>
         </dl>
-        {isSampledOut(r) ? (
-          <Notice>{SAMPLED_OUT}</Notice>
-        ) : (
-          <>
-            <HeaderTable title="Response headers" text={r.response_headers} />
-            <BodyView text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
-          </>
-        )}
-      </Section>
+      </Block>
+      {isSampledOut(r) ? (
+        <Notice>{SAMPLED_OUT}</Notice>
+      ) : (
+        <>
+          <Block title="Headers" meta={[headers ? String(headers.length) : null]}>
+            {headers ? <KvTable pairs={headers} label="Response headers" /> : <Empty>The response headers were not captured.</Empty>}
+          </Block>
+          <BodyBlock text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
+        </>
+      )}
     </div>
   );
 }
@@ -573,6 +625,15 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 /** The start of the response body in the Error block, with Show more. */
 function ErrorBody({ text, start, more }: { text: string; start: string; more: boolean }) {
   const [all, setAll] = useState(false);
+  // A JSON error body reads best pretty-printed, whole.
+  const json = jsonValue(text);
+  if (json !== undefined) {
+    return (
+      <pre className="rd-pre exd-error__body">
+        <Marked text={JSON.stringify(json, null, 2)} />
+      </pre>
+    );
+  }
   return (
     <>
       <pre className="rd-pre exd-error__body">
@@ -603,6 +664,10 @@ function Timeline({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trace
     return <p className="rd-empty">{traced ? "No spans or logs were reported for this request’s trace." : "This request has no trace id, so there are no spans or logs to show."}</p>;
   }
   const shown = all ? steps : steps.slice(0, TIMELINE_FIRST);
+  // The waterfall's scale: from the earliest step (or the request) to the latest end.
+  const lo = Math.min(0, ...steps.map((s) => s.offset));
+  const hi = Math.max(1, ...steps.map((s) => s.offset + (s.kind === "span" ? s.span.duration_ms : 0)));
+  const span = hi - lo;
   const toggle = (i: number) =>
     setOpen((cur) => {
       const next = new Set(cur);
@@ -622,7 +687,13 @@ function Timeline({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trace
                 <span className="exd-step__dot" aria-hidden="true" />
                 <span className="exd-step__kind">{s.kind === "span" ? "Span" : s.log.level || "Log"}</span>
                 <span className="exd-step__name">{s.kind === "span" ? s.span.name || s.span.span_id : <Marked text={s.log.message} />}</span>
-                {s.kind === "span" ? <span className="exd-step__dur">{formatLatency(s.span.duration_ms)}</span> : null}
+                <span className="exd-step__track" aria-hidden="true">
+                  <span
+                    className={`exd-step__bar${s.kind === "log" ? " is-tick" : ""}`}
+                    style={{ left: `${((s.offset - lo) / span) * 100}%`, width: s.kind === "span" ? `max(2px, ${(s.span.duration_ms / span) * 100}%)` : undefined }}
+                  />
+                </span>
+                <span className="exd-step__dur">{s.kind === "span" ? formatLatency(s.span.duration_ms) : ""}</span>
                 <span className="exd-step__off">{offsetText(s.offset)}</span>
               </button>
               {isOpen ? (
@@ -761,61 +832,60 @@ function RawTab({ data, onCopy }: { data: RequestDetailRead; onCopy: (text: stri
   );
 }
 
-// ---------------------------------------------------------------- headers
-
-function HeaderTable({ title, text }: { title: string; text: string }) {
-  const pairs = parseHeaders(text);
-  return (
-    <section className="rd-section" aria-label={title}>
-      <h3 className="rd-h">{title}</h3>
-      {pairs === null ? (
-        <p className="rd-empty">Not captured.</p>
-      ) : (
-        <table className="rd-table rd-table--kv">
-          <tbody>
-            {pairs.map(([k, v], i) => (
-              <tr key={`${k}#${i}`}>
-                <th scope="row">{k}</th>
-                <td>
-                  <Marked text={v} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </section>
-  );
-}
-
 // ---------------------------------------------------------------- bodies
 
-function BodyView({ text, size, headers, what }: { text: string; size: number | undefined; headers: string; what: "request" | "response" }) {
-  const body = useMemo(() => parseBody(text, contentTypeOf(headers)), [text, headers]);
+/**
+ * A body as its own block, `Body · 260 B · application/x-www-form-urlencoded`: form bodies as a
+ * Form fields table (Raw shows the text as sent), JSON as the collapsible viewer, server-sent
+ * events as their list, anything else as mono text. "No request body" when there was none.
+ */
+function BodyBlock({ text, size, headers, what }: { text: string; size: number | undefined; headers: string; what: "request" | "response" }) {
+  const type = contentTypeOf(headers);
+  const body = useMemo(() => parseBody(text, type), [text, type]);
+  const [raw, setRaw] = useState(false);
+  const stored = text ? new Blob([text]).size : 0;
+  const meta = [size ? formatBytes(size) : null, type || null];
+  // The SDK keeps bodies up to its capture limit: say when less was stored than was sent, for
+  // bodies that may be cut (a JSON or form body that parses is whole; sizes differ by encoding).
+  const cut = size !== undefined && text && stored < size && (body.kind === "text" || body.kind === "events") ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
   if (body.kind === "empty") {
-    return <p className="rd-empty">{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</p>;
+    return (
+      <Block title="Body" meta={meta}>
+        <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>
+      </Block>
+    );
   }
-  const stored = new Blob([text]).size;
+  const actions = (
+    <>
+      {body.kind === "form" ? (
+        <span className="rd-seg" role="group" aria-label="Show the body as">
+          <button type="button" aria-pressed={!raw} onClick={() => setRaw(false)}>
+            Fields
+          </button>
+          <button type="button" aria-pressed={raw} onClick={() => setRaw(true)}>
+            Raw
+          </button>
+        </span>
+      ) : null}
+      <CopyButton text={text} label={`${what} body`} />
+    </>
+  );
   return (
-    <section className="rd-section" aria-label={what === "request" ? "Request body" : "Response body"}>
-      <p className="rd-meta">
-        {formatBytes(size)} sent{size !== undefined && stored < size ? `, ${formatBytes(stored)} stored` : ""}
-      </p>
+    <Block title="Body" meta={meta} actions={actions}>
+      {cut}
       {body.kind === "json" ? (
         <JsonView value={body.value} />
       ) : body.kind === "form" ? (
-        <table className="rd-table rd-table--kv" aria-label="Form fields">
-          <tbody>
-            {body.fields.map(([k, v], i) => (
-              <tr key={`${k}#${i}`}>
-                <th scope="row">{k}</th>
-                <td>
-                  <Marked text={v} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        raw ? (
+          <pre className="rd-pre">
+            <Marked text={text} />
+          </pre>
+        ) : (
+          <>
+            <p className="rd-sublabel">Form fields · {body.fields.length}</p>
+            <KvTable pairs={body.fields} label="Form fields" />
+          </>
+        )
       ) : body.kind === "events" ? (
         <EventStream events={body.events} />
       ) : (
@@ -823,7 +893,7 @@ function BodyView({ text, size, headers, what }: { text: string; size: number | 
           <Marked text={body.text} />
         </pre>
       )}
-    </section>
+    </Block>
   );
 }
 
@@ -959,7 +1029,7 @@ function JsonView({ value }: { value: unknown }) {
     });
   }, []);
 
-  const height = viewport > 0 ? viewport : 30 * LINE_HEIGHT;
+  const height = viewport > 0 ? viewport : Math.min(lines.length * LINE_HEIGHT + 8, 480);
   const start = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - LINE_OVERSCAN);
   const end = Math.min(lines.length, Math.ceil((scrollTop + height) / LINE_HEIGHT) + LINE_OVERSCAN);
   const shown = [];
@@ -975,7 +1045,7 @@ function JsonView({ value }: { value: unknown }) {
           Collapse all
         </button>
       </div>
-      <div className="rd-json__scroll" ref={scroller} onScroll={onScroll}>
+      <div className="rd-json__scroll" ref={scroller} onScroll={onScroll} style={{ height: Math.min(lines.length * LINE_HEIGHT + 8, 480) }}>
         <div className="rd-json__spacer" style={{ height: lines.length * LINE_HEIGHT }}>
           {shown}
         </div>
@@ -1210,20 +1280,7 @@ function SpanDetail({ span: s, at }: { span: TraceSpan; at: string }) {
 }
 
 function AttrTable({ attrs, label }: { attrs: [string, string][]; label: string }) {
-  return (
-    <table className="rd-table rd-table--kv" aria-label={label}>
-      <tbody>
-        {attrs.map(([k, v]) => (
-          <tr key={k}>
-            <th scope="row">{k}</th>
-            <td>
-              <Marked text={v} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  return <KvTable pairs={attrs} label={label} />;
 }
 
 function LogDetail({ log: l }: { log: TraceLog }) {

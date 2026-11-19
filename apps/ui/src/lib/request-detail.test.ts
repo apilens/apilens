@@ -52,6 +52,23 @@ describe("parseHeaders", () => {
     expect(parseHeaders("  ")).toBeNull();
     expect(parseHeaders("not json")).toEqual([["", "not json"]]);
   });
+
+  it("reads raw header lines and lists of pairs one header per row (the run-on line bug)", () => {
+    expect(parseHeaders("Content-Type: application/json\r\nAuthorization: [redacted]\nX-Llm-Provider:openai")).toEqual([
+      ["Content-Type", "application/json"],
+      ["Authorization", "[redacted]"],
+      ["X-Llm-Provider", "openai"],
+    ]);
+    expect(parseHeaders('[["accept","*/*"],["x-a","1"]]')).toEqual([
+      ["accept", "*/*"],
+      ["x-a", "1"],
+    ]);
+    expect(parseHeaders('[{"name":"accept","value":"*/*"},{"key":"x-b","value":["a","b"]}]')).toEqual([
+      ["accept", "*/*"],
+      ["x-b", "a, b"],
+    ]);
+    expect(parseHeaders("[1,2]")).toEqual([["", "[1,2]"]]);
+  });
 });
 
 describe("parseBody", () => {

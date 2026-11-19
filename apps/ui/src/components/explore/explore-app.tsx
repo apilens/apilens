@@ -385,8 +385,10 @@ export function ExploreApp({
         else if (selected.size) clearSelection();
         return;
       }
-      // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way).
-      if (qRef.current.id && !(e.target as HTMLElement).closest?.(".exl-grid") && ["ArrowDown", "ArrowUp", "j", "k"].includes(e.key) && !e.shiftKey) {
+      // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way),
+      // unless a control used the key (the drawer's section nav: React and this listener share
+      // `document`, so its stopPropagation cannot stop this one).
+      if (qRef.current.id && !e.defaultPrevented && !(e.target as HTMLElement).closest?.(".exl-grid") && ["ArrowDown", "ArrowUp", "j", "k"].includes(e.key) && !e.shiftKey) {
         e.preventDefault();
         move(e.key === "ArrowDown" || e.key === "j" ? 1 : -1);
         return;
