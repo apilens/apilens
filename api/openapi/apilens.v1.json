@@ -10404,6 +10404,10 @@
             "description": "The field counted.",
             "type": "string"
           },
+          "has_more": {
+            "description": "Whether more values follow this page (read them with offset).",
+            "type": "boolean"
+          },
           "values": {
             "description": "Most requests first, then by value.",
             "items": {
@@ -10417,7 +10421,8 @@
         },
         "required": [
           "field",
-          "values"
+          "values",
+          "has_more"
         ],
         "type": "object"
       },
@@ -29412,7 +29417,7 @@
     },
     "/api/v1/requests/facets": {
       "get": {
-        "description": "How many requests of the range carry each value of field (status code, method, app id, environment, route template, consumer id or consumer group), most first, at most limit values. Takes the filters of list-requests; the filter conditions on field itself are left out, so every value of the field is counted under the other filters. search narrows path, consumer and consumer_group to values containing it, ignoring case. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "How many requests of the range carry each value of field (status code, method, app id, environment, route template, consumer id or consumer group), most first, at most limit values. Takes the filters of list-requests; the filter conditions on field itself are left out, so every value of the field is counted under the other filters. search narrows path, consumer and consumer_group to values containing it, ignoring case. offset skips that many values of the same order, so a long list pages; has_more says whether values follow this page. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-request-facets",
         "parameters": [
           {
@@ -29499,6 +29504,20 @@
               "format": "int64",
               "maximum": 50,
               "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Values to skip, in the same order (most requests first, then by value), to page a long list.",
+            "explode": false,
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "description": "Values to skip, in the same order (most requests first, then by value), to page a long list.",
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 0,
               "type": "integer"
             }
           },
