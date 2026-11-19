@@ -110,9 +110,11 @@ export function ColumnsMenu({ prefs, auto, onPrefs }: { prefs: ColumnPrefs; auto
             })}
           </ul>
           <div className="ex-views__actions">
-            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => onPrefs(DEFAULT_PREFS)} title="⌘U">
-              Reset columns
-            </button>
+            <Tip label="Reset columns" keys={["⌘", "U"]}>
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-keyshortcuts="Meta+U" onClick={() => onPrefs(DEFAULT_PREFS)}>
+                Reset columns
+              </button>
+            </Tip>
           </div>
         </div>
       </PopMenu>

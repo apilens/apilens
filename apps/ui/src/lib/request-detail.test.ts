@@ -13,7 +13,6 @@ import {
   offsetMs,
   contentTypeOf,
   parseBody,
-  parseEventStream,
   parseHeaders,
   requestDetailPath,
   shellQuote,
@@ -93,17 +92,9 @@ describe("parseBody", () => {
     expect(parseBody("message=hi")).toEqual({ kind: "text", text: "message=hi" });
   });
 
-  it("reads an event stream as its events, the last one partial when the body was cut", () => {
-    const stream = 'event: RunStarted\ndata: {"run_id":"r1"}\n\n: keep-alive\n\ndata: plain\n\nevent: RunContent\ndata: {"content":"Hel';
-    expect(parseBody(stream, "text/event-stream")).toEqual({
-      kind: "events",
-      events: [
-        { event: "RunStarted", data: { run_id: "r1" }, text: '{"run_id":"r1"}', partial: false },
-        { event: "message", data: "plain", text: "plain", partial: false },
-        { event: "RunContent", data: '{"content":"Hel', text: '{"content":"Hel', partial: true },
-      ],
-    });
-    expect(parseEventStream('event: a\ndata: 1\ndata: 2\n\n')).toEqual([{ event: "a", data: "1\n2", text: "1\n2", partial: false }]);
+  it("keeps an event stream as text, as it was sent", () => {
+    const stream = 'event: RunStarted\ndata: {"run_id":"r1"}\n\ndata: plain\n\n';
+    expect(parseBody(stream, "text/event-stream")).toEqual({ kind: "text", text: stream });
   });
 });
 

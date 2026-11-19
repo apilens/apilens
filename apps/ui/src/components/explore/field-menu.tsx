@@ -3,6 +3,7 @@
 import { type MouseEvent, useId, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
 import { PopMenu } from "../pop-menu";
+import { Tip } from "./tip";
 
 /** One item of a field's menu: a filter, a link or a copy. */
 export interface FieldAction {
@@ -33,24 +34,26 @@ export function FieldMenu({ label, copy, actions }: { label: string; copy?: stri
 
   return (
     <span className="exa" onClick={stop} onKeyDown={(e) => e.stopPropagation()}>
-      <button
-        ref={trigger}
-        type="button"
-        className="exa-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Actions for ${label}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="3.5" cy="8" r="1.25" />
-          <circle cx="8" cy="8" r="1.25" />
-          <circle cx="12.5" cy="8" r="1.25" />
-        </svg>
-      </button>
+      <Tip label={`Filter by or copy ${label.toLowerCase()}`}>
+        <button
+          ref={trigger}
+          type="button"
+          className="exa-btn"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`Actions for ${label}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((o) => !o);
+          }}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="3.5" cy="8" r="1.25" />
+            <circle cx="8" cy="8" r="1.25" />
+            <circle cx="12.5" cy="8" r="1.25" />
+          </svg>
+        </button>
+      </Tip>
       <span className="ex-sr" role="status">
         {said}
       </span>

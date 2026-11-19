@@ -31,6 +31,7 @@ import {
 } from "@/lib/explore-query";
 import { type Values, SessionExpired, readFacetPage } from "./facets";
 import { useAppNames } from "./app-names";
+import { Tip } from "./tip";
 import { type RangePick, TimeRangePill, rangeIsSet } from "./time-range";
 
 /** One row of the suggestion list. `count` is the server's, for values. */
@@ -380,16 +381,20 @@ export function PillBar({
             const words = c.field === "level" && value !== valueText(c, names) ? `Level is ${value}` : condWords(c, names);
             return (
               <li key={`${c.field}:${c.op}:${c.value}`} className={`exp-pill${c.op === "neq" || c.op === "ncontains" ? " is-not" : ""}${hl === n ? " is-hl" : ""}`}>
-                <button type="button" className="exp-pill__body" aria-label={`Edit filter: ${words}`} title={words} onClick={() => edit(i)}>
-                  <span className="exp-pill__field">{fieldDef(c.field).label}</span>
-                  <span className="exp-pill__op">{OP_LABEL[c.op]}</span>
-                  <span className={`exp-pill__value${fieldDef(c.field).mono ? " is-mono" : ""}`}>{value}</span>
-                </button>
-                <button type="button" className="exp-pill__x" aria-label={`Remove filter: ${words}`} onClick={() => removeAt(i)}>
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-                  </svg>
-                </button>
+                <Tip label={`Edit: ${words}`} keys={hl === n ? ["↵"] : undefined}>
+                  <button type="button" className="exp-pill__body" aria-label={`Edit filter: ${words}`} onClick={() => edit(i)}>
+                    <span className="exp-pill__field">{fieldDef(c.field).label}</span>
+                    <span className="exp-pill__op">{OP_LABEL[c.op]}</span>
+                    <span className={`exp-pill__value${fieldDef(c.field).mono ? " is-mono" : ""}`}>{value}</span>
+                  </button>
+                </Tip>
+                <Tip label="Remove filter" keys={hl === n ? ["⌫"] : undefined}>
+                  <button type="button" className="exp-pill__x" aria-label={`Remove filter: ${words}`} onClick={() => removeAt(i)}>
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+                    </svg>
+                  </button>
+                </Tip>
               </li>
             );
           })}
@@ -504,9 +509,11 @@ export function PillBar({
         ) : null}
       </div>
       {conds.length ? (
-        <button type="button" className="exp-clear" onClick={() => onChange([])} title="Clear all filters (F then C)">
-          Clear
-        </button>
+        <Tip label="Clear all filters" keys={["F", "then", "C"]}>
+          <button type="button" className="exp-clear" aria-keyshortcuts="F C" onClick={() => onChange([])}>
+            Clear
+          </button>
+        </Tip>
       ) : null}
     </div>
   );

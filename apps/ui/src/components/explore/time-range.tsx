@@ -25,6 +25,7 @@ import { copyText } from "@/lib/clipboard";
 import { zoneLabel } from "@/lib/time-zone";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { Icon } from "../icons";
+import { Tip } from "./tip";
 
 export type RangePick = { range: ExploreRange; from?: string; to?: string };
 
@@ -140,11 +141,13 @@ export function TimeRangePill({ query: q, onRange }: { query: ExploreQuery; onRa
         <span className="exp-pill__op">=</span>
         <span className="exp-pill__value">{text}</span>
       </button>
-      <button type="button" className="exp-pill__x" aria-label="Reset time range to the last 24 hours" title="Reset to the last 24 hours" onClick={() => onRange({ range: DEFAULT_RANGE })}>
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-        </svg>
-      </button>
+      <Tip label="Reset to the last 24 hours">
+        <button type="button" className="exp-pill__x" aria-label="Reset time range to the last 24 hours" onClick={() => onRange({ range: DEFAULT_RANGE })}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+          </svg>
+        </button>
+      </Tip>
       {open ? (
         <Popover id={`${id}-pop`} anchor={trigger} onClose={close}>
           <DatePicker
