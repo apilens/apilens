@@ -21,6 +21,7 @@ import {
   zonedInstant,
 } from "@/lib/explore-calendar";
 import { EXPLORE_RANGES, type ExploreQuery, type ExploreRange, MAX_RANGE_MS, isCustom, parseDuration, rangeMs, rangeText, rangeWords } from "@/lib/explore-query";
+import { copyText } from "@/lib/clipboard";
 import { zoneLabel } from "@/lib/time-zone";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { Icon } from "../icons";
@@ -237,15 +238,10 @@ function DatePicker({ query: q, tz, onPick }: { query: ExploreQuery; tz: string;
     onPick({ range: q.range, from: w.from, ...(b < at ? { to: w.to } : {}) });
   };
 
-  const copy = async () => {
+  const copy = () => {
     const w = window_();
     if (!w) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(w));
-      setSaid("copied");
-    } catch {
-      setErr("Couldn’t copy. Your browser blocked the clipboard.");
-    }
+    copyText(JSON.stringify(w)).then((ok) => (ok ? setSaid("copied") : setErr("Couldn’t copy. Your browser blocked the clipboard.")));
   };
 
   // Pasting a copied range (`{"from": …, "to": …}`) anywhere outside the inputs fills it in.

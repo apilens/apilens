@@ -1,6 +1,7 @@
 "use client";
 
 import { type MouseEvent, useId, useRef, useState } from "react";
+import { copyText } from "@/lib/clipboard";
 import { PopMenu } from "../pop-menu";
 
 /** One item of a field's menu: a filter, a link or a copy. */
@@ -23,14 +24,11 @@ export function FieldMenu({ label, copy, actions }: { label: string; copy?: stri
   const close = () => setOpen(false);
   const stop = (e: MouseEvent) => e.stopPropagation();
 
-  const doCopy = async () => {
+  const doCopy = () => {
+    // The write starts before the menu closes, inside the click (Safari, lib/clipboard).
+    const done = copyText(copy ?? "");
     close();
-    try {
-      await navigator.clipboard.writeText(copy ?? "");
-      setSaid(`Copied ${label}.`);
-    } catch {
-      setSaid("Couldn’t copy. Your browser blocked the clipboard.");
-    }
+    done.then((ok) => setSaid(ok ? `Copied ${label}.` : "Couldn’t copy. Your browser blocked the clipboard."));
   };
 
   return (

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { copyText } from "@/lib/clipboard";
 import { rowKey } from "@/lib/explore";
 import { type ColumnId, type ColumnPrefs, DEFAULT_PREFS, autoHidden, isPrefs, readPrefs } from "@/lib/explore-columns";
 import { exportFileName, neighborId, rangeKeys, toCsv, toJson, windowAround } from "@/lib/explore-detail";
@@ -573,14 +574,9 @@ export function ExploreApp({
 /** Two or more rows selected: how many, Copy as JSON, Export selected and Clear selection. */
 function SelectionPanel({ rows, onClear, fileName }: { rows: RequestRow[]; onClear: () => void; fileName: (ext: "csv" | "json") => string }) {
   const [said, setSaid] = useState<string | null>(null);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(toJson(rows));
-      setSaid(`Copied ${rows.length} requests as JSON.`);
-    } catch {
-      setSaid("Couldn’t copy. Your browser blocked the clipboard.");
-    }
-  };
+  // Written inside the click (lib/clipboard), as Safari asks.
+  const copy = () =>
+    copyText(toJson(rows)).then((ok) => setSaid(ok ? `Copied ${rows.length} requests as JSON.` : "Couldn’t copy. Your browser blocked the clipboard."));
   return (
     <section className="exd exd-sel" aria-label="Selected requests">
       <header className="exd-head">

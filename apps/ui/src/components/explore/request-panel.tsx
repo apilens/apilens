@@ -1,6 +1,7 @@
 "use client";
 
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { copyText } from "@/lib/clipboard";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, statusClass } from "@/lib/explore";
 import { TIMELINE_FIRST, badgeText, errorSummary, leadSection, offsetText, queryPairs, sameWindow, timelineSteps } from "@/lib/explore-detail";
 import { shownPath } from "@/lib/first-data";
@@ -147,14 +148,8 @@ export function RequestPanel({
   const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : (row?.status_code ?? 0) >= 400;
   const tab: DrawerTab = picked ?? (failed ? "response" : "request");
 
-  const copy = async (text: string, ok: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setSaid(ok);
-    } catch {
-      setSaid("Couldn’t copy. Your browser blocked the clipboard.");
-    }
-  };
+  // Written inside the click (lib/clipboard), as Safari asks.
+  const copy = (text: string, ok: string) => copyText(text).then((done) => setSaid(done ? ok : "Couldn’t copy. Your browser blocked the clipboard."));
 
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const next = moveTab(e.key, tab);
@@ -1088,14 +1083,7 @@ function ExceptionView({
   const head = parsed.blocks[0];
   const shownType = type || head?.type || "";
   const shownMessage = message ?? head?.message ?? "";
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(payload);
-      setCopied("Copied the full exception.");
-    } catch {
-      setCopied("Couldn’t copy. Your browser blocked the clipboard.");
-    }
-  };
+  const copy = () => copyText(payload).then((ok) => setCopied(ok ? "Copied the full exception." : "Couldn’t copy. Your browser blocked the clipboard."));
   return (
     <section ref={sectionRef} className="rd-section rd-exc" aria-label={label} tabIndex={autoFocus ? -1 : undefined}>
       <div className="rd-exc__bar">
@@ -1242,14 +1230,7 @@ function LogDetail({ log: l }: { log: TraceLog }) {
   const [copied, setCopied] = useState<string | null>(null);
   const attrs = Object.entries(l.attributes ?? {});
   const payload = l.payload ?? "";
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(payload);
-      setCopied("Copied the payload.");
-    } catch {
-      setCopied("Couldn’t copy. Your browser blocked the clipboard.");
-    }
-  };
+  const copy = () => copyText(payload).then((ok) => setCopied(ok ? "Copied the payload." : "Couldn’t copy. Your browser blocked the clipboard."));
   return (
     <div className="rd-logdetail">
       {l.logger_name === EXCEPTION_LOGGER ? <p className="rd-logdetail__exc">This log is the request’s exception; Overview shows it in full.</p> : null}

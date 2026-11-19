@@ -138,6 +138,24 @@ export function LogTable({
 
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
+  // While Shift, ⌘ or Ctrl is held the rows take no text selection (user-select: none), so a
+  // modifier click selects rows in Safari rather than text.
+  const [mod, setMod] = useState(false);
+  useEffect(() => {
+    const read = (e: globalThis.KeyboardEvent | globalThis.MouseEvent) => setMod(e.shiftKey || e.metaKey || e.ctrlKey);
+    const off = () => setMod(false);
+    window.addEventListener("keydown", read);
+    window.addEventListener("keyup", read);
+    window.addEventListener("mousemove", read, { passive: true });
+    window.addEventListener("blur", off);
+    return () => {
+      window.removeEventListener("keydown", read);
+      window.removeEventListener("keyup", read);
+      window.removeEventListener("mousemove", read);
+      window.removeEventListener("blur", off);
+    };
+  }, []);
+
   // The next page, once the end is near (also when the first page does not fill the view).
   useEffect(() => {
     const el = scroller.current;
@@ -228,7 +246,7 @@ export function LogTable({
   return (
     <div className="exl">
       <div
-        className={`exl-grid${rows ? "" : " is-loading"}`}
+        className={`exl-grid${rows ? "" : " is-loading"}${mod ? " is-mod" : ""}`}
         role="grid"
         aria-label="Requests"
         aria-rowcount={rows ? count + 1 : -1}
@@ -323,6 +341,23 @@ const LogRow = memo(function LogRow({
     if (e.shiftKey) window.getSelection()?.removeAllRanges();
     onOpen?.(r, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
   };
+  // Safari (and Firefox) start or extend a native text selection on a Shift- or ⌘-mousedown, which
+  // can swallow the click or paint the rows blue: with a modifier the mousedown is cancelled and the
+  // row takes focus itself.
+  const down = (e: MouseEvent<HTMLDivElement>) => {
+    if (!(e.shiftKey || e.metaKey || e.ctrlKey) || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, a, .exa")) return;
+    e.preventDefault();
+    e.currentTarget.focus({ preventScroll: true });
+  };
+  // The hover checkbox selects too: Shift extends the range, ⌘/Ctrl or a plain click toggles the row.
+  const checkClick = (e: MouseEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    if (e.shiftKey && onOpen) {
+      window.getSelection()?.removeAllRanges();
+      onOpen(r, { shift: true, toggle: false });
+    } else onSelect?.(r, !checked);
+  };
   return (
     <div
       className={`exl-row${openable ? " is-openable" : ""}${cls === "4xx" || cls === "5xx" ? ` is-${cls}` : ""}${dim ? " is-old" : ""}${phone ? " is-phone" : ""}${checked ? " is-checked" : ""}${selecting ? " is-selecting" : ""}`}
@@ -333,6 +368,7 @@ const LogRow = memo(function LogRow({
       tabIndex={focusable ? 0 : -1}
       onFocus={() => onFocus(rowId)}
       onClick={openable ? click : undefined}
+      onMouseDown={openable ? down : undefined}
       style={{ transform: `translateY(${index * rowH}px)`, height: rowH, gridTemplateColumns: template }}
     >
       <div role="gridcell" className="exl-cell exl-cell--dot">
@@ -344,7 +380,9 @@ const LogRow = memo(function LogRow({
             checked={checked}
             aria-label={`Select ${r.method.toUpperCase()} ${r.raw_path || r.path} at ${r.timestamp}`}
             tabIndex={-1}
-            onChange={(e) => onSelect(r, e.target.checked)}
+            onMouseDown={down}
+            onClick={checkClick}
+            onChange={() => {}}
           />
         ) : null}
       </div>
