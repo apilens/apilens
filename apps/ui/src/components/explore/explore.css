@@ -681,8 +681,16 @@ span.rd-j-tog { cursor: default; }
 @media (hover: none) { .exd-field .exa-btn { opacity: 1; } }
 /* Row selection: the dot turns into a checkbox on hover or while anything is selected. */
 .exl-cell--dot { position: relative; }
-.exl-check { display: none; width: 13px; height: 13px; margin: 0; accent-color: var(--accent); }
-.exl-row:hover .exl-check, .exl-row.is-selecting .exl-check { display: block; }
+/* The row checkbox, as Supabase's (shadcn Checkbox in Columns.tsx): 16px, a control border, filled
+   with the foreground and a 12px check when on; it takes the dot's place on hover. */
+.exl-check { position: relative; display: none; width: 16px; height: 16px; }
+.exl-check input { grid-area: 1 / 1; appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 16px; height: 16px; margin: 0; border: 1px solid var(--control-border); border-radius: var(--radius-xs); background: color-mix(in srgb, var(--control-border) 25%, transparent); cursor: pointer; transition: background-color .15s ease-in-out, border-color .15s ease-in-out; }
+.exl-check input:hover { border-color: var(--border-strong); }
+.exl-check input:checked { background: var(--ink); border-color: var(--ink); }
+.exl-check input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.exl-check .cp-ic { grid-area: 1 / 1; place-self: center; width: 12px; height: 12px; stroke: var(--bg); stroke-width: 4; opacity: 0; pointer-events: none; }
+.exl-check input:checked + .cp-ic { opacity: 1; }
+.exl-row:hover .exl-check, .exl-row.is-selecting .exl-check, .exl-row.is-checked .exl-check { display: grid; }
 .exl-row:hover .exl-dot, .exl-row.is-selecting .exl-dot { display: none; }
 .exl-body > .exl-row[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
 .exl-body > .exl-row.is-4xx[aria-selected="true"] { background: color-mix(in srgb, var(--warn) 20%, transparent); }
@@ -728,3 +736,20 @@ span.rd-j-tog { cursor: default; }
 .exf-more:hover:not(:disabled) { color: var(--ink); }
 .exf-more:disabled { cursor: progress; }
 .exf-more:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
+
+/* The time and its card (Supabase's TimestampInfo: TooltipTrigger `border-b border-transparent
+   hover:border-dashed`, TooltipContent `font-mono p-0 py-1 min-w-80` on a card surface, rows
+   `px-2 py-1 hover:bg-muted` of a label, dashed leaders and the value right-aligned). */
+.exl-time { display: inline-block; line-height: 15px; border-bottom: 1px dashed transparent; white-space: nowrap; }
+.exl-row:hover .exl-time, .exl-time.is-open { border-bottom-color: var(--ink-muted); }
+.exl-tcard { position: fixed; z-index: 95; box-sizing: border-box; min-width: 320px; max-width: calc(100vw - 16px); padding: 4px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/16px var(--font-mono); color: var(--ink); }
+.exl-tcard__row { position: relative; display: flex; gap: 2px; width: 100%; padding: 4px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.exl-tcard__row:hover, .exl-tcard__row.is-copied { background: var(--surface-2); }
+.exl-tcard__row:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exl-tcard__label { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.exl-tcard__name { flex: none; }
+.exl-tcard__value { position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: 8px; }
+.exl-tcard__lead { flex: 1 1 auto; min-width: 8px; border-top: 1px dashed var(--border); }
+.exl-tcard__text { flex: none; white-space: nowrap; }
+.exl-tcard__row.is-copied .exl-tcard__text { visibility: hidden; }
+.exl-tcard__said { position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; color: var(--accent-ink); }

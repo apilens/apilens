@@ -1,16 +1,18 @@
 "use client";
 
 import { type KeyboardEvent, type MouseEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { consumerOf, formatBytes, isSampledOut, latencyTone, logTime, moveFocus, rowKey, statusClass, visibleWindow } from "@/lib/explore";
+import { consumerOf, formatBytes, isSampledOut, latencyTone, moveFocus, rowKey, statusClass, visibleWindow } from "@/lib/explore";
 import { type ColumnId, type ColumnPrefs, autoHidden, columnDef, gridTemplate, visibleColumns } from "@/lib/explore-columns";
 import { formatCount } from "@/lib/consumers";
 import { shownPath } from "@/lib/first-data";
 import { statusText } from "@/lib/http-status";
 import type { RequestRow } from "@/lib/identity";
-import { zoneLabel, zonedParts } from "@/lib/time-zone";
+import { zoneLabel } from "@/lib/time-zone";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { formatLatency } from "@/lib/traffic";
+import { Icon } from "../icons";
 import { useAppName } from "./app-names";
+import { TimeHover } from "./time-hover";
 
 /** Row heights in px: one line on wide tables, two on phones (path, then time · status · latency). */
 export const ROW_H = 30;
@@ -26,16 +28,6 @@ export type RowClick = { shift: boolean; toggle: boolean };
 
 /** Shimmer rows while the first page loads. */
 const SKELETON_ROWS = 12;
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-
-/** "Nov 19, 2026, 06:18:41.598" in `tz`, built from parts: engines join a formatted date and time
- *  differently (Node writes ", ", Safari and newer ICU " at "), which broke hydration of the title. */
-function exactTime(at: number, tz: string): string {
-  const p = zonedParts(at, tz);
-  return `${MONTHS[p.month]} ${p.day}, ${p.year}, ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}.${pad(p.millisecond, 3)}`;
-}
 
 /**
  * Explore's table (#1052, after Supabase's DataTableInfinite): 30px rows of 12px mono time, status,
@@ -374,9 +366,9 @@ const LogRow = memo(function LogRow({
       <div role="gridcell" className="exl-cell exl-cell--dot">
         <span className={`exl-dot exl-dot--${cls}`} title={statusText(r.status_code)} />
         {onSelect ? (
+          <span className="exl-check">
           <input
             type="checkbox"
-            className="exl-check"
             checked={checked}
             aria-label={`Select ${r.method.toUpperCase()} ${r.raw_path || r.path} at ${r.timestamp}`}
             tabIndex={-1}
@@ -384,6 +376,8 @@ const LogRow = memo(function LogRow({
             onClick={checkClick}
             onChange={() => {}}
           />
+            <Icon name="check" />
+          </span>
         ) : null}
       </div>
       {phone ? (
@@ -400,19 +394,11 @@ const LogRow = memo(function LogRow({
   );
 });
 
-function TimeText({ row: r, now, tz }: { row: RequestRow; now: number; tz: string }) {
-  const t = logTime(r.timestamp, now, tz);
+/** The row's time as Supabase's table writes it (`19 Nov 26 14:58:13`), its card on hover (TimeHover). */
+function TimeText({ row: r, tz }: { row: RequestRow; now: number; tz: string }) {
   const at = Date.parse(r.timestamp);
-  const exact = Number.isNaN(at)
-    ? r.timestamp
-    : `${exactTime(at, "UTC")} UTC\n${exactTime(at, tz)} ${zoneLabel(tz, at)}`;
-  return (
-    <time dateTime={r.timestamp} title={exact}>
-      {t.day ? <span className="exl-faint">{t.day} </span> : null}
-      {t.clock}
-      <span className="exl-faint">{t.ms}</span>
-    </time>
-  );
+  if (Number.isNaN(at)) return <span className="exl-faint">{r.timestamp || "–"}</span>;
+  return <TimeHover at={at} tz={tz} iso={r.timestamp} />;
 }
 
 function PathText({ row: r }: { row: RequestRow }) {
