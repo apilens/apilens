@@ -7,7 +7,7 @@ import { formatCount } from "@/lib/consumers";
 import { shownPath } from "@/lib/first-data";
 import { statusText } from "@/lib/http-status";
 import type { RequestRow } from "@/lib/identity";
-import { zoneLabel, zoned } from "@/lib/time-zone";
+import { zoneLabel, zonedParts } from "@/lib/time-zone";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { formatLatency } from "@/lib/traffic";
 import { useAppName } from "./app-names";
@@ -25,7 +25,15 @@ export type RowClick = { shift: boolean; toggle: boolean };
 /** Shimmer rows while the first page loads. */
 const SKELETON_ROWS = 12;
 
-const UTC_TIME: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", fractionalSecondDigits: 3 };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+
+/** "Nov 19, 2026, 06:18:41.598" in `tz`, built from parts: engines join a formatted date and time
+ *  differently (Node writes ", ", Safari and newer ICU " at "), which broke hydration of the title. */
+function exactTime(at: number, tz: string): string {
+  const p = zonedParts(at, tz);
+  return `${MONTHS[p.month]} ${p.day}, ${p.year}, ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}.${pad(p.millisecond, 3)}`;
+}
 
 /**
  * Explore's table (#1052, after Supabase's DataTableInfinite): 30px rows of 12px mono time, status,
@@ -357,7 +365,7 @@ function TimeText({ row: r, now, tz }: { row: RequestRow; now: number; tz: strin
   const at = Date.parse(r.timestamp);
   const exact = Number.isNaN(at)
     ? r.timestamp
-    : `${zoned("en-US", UTC_TIME, "UTC").format(at)} UTC\n${zoned("en-US", UTC_TIME, tz).format(at)} ${zoneLabel(tz, at)}`;
+    : `${exactTime(at, "UTC")} UTC\n${exactTime(at, tz)} ${zoneLabel(tz, at)}`;
   return (
     <time dateTime={r.timestamp} title={exact}>
       {t.day ? <span className="exl-faint">{t.day} </span> : null}
