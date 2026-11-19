@@ -11,11 +11,12 @@ type SseEvent = Extract<SseItem, { kind: "event" }>;
 
 /**
  * A `text/event-stream` body as its events (the body's Events view; Raw shows it as sent). A head
- * line counts events and comments and says when the stream was cut or ended mid-event; chips
- * filter by event type; then one row per item in the order sent: an event's number, its type
- * (the default `message` muted), its id and its data on one line, opening to the data (JSON in
+ * line counts events and comments and says when the stream was cut or ended mid-event; then one
+ * row per item in the order sent: an event's number, its id and its data on one line, opening to the data (JSON in
  * the JSON viewer, else as sent) with Copy and its retry. Comments are muted lines, `[DONE]` an
- * end-of-stream marker. ↑/↓ move between rows, Enter opens one. Past WINDOW rows the list renders
+ * end-of-stream marker. Only the SSE fields are read, never the data: when the stream sends
+ * `event:` types, rows show them (the default `message` muted) and chips filter by them; a
+ * data-only stream shows none. ↑/↓ move between rows, Enter opens one. Past WINDOW rows the list renders
  * WINDOW at a time, adding more as its end scrolls into view.
  */
 export function SseEvents({ parse, renderJson }: { parse: SseParse; renderJson: (value: unknown) => ReactNode }) {
@@ -31,6 +32,9 @@ export function SseEvents({ parse, renderJson }: { parse: SseParse; renderJson: 
     return [...m];
   }, [parse]);
   const comments = parse.items.length - parse.eventCount;
+  // Many streams send only data: lines, so every event is the default "message". Types are shown
+  // (badges, and chips when there are two or more) only when the stream used event: types.
+  const typed = types.some(([name]) => name !== "message");
   const shown = useMemo(() => (type === null ? parse.items : parse.items.filter((it) => it.kind === "event" && it.type === type)), [parse, type]);
   const rendered = shown.slice(0, limit);
 
@@ -80,7 +84,7 @@ export function SseEvents({ parse, renderJson }: { parse: SseParse; renderJson: 
   return (
     <div className="sse">
       <p className="sse-head">{head}</p>
-      {types.length ? (
+      {typed && types.length > 1 ? (
         <div className="sse-types" role="group" aria-label="Show events of one type">
           {types.map(([name, n]) => (
             <button key={name} type="button" aria-pressed={type === name} onClick={() => setType(type === name ? null : name)}>
@@ -91,7 +95,7 @@ export function SseEvents({ parse, renderJson }: { parse: SseParse; renderJson: 
         </div>
       ) : null}
       <ol className="sse-list" ref={list} onKeyDown={onKeyDown} aria-label="Events in the order they were sent">
-        {rendered.map((it, k) => (it.kind === "comment" ? <CommentRow key={`c${k}`} text={it.text} /> : <EventRow key={it.index} e={it} open={open.has(it.index)} onToggle={() => toggle(it.index)} renderJson={renderJson} />))}
+        {rendered.map((it, k) => (it.kind === "comment" ? <CommentRow key={`c${k}`} text={it.text} /> : <EventRow key={it.index} e={it} typed={typed} open={open.has(it.index)} onToggle={() => toggle(it.index)} renderJson={renderJson} />))}
         {shown.length > limit ? (
           <li ref={end} className="sse-more">
             <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => setLimit((l) => l + WINDOW)}>
@@ -120,7 +124,7 @@ function CommentRow({ text }: { text: string }) {
 
 const preview = (data: string) => data.replace(/\s+/g, " ").trim();
 
-function EventRow({ e, open, onToggle, renderJson }: { e: SseEvent; open: boolean; onToggle: () => void; renderJson: (value: unknown) => ReactNode }) {
+function EventRow({ e, typed, open, onToggle, renderJson }: { e: SseEvent; typed: boolean; open: boolean; onToggle: () => void; renderJson: (value: unknown) => ReactNode }) {
   if (e.sentinel) {
     return (
       <li className="sse-row sse-row--end">
@@ -137,7 +141,7 @@ function EventRow({ e, open, onToggle, renderJson }: { e: SseEvent; open: boolea
           <path d="M6 4l4 4-4 4" />
         </svg>
         <span className="sse-n">#{e.index}</span>
-        <code className={`sse-type${e.type === "message" ? " is-default" : ""}`}>{e.type}</code>
+        {typed ? <code className={`sse-type${e.type === "message" ? " is-default" : ""}`}>{e.type}</code> : null}
         {e.id !== undefined ? <span className="sse-id">id {e.id}</span> : null}
         <span className="sse-data">{preview(e.data) || <span className="sse-empty">empty</span>}</span>
       </button>
