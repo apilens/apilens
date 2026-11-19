@@ -449,7 +449,7 @@ export function ExploreApp({
               </button>
             </div>
             <div className="exr-filter">
-              <PillBar conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
+              <PillBar query={q} conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
             </div>
             <div className="exr-tools__end" ref={toolsEnd}>
               <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>

@@ -98,7 +98,7 @@ describe("slowRequestHref (#1001)", () => {
     expect(slowRequestHref("shop", r, { range: "24h" })).toBe(
       "/project/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=abc_1",
     );
-    expect(slowRequestHref("shop", { ...r, id: undefined, environment: "" }, { range: "1h" })).toBe("/project/shop/explore?method=POST&path=%2Fcharge&latency_min=2310");
+    expect(slowRequestHref("shop", { ...r, id: undefined, environment: "" }, { range: "1h" })).toBe("/project/shop/explore?range=1h&method=POST&path=%2Fcharge&latency_min=2310");
   });
 });
 

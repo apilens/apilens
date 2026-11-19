@@ -92,7 +92,7 @@ describe("?range= links (the Last 1 hour bug)", () => {
     for (const r of ["10m", "15m", "30m", "1h", "3h", "6h", "24h", "7d"]) expect(readExploreUrl({ range: r }).range).toBe(r);
     expect(rangeText(readExploreUrl({ range: "7d" }), "UTC")).toBe("Last 7 days");
     expect(readExploreUrl({ range: "30d" }).range).toBe("7d");
-    expect(readExploreUrl({ range: "nope" }).range).toBe("1h");
+    expect(readExploreUrl({ range: "nope" }).range).toBe("24h");
   });
 
   it("keeps the range through the page URL and the route handlers", () => {
@@ -181,22 +181,29 @@ describe("legacyConds", () => {
 
 describe("readExploreUrl and exploreUrl", () => {
   it("round-trips the state", () => {
-    const q = readExploreUrl({ range: "24h", filter: ["status:eq:5xx", "path:contains:/orders"], id: "req_1" });
-    expect(q).toEqual({ range: "24h", conds: [c("status:eq:5xx"), c("path:contains:/orders")], id: "req_1" });
+    const q = readExploreUrl({ range: "1h", filter: ["status:eq:5xx", "path:contains:/orders"], id: "req_1" });
+    expect(q).toEqual({ range: "1h", conds: [c("status:eq:5xx"), c("path:contains:/orders")], id: "req_1" });
     const url = exploreUrl("shop", q);
-    expect(url).toBe("/project/shop/explore?range=24h&filter=status%3Aeq%3A5xx&filter=path%3Acontains%3A%2Forders&id=req_1");
+    expect(url).toBe("/project/shop/explore?range=1h&filter=status%3Aeq%3A5xx&filter=path%3Acontains%3A%2Forders&id=req_1");
     const back = Object.fromEntries([...new URL(url, "http://x").searchParams.keys()].map((k) => [k, new URL(url, "http://x").searchParams.getAll(k)]));
     expect(readExploreUrl(back)).toEqual(q);
   });
 
   it("redirects an older link to the same view", () => {
     const q = readExploreUrl({ range: "1h", status: "5xx", env: "production", at: "2026-11-05T10:10:00Z", request: "req_charge" });
-    expect(exploreUrl("shop", q)).toBe("/project/shop/explore?to=2026-11-05T10%3A10%3A00Z&filter=env%3Aeq%3Aproduction&filter=status%3Aeq%3A5xx&id=req_charge");
+    expect(exploreUrl("shop", q)).toBe("/project/shop/explore?range=1h&to=2026-11-05T10%3A10%3A00Z&filter=env%3Aeq%3Aproduction&filter=status%3Aeq%3A5xx&id=req_charge");
   });
 
   it("leaves defaults out and drops a reversed window", () => {
-    expect(queryEntries(readExploreUrl({ range: "1h", from: "2026-11-05T11:00:00Z", to: "2026-11-05T10:00:00Z" }))).toEqual([]);
-    expect(readExploreUrl({ range: "1y" }).range).toBe("1h");
+    expect(queryEntries(readExploreUrl({ range: "24h", from: "2026-11-05T11:00:00Z", to: "2026-11-05T10:00:00Z" }))).toEqual([]);
+    expect(readExploreUrl({ range: "1y" }).range).toBe("24h");
+    // 24 hours is the default and left out; the last hour is written.
+    expect(readExploreUrl({}).range).toBe("24h");
+    expect(exploreUrl("shop", { range: "24h", conds: [] })).toBe("/project/shop/explore");
+    expect(exploreUrl("shop", { range: "1h", conds: [] })).toBe("/project/shop/explore?range=1h");
+    // A window with an end only reaches back by its range, so the range stays.
+    expect(queryEntries({ range: "1h", to: "2026-11-05T10:00:00Z" })).toEqual([["range", "1h"], ["to", "2026-11-05T10:00:00Z"]]);
+    expect(queryEntries({ range: "1h", from: "2026-11-05T09:00:00Z", to: "2026-11-05T10:00:00Z" })).toEqual([["from", "2026-11-05T09:00:00Z"], ["to", "2026-11-05T10:00:00Z"]]);
     expect(readExploreUrl({ id: "../x" }).id).toBeUndefined();
   });
 
@@ -229,7 +236,8 @@ describe("apiWindow and bucketFor", () => {
 
   it("sends the conditions as filter values", () => {
     expect(apiQuery({ range: "24h", conds: [c("method:neq:GET")] }, now)).toEqual({ range: "24h", filter: ["method:neq:GET"] });
-    expect(routeSearch({ range: "1h", conds: [c("method:neq:GET")] }, { cursor: "x" })).toBe("?filter=method%3Aneq%3AGET&cursor=x");
+    expect(routeSearch({ range: "24h", conds: [c("method:neq:GET")] }, { cursor: "x" })).toBe("?filter=method%3Aneq%3AGET&cursor=x");
+    expect(routeSearch({ range: "1h", conds: [] })).toBe("?range=1h");
   });
 });
 
@@ -272,7 +280,7 @@ describe("facets and pills", () => {
     expect(apiConds([c("level:neq:error"), c("status:eq:200")]).map(condString)).toEqual(["status:eq:200", "status:neq:5xx"]);
     expect(apiQuery({ range: "1h", conds: [c("level:eq:error")] }, 0).filter).toEqual(["status:neq:1xx,2xx,3xx", "status:neq:4xx"]);
     // The URL keeps the level, as the page reads it back.
-    expect(routeSearch({ range: "1h", conds: [c("level:eq:error")] })).toBe("?filter=level%3Aeq%3Aerror");
+    expect(routeSearch({ range: "24h", conds: [c("level:eq:error")] })).toBe("?filter=level%3Aeq%3Aerror");
     // Older status links are untouched.
     expect(apiConds([c("status:eq:4xx")]).map(condString)).toEqual(["status:eq:4xx"]);
   });

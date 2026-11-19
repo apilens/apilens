@@ -57,9 +57,12 @@ function exploreSearch(q: Partial<ExploreState>, withRange: boolean, w: ExploreW
   return s ? `?${s}` : "";
 }
 
-/** The page URL for `q`, leaving defaults out. */
+/**
+ * The page URL for `q`. A range given always goes in: Explore's own default (24 hours,
+ * explore-query.ts) is not this module's 1 hour, so leaving `1h` out would widen the link.
+ */
 export function exploreHref(project: string, q: Partial<ExploreState>): string {
-  return `${projectHref(project, "explore")}${exploreSearch(q, false, q)}`;
+  return `${projectHref(project, "explore")}${exploreSearch(q, true, q)}`;
 }
 
 /**

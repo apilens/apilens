@@ -261,7 +261,8 @@ export function legacyConds(params: SearchParams): Cond[] {
 export type ExploreRange = `${number}${"m" | "h" | "d"}`;
 /** The presets of the time range picker (Supabase's REPORTS_DATEPICKER_HELPERS, up to the API's 7 days). */
 export const EXPLORE_RANGES: readonly ExploreRange[] = ["10m", "30m", "1h", "3h", "24h", "7d"];
-export const DEFAULT_RANGE: ExploreRange = "1h";
+/** Explore opens on the last 24 hours (left out of the URL, so `?range=1h` is written explicitly). */
+export const DEFAULT_RANGE: ExploreRange = "24h";
 const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 const UNIT_WORD = { m: "minute", h: "hour", d: "day" } as const;
 /** The longest range the query API reads (it clamps anything older to 7 days). */
@@ -271,10 +272,10 @@ const API_RANGE_MS: Record<QueryRange, number> = { "1h": 3_600_000, "6h": 6 * 3_
 
 const TOKEN_RE = /^(\d{1,5})(m|h|d)$/;
 
-/** How long `r` reaches back, in ms (the default's hour for anything that is not a token). */
+/** How long `r` reaches back, in ms (the default's 24 hours for anything that is not a token). */
 export function rangeMs(r: string): number {
   const m = TOKEN_RE.exec(r);
-  return m ? Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] : UNIT_MS.h;
+  return m ? Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] : 24 * UNIT_MS.h;
 }
 
 /**
@@ -336,7 +337,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,256}$/;
  */
 export function readExploreUrl(params: SearchParams): ExploreQuery {
   // Any duration token is honoured (`?range=7d`, and `15m` / `6h` from links made before the
-  // presets changed); only a value that is not one falls back to the default hour.
+  // presets changed); only a value that is not one falls back to the default 24 hours.
   const q: ExploreQuery = { range: parseRange(first(params.range)) ?? DEFAULT_RANGE, conds: [] };
   let from = timeParam(first(params.from));
   let to = timeParam(first(params.to)) ?? timeParam(first(params.at));
@@ -355,7 +356,8 @@ export function readExploreUrl(params: SearchParams): ExploreQuery {
 /** The search entries of `q`, in a fixed order, defaults left out. */
 export function queryEntries(q: Partial<ExploreQuery>): [string, string][] {
   const out: [string, string][] = [];
-  if (q.range && q.range !== DEFAULT_RANGE && !q.from && !q.to) out.push(["range", q.range]);
+  // The range matters unless the window has a start: `?to=` alone reaches back by it.
+  if (q.range && q.range !== DEFAULT_RANGE && !q.from) out.push(["range", q.range]);
   if (q.from) out.push(["from", q.from]);
   if (q.to) out.push(["to", q.to]);
   for (const c of q.conds ?? []) out.push(["filter", condString(c)]);

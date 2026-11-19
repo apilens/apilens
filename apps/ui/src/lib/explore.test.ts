@@ -26,9 +26,10 @@ import {
 import { NO_FILTERS } from "./explore-filters";
 
 describe("parseExploreQuery / exploreHref", () => {
-  it("defaults to the last hour and leaves the default out of the URL", () => {
+  it("defaults to the last hour and always writes a given range (Explore's own default is 24 hours)", () => {
     expect(parseExploreQuery({})).toEqual({ range: "1h", filters: NO_FILTERS });
-    expect(exploreHref("shop", { range: "1h" })).toBe("/project/shop/explore");
+    expect(exploreHref("shop", { range: "1h" })).toBe("/project/shop/explore?range=1h");
+    expect(exploreHref("shop", {})).toBe("/project/shop/explore");
   });
   it("keeps a known range and drops an unknown one", () => {
     expect(parseExploreQuery({ range: "7d" })).toEqual({ range: "7d", filters: NO_FILTERS });
