@@ -147,7 +147,7 @@ export function RequestPanel({
   const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : (row?.status_code ?? 0) >= 400;
   const tab: DrawerTab = picked ?? (failed ? "response" : "request");
 
-  // The sections are a row of tabs under the facts: ←/→ (Home/End) move between them; ↑/↓ keep
+  // The sections are a row of tabs across the top: ←/→ (Home/End) move between them; ↑/↓ keep
   // walking the requests, everywhere in the drawer.
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const next = moveTab(e.key, tab);
@@ -225,26 +225,30 @@ export function RequestPanel({
         </div>
       ) : null}
 
-      <div className="exd-split">
-        {r ? <Facts r={r} tz={tz} /> : null}
-        <div className="exd-menu" role="tablist" aria-label="Request details" aria-orientation="horizontal" onKeyDown={onTabKey}>
-          {DRAWER_TABS.map((x) => (
-            <button
-              key={x.slug}
-              type="button"
-              role="tab"
-              id={`${tabsId}-${x.slug}-tab`}
-              aria-controls={`${tabsId}-panel`}
-              aria-selected={tab === x.slug}
-              tabIndex={tab === x.slug ? 0 : -1}
-              onClick={() => setPicked(x.slug)}
-            >
-              <span>{x.label}</span>
-              {counts[x.slug] ? <span className="exd-menu__n">{counts[x.slug]}</span> : null}
-            </button>
-          ))}
-        </div>
+      <div className="exd-menu" role="tablist" aria-label="Request details" aria-orientation="horizontal" onKeyDown={onTabKey}>
+        {DRAWER_TABS.map((x) => (
+          <button
+            key={x.slug}
+            type="button"
+            role="tab"
+            id={`${tabsId}-${x.slug}-tab`}
+            aria-controls={`${tabsId}-panel`}
+            aria-selected={tab === x.slug}
+            tabIndex={tab === x.slug ? 0 : -1}
+            onClick={() => setPicked(x.slug)}
+          >
+            <span>{x.label}</span>
+            {counts[x.slug] ? <span className="exd-menu__n">{counts[x.slug]}</span> : null}
+          </button>
+        ))}
+      </div>
 
+      <div className="exd-split">
+        {r ? (
+          <aside className="exd-side" aria-label="Request facts">
+            <Facts r={r} tz={tz} />
+          </aside>
+        ) : null}
         <div className="exd-main" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
           {load.kind === "loading" ? (
             <div className="rd-loading" aria-busy="true" aria-label="Loading the request">
@@ -297,9 +301,10 @@ export function RequestPanel({
 }
 
 /**
- * The drawer's key facts, a strip across the top above the section tabs: status, time, latency,
- * sizes, app, environment, consumer and trace id, each a small muted label over its value (mono,
- * cut with an ellipsis, the whole value in its title), as many to a row as fit.
+ * The drawer's key facts, a column left of the section content (under the tabs): status, time,
+ * latency, sizes, app, environment, consumer and trace id, each a small muted label over its value
+ * (mono, cut with an ellipsis, the whole value in its title). On phones they wrap in two columns
+ * above the content.
  */
 function Facts({ r, tz }: { r: RequestRow; tz: string }) {
   const app = useAppName(r.app_id);
