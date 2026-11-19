@@ -62,7 +62,18 @@
 //   GET  /fake-idp/authorize                       IdP sign-in page: "Sign in" or "Cancel"
 //   GET  /api/v1/auth/sso/{org}/callback           302 to {ui}/auth/callback?code=… or /sign-in?error=…
 //   POST /api/v1/auth/email/start                  403 sso_required (+ start_url) on an enforced
-//                                                  domain, else {sent: true} (never sends mail)
+//                                                  domain, else {sent: true} (never sends mail) and keeps
+//                                                  an outstanding code for the address (with `next`)
+//   POST /api/v1/auth/email/verify                 {email, code, remember?} as internal/identity/email_verify.go:
+//                                                  the code is 211226 (FAKE_IDENTITY_OTP overrides it; six
+//                                                  digits), spaces and hyphens ignored, for an address that
+//                                                  called email/start in the last 15 minutes. Answers the
+//                                                  session bundle (next: the start's `next`, else
+//                                                  /onboarding/about); the Next.js Route Handler sets the
+//                                                  cookie. Single use; invalid_code (400) for a wrong code or
+//                                                  no outstanding code, code_expired (400), and the fifth
+//                                                  wrong code answers too_many_attempts (429) until a new
+//                                                  start. No 2FA or rate limit here
 //   GET  /api/v1/orgs/acme/members                 the signed-in user plus seeded @example.com members
 //   PATCH/DELETE /api/v1/orgs/acme/members/{id}    role change / removal with the API's owner rules
 //   POST /api/v1/orgs/acme/transfer-ownership      owners only; the caller becomes an admin
@@ -368,6 +379,39 @@ const token = () => randomBytes(24).toString("base64url");
 
 /** Mirrors identity.PreAuthMaxAttempts. */
 const PRE_AUTH_MAX_ATTEMPTS = 5;
+
+/** The one-time code every fake sign-in email "carries" (identity.dev_email_code in the real stack). */
+const EMAIL_OTP = process.env.FAKE_IDENTITY_OTP || "211226";
+if (!/^[0-9]{6}$/.test(EMAIL_OTP)) throw new Error("FAKE_IDENTITY_OTP: want 6 digits");
+/** Mirrors emailauth.TTL and emailauth.MaxAttempts. */
+const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
+const EMAIL_CODE_MAX_ATTEMPTS = 5;
+
+/** The outstanding sign-in email of an address (its latest email/start), as emailauth keeps it. */
+interface EmailCode {
+  next: string;
+  expiresAt: number;
+  attempts: number;
+}
+const emailCodes = new Map<string, EmailCode>();
+
+/** A bare address, trimmed and lower-cased (identity.NormalizeEmail), or null. */
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const s = value.trim();
+  if (s.length < 3 || s.length > 254 || /\s/.test(s)) return null;
+  const at = s.lastIndexOf("@");
+  const domain = s.slice(at + 1);
+  if (at < 1 || !domain.includes(".") || domain.startsWith(".") || domain.endsWith(".")) return null;
+  return s.toLowerCase();
+}
+
+/** The typed code without spaces and hyphens (emailauth.ParseCode), or null when malformed. */
+function parseEmailCode(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 64) return null;
+  const digits = value.replace(/[ \t-]/g, "");
+  return /^[0-9]{6}$/.test(digits) ? digits : null;
+}
 
 function base32Decode(input: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -1280,12 +1324,37 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return send(res, 200, { sso: true, enforced: org.enforce, org_name: org.name, start_url: ssoStartUrl(org.slug) });
   }
   if (req.method === "POST" && path === "/api/v1/auth/email/start") {
-    const { email } = await readBody(req);
+    const { email, next: rawNext } = await readBody(req);
     const org = ssoOrgFor(String(email ?? ""));
     if (org?.enforce) {
       return send(res, 403, { status: 403, title: "Forbidden", code: "sso_required", start_url: ssoStartUrl(org.slug) }, "application/problem+json");
     }
+    const addr = normalizeEmail(email);
+    const next = typeof rawNext === "string" && rawNext !== "" ? safeNext(rawNext) : "";
+    if (addr === null || next === null) return problem(res, 400, "invalid_request");
+    // A new email replaces the address's outstanding one, as in emailauth.Issue.
+    emailCodes.set(addr, { next, expiresAt: Date.now() + EMAIL_CODE_TTL_MS, attempts: 0 });
     return send(res, 200, { sent: true, retry_after: 30 });
+  }
+  if (req.method === "POST" && path === "/api/v1/auth/email/verify") {
+    const { email, code } = await readBody(req);
+    const addr = normalizeEmail(email);
+    if (addr === null || typeof code !== "string" || code === "") return problem(res, 400, "invalid_request");
+    const pending = emailCodes.get(addr);
+    if (!pending) return problem(res, 400, "invalid_code");
+    if (pending.attempts >= EMAIL_CODE_MAX_ATTEMPTS) return problem(res, 429, "too_many_attempts");
+    const match = parseEmailCode(code) === EMAIL_OTP;
+    if (Date.now() >= pending.expiresAt) return problem(res, 400, match ? "code_expired" : "invalid_code");
+    if (!match) {
+      pending.attempts++;
+      const locked = pending.attempts >= EMAIL_CODE_MAX_ATTEMPTS;
+      return problem(res, locked ? 429 : 400, locked ? "too_many_attempts" : "invalid_code");
+    }
+    emailCodes.delete(addr);
+    // Every fake sign-in is a new user: with no `next`, onboarding, as identity does for a first sign-in.
+    const b = bundle(pending.next || "/onboarding/about");
+    totps.set(b.access_token, { pending: null, secret: null, confirmedAt: null, backupCodes: new Set(), stale: false });
+    return send(res, 200, b);
   }
 
   const sso = path.match(/^\/api\/v1\/auth\/sso\/([a-z0-9-]+)\/(start|callback)$/);
