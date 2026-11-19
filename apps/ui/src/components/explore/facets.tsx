@@ -172,30 +172,32 @@ function Facet({
       <div className="exf-facet__head">
         <h3 className="exf-facet__title" id={`${id}-h`}>
           <button type="button" aria-expanded={open} aria-controls={`${id}-b`} onClick={onToggle}>
+            <span className="exf-facet__name">{LABELS[field]}</span>
             <Icon name="chevronDown" />
-            {LABELS[field]}
-            {active ? <span className="exf-badge">{active}</span> : null}
           </button>
         </h3>
         {active ? (
-          <button type="button" className="exf-link" aria-label={`Reset ${LABELS[field]}`} onClick={() => onChange(clearField(q.conds, field))}>
-            Reset
+          <button type="button" className="exf-clear" aria-label={`Reset ${LABELS[field]} (${active} selected)`} onClick={() => onChange(clearField(q.conds, field))}>
+            <Icon name="x" />
+            <span>{active}</span>
           </button>
         ) : null}
       </div>
       {open ? (
         <div className="exf-facet__body" id={`${id}-b`}>
           {searchable ? (
-            <input
-              type="search"
-              className="exf-search"
-              aria-label={`Search ${LABELS[field]}`}
-              placeholder={async ? `Search ${LABELS[field].toLowerCase()}…` : "Search…"}
-              value={search}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="exf-search">
+              <Icon name="search" />
+              <input
+                type="search"
+                aria-label={`Search ${LABELS[field]}`}
+                placeholder={async ? `Search ${LABELS[field].toLowerCase()}…` : "Search"}
+                value={search}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           ) : null}
           {read.state === "loading" ? (
             <ul className="exf-list" aria-busy="true" aria-label={`${LABELS[field]} values`}>
@@ -216,7 +218,16 @@ function Facet({
           ) : field === "status" ? (
             <StatusList values={local} selected={selected} onSet={set} onOnly={only} labelId={`${id}-h`} />
           ) : local.length === 0 ? (
-            <p className="exf-note">{needle ? "No values match." : "No values in this range."}</p>
+            <div className="exf-empty">
+              {needle ? (
+                <>
+                  <p className="exf-empty__title">No results found</p>
+                  <p>Try a different search term</p>
+                </>
+              ) : (
+                <p>No values in this range</p>
+              )}
+            </div>
           ) : (
             <ul className="exf-list" aria-label={`${LABELS[field]} values`} style={{ maxHeight: LIST_MAX }}>
               {local.map((v) => (
@@ -273,20 +284,18 @@ function StatusList({
               onOnly={onOnly}
               mono
               tag="div"
-              lead={
+              trail={
                 codes.length + extra.length ? (
                   <button
                     type="button"
-                    className={`exf-expand${isOpen ? " is-open" : ""}`}
+                    className="exf-expand"
                     aria-expanded={isOpen}
                     aria-label={`${isOpen ? "Hide" : "Show"} ${cls} codes`}
                     onClick={() => setExpanded((e) => (isOpen ? e.filter((x) => x !== cls) : [...e, cls]))}
                   >
-                    <Icon name="chevronDown" />
+                    <Icon name={isOpen ? "minus" : "plus"} />
                   </button>
-                ) : (
-                  <span className="exf-expand" />
-                )
+                ) : null
               }
             />
             {isOpen ? (
@@ -301,6 +310,7 @@ function StatusList({
                     onSet={onSet}
                     onOnly={onOnly}
                     mono
+                    nested
                   />
                 ))}
               </ul>
@@ -320,7 +330,8 @@ function ValueRow({
   onSet,
   onOnly,
   mono,
-  lead,
+  trail,
+  nested,
   tag: Tag = "li",
 }: {
   tag?: "li" | "div";
@@ -331,16 +342,22 @@ function ValueRow({
   onSet: (value: string, on: boolean) => void;
   onOnly: (value: string) => void;
   mono?: boolean;
-  lead?: ReactNode;
+  /** A control at the row's right, before the count (Status's +/- that opens a class's codes). */
+  trail?: ReactNode;
+  /** A status code under its class: Supabase's nested option row, hung off a tree line. */
+  nested?: boolean;
 }) {
   const id = useId();
   return (
-    <Tag className={`exf-item${checked ? " is-checked" : ""}`}>
-      {lead}
-      <input id={id} type="checkbox" checked={checked} onChange={(e) => onSet(value, e.target.checked)} />
+    <Tag className={`exf-item${checked ? " is-checked" : ""}${nested ? " exf-item--nested" : ""}`}>
+      <span className="exf-check">
+        <input id={id} type="checkbox" checked={checked} onChange={(e) => onSet(value, e.target.checked)} />
+        <Icon name="check" />
+      </span>
       <label htmlFor={id} className={`exf-label${mono ? " is-mono" : ""}`} title={label}>
-        {label}
+        <span className="exf-label__text">{label}</span>
       </label>
+      {trail}
       <span className="exf-count" title={`${count.toLocaleString("en-US")} requests`}>
         {compactCount(count)}
       </span>

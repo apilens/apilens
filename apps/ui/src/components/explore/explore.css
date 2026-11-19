@@ -138,7 +138,7 @@
 
 /* The facets in the shell's sidebar (#1061): the SidePanel body scrolls them, its header holds Reset. */
 .exf-slot .exf { height: auto; }
-.exf-slot .exf-scroll { overflow: visible; padding: var(--space-2) 0; }
+.exf-slot .exf-scroll { overflow: visible; }
 .exf-actions { display: flex; }
 .exf-reset { height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 500 12px/16px var(--font-sans); cursor: pointer; }
 .exf-reset:hover { background: var(--surface-2); color: var(--ink); }
@@ -202,7 +202,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .exl-bone, .ex-tbtn__icon.is-spinning, .exd-sheet { animation: none; }
-  .exr-data, .exf-facet__title .cp-ic, .exf-expand .cp-ic { transition: none; }
+  .exr-data, .exf-facet__title .cp-ic, .exf-item, .exf-check input { transition: none; }
 }
 
 /* The table. */
@@ -257,41 +257,106 @@
 .exr-empty p { margin: 0; }
 .exr-empty__title { font-weight: 500; font-size: 14px; color: var(--ink); }
 
+/* The facets: Supabase's DataTableFilterControls + DataTableFilterCheckbox (apps/studio/components/
+   ui/DataTable/DataTableFilters/*) on packages/ui's Accordion and Checkbox. No shadow anywhere:
+   Studio separates with 1px --border hairlines only. */
 .exf { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.exf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) 0; scrollbar-width: thin; }
-.exf-facet { padding: 2px var(--space-3); }
-.exf-facet + .exf-facet { border-top: 1px solid var(--border); }
-.exf-facet__head { display: flex; align-items: center; gap: var(--space-2); }
+/* FilterSideBar.tsx:73: the body is px-4 py-1.5. */
+.exf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 16px; scrollbar-width: thin; }
+/* AccordionItem className="border-none": no rule between facets. */
+.exf-facet { padding: 0; }
+/* DataTableFilterControls.tsx: the header row is `flex items-center gap-2 pr-2`. */
+.exf-facet__head { display: flex; align-items: center; gap: 8px; padding-right: 8px; }
 .exf-facet__title { flex: 1; min-width: 0; margin: 0; font: inherit; }
-.exf-facet__title button { display: flex; align-items: center; gap: 6px; width: 100%; height: 32px; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--ink); font: 500 13px/1 var(--font-sans); cursor: pointer; }
-.exf-facet__title button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.exf-facet__title .cp-ic { width: 12px; height: 12px; color: var(--ink-muted); transform: rotate(-90deg); transition: transform .12s; }
-.exf-facet.is-open .exf-facet__title .cp-ic { transform: none; }
-.exf-badge { min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font: 500 11px/16px var(--font-mono); text-align: center; }
-.exf-facet__body { padding: 0 0 var(--space-2); }
+/* AccordionTrigger (accordion.tsx) with the controls' className: flex-1 gap-2 justify-between px-2
+   py-0, font-medium, text-sm (13px) in a py-2 box; closed text-muted-foreground (--foreground-light),
+   open text-foreground, a closed one hovered or focused text-foreground; never underlined. Focus is
+   focus-inset (utilities.css): a 2px --ring outline, offset -2px, rounded-md, drawn at once. */
+.exf-facet__title button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0 8px; border: 0; border-radius: var(--radius-control); outline: 2px solid transparent; outline-offset: -2px; background: none; color: var(--ink-soft); font: 500 13px/calc(1.25 / 0.875) var(--font-sans); text-align: left; cursor: pointer; transition: color .15s cubic-bezier(.4, 0, .2, 1); }
+.exf-facet__title button:hover, .exf-facet__title button:focus-visible, .exf-facet.is-open .exf-facet__title button { color: var(--ink); }
+.exf-facet__title button:focus-visible { outline-color: var(--ring); }
+.exf-facet__name { min-width: 0; overflow: hidden; padding: 8px 0; text-overflow: ellipsis; white-space: nowrap; }
+/* The ChevronDown: h-4 w-4 at the right, currentColor, rotate-180 open, transition-transform 200ms. */
+.exf-facet__title .cp-ic { flex: none; width: 16px; height: 16px; stroke-width: 2; transition: transform .2s cubic-bezier(.4, 0, .2, 1); }
+.exf-facet.is-open .exf-facet__title .cp-ic { transform: rotate(180deg); }
+/* DataTableFilterResetButton.tsx: Button outline, h-5 rounded-full px-1.5 py-1, font-mono 10px,
+   an X icon and the count, space-x-1. Outline (Button.tsx): border-strong, hover a stronger border. */
+.exf-clear { flex: none; display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 20px; padding: 4px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); outline: none; background: transparent; color: var(--ink); font: 450 10px/1 var(--font-mono); cursor: pointer; transition: border-color .2s cubic-bezier(.22, 1, .36, 1), background-color .2s cubic-bezier(.22, 1, .36, 1); }
+.exf-clear:hover { border-color: var(--ink-muted); }
+.exf-clear:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+.exf-clear .cp-ic { width: 12px; height: 12px; stroke-width: 2; color: var(--ink-muted); }
+.exf-clear span { transform: translateY(-.6px); }
+/* AccordionContent: overflow-hidden text-sm, pb-4; the controls wrap it in p-1. */
+.exf-facet__body { display: grid; gap: 8px; padding: 4px 4px 20px; }
 .exf-link { padding: 0; border: 0; background: none; color: var(--accent-ink); font: 500 12px/16px var(--font-sans); cursor: pointer; }
 .exf-link:hover { text-decoration: underline; }
 .exf-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
-.exf-search { box-sizing: border-box; width: 100%; height: 28px; margin: 0 0 6px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 400 12px/1 var(--font-sans); }
-.exf-search:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.exf-list { max-height: 215px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
-.exf-sub { margin: 0; padding: 0 0 0 20px; list-style: none; }
-.exf-item { display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 4px; border-radius: 4px; }
-.exf-item:hover, .exf-item:focus-within { background: var(--surface-2); }
-.exf-item input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
-.exf-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 13px/1.2 var(--font-sans); color: var(--ink); cursor: pointer; }
-.exf-label.is-mono { font: 400 12px/1.2 var(--font-mono); }
-.exf-count { flex: none; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
-.exf-only { display: none; flex: none; padding: 0 2px; border: 0; background: none; color: var(--accent-ink); font: 500 11px/16px var(--font-sans); cursor: pointer; }
-.exf-item:hover > .exf-count, .exf-item:focus-within > .exf-count { display: none; }
-.exf-item:hover > .exf-only, .exf-item:focus-within > .exf-only { display: inline; }
-.exf-group > .exf-item { padding-left: 0; }
-.exf-expand { flex: none; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; background: none; color: var(--ink-muted); cursor: pointer; }
-.exf-expand .cp-ic { width: 12px; height: 12px; transform: rotate(-90deg); transition: transform .12s; }
-.exf-expand.is-open .cp-ic { transform: none; }
-.exf-item--skeleton { justify-content: space-between; }
+/* InputWithAddons (DataTable/primitives) with containerClassName h-8 rounded-sm: border-input,
+   transparent, a 14px search icon in foreground-lighter in a px-2 addon, the input text 12px with
+   a foreground-lighter placeholder; focus-within ring-2 ring-ring ring-offset-2. */
+.exf-search { display: flex; align-items: center; box-sizing: border-box; width: 100%; height: 32px; overflow: hidden; border: 1px solid var(--control-border); border-radius: var(--radius-xs); background: transparent; }
+.exf-search:focus-within { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+.exf-search .cp-ic { flex: none; box-sizing: content-box; width: 14px; height: 14px; stroke-width: 2; padding: 0 8px; color: var(--ink-muted); }
+.exf-search input { flex: 1; min-width: 0; height: 100%; padding: 8px 0; border: 0; outline: none; background: transparent; color: var(--ink); font: 450 12px/1 var(--font-sans); }
+.exf-search input::placeholder { color: var(--ink-muted); }
+/* The value list: max-h-[215px] overflow-y-auto rounded-sm border, a border-b between options. */
+.exf-list { max-height: 215px; overflow-y: auto; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-xs); list-style: none; }
+.exf-list > li:not(:last-child) { border-bottom: 1px solid var(--border); }
+.exf-sub { margin: 0; padding: 0 0 4px; list-style: none; }
+/* An option: `group relative flex items-center space-x-2 pl-2 hover:bg-accent/50`; its Label
+   py-2, leading-none, text-[0.8rem], text-foreground/70, group-hover text-accent-foreground. */
+.exf-item { position: relative; display: flex; align-items: center; gap: 8px; padding-left: 8px; color: color-mix(in srgb, var(--ink) 70%, transparent); transition: background-color .15s cubic-bezier(.4, 0, .2, 1), color .15s cubic-bezier(.4, 0, .2, 1); }
+.exf-item:hover { background: color-mix(in srgb, var(--selection) 50%, transparent); color: var(--ink); }
+.exf-label { flex: 1; min-width: 0; display: flex; padding: 8px 0; font: 450 12.8px/1 var(--font-sans); color: inherit; cursor: pointer; }
+.exf-label__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exf-label.is-mono { font-family: var(--font-mono); }
+/* The count: shrink-0 font-mono text-xs pr-2, the label's colour; group-hover opacity-0. */
+.exf-count { flex: none; padding-right: 8px; font: 450 12px/16px var(--font-mono); color: inherit; font-variant-numeric: tabular-nums; }
+.exf-item:hover > .exf-count { opacity: 0; }
+/* "Only": text-xs text-muted-foreground hover:text-foreground, absolute inset-y-0 right-0, hidden
+   until group-hover or group-focus-within, on bg-surface-100, label pl-1 pr-2, focus-ring. */
+.exf-only { position: absolute; top: 0; right: 0; bottom: 0; display: none; align-items: center; padding: 0 8px 0 4px; border: 0; outline: none; background: var(--surface-1); color: var(--ink-soft); font: 450 12px/16px var(--font-sans); cursor: pointer; transition: color .15s cubic-bezier(.4, 0, .2, 1); }
+.exf-only:hover { color: var(--ink); }
+.exf-only:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+.exf-item:hover > .exf-only, .exf-item:focus-within > .exf-only { display: flex; }
+/* Checkbox (packages/ui shadcn/ui/checkbox.tsx): h-4 w-4 rounded-sm, border border-control,
+   bg-control/25 (white at about 0.5%, left transparent), hover border-strong (the same colour as
+   border-control in Studio), transition-colors 150ms ease-in-out, focus-ring; checked
+   bg-foreground with a 12px Check, stroke 4, in text-background. */
+.exf-check { position: relative; flex: none; display: grid; width: 16px; height: 16px; }
+.exf-check input { grid-area: 1 / 1; appearance: none; box-sizing: border-box; width: 16px; height: 16px; margin: 0; border: 1px solid var(--control-border); border-radius: var(--radius-xs); outline: none; background: transparent; cursor: pointer; transition: background-color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out; }
+.exf-check input:checked { background: var(--ink); }
+.exf-check input:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+.exf-check .cp-ic { grid-area: 1 / 1; place-self: center; width: 12px; height: 12px; stroke: var(--bg); stroke-width: 4; opacity: 0; pointer-events: none; }
+.exf-check input:checked + .cp-ic { opacity: 1; }
+/* The nested toggle: h-4 w-4 rounded-sm text-foreground-lighter, hover bg-selection and
+   text-foreground, absolute top-2 right-10; Plus / Minus at 12px. */
+.exf-expand { position: absolute; z-index: 1; top: 8px; right: 40px; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: var(--radius-xs); outline: none; background: none; color: var(--ink-muted); cursor: pointer; }
+.exf-expand:hover { background: var(--selection); color: var(--ink); }
+.exf-expand:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+.exf-expand .cp-ic { width: 12px; height: 12px; stroke-width: 2; }
+/* A nested option: a w-7 tree column, then `flex items-center gap-x-2 rounded-sm py-1 pr-2
+   hover:bg-accent/50` with a text-xs label. The tree is border-coloured: a w-px line at 0.95rem
+   with a 12px tick at 55%, the last row an elbow (border-l border-b rounded-bl-sm) to its middle;
+   the first reaches 8px up into the option above. */
+.exf-item--nested { margin-left: 28px; padding: 4px 8px 4px 0; border-radius: var(--radius-xs); }
+.exf-item--nested .exf-label { padding: 0; font-size: 12px; }
+.exf-item--nested .exf-count { padding-right: 0; }
+.exf-item--nested::before, .exf-item--nested::after { content: ""; position: absolute; pointer-events: none; }
+.exf-item--nested::before { left: calc(15.2px - 28px); top: 0; height: 100%; width: 1px; background: var(--border); }
+.exf-item--nested::after { left: -12px; top: 55%; width: 12px; height: 1px; background: var(--border); }
+.exf-sub > .exf-item--nested:first-child::before { top: -8px; height: calc(100% + 8px); }
+.exf-sub > .exf-item--nested:last-child::before { width: 12px; height: 50%; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); border-bottom-left-radius: var(--radius-xs); background: none; box-sizing: border-box; }
+.exf-sub > .exf-item--nested:first-child:last-child::before { top: -8px; height: calc(60% + 8px); }
+.exf-sub > .exf-item--nested:last-child::after { display: none; }
+.exf-item--skeleton { justify-content: space-between; height: 29px; padding-right: 8px; }
 .exf-item--skeleton .exl-bone { width: 60%; }
 .exf-item--skeleton .exf-bone-count { width: 24px; }
+/* Empty: `flex items-center justify-center px-2 py-4 text-center border rounded-sm`, text-xs;
+   "No results found" text-foreground over "Try a different search term" text-foreground-lighter. */
+.exf-empty { display: grid; gap: 2px; padding: 16px 8px; border: 1px solid var(--border); border-radius: var(--radius-xs); text-align: center; font: 450 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exf-empty p { margin: 0; }
+.exf-empty__title { color: var(--ink); }
 .exf-note { margin: 4px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
 

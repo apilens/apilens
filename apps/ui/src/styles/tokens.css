@@ -6,8 +6,12 @@
   --surface-2: #1f1f1f;
   --border: #242424;
   --border-strong: #676767;
+  --selection: rgb(238 238 238 / 0.049);
+  --control-border: rgb(238 238 238 / 0.135);
+  --ring: rgb(164 170 240 / 0.55);
   --grid: #1b1b1b;
   --ink: #eeeeee;
+  --ink-soft: #bcbdbc;
   --ink-muted: #999999;
   --accent: #5f5fc1;
   --accent-ink: #a4aaf0;
@@ -43,8 +47,12 @@
   --surface-2: #eef1f5;
   --border: #dde2e9;
   --border-strong: #8792a2;
+  --selection: rgb(13 17 23 / 0.045);
+  --control-border: rgb(13 17 23 / 0.147);
+  --ring: rgb(74 58 230 / 0.55);
   --grid: #e6e9ee;
   --ink: #0d1117;
+  --ink-soft: #3d4451;
   --ink-muted: #556070;
   --accent: #5b4bff;
   --accent-ink: #4a3ae6;
@@ -82,6 +90,7 @@
   --space-8: 32px;
   --space-12: 48px;
   --space-16: 64px;
+  --radius-xs: 5.333px;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;

@@ -175,10 +175,19 @@
 .sm-group + .sm-group { border-top: 1px solid var(--border); }
 .sm-gt { margin: 0 0 8px; padding: 0 12px; font: 450 13px/calc(1.25 / 0.875) var(--font-mono); letter-spacing: 0; text-transform: uppercase; color: var(--ink-muted); }
 .sm-list { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
-.sm-item { display: flex; align-items: center; gap: 4px; margin: 1px 0; padding: 3px 12px; border-radius: var(--radius-control); color: var(--ink-muted); font: 450 13px/calc(1.25 / 0.875) var(--font-sans); text-decoration: none; white-space: nowrap; transition: background-color .15s, color .15s; }
-.sm-item:hover { background: color-mix(in srgb, var(--surface-2) 50%, transparent); color: var(--ink); }
-.sm-item.on { background: var(--surface-2); color: var(--ink); font-weight: 600; }
-.sm-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-ink); }
+/* Menu.tsx pills: `my-px px-3 py-[3px] rounded-md transition-colors`, text `transition text-sm`
+   (Tailwind's 150ms cubic-bezier(.4,0,.2,1) on background and colour). At rest font-normal (450)
+   in --foreground-light; hover bg-sidebar-accent/50 and --foreground; active bg-sidebar-accent,
+   --foreground, font-semibold; pressed (`active:`) bg-sidebar-accent/50, on the current item too.
+   Focus is the focus-ring utility through the Link (`group-focus-visible:ring-2 ring-ring
+   ring-offset-2 ring-offset-background`): a 2px ring 2px off the pill, the gap in --bg. No shadow:
+   Supabase has none on the panel, its header or its items; the panel's right edge and the header's
+   bottom are 1px --border hairlines. */
+.sm-item { position: relative; display: flex; align-items: center; gap: 4px; margin: 1px 0; padding: 3px 12px; border-radius: var(--radius-control); outline: none; color: var(--ink-soft); font: 450 13px/calc(1.25 / 0.875) var(--font-sans); text-decoration: none; white-space: nowrap; transition: background-color .15s cubic-bezier(.4, 0, .2, 1), color .15s cubic-bezier(.4, 0, .2, 1); }
+.sm-item:hover { background: color-mix(in srgb, var(--selection) 50%, transparent); color: var(--ink); }
+.sm-item.on { background: var(--selection); color: var(--ink); font-weight: 600; }
+.sm-item:active { background: color-mix(in srgb, var(--selection) 50%, transparent); }
+.sm-item:focus-visible { z-index: 10; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
 .sm-item--danger:not(.on) { color: var(--error); }
 .sm-lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* ProductMenuItem.tsx:45-49 puts a Badge (variant warning) after the label: badge.tsx:7,12. */
