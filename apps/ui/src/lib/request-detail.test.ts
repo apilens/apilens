@@ -10,7 +10,6 @@ import {
   levelTone,
   markerSegments,
   moveTab,
-  eventDelta,
   streamSummary,
   offsetMs,
   contentTypeOf,
@@ -100,12 +99,12 @@ describe("parseBody", () => {
     expect(parseBody(stream, "text/event-stream")).toEqual({
       kind: "events",
       events: [
-        { event: "RunStarted", data: { run_id: "r1" }, text: '{"run_id":"r1"}', partial: false },
-        { event: "message", data: "plain", text: "plain", partial: false },
-        { event: "RunContent", data: '{"content":"Hel', text: '{"content":"Hel', partial: true },
+        { event: "RunStarted", named: true, id: "", data: { run_id: "r1" }, text: '{"run_id":"r1"}', partial: false },
+        { event: "message", named: false, id: "", data: "plain", text: "plain", partial: false },
+        { event: "RunContent", named: true, id: "", data: '{"content":"Hel', text: '{"content":"Hel', partial: true },
       ],
     });
-    expect(parseEventStream('event: a\ndata: 1\ndata: 2\n\n')).toEqual([{ event: "a", data: "1\n2", text: "1\n2", partial: false }]);
+    expect(parseEventStream('event: a\nid: 7\ndata: 1\ndata: 2\n\n')).toEqual([{ event: "a", named: true, id: "7", data: "1\n2", text: "1\n2", partial: false }]);
   });
 });
 
@@ -307,62 +306,25 @@ describe("detailRead", () => {
 });
 
 describe("streamSummary", () => {
-  const ev = (event: string, data: unknown) => ({ event, data, text: JSON.stringify(data), partial: false });
-  it("counts types, groups runs, joins content deltas and collects ids", () => {
-    const s = streamSummary([
-      ev("RunStarted", { run_id: "r1", session_id: "s1", agent_name: "Mira", model: "gpt-x" }),
-      ev("RunContent", { run_id: "r1", content: "Hel" }),
-      ev("RunContent", { run_id: "r1", content: "lo" }),
-      ev("ToolCallStarted", { run_id: "r1", tool: { tool_name: "search" } }),
-      ev("RunContent", { run_id: "r1", content: "!" }),
-      ev("RunCompleted", { run_id: "r1", content: "Hello!" }),
-    ]);
-    expect(s.types).toEqual([
-      { name: "RunStarted", count: 1 },
-      { name: "RunContent", count: 3 },
-      { name: "ToolCallStarted", count: 1 },
-      { name: "RunCompleted", count: 1 },
-    ]);
+  const ev = (data: unknown, event = "", id = "") => ({ event: event || "message", named: event !== "", id, data, text: typeof data === "string" ? data : JSON.stringify(data), partial: false });
+
+  it("folds runs of one sent event name; unnamed events never fold", () => {
+    const s = streamSummary([ev({ a: 1 }, "start"), ev({ d: "x" }, "delta"), ev({ d: "y" }, "delta"), ev({ n: 1 }), ev({ n: 2 }), ev({ ok: true }, "end")]);
     expect(s.groups.map((g) => [g.name, g.from, g.to])).toEqual([
-      ["RunStarted", 0, 0],
-      ["RunContent", 1, 2],
-      ["ToolCallStarted", 3, 3],
-      ["RunContent", 4, 4],
-      ["RunCompleted", 5, 5],
+      ["start", 0, 0],
+      ["delta", 1, 2],
+      ["message", 3, 3],
+      ["message", 4, 4],
+      ["end", 5, 5],
     ]);
-    expect(s.output).toBe("Hello!");
-    expect(s.chunks).toBe(3);
-    // Fields every event carrying them shares: run_id in all six; the others are in only one.
-    expect(s.shared).toEqual([{ key: "run_id", value: "r1", count: 6 }]);
-    // The real response: the last event, with the whole text it carries.
-    expect(s.final).toEqual({ index: 5, name: "RunCompleted", data: { run_id: "r1", content: "Hello!" }, text: "Hello!" });
   });
 
-  it("reads OpenAI and Anthropic deltas and ignores plain messages", () => {
-    expect(eventDelta(ev("message", { choices: [{ delta: { content: "Hi" } }] }))).toBe("Hi");
-    expect(eventDelta(ev("content_block_delta", { delta: { type: "text_delta", text: "yo" } }))).toBe("yo");
-    expect(eventDelta(ev("message", { content: "whole" }))).toBeNull();
-    expect(eventDelta(ev("message", "plain"))).toBeNull();
-  });
-
-  it("finds shared fields whatever they are called, and skips ones that change", () => {
-    const s = streamSummary([
-      ev("progress", { job: "j-9", region: "eu", pct: 10 }),
-      ev("progress", { job: "j-9", region: "eu", pct: 60 }),
-      ev("result", { job: "j-9", ok: true }),
-    ]);
-    expect(s.shared).toEqual([
-      { key: "job", value: "j-9", count: 3 },
-      { key: "region", value: "eu", count: 2 },
-    ]);
-    expect(s.output).toBe("");
-    expect(s.final).toEqual({ index: 2, name: "result", data: { job: "j-9", ok: true }, text: "" });
-  });
-
-  it("skips a [DONE] marker when it picks the response", () => {
-    const done = { event: "message", data: "[DONE]", text: "[DONE]", partial: false };
-    const s = streamSummary([ev("message", { choices: [{ delta: { content: "Hi" } }] }), ev("message", { choices: [{ delta: {}, finish_reason: "stop" }] }), done]);
-    expect(s.final?.index).toBe(1);
-    expect(s.output).toBe("Hi");
+  it("takes the last JSON event as the response, whatever its fields", () => {
+    expect(streamSummary([ev({ step: 1 }), ev({ result: { rows: 3 } }, "done")]).final).toEqual({ index: 1, data: { result: { rows: 3 } }, json: true });
+    // A closing marker that is not JSON (OpenAI's [DONE]) is passed over.
+    expect(streamSummary([ev({ choices: [] }), ev("[DONE]")]).final).toEqual({ index: 0, data: { choices: [] }, json: true });
+    // No JSON at all: the last event, as text.
+    expect(streamSummary([ev("tick"), ev("tock")]).final).toEqual({ index: 1, data: "tock", json: false });
+    expect(streamSummary([]).final).toBeNull();
   });
 });

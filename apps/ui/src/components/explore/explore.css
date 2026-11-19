@@ -880,30 +880,9 @@ span.rd-j-tog { cursor: default; }
 .rd-bare { display: grid; gap: 8px; }
 
 
-/* Event streams (EventStream), for any stream: the response card, the streamed text folded, then
-   one toolbar (search, type, count), the shared fields in one folded line, and the events. */
-.rd-stream { display: grid; gap: 12px; min-width: 0; }
-.rd-stream__card { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
-.rd-stream__head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.rd-stream__title { font: 500 13px/20px var(--font-sans); color: var(--ink); }
-.rd-stream__text { margin: 0; max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 13px/20px var(--font-sans); }
-.rd-stream__more > summary { display: flex; align-items: center; gap: 6px; font: 500 13px/20px var(--font-sans); cursor: pointer; list-style: none; }
-.rd-stream__more > summary::-webkit-details-marker { display: none; }
-.rd-stream__more[open] > summary .rd-chev { transform: rotate(90deg); }
+/* A stream's Events tab (StreamEvents): Collapse all over the events in order. */
 .rd-stream__events { display: grid; gap: 8px; min-width: 0; }
 .rd-stream__bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.rd-stream__search { flex: 1 1 160px; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 400 12px/16px var(--font-sans); }
-.rd-stream__search:focus-visible, .rd-stream__type:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.rd-stream__type { flex: 0 1 200px; min-width: 0; height: 28px; padding: 0 26px 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 9px center; appearance: none; color: var(--ink); font: 400 12px/16px var(--font-mono); text-overflow: ellipsis; cursor: pointer; }
-.rd-stream__count { flex: none; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
-.rd-stream__shared { border: 1px solid var(--border); border-radius: 6px; }
-.rd-stream__sharedrow { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 30px; padding: 0 10px; border: 0; background: none; color: var(--ink); font: 400 12px/16px var(--font-sans); text-align: left; cursor: pointer; }
-.rd-stream__shared.is-open .rd-chev { transform: rotate(90deg); }
-.rd-stream__keys { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); }
-.rd-stream__ids { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 20px; margin: 0; padding: 8px 12px 12px 30px; border-top: 1px solid var(--border); }
-.rd-stream__ids dt { font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
-.rd-stream__ids dd { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 2px 0 0; }
-.rd-stream__ids code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-mono); color: var(--ink); }
 .rd-events__none { padding: 10px 12px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .rd-events__times { flex: none; font: 500 11px/16px var(--font-mono); color: var(--ink-muted); }
 .rd-events--nested { margin: 0 0 4px 22px; border-left: 1px solid var(--border); }
@@ -917,16 +896,8 @@ span.rd-j-tog { cursor: default; }
 /* The Raw tab's JSON fills the section: down to the drawer's footer, not the 480px cap. */
 .rd-json__scroll.is-fill { max-height: calc(100dvh - 190px); }
 
-/* Keep the stream view inside the drawer: long ids and keys cut, never widen it. */
-.exd-subsec > [role="tabpanel"], .rd-bare, .rd-stream, .rd-stream__events { min-width: 0; }
-.rd-stream__shared { min-width: 0; overflow: hidden; }
-.rd-stream__sharedrow > span:not(.rd-stream__keys) { flex: none; white-space: nowrap; }
-.rd-stream__bar .rd-stream__type { max-width: 45%; }
+/* Keep the body and stream views inside the drawer: long lines cut, never widen it. */
+.exd-subsec > [role="tabpanel"], .rd-bare, .rd-stream__events { min-width: 0; }
 
-/* A stream's Body (StreamResponse): where the text came from, the text, then folded extras and
-   the shared fields; the Events tab (StreamEvents) holds the events. */
-.rd-stream__from { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
-.rd-stream__from code { font: 400 12px/16px var(--font-mono); color: var(--ink); }
-.rd-stream__more { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
-.rd-stream__more[open] { display: grid; gap: 8px; }
-.rd-stream > .rd-stream__ids { padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.rd-stream__bar { justify-content: flex-end; }
+.rd-events__id { flex: none; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }

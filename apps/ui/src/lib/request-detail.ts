@@ -107,8 +107,12 @@ export function parseHeaders(text: string): [string, string][] | null {
 
 /** One server-sent event of a stored `text/event-stream` body. */
 export interface StreamEvent {
-  /** The `event:` name, `message` when the event names none. */
+  /** The `event:` name, `message` when the event names none (the SSE default). */
   event: string;
+  /** Whether the server sent an `event:` field; most streams send only `data:`. */
+  named: boolean;
+  /** The `id:` field, "" when none. */
+  id: string;
   /** The `data:` lines joined, parsed when they are JSON. */
   data: unknown;
   /** The data as stored. */
@@ -142,6 +146,7 @@ export function parseEventStream(text: string): StreamEvent[] {
   const out: StreamEvent[] = [];
   blocks.forEach((block, i) => {
     let event = "";
+    let eventId = "";
     const data: string[] = [];
     for (const line of block.split("\n")) {
       const colon = line.indexOf(":");
@@ -150,6 +155,7 @@ export function parseEventStream(text: string): StreamEvent[] {
       const value = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
       if (field === "event") event = value;
       else if (field === "data") data.push(value);
+      else if (field === "id") eventId = value;
     }
     if (data.length === 0) return;
     const joined = data.join("\n");
@@ -159,114 +165,50 @@ export function parseEventStream(text: string): StreamEvent[] {
     } catch {
       // Plain-text data, or JSON cut at the capture limit: shown as stored.
     }
-    out.push({ event: event || "message", data: parsed, text: joined, partial: cut && i === blocks.length - 1 });
+    out.push({ event: event || "message", named: event !== "", id: eventId, data: parsed, text: joined, partial: cut && i === blocks.length - 1 });
   });
   return out;
 }
 
-/** One run of consecutive events of the same name, as the stream view groups them (indices into the events). */
+/** One run of consecutive events the server named alike (indices into the events). */
 export interface StreamGroup {
   name: string;
   from: number;
   to: number;
 }
 
-/** A field every event that has it carries with one value (a run, session, model or request id). */
-export interface StreamShared {
-  key: string;
-  value: string;
-  /** How many events carry it. */
-  count: number;
-}
-
-/** What a stream adds up to: its event types, its runs, the text it streamed and the fields its events share. */
+/**
+ * What a stream adds up to, from the SSE standard alone (`event`, `data`, `id`; no field inside
+ * the data is assumed): its runs and its response.
+ */
 export interface StreamSummary {
-  types: { name: string; count: number }[];
-  groups: StreamGroup[];
-  /** The streamed text, joined from the content deltas; "" when the events carry none. */
-  output: string;
-  /** How many events added to `output`. */
-  chunks: number;
-  shared: StreamShared[];
   /**
-   * The stream's real response: its last event with data (a `[DONE]` marker skipped), and the
-   * whole text that event carries (`content`, `output`, `result`, `text`, `message`) when it does.
+   * Runs of consecutive events: events the server named with one `event:` fold into one run;
+   * unnamed events stay one per run.
    */
-  final: { index: number; name: string; data: unknown; text: string } | null;
+  groups: StreamGroup[];
+  /**
+   * The stream's response: its last event whose data is JSON (a closing marker such as
+   * `[DONE]` is not), else its last event; null for no events.
+   */
+  final: { index: number; data: unknown; json: boolean } | null;
 }
 
-/** The whole text a final event carries, or "" (a string `content`, `output`, `result`, `text` or `message`, or `message.content`). */
-function finalText(data: unknown): string {
-  const d = record(data);
-  if (!d) return "";
-  for (const v of [d.content, d.output, d.result, d.text, d.message, record(d.message)?.content]) if (typeof v === "string" && v.trim()) return v;
-  return "";
-}
+const isJson = (e: StreamEvent) => e.data !== null && typeof e.data === "object";
 
-/** Fields that name an event or its place rather than tie events together. */
-const NOT_SHARED = new Set(["event", "type", "object", "index", "content", "delta", "text", "data", "created_at", "created", "timestamp", "sequence_number"]);
-/** A shared value longer than this is content, not an id. */
-const SHARED_MAX = 120;
-
-const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
-
-/**
- * The text one event adds to the streamed output, or null: OpenAI's `choices[0].delta.content`,
- * or a string `content` / `delta` / `text` (or `delta.text`) on an event whose name says content,
- * delta, chunk or token. Completed and done events repeat the whole output, so they add nothing.
- */
-export function eventDelta(e: Pick<StreamEvent, "event" | "data">): string | null {
-  const d = record(e.data);
-  if (!d) return null;
-  const name = `${e.event} ${typeof d.event === "string" ? d.event : ""} ${typeof d.type === "string" ? d.type : ""}`.toLowerCase();
-  if (/complete|done|\bend\b|stop/.test(name)) return null;
-  const choice = record(Array.isArray(d.choices) ? d.choices[0] : null);
-  const openai = record(choice?.delta)?.content;
-  if (typeof openai === "string") return openai;
-  if (!/content|delta|chunk|token/.test(name)) return null;
-  for (const v of [d.content, d.delta, d.text, record(d.delta)?.text]) if (typeof v === "string") return v;
-  return null;
-}
-
-/**
- * A stream's summary for the drawer, for any stream: its types and runs, the text joined from its
- * content deltas, the top-level fields that every event carrying them carries with one value (in
- * at least two events), whatever they are called, and its final event, the real response.
- */
+/** A stream's summary for the drawer (see StreamSummary). */
 export function streamSummary(events: readonly StreamEvent[]): StreamSummary {
-  const counts = new Map<string, number>();
   const groups: StreamGroup[] = [];
-  const seen = new Map<string, { value: string; count: number; same: boolean }>();
-  let output = "";
-  let chunks = 0;
   events.forEach((e, i) => {
-    counts.set(e.event, (counts.get(e.event) ?? 0) + 1);
     const last = groups.at(-1);
-    if (last && last.name === e.event) last.to = i;
+    if (e.named && last && last.name === e.event && events[last.from].named) last.to = i;
     else groups.push({ name: e.event, from: i, to: i });
-    const delta = eventDelta(e);
-    if (delta !== null) {
-      output += delta;
-      chunks++;
-    }
-    const d = record(e.data);
-    if (!d) return;
-    for (const [key, raw] of Object.entries(d)) {
-      if (NOT_SHARED.has(key) || (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean")) continue;
-      const value = String(raw);
-      const had = seen.get(key);
-      if (!had) seen.set(key, { value, count: 1, same: value !== "" && value.length <= SHARED_MAX });
-      else {
-        had.count++;
-        if (had.value !== value) had.same = false;
-      }
-    }
   });
-  const shared = [...seen].filter(([, v]) => v.same && v.count >= 2).map(([key, v]) => ({ key, value: v.value, count: v.count }));
   let at = events.length - 1;
-  while (at >= 0 && typeof events[at].data === "string" && /^\s*\[DONE\]\s*$/.test(events[at].text)) at--;
-  const final = at >= 0 ? { index: at, name: events[at].event, data: events[at].data, text: finalText(events[at].data) } : null;
-  return { types: [...counts].map(([name, count]) => ({ name, count })), groups, output, chunks, shared, final };
+  while (at >= 0 && !isJson(events[at])) at--;
+  const pick = at >= 0 ? at : events.length - 1;
+  const final = pick >= 0 ? { index: pick, data: events[pick].data, json: isJson(events[pick]) } : null;
+  return { groups, final };
 }
 
 /**
