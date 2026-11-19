@@ -922,3 +922,11 @@ span.rd-j-tog { cursor: default; }
 .rd-stream__shared { min-width: 0; overflow: hidden; }
 .rd-stream__sharedrow > span:not(.rd-stream__keys) { flex: none; white-space: nowrap; }
 .rd-stream__bar .rd-stream__type { max-width: 45%; }
+
+/* A stream's Body (StreamResponse): where the text came from, the text, then folded extras and
+   the shared fields; the Events tab (StreamEvents) holds the events. */
+.rd-stream__from { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.rd-stream__from code { font: 400 12px/16px var(--font-mono); color: var(--ink); }
+.rd-stream__more { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.rd-stream__more[open] { display: grid; gap: 8px; }
+.rd-stream > .rd-stream__ids { padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
