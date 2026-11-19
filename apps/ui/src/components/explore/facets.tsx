@@ -4,17 +4,23 @@ import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import {
   type Cond,
   type ExploreQuery,
-  FACET_FIELDS,
   type FacetField,
+  LEVELS,
+  LEVEL_CLASS,
+  type Level,
+  PANEL_FIELDS,
+  type PanelField,
   clearField,
   compactCount,
+  levelOf,
   onlyValue,
   routeSearch,
-  termClass,
+  statusHit,
+  statusTermHit,
   ticked,
   toggleValue,
 } from "@/lib/explore-query";
-import { classWords, reasonPhrase, statusText } from "@/lib/http-status";
+import { reasonPhrase, statusText } from "@/lib/http-status";
 import { Icon } from "../icons";
 import { useAppNames } from "./app-names";
 import { isOpenMap, useStored } from "./use-stored";
@@ -26,7 +32,8 @@ const SEARCH_FROM = 4;
 /** How long typed search waits before it asks the API (useUnifiedLogsPathnameOptions.ts:24). */
 const SEARCH_DEBOUNCE_MS = 700;
 
-const LABELS: Record<FacetField, string> = {
+const LABELS: Record<PanelField, string> = {
+  level: "Level",
   status: "Status",
   app: "App",
   env: "Environment",
@@ -36,8 +43,11 @@ const LABELS: Record<FacetField, string> = {
   consumer_group: "Consumer group",
 };
 
+/** Open until toggled: Level, App and Environment (Supabase opens Level and closes Status). */
+const DEFAULT_OPEN: Record<string, boolean> = { level: true, app: true, env: true };
+
 /** Facets that ask the API as you type (their values are too many to list). */
-const ASYNC: ReadonlySet<FacetField> = new Set(["path", "consumer"]);
+const ASYNC: ReadonlySet<PanelField> = new Set(["path", "consumer"]);
 
 type Values = { value: string; label: string; count: number }[];
 /** `search` is the search the values answer, so typed-ahead text can hide stale values. */
@@ -48,11 +58,14 @@ type Read = { state: "loading" } | { state: "error" } | { state: "ok"; values: V
  * left out, so ticking one value keeps the others), read when the facet is open and again when
  * the other conditions, the window or `refresh` change.
  */
-function useFacetValues(project: string, q: ExploreQuery, field: FacetField, search: string, enabled: boolean, refresh: number): [Read, () => void, boolean] {
+function useFacetValues(project: string, q: ExploreQuery, panel: PanelField, search: string, enabled: boolean, refresh: number): [Read, () => void, boolean] {
   const [read, setRead] = useState<Read>({ state: "loading" });
   const [fetching, setFetching] = useState(false);
   const [retry, setRetry] = useState(0);
-  const others = clearField(q.conds, field);
+  // Level and Status both read the status counts with neither's conditions (the API leaves out
+  // status ones anyway); each applies the other's in the browser (levelValues, statusValues).
+  const field: FacetField = panel === "level" ? "status" : panel;
+  const others = field === "status" ? clearField(clearField(q.conds, "status"), "level") : clearField(q.conds, field);
   const path = `/api/projects/${encodeURIComponent(project)}/requests/facets${routeSearch({ ...q, conds: others }, { field, ...(search ? { search } : {}) })}`;
   useEffect(() => {
     if (!enabled) return;
@@ -88,8 +101,8 @@ function useFacetValues(project: string, q: ExploreQuery, field: FacetField, sea
 }
 
 /**
- * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): Status, App,
- * Environment, Method, Path, Consumer and Consumer group, each a list of values with a checkbox
+ * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): Level (success,
+ * warning, error), Status (the codes), App, Environment, Method, Path, Consumer and Consumer group, each a list of values with a checkbox
  * and the server's count (compact mono, 1.2k). Hovering a value swaps its count for "Only", which
  * keeps just that value. Ticking adds an `=` condition, so the facets and the filter bar's pills
  * are one filter set. Path and Consumer search the API as you type. Each facet has its own Reset;
@@ -106,19 +119,21 @@ export function FacetPanel({
   onChange: (conds: Cond[]) => void;
   refresh: number;
 }) {
-  const [open, setOpen] = useStored<Record<string, boolean>>("apilens.explore.facets.open", { status: true, app: true, env: true }, isOpenMap);
+  const [open, setOpen] = useStored<Record<string, boolean>>("apilens.explore.facets.open", DEFAULT_OPEN, isOpenMap);
+  // A facet the stored map doesn't name yet (Level, added after the map was stored) opens as its default.
+  const isOpen = (f: PanelField) => open[f] ?? (DEFAULT_OPEN[f] || q.conds.some((c) => c.field === f));
   return (
     <div className="exf" role="region" aria-label="Filters">
       <div className="exf-scroll">
-        {FACET_FIELDS.map((f) => (
+        {PANEL_FIELDS.map((f) => (
           <Facet
             key={f}
             project={project}
             field={f}
             query={q}
             onChange={onChange}
-            open={open[f] ?? q.conds.some((c) => c.field === f)}
-            onToggle={() => setOpen((m) => ({ ...m, [f]: !(m[f] ?? q.conds.some((c) => c.field === f)) }))}
+            open={isOpen(f)}
+            onToggle={() => setOpen((m) => ({ ...m, [f]: !isOpen(f) }))}
             refresh={refresh}
           />
         ))}
@@ -137,7 +152,7 @@ function Facet({
   refresh,
 }: {
   project: string;
-  field: FacetField;
+  field: PanelField;
   query: ExploreQuery;
   onChange: (conds: Cond[]) => void;
   open: boolean;
@@ -158,22 +173,28 @@ function Facet({
   const label = (v: { value: string; label: string }) => {
     if (field === "app") return appName(v.value) ?? `Unknown app ${v.value.slice(0, 8)}`;
     if (field === "consumer") return v.label.trim() || v.value;
-    if (field === "status") return statusText(Number(v.value));
+    if (field === "status") return /^\d{3}$/.test(v.value) ? statusText(Number(v.value)) : v.value;
+    if (field === "level") return `${v.value[0].toUpperCase()}${v.value.slice(1)} (${LEVEL_CLASS[v.value as Level]})`;
     return v.value;
   };
 
   // Ticked values come first (useUnifiedLogsPathnameOptions.ts:62-73); one the counts no longer
   // list stays, at 0, so it can be unticked.
+  const statusConds = q.conds.filter((c) => c.field === "status");
+  const levelConds = q.conds.filter((c) => c.field === "level");
   const values: Values = useMemo(() => {
-    const list = read.state === "ok" && settled ? read.values : [];
-    if (field === "status") return list;
-    const picked = selected.map((s) => list.find((v) => v.value === s) ?? { value: s, label: "", count: 0 });
+    let list = read.state === "ok" && settled ? read.values : [];
+    if (field === "level") return levelValues(list, statusConds);
+    if (field === "status") list = list.filter((v) => !/^\d{3}$/.test(v.value) || statusHit(Number(v.value), levelConds));
+    // A ticked term the counts don't list (a class or range from an older link) counts its codes.
+    const sum = (s: string) => list.reduce((n, v) => n + (field === "status" && /^\d{3}$/.test(v.value) && statusTermHit(Number(v.value), s) ? v.count : 0), 0);
+    const picked = selected.map((s) => list.find((v) => v.value === s) ?? { value: s, label: "", count: sum(s) });
     return [...picked, ...list.filter((v) => !selected.includes(v.value))];
-  }, [read, settled, selected.join("\n"), field]);
+  }, [read, settled, selected.join("\n"), field, JSON.stringify(statusConds), JSON.stringify(levelConds)]);
 
   const needle = search.trim().toLowerCase();
   const local = !async && needle ? values.filter((v) => `${v.value} ${label(v)}`.toLowerCase().includes(needle)) : values;
-  const searchable = async || (field !== "status" && values.length > SEARCH_FROM);
+  const searchable = async || (field !== "level" && values.length > SEARCH_FROM);
   const waiting = read.state === "loading" || (async && read.state === "ok" && !settled);
 
   const set = (value: string, on: boolean) => onChange(toggleValue(q.conds, field, value, on));
@@ -244,8 +265,6 @@ function Facet({
                 </li>
               ))}
             </ul>
-          ) : field === "status" ? (
-            <StatusList values={local} selected={selected} onSet={set} onOnly={only} labelId={`${id}-h`} />
           ) : local.length === 0 ? (
             <div className="exf-empty">
               {needle ? (
@@ -269,7 +288,7 @@ function Facet({
                   onSet={set}
                   onOnly={only}
                   mono={field === "method"}
-                  body={field === "path" ? <PathText path={v.value} /> : undefined}
+                  body={field === "path" ? <PathText path={v.value} /> : field === "level" ? <LevelBody level={v.value as Level} /> : field === "status" ? <CodeBody code={v.value} /> : undefined}
                 />
               ))}
             </ul>
@@ -291,117 +310,43 @@ function PathText({ path }: { path: string }) {
 }
 
 /**
- * Supabase's Level facet (UnifiedLogs.fields.tsx:51-72) on our status classes: the level's name
- * (Supabase's short words, so the 112px block never clips; the row's title and aria name keep
- * "4xx Client error") at left, then a 10px square swatch in the level's colour and the class (2xx) in a 112px block,
- * the count at the far right. success → 2xx, info → 3xx, warning → 4xx, error → 5xx
- * (DataTable.utils.ts:59-89; UnifiedLogs.utils.ts:175-184).
+ * The Level facet's rows: Supabase's three levels (DataTable.constants.ts LEVELS), each the sum of
+ * the status codes it covers that pass the status conditions. Always all three, at 0 when empty.
  */
-const LEVEL_NAMES: Record<string, string> = { "1xx": "Info", "2xx": "Success", "3xx": "Redirect", "4xx": "Warning", "5xx": "Error" };
+function levelValues(list: Values, statusConds: Cond[]): Values {
+  const sum: Record<Level, number> = { success: 0, warning: 0, error: 0 };
+  for (const v of list) {
+    const code = Number(v.value);
+    if (/^\d{3}$/.test(v.value) && statusHit(code, statusConds)) sum[levelOf(code)] += v.count;
+  }
+  return LEVELS.map((l) => ({ value: l, label: "", count: sum[l] }));
+}
 
-function LevelBody({ cls }: { cls: string }) {
+/**
+ * A Level option (UnifiedLogs.fields.tsx `level` component): the level's name, then a 10px square
+ * in its colour and the class it names (getLevelLabel: 2xx, 4xx, 5xx), in a 112px block.
+ */
+function LevelBody({ level }: { level: Level }) {
   return (
     <span className="exf-level">
-      <span className="exf-level__name">{LEVEL_NAMES[cls] ?? cls}</span>
+      <span className="exf-level__name">{level}</span>
       <span className="exf-level__tag">
-        <span className={`exf-swatch exf-swatch--${cls}`} aria-hidden="true" />
-        <span className="exf-level__cls">{cls}</span>
+        <span className={`exf-swatch exf-swatch--${level}`} aria-hidden="true" />
+        <span className="exf-level__cls">{LEVEL_CLASS[level]}</span>
       </span>
     </span>
   );
 }
 
-/** A code under its class: Supabase's Status option (UnifiedLogs.fields.tsx:80-97), the code in
- *  foreground and its reason phrase small and lighter, after the class's level dot (LogLevelDot). */
+/** A Status option (UnifiedLogs.fields.tsx `status` component): the code in foreground and its
+ *  reason phrase small and lighter. */
 function CodeBody({ code }: { code: string }) {
   const phrase = /^\d{3}$/.test(code) ? reasonPhrase(Number(code)) : "";
   return (
     <span className="exf-code">
-      <span className={`exf-dot exf-swatch--${termClass(code)}`} aria-hidden="true" />
       <span className="exf-code__num">{code}</span>
       {phrase ? <span className="exf-code__phrase">{phrase}</span> : null}
     </span>
-  );
-}
-
-/** Status: the classes (2xx, 4xx…) with their summed counts; each opens to its codes with reason phrases. */
-function StatusList({
-  values,
-  selected,
-  onSet,
-  onOnly,
-  labelId,
-}: {
-  values: Values;
-  selected: string[];
-  onSet: (value: string, on: boolean) => void;
-  onOnly: (value: string) => void;
-  labelId: string;
-}) {
-  const [expanded, setExpanded] = useState<string[]>([]);
-  const classes = ["2xx", "3xx", "4xx", "5xx"];
-  for (const v of values) {
-    const c = termClass(v.value);
-    if (c && !classes.includes(c)) classes.unshift(c);
-  }
-  for (const s of selected) {
-    const c = termClass(s);
-    if (c && !classes.includes(c)) classes.push(c);
-  }
-  return (
-    <ul className="exf-list" aria-labelledby={labelId}>
-      {classes.map((cls) => {
-        const codes = values.filter((v) => termClass(v.value) === cls);
-        const sum = codes.reduce((n, v) => n + v.count, 0);
-        const isOpen = expanded.includes(cls);
-        // Codes ticked on their own show even when the counts no longer list them.
-        const extra = selected.filter((s) => termClass(s) === cls && s !== cls && !codes.some((v) => v.value === s));
-        return (
-          <li key={cls} className="exf-group">
-            <ValueRow
-              label={`${cls} ${classWords(cls)}`.trim()}
-              value={cls}
-              count={sum}
-              checked={selected.includes(cls)}
-              onSet={onSet}
-              onOnly={onOnly}
-              tag="div"
-              body={<LevelBody cls={cls} />}
-              trail={
-                codes.length + extra.length ? (
-                  <button
-                    type="button"
-                    className="exf-expand"
-                    aria-expanded={isOpen}
-                    aria-label={`${isOpen ? "Hide" : "Show"} ${cls} codes`}
-                    onClick={() => setExpanded((e) => (isOpen ? e.filter((x) => x !== cls) : [...e, cls]))}
-                  >
-                    <Icon name={isOpen ? "minus" : "plus"} />
-                  </button>
-                ) : null
-              }
-            />
-            {isOpen ? (
-              <ul className="exf-sub" aria-label={`${cls} codes`}>
-                {[...codes, ...extra.map((s) => ({ value: s, label: "", count: 0 }))].map((v) => (
-                  <ValueRow
-                    key={v.value}
-                    label={/^\d{3}$/.test(v.value) ? statusText(Number(v.value)) : v.value}
-                    value={v.value}
-                    count={v.count}
-                    checked={selected.includes(v.value)}
-                    onSet={onSet}
-                    onOnly={onOnly}
-                    nested
-                    body={<CodeBody code={v.value} />}
-                  />
-                ))}
-              </ul>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
@@ -413,12 +358,8 @@ function ValueRow({
   onSet,
   onOnly,
   mono,
-  trail,
-  nested,
   body,
-  tag: Tag = "li",
 }: {
-  tag?: "li" | "div";
   label: string;
   value: string;
   count: number;
@@ -426,16 +367,12 @@ function ValueRow({
   onSet: (value: string, on: boolean) => void;
   onOnly: (value: string) => void;
   mono?: boolean;
-  /** A control at the row's right, before the count (Status's +/- that opens a class's codes). */
-  trail?: ReactNode;
-  /** A status code under its class: Supabase's nested option row, hung off a tree line. */
-  nested?: boolean;
   /** What the label shows in place of the plain text (the field's `component` in Supabase). */
   body?: ReactNode;
 }) {
   const id = useId();
   return (
-    <Tag className={`exf-item${checked ? " is-checked" : ""}${nested ? " exf-item--nested" : ""}`}>
+    <li className={`exf-item${checked ? " is-checked" : ""}`}>
       <span className="exf-check">
         <input id={id} type="checkbox" checked={checked} onChange={(e) => onSet(value, e.target.checked)} />
         <Icon name="check" />
@@ -443,13 +380,12 @@ function ValueRow({
       <label htmlFor={id} className={`exf-label${mono ? " is-mono" : ""}`} title={label}>
         {body ?? <span className="exf-label__text">{label}</span>}
       </label>
-      {trail}
       <span className="exf-count" title={`${count.toLocaleString("en-US")} requests`}>
         {compactCount(count)}
       </span>
       <button type="button" className="exf-only" aria-label={`Only ${label}`} onClick={() => onOnly(value)}>
         Only
       </button>
-    </Tag>
+    </li>
   );
 }

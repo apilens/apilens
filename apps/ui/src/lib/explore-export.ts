@@ -5,7 +5,7 @@
 // unit-tested in explore-export.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import { formatBytes } from "./explore";
-import { type Cond, condString } from "./explore-query";
+import { type Cond, apiConds, condString } from "./explore-query";
 import type { ExportFilterBody, ExportStatus, QueryRange, RequestExport } from "./identity";
 import { sameDay, zoneLabel, zoned } from "./time-zone";
 
@@ -22,7 +22,7 @@ export const isExportId = (id: unknown): id is string => typeof id === "string" 
 
 /** The body of an export: the API range and Explore's conditions (#1052). */
 export function exportBody(range: QueryRange, conds: readonly Cond[]): ExportFilterBody {
-  return conds.length ? { range, filters: conds.map(condString) } : { range };
+  return conds.length ? { range, filters: apiConds(conds).map(condString) } : { range };
 }
 
 /** What an export covers, in words: `the last 1 hour, 2 filters on`. */
