@@ -198,15 +198,6 @@ export function RequestPanel({
               text={() => (detail ? curlCommand(detail.request) : "")}
             />
           </Tip>
-          <Tip label="Copy the stored request as JSON">
-            <CopyAction
-              className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
-              label="JSON"
-              ariaLabel="Copy JSON"
-              disabled={!detail}
-              text={() => (detail ? JSON.stringify(detail.request, null, 2) : "")}
-            />
-          </Tip>
           <Tip label="Close" keys={["Esc"]}>
             <button type="button" className="exd-close" aria-label="Close request details" aria-keyshortcuts="Escape" onClick={onClose}>
               <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -469,6 +460,16 @@ function KvTable({ pairs, label }: { pairs: [string, string][]; label: string })
   );
 }
 
+/** Headers as a JSON object (a repeated name keeps its values in an array), for Copy. */
+function headersJson(pairs: [string, string][]): string {
+  const out: Record<string, string | string[]> = {};
+  for (const [k, v] of pairs) {
+    const had = out[k];
+    out[k] = had === undefined ? v : Array.isArray(had) ? [...had, v] : [had, v];
+  }
+  return JSON.stringify(out, null, 2);
+}
+
 /** A 20px copy button (lib/clipboard), a check for a second once copied. */
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
@@ -497,7 +498,8 @@ type RequestSub = "headers" | "payload";
 
 /**
  * The Request tab (#1061, redesigned in b5): Overview fixed at the top (then the query parameters
- * and attributes when there are any), and under it Headers and Payload as nested tabs (←/→).
+ * and attributes when there are any), and under it Headers and Body as nested tabs (←/→), the
+ * open one's size, type and Copy on the tab row's right.
  */
 function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
@@ -514,15 +516,17 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
   const attrs = Object.entries(r.attributes ?? {});
   const headers = parseHeaders(r.request_headers);
 
-  // Overview (with the query parameters and attributes) stays put; Headers and Payload are nested
+  // Overview (with the query parameters and attributes) stays put; Headers and Body are nested
   // tabs under it. A sampled-out request kept neither, so it has no tabs.
   const sampled = isSampledOut(r);
   const [sub, setSub] = useState<RequestSub>("headers");
   const subs: { slug: RequestSub; label: string; n?: number }[] = [
     { slug: "headers", label: "Headers", n: headers?.length },
-    { slug: "payload", label: "Payload" },
+    { slug: "payload", label: "Body" },
   ];
   const subId = useId();
+  const bodyType = contentTypeOf(r.request_headers);
+  const bodyMeta = [r.request_size ? formatBytes(r.request_size) : null, bodyType || null].filter(Boolean).join(" · ");
   const onSubKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
     e.preventDefault();
@@ -581,8 +585,9 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
       {sampled ? (
         <Notice>{SAMPLED_OUT}</Notice>
       ) : (
-        <section className="rd-block exd-subsec" aria-label="Headers and payload">
-          <div className="exd-subtabs" role="tablist" aria-label="Headers and payload" onKeyDown={onSubKey}>
+        <section className="rd-block exd-subsec" aria-label="Headers and body">
+          <div className="exd-subbar">
+          <div className="exd-subtabs" role="tablist" aria-label="Headers and body" onKeyDown={onSubKey}>
             {subs.map((x) => (
               <button
                 key={x.slug}
@@ -599,6 +604,18 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
               </button>
             ))}
           </div>
+            {/* What the open tab is, and Copy for it: one quiet line on the tab row's right. */}
+            <span className="exd-subbar__end">
+              {sub === "payload" ? (
+                <>
+                  {bodyMeta ? <span className="exd-subbar__meta">{bodyMeta}</span> : null}
+                  {r.request_body ? <CopyButton text={r.request_body} label="request body" /> : null}
+                </>
+              ) : headers ? (
+                <CopyButton text={headersJson(headers)} label="request headers as JSON" />
+              ) : null}
+            </span>
+          </div>
           <div role="tabpanel" id={`${subId}-panel`} aria-labelledby={`${subId}-${sub}`}>
             {sub === "headers" ? (
               headers ? (
@@ -607,7 +624,7 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
                 <Empty>The request headers were not captured.</Empty>
               )
             ) : (
-              <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />
+              <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" bare />
             )}
           </div>
         </section>
@@ -656,7 +673,7 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
         <Notice>{SAMPLED_OUT}</Notice>
       ) : (
         <>
-          <Block title="Headers" meta={[headers ? String(headers.length) : null]}>
+          <Block title="Headers" meta={[headers ? String(headers.length) : null]} actions={headers ? <CopyButton text={headersJson(headers)} label="response headers as JSON" /> : undefined}>
             {headers ? <KvTable pairs={headers} label="Response headers" /> : <Empty>The response headers were not captured.</Empty>}
           </Block>
           <BodyBlock text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
@@ -880,8 +897,9 @@ function RawTab({ data }: { data: RequestDetailRead }) {
  * A body as its own block, `Body · 260 B · application/x-www-form-urlencoded`: form bodies as a
  * Form fields table (Raw shows the text as sent), JSON as the collapsible viewer, server-sent
  * events as their list, anything else as mono text. "No request body" when there was none.
+ * `bare` drops the block's heading and Copy, for a place that shows them itself.
  */
-function BodyBlock({ text, size, headers, what }: { text: string; size: number | undefined; headers: string; what: "request" | "response" }) {
+function BodyBlock({ text, size, headers, what, bare = false }: { text: string; size: number | undefined; headers: string; what: "request" | "response"; bare?: boolean }) {
   const type = contentTypeOf(headers);
   const body = useMemo(() => parseBody(text, type), [text, type]);
   const [raw, setRaw] = useState(false);
@@ -891,9 +909,10 @@ function BodyBlock({ text, size, headers, what }: { text: string; size: number |
   // bodies that may be cut (a JSON or form body that parses is whole; sizes differ by encoding).
   const cut = size !== undefined && text && stored < size && (body.kind === "text" || body.kind === "events") ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
   if (body.kind === "empty") {
-    return (
+    const none = <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>;
+    return bare ? none : (
       <Block title="Body" meta={meta}>
-        <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>
+        {none}
       </Block>
     );
   }
@@ -909,11 +928,11 @@ function BodyBlock({ text, size, headers, what }: { text: string; size: number |
           </button>
         </span>
       ) : null}
-      <CopyButton text={text} label={`${what} body`} />
+      {bare ? null : <CopyButton text={text} label={`${what} body`} />}
     </>
   );
-  return (
-    <Block title="Body" meta={meta} actions={actions}>
+  const content = (
+    <>
       {cut}
       {body.kind === "json" ? (
         <JsonView value={body.value} />
@@ -935,6 +954,20 @@ function BodyBlock({ text, size, headers, what }: { text: string; size: number |
           <Marked text={body.text} />
         </pre>
       )}
+    </>
+  );
+  // Bare (the Request tab's Body): the tab row already says the size and type and holds Copy.
+  if (bare) {
+    return (
+      <div className="rd-bare">
+        {body.kind === "form" ? <div className="rd-bare__bar">{actions}</div> : null}
+        {content}
+      </div>
+    );
+  }
+  return (
+    <Block title="Body" meta={meta} actions={actions}>
+      {content}
     </Block>
   );
 }

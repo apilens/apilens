@@ -872,3 +872,10 @@ span.rd-j-tog { cursor: default; }
 .exd-subtabs button[aria-selected="true"] { background: var(--surface-1); color: var(--ink); font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / .2); }
 .exd-subtabs button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 .exd-subsec { display: grid; gap: 12px; }
+/* The Request tab's Headers | Body row: the tabs left, the open one's size · type and Copy right. */
+.exd-subbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.exd-subbar__end { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.exd-subbar__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); }
+.exd-subbar .rd-copy { opacity: 1; }
+.rd-bare { display: grid; gap: 8px; }
+.rd-bare__bar { display: flex; justify-content: flex-end; }
