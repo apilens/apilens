@@ -38,6 +38,7 @@ const SHAPES: Record<string, ReactNode> = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </>
   ),
+  loader: <path d="M21 12a9 9 0 1 1-6.219-8.56" />,
   search: (
     <>
       <circle cx="11" cy="11" r="8" />

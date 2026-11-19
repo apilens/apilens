@@ -299,6 +299,8 @@
 .exf-search .cp-ic { flex: none; box-sizing: content-box; width: 14px; height: 14px; stroke-width: 2; padding: 0 8px; color: var(--ink-muted); }
 .exf-search input { flex: 1; min-width: 0; height: 100%; padding: 8px 0; border: 0; outline: none; background: transparent; color: var(--ink); font: 450 12px/1 var(--font-sans); }
 .exf-search input::placeholder { color: var(--ink-muted); }
+/* InputWithAddons is a plain text input: no native clear button (Escape clears, as onSearchInputEscape). */
+.exf-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 /* The value list: max-h-[215px] overflow-y-auto rounded-sm border, a border-b between options. */
 .exf-list { max-height: 215px; overflow-y: auto; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-xs); list-style: none; }
 .exf-list > li:not(:last-child) { border-bottom: 1px solid var(--border); }
@@ -349,9 +351,53 @@
 .exf-sub > .exf-item--nested:last-child::before { width: 12px; height: 50%; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); border-bottom-left-radius: var(--radius-xs); background: none; box-sizing: border-box; }
 .exf-sub > .exf-item--nested:first-child:last-child::before { top: -8px; height: calc(60% + 8px); }
 .exf-sub > .exf-item--nested:last-child::after { display: none; }
-.exf-item--skeleton { justify-content: space-between; height: 29px; padding-right: 8px; }
-.exf-item--skeleton .exl-bone { width: 60%; }
-.exf-item--skeleton .exf-bone-count { width: 24px; }
+/* DataTableFilterCheckboxLoader.tsx: three rows, divide-y, rounded-sm border; each `flex
+   items-center justify-between gap-2 px-2 py-2.5`, a Skeleton h-4 w-4 rounded-xs then h-4 w-full. */
+.exf-item--skeleton { gap: 8px; padding: 10px 8px; }
+.exf-item--skeleton .exl-bone { flex: 1; height: 16px; border-radius: 2px; }
+.exf-item--skeleton .exf-bone-check { flex: none; width: 16px; }
+/* The Level option (UnifiedLogs.fields.tsx:57-71): `flex w-full max-w-28 items-center
+   justify-between gap-2`; the name `capitalize text-xs`, in the row's colour (foreground/70, the
+   accent foreground on hover); then `flex items-center gap-2`: a `h-2.5 w-2.5 rounded-[2px]`
+   swatch in the level's bg and the class in `text-xs text-muted-foreground/70`. The swatch keeps
+   its colour checked or not. */
+.exf-level { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; max-width: 112px; font: 450 12px/1 var(--font-sans); }
+.exf-level__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exf-level__name::first-letter { text-transform: uppercase; }
+.exf-level__tag { flex: none; display: flex; align-items: center; gap: 8px; }
+.exf-level__cls { color: color-mix(in srgb, var(--ink-soft) 70%, transparent); }
+.exf-swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+/* getLevelColor (DataTable.utils.ts:59-89) on our palette: success bg-[var(--chart-muted)],
+   warning bg-warning, error bg-destructive, anything else bg-info. */
+.exf-swatch--1xx, .exf-swatch--3xx { background: var(--info); }
+.exf-swatch--2xx { background: var(--chart-muted); }
+.exf-swatch--4xx { background: var(--warn); }
+.exf-swatch--5xx { background: var(--chart-error); }
+/* A code under its class: the Status option (UnifiedLogs.fields.tsx:87-95), `flex items-center
+   gap-2 min-w-0`, the code `shrink-0 text-foreground`, its phrase `text-[0.7rem]
+   text-foreground-lighter truncate`; led by LogLevelDot's `h-1.5 w-1.5 rounded-full`. */
+.exf-code { display: flex; align-items: center; gap: 8px; min-width: 0; font: 450 12px/1 var(--font-sans); }
+.exf-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+.exf-code__num { flex: none; color: var(--ink); font-variant-numeric: tabular-nums; }
+.exf-code__phrase { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.2px; color: var(--ink-muted); }
+/* Path and Consumer: DataTableFilterCheckboxAsync.tsx:71-117. The option is `px-2 py-2` with a
+   border-b; its label carries no padding; the value `truncate block w-full text-[0.75rem]` in
+   the sans face (title = the value); the count `font-mono text-xs` with no pr-2; "Only" `px-2`. */
+.exf-list--async .exf-item { padding: 8px; }
+.exf-list--async .exf-label { padding: 0; font-size: 12px; }
+.exf-list--async .exf-count { padding-right: 0; }
+.exf-list--async .exf-only { padding: 0 8px; }
+.exf-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.exf-path bdi { direction: ltr; unicode-bidi: isolate; }
+/* While the API answers: the input's trailing addon (InputWithAddons.tsx:32-35, `border-input
+   bg-muted/50 border-l px-3 py-2`) holds a 12px Loader2 animate-spin; an empty list is a
+   `px-2 py-3` box with a 14px spinner (DataTableFilterCheckboxAsync.tsx:37, 55-58). */
+.exf-search__busy { flex: none; display: flex; align-items: center; align-self: stretch; padding: 0 12px; border-left: 1px solid var(--control-border); background: color-mix(in srgb, var(--selection) 33%, transparent); color: var(--ink); }
+.exf-search__busy .cp-ic { width: 12px; height: 12px; padding: 0; stroke-width: 2; color: inherit; animation: exf-spin 1s linear infinite; }
+.exf-box { display: flex; align-items: center; justify-content: center; padding: 12px 8px; border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--ink); }
+.exf-box .cp-ic { width: 14px; height: 14px; stroke-width: 2; animation: exf-spin 1s linear infinite; }
+@keyframes exf-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .exf-search__busy .cp-ic, .exf-box .cp-ic { animation-duration: 3s; } }
 /* Empty: `flex items-center justify-center px-2 py-4 text-center border rounded-sm`, text-xs;
    "No results found" text-foreground over "Try a different search term" text-foreground-lighter. */
 .exf-empty { display: grid; gap: 2px; padding: 16px 8px; border: 1px solid var(--border); border-radius: var(--radius-xs); text-align: center; font: 450 12px/16px var(--font-sans); color: var(--ink-muted); }

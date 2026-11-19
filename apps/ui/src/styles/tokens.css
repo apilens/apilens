@@ -30,6 +30,7 @@
   --chart-accent: #7d81cc;
   --chart-warn: #c99b5a;
   --chart-error: #af4d48;
+  --chart-muted: #505050;
   --env-gray: #8e93a0;
   --env-red: #c86663;
   --env-orange: #d38a62;
@@ -71,6 +72,7 @@
   --chart-accent: #5b4bff;
   --chart-warn: #8a5a00;
   --chart-error: #c0362c;
+  --chart-muted: #d7dbdf;
   --env-gray: #8b93a7;
   --env-red: #e5484d;
   --env-orange: #f2803a;
