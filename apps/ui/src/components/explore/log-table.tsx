@@ -14,6 +14,8 @@ import { useAppName } from "./app-names";
 
 /** Row heights in px: one line on wide tables, two on phones (path, then time · status · latency). */
 export const ROW_H = 30;
+/** The sticky header row: 35px and its hairline, as Supabase's (time_range_default.png). */
+export const HEAD_H = 36;
 export const ROW_H_PHONE = 52;
 /** Under this width the table reads as a phone's: two-line rows. */
 export const PHONE_W = 640;
@@ -153,7 +155,7 @@ export function LogTable({
     if (!el || !rows) return;
     // Row `index` spans [index * rowH, +rowH) below the sticky header row.
     const top = index * rowH;
-    const head = ROW_H;
+    const head = HEAD_H;
     if (top < el.scrollTop) el.scrollTop = top;
     else if (top + rowH > el.scrollTop + el.clientHeight - head) el.scrollTop = top + rowH + head - el.clientHeight;
     setScrollTop(el.scrollTop);
@@ -168,7 +170,7 @@ export function LogTable({
     if (!el || openIndex < 0) return;
     const top = openIndex * rowH;
     if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + rowH > el.scrollTop + el.clientHeight - ROW_H) el.scrollTop = top + rowH + ROW_H - el.clientHeight;
+    else if (top + rowH > el.scrollTop + el.clientHeight - HEAD_H) el.scrollTop = top + rowH + HEAD_H - el.clientHeight;
     setScrollTop(el.scrollTop);
   }, [openIndex, rowH]);
 
@@ -192,7 +194,7 @@ export function LogTable({
     focusRow(next);
   };
 
-  const { start, end } = visibleWindow(scrollTop, size.h > ROW_H ? size.h - ROW_H : 0, count, rowH);
+  const { start, end } = visibleWindow(scrollTop, size.h > HEAD_H ? size.h - HEAD_H : 0, count, rowH);
   const shown = [];
   for (let i = start; i < end; i++) {
     shown.push(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import type { RefObject } from "react";
 import { PopMenu } from "../pop-menu";
 
 const KEYS: [string, string][] = [
@@ -15,26 +15,13 @@ const KEYS: [string, string][] = [
   ["?", "Show these shortcuts"],
 ];
 
-/** Explore's keyboard shortcuts (#1053), in a small popover from "?" (the key or the button). */
-export function Shortcuts() {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+/**
+ * Explore's keyboard shortcuts (#1053), in a small popover opened with "?" (the toolbar has no
+ * button for it, as Supabase's), anchored at the toolbar's end.
+ */
+export function Shortcuts({ open, onClose, anchor }: { open: boolean; onClose: () => void; anchor: RefObject<HTMLElement | null> }) {
   return (
-    <>
-      <button
-        ref={trigger}
-        id="ex-shortcuts"
-        type="button"
-        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label="Keyboard shortcuts"
-        title="Keyboard shortcuts (?)"
-        onClick={() => setOpen((o) => !o)}
-      >
-        ?
-      </button>
-      <PopMenu open={open} onClose={() => setOpen(false)} triggerRef={trigger} label="Keyboard shortcuts" role="dialog" align="end">
+    <PopMenu open={open} onClose={onClose} triggerRef={anchor} label="Keyboard shortcuts" role="dialog" align="end">
         <table className="exk">
           <caption className="ex-sr">Keyboard shortcuts</caption>
           <tbody>
@@ -48,7 +35,6 @@ export function Shortcuts() {
             ))}
           </tbody>
         </table>
-      </PopMenu>
-    </>
+    </PopMenu>
   );
 }
