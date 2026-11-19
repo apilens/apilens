@@ -15,8 +15,11 @@ import (
 // checkboxes. The field's own conditions are left out, so ticking one value
 // never hides the others; every other filter applies, as on the log.
 
-// maxFacetValues bounds the values of one facet.
+// maxFacetValues bounds the values of one facet page.
 const maxFacetValues = 50
+
+// maxFacetOffset bounds how far a facet pages ("Show more" in Explore).
+const maxFacetOffset = 1000
 
 // facetColumns are the facet fields: the expression each groups by and, for
 // consumers, the name shown beside the id. Empty values are left out where
@@ -38,7 +41,8 @@ func registerRequestFacets(api huma.API, s *Service) {
 		Description: "How many requests of the range carry each value of field (status code, method, app id, environment, route " +
 			"template, consumer id or consumer group), most first, at most limit values. Takes the filters of list-requests; " +
 			"the filter conditions on field itself are left out, so every value of the field is counted under the other filters. " +
-			"search narrows path, consumer and consumer_group to values containing it, ignoring case." + readAccess,
+			"search narrows path, consumer and consumer_group to values containing it, ignoring case. offset skips that many " +
+			"values of the same order, so a long list pages; has_more says whether values follow this page." + readAccess,
 		Tags: []string{"Dashboard"}, Security: security,
 	}, s.requestFacets)
 }
@@ -48,6 +52,7 @@ type requestFacetsInput struct {
 	Field  string    `query:"field" required:"true" enum:"status,method,app,env,path,consumer,consumer_group" doc:"The field to count values of."`
 	Search string    `query:"search" maxLength:"256" doc:"Only values containing this text, ignoring case (path, consumer and consumer_group)."`
 	Limit  int       `query:"limit" minimum:"1" maximum:"50" default:"50" doc:"Most values to list."`
+	Offset int       `query:"offset" minimum:"0" maximum:"1000" default:"0" doc:"Values to skip, in the same order (most requests first, then by value), to page a long list."`
 	From   time.Time `query:"from" doc:"Start of the window (RFC 3339, inclusive); clamped to the range."`
 	To     time.Time `query:"to" doc:"End of the window (RFC 3339, exclusive); clamped to the range."`
 	Filter []string  `query:"filter,explode" maxItems:"50" doc:"field:op:value conditions, as in GET /api/v1/requests; those on field are left out."`
@@ -61,13 +66,15 @@ type facetValue struct {
 
 type requestFacetsOutput struct {
 	Body struct {
-		Field  string       `json:"field" doc:"The field counted."`
-		Values []facetValue `json:"values" doc:"Most requests first, then by value."`
+		Field   string       `json:"field" doc:"The field counted."`
+		Values  []facetValue `json:"values" doc:"Most requests first, then by value."`
+		HasMore bool         `json:"has_more" doc:"Whether more values follow this page (read them with offset)."`
 	}
 }
 
-// facetQuery is the SQL counting values of field under clauses, and its args.
-func facetQuery(field, search string, limit int, clauses []string, args []any) (string, []any, error) {
+// facetQuery is the SQL counting values of field under clauses, and its
+// args. It reads one value past limit, so the caller can tell has_more.
+func facetQuery(field, search string, limit, offset int, clauses []string, args []any) (string, []any, error) {
 	col, ok := facetColumns[field]
 	if !ok {
 		return "", nil, huma.Error422UnprocessableEntity(fmt.Sprintf("unknown facet field %q", field))
@@ -87,10 +94,11 @@ func facetQuery(field, search string, limit int, clauses []string, args []any) (
 		label = col.label
 	}
 	limit = min(max(limit, 1), maxFacetValues)
+	offset = min(max(offset, 0), maxFacetOffset)
 	// col comes from facetColumns, never from input.
-	q := fmt.Sprintf(`SELECT %s AS v, %s AS l, count() AS n FROM api_requests WHERE %s GROUP BY v ORDER BY n DESC, v LIMIT ?`,
+	q := fmt.Sprintf(`SELECT %s AS v, %s AS l, count() AS n FROM api_requests WHERE %s GROUP BY v ORDER BY n DESC, v LIMIT ? OFFSET ?`,
 		col.value, label, strings.Join(clauses, " AND "))
-	return q, append(args, limit), nil
+	return q, append(args, limit+1, offset), nil
 }
 
 func (s *Service) requestFacets(ctx context.Context, in *requestFacetsInput) (*requestFacetsOutput, error) {
@@ -115,7 +123,8 @@ func (s *Service) requestFacets(ctx context.Context, in *requestFacetsInput) (*r
 	if err != nil {
 		return nil, err
 	}
-	q, args, err := facetQuery(in.Field, in.Search, in.Limit, clauses, args)
+	limit := min(max(in.Limit, 1), maxFacetValues)
+	q, args, err := facetQuery(in.Field, in.Search, limit, in.Offset, clauses, args)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +147,10 @@ func (s *Service) requestFacets(ctx context.Context, in *requestFacetsInput) (*r
 	}
 	if err := rows.Err(); err != nil {
 		return nil, internalError("request facets", err)
+	}
+	if len(out.Body.Values) > limit {
+		out.Body.Values = out.Body.Values[:limit]
+		out.Body.HasMore = true
 	}
 	return out, nil
 }

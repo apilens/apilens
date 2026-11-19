@@ -202,7 +202,7 @@
 /* The request drawer (#1061): Supabase's Sheet from the right, no overlay (sheet.tsx:200-214,
    164): full height, `border-l bg-popover shadow-lg`, `lg:w-1/3` with the log panel's 400px floor
    (ServiceFlowPanel.tsx minSize 400), sliding in over 300ms. The table behind keeps its width. */
-.exd-sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; display: flex; width: max(400px, 33.333vw); max-width: 100vw; border-left: 1px solid var(--border); background: var(--surface-1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); animation: exd-in .3s cubic-bezier(.22, 1, .36, 1); }
+.exd-sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; display: flex; width: min(100vw, max(600px, 46vw)); border-left: 1px solid var(--border); background: var(--surface-1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); animation: exd-in .3s cubic-bezier(.22, 1, .36, 1); }
 @keyframes exd-in { from { transform: translateX(100%); } }
 .exd { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 /* ServiceFlowPanel.tsx:91-104: a 36px header (`h-9 px-4 gap-3`), the title `text-sm font-medium
@@ -215,32 +215,19 @@
 .exd-method { flex: none; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
 .exd-path { font: 400 12px/18px var(--font-mono); }
 .exd-actions { flex: none; display: flex; align-items: center; gap: 4px; height: 24px; margin-right: -4px; }
-.exd-act { height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 500 12px/16px var(--font-sans); white-space: nowrap; cursor: pointer; }
-.exd-act:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
-.exd-act:disabled { opacity: .5; cursor: default; }
-.exd-act:focus-visible, .exd-close:focus-visible, .exd-nav:focus-visible, .exd-tabs button:focus-visible, .exd-body:focus-visible, .exd-sec__h button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+
 .exd-close { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
 .exd-close:hover { background: var(--surface-2); color: var(--ink); }
 .exd-close svg, .exd-nav svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.exd-sub { display: flex; gap: var(--space-3); margin: 0; padding: 0 16px 6px; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); }
 .exd-said { margin: 0; padding: 0 16px 4px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .exd-said:empty { display: none; }
 .exd-outside { margin: 0 16px 8px; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/16px var(--font-sans); }
-/* Tabs (ServiceFlowPanel.tsx:32, 120; packages/ui tabs.tsx:36, 49, 69-71): the list `border-b
-   gap-x-5 px-4`, each trigger `py-2.5 text-sm` (Studio's 13px, weight 450), `text-foreground-lighter`, active `text-foreground`
-   with a 2px `bg-foreground` underline. */
-.exd-tabs { flex: none; display: flex; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
-.exd-tabs button { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-bottom: -1px; padding: 10px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); font: 450 13px/20px var(--font-sans); white-space: nowrap; cursor: pointer; transition: color .15s; }
-.exd-tabs button:hover { color: var(--ink); }
-.exd-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
-.exd-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) 16px var(--space-6); }
 /* The footer (ServiceFlowPanel.tsx:167): `border-t py-1.5 pl-4 pr-3 text-xs text-foreground-lighter`. */
 .exd-foot { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 6px 16px; border-top: 1px solid var(--border); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .exd-keys { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exd-nav { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
 .exd-nav:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
 .exd-nav:disabled { opacity: .35; cursor: default; }
-.exd-dl--top { margin-bottom: var(--space-3); }
 
 @media (max-width: 759px) {
   /* Phones (UnifiedLogs.tsx:710 `order-first w-full`): the filter box takes its own first row. */
@@ -250,8 +237,6 @@
   .exr-side { height: 44px; }
   .exr-filter { flex-basis: calc(100% - 50px); height: 44px; }
   .exd-sheet { width: 100vw; border-left: 0; }
-  .exd-actions .exd-act { display: none; }
-  .exd-tabs { -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
   .exd-keys { visibility: hidden; }
   .ext { flex-direction: column; }
   .ext-helpers { width: auto; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -386,6 +371,9 @@
 .exf-check input:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
 .exf-check .cp-ic { grid-area: 1 / 1; place-self: center; width: 12px; height: 12px; stroke: var(--bg); stroke-width: 4; opacity: 0; pointer-events: none; }
 .exf-check input:checked + .cp-ic { opacity: 1; }
+/* A level with only some of its codes ticked (Level/Status hierarchy): filled, with a dash. */
+.exf-item.is-partial .exf-check input { background: var(--ink); }
+.exf-dash { grid-area: 1 / 1; place-self: center; width: 8px; height: 2px; border-radius: 1px; background: var(--bg); pointer-events: none; }
 /* DataTableFilterCheckboxLoader.tsx: three rows, divide-y, rounded-sm border; each `flex
    items-center justify-between gap-2 px-2 py-2.5`, a Skeleton h-4 w-4 rounded-xs then h-4 w-full. */
 .exf-item--skeleton { gap: 8px; padding: 10px 8px; }
@@ -639,31 +627,11 @@ span.rd-j-tog { cursor: default; }
 .exd-said { margin: 0; padding: 0 var(--space-4); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); min-height: 0; }
 .exd-said:empty { display: none; }
 .exd-outside { margin: var(--space-2) var(--space-4) 0; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/18px var(--font-sans); }
-/* Overview sections. */
-.exd-sec { border-bottom: 1px solid var(--border); }
-.exd-sec__h { margin: 0; font: inherit; }
-.exd-sec__h button { display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 36px; padding: 0 2px; border: 0; background: none; color: var(--ink); font: 500 13px/1 var(--font-sans); text-align: left; cursor: pointer; }
-.exd-sec__icon { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.exd-sec--error .exd-sec__icon, .exd-sec--exception .exd-sec__icon { stroke: var(--error); }
-.exd-sec__chev { width: 12px; height: 12px; margin-left: auto; fill: none; stroke: var(--ink-muted); stroke-width: 1.6; transform: rotate(-90deg); transition: transform .12s; }
-.exd-sec.is-open .exd-sec__chev { transform: none; }
-.exd-sec__body { padding: 0 0 var(--space-3); }
-.exd-sec__body > .rd-section:first-child { margin-top: 0; }
-.exd-sec--exception .rd-exc__bar .rd-h { visibility: hidden; }
 .exd-error { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--error); border-radius: 4px; background: var(--error-tint); }
 .exd-error p { margin: 0; }
 .exd-error__title { font: 500 13px/20px var(--font-sans); color: var(--error); }
 .exd-error__detail { font: 400 12px/18px var(--font-mono); overflow-wrap: anywhere; }
 .exd-error__body { max-height: 240px; margin: 6px 0 4px; overflow: auto; }
-.exd-dl { display: grid; grid-template-columns: minmax(100px, max-content) minmax(0, 1fr); margin: 0; }
-.exd-field { display: contents; }
-.exd-field dt, .exd-field dd { margin: 0; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-.exd-field dt { padding-right: var(--space-3); color: var(--ink-muted); font-size: 12px; }
-.exd-field dd { display: flex; align-items: flex-start; gap: 4px; min-width: 0; }
-.exd-field__v { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.exd-field code { font: 400 12px/20px var(--font-mono); }
-.exd-field .exa-btn { opacity: 0; }
-.exd-field:hover .exa-btn, .exd-field:focus-within .exa-btn, .exa-btn[aria-expanded="true"] { opacity: 1; }
 /* The ⋯ menu of a value. */
 .exa { display: inline-flex; flex: none; }
 .exa-btn { display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); cursor: pointer; }
@@ -678,8 +646,16 @@ span.rd-j-tog { cursor: default; }
 @media (hover: none) { .exd-field .exa-btn { opacity: 1; } }
 /* Row selection: the dot turns into a checkbox on hover or while anything is selected. */
 .exl-cell--dot { position: relative; }
-.exl-check { display: none; width: 13px; height: 13px; margin: 0; accent-color: var(--accent); }
-.exl-row:hover .exl-check, .exl-row.is-selecting .exl-check { display: block; }
+/* The row checkbox, as Supabase's (shadcn Checkbox in Columns.tsx): 16px, a control border, filled
+   with the foreground and a 12px check when on; it takes the dot's place on hover. */
+.exl-check { position: relative; display: none; width: 16px; height: 16px; }
+.exl-check input { grid-area: 1 / 1; appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 16px; height: 16px; margin: 0; border: 1px solid var(--control-border); border-radius: var(--radius-xs); background: color-mix(in srgb, var(--control-border) 25%, transparent); cursor: pointer; transition: background-color .15s ease-in-out, border-color .15s ease-in-out; }
+.exl-check input:hover { border-color: var(--border-strong); }
+.exl-check input:checked { background: var(--ink); border-color: var(--ink); }
+.exl-check input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.exl-check .cp-ic { grid-area: 1 / 1; place-self: center; width: 12px; height: 12px; stroke: var(--bg); stroke-width: 4; opacity: 0; pointer-events: none; }
+.exl-check input:checked + .cp-ic { opacity: 1; }
+.exl-row:hover .exl-check, .exl-row.is-selecting .exl-check, .exl-row.is-checked .exl-check { display: grid; }
 .exl-row:hover .exl-dot, .exl-row.is-selecting .exl-dot { display: none; }
 .exl-body > .exl-row[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
 .exl-body > .exl-row.is-4xx[aria-selected="true"] { background: color-mix(in srgb, var(--warn) 20%, transparent); }
@@ -714,4 +690,121 @@ span.rd-j-tog { cursor: default; }
 .exe-set { display: flex; gap: var(--space-3); margin: 0; padding: 0; border: 0; }
 .exe-set legend { padding: 0; margin-bottom: 4px; font: 500 12px/16px var(--font-sans); }
 
-@media (prefers-reduced-motion: reduce) { .exd-sec__chev { transition: none; } }
+
+/* Shift / ⌘ / Ctrl held: no native text selection on the rows, so modifier clicks select rows
+   (Safari extends a text selection on Shift-mousedown otherwise). */
+.exl-grid.is-mod .exl-body { -webkit-user-select: none; user-select: none; }
+
+/* A facet's "Show more" (the next FACET_PAGE values), aligned with the value labels. */
+.exf-more { display: block; margin: 2px 0 0; padding: 4px 0 4px 24px; border: 0; background: none; color: var(--ink-muted); font: 500 12px/16px var(--font-sans); cursor: pointer; text-align: left; }
+.exf-more:hover:not(:disabled) { color: var(--ink); }
+.exf-more:disabled { cursor: progress; }
+.exf-more:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
+
+/* The time and its card (Supabase's TimestampInfo: TooltipTrigger `border-b border-transparent
+   hover:border-dashed`, TooltipContent `font-mono p-0 py-1 min-w-80` on a card surface, rows
+   `px-2 py-1 hover:bg-muted` of a label, dashed leaders and the value right-aligned). */
+.exl-time { display: inline-block; line-height: 15px; border-bottom: 1px dashed transparent; white-space: nowrap; }
+.exl-row:hover .exl-time, .exl-time.is-open { border-bottom-color: var(--ink-muted); }
+.exl-tcard { position: fixed; z-index: 95; box-sizing: border-box; min-width: 320px; max-width: calc(100vw - 16px); padding: 4px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/16px var(--font-mono); color: var(--ink); }
+.exl-tcard__row { position: relative; display: flex; gap: 2px; width: 100%; padding: 4px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.exl-tcard__row:hover, .exl-tcard__row.is-copied { background: var(--surface-2); }
+.exl-tcard__row:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exl-tcard__label { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.exl-tcard__name { flex: none; }
+.exl-tcard__value { position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: 8px; }
+.exl-tcard__lead { flex: 1 1 auto; min-width: 8px; border-top: 1px dashed var(--border); }
+.exl-tcard__text { flex: none; white-space: nowrap; }
+.exl-tcard__row.is-copied .exl-tcard__text { visibility: hidden; }
+.exl-tcard__said { position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; color: var(--accent-ink); }
+
+/* ---- The request drawer (b5 redesign): a header row, then a 184px sidebar (section nav over the
+   request's key facts) beside the selected section, then the footer. Supabase's sheet rhythm:
+   13px text, 12px mono values, hairlines, 16px side padding, 12px between rows of a block. */
+.exd-act { height: 26px; padding: 0 8px; font: 500 12px/16px var(--font-sans); }
+.exd-close:focus-visible, .exd-nav:focus-visible, .exd-menu button:focus-visible, .exd-main:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exd-head { height: 48px; border-bottom: 1px solid var(--border); }
+.exd-actions { height: 26px; gap: 8px; }
+.exd-split { flex: 1; min-height: 0; display: flex; }
+.exd-side { flex: none; width: 184px; box-sizing: border-box; overflow-y: auto; border-right: 1px solid var(--border); padding: 12px 0; }
+.exd-menu { display: flex; flex-direction: column; gap: 2px; padding: 0 8px 12px; border-bottom: 1px solid var(--border); }
+.exd-menu button { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); font: 450 13px/20px var(--font-sans); text-align: left; cursor: pointer; }
+.exd-menu button:hover { background: var(--surface-2); color: var(--ink); }
+.exd-menu button[aria-selected="true"] { background: var(--surface-2); color: var(--ink); font-weight: 500; }
+.exd-menu__n { padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-1); font: 500 11px/16px var(--font-mono); color: var(--ink-muted); }
+.exd-facts { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px 16px 0; }
+.exd-fact { min-width: 0; }
+.exd-fact dt { font: 400 11px/16px var(--font-sans); color: var(--ink-muted); }
+.exd-fact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/18px var(--font-mono); color: var(--ink); }
+.exd-main { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 24px; }
+/* Blocks of a section: a 28px header row (title · facts · actions), 16px apart, a hairline between. */
+.rd-blocks { display: flex; flex-direction: column; }
+.rd-block + .rd-block, .rd-blocks > .ex-notice { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.rd-block__h { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-height: 28px; margin-bottom: 6px; }
+.rd-block__title { margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.rd-block__meta { font: 400 12px/16px var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
+.rd-block__meta::before { content: "·"; margin-right: 6px; color: var(--border-strong); }
+.rd-block__actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.rd-block--error .rd-block__title { color: var(--error); }
+.rd-block .rd-exc__bar .rd-h { display: none; }
+.rd-block .rd-exc__bar { justify-content: flex-end; margin-top: -34px; margin-bottom: 6px; }
+.rd-sublabel { margin: 0 0 4px; font: 500 11px/16px var(--font-sans); color: var(--ink-muted); text-transform: uppercase; letter-spacing: .04em; }
+.rd-note { margin: 0 0 6px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.rd-none { margin: 0; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+/* Field rows (Overview, Status): a 112px muted label column, values in mono, the ⋯ menu on hover. */
+.exd-dl { display: grid; grid-template-columns: 112px minmax(0, 1fr); margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.exd-field { display: contents; }
+.exd-field dt, .exd-field dd { margin: 0; padding: 6px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.exd-field:last-child dt, .exd-field:last-child dd { border-bottom: 0; }
+.exd-field dt { padding-right: 8px; font: 400 12px/20px var(--font-sans); color: var(--ink-muted); }
+.exd-field dd { display: flex; align-items: flex-start; gap: 4px; min-width: 0; padding-left: 0; font: 400 12px/20px var(--font-mono); }
+.exd-field__v { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.exd-field code { font: 400 12px/20px var(--font-mono); }
+.exd-field .exa-btn { opacity: 0; }
+.exd-field:hover .exa-btn, .exd-field:focus-within .exa-btn, .exd-field .exa-btn[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .exd-field .exa-btn { opacity: 1; } }
+/* Key/value tables (headers, query, form fields, attributes). */
+.rd-kv { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.rd-kv__row { display: grid; grid-template-columns: minmax(112px, 34%) minmax(0, 1fr); }
+.rd-kv__row + .rd-kv__row { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.rd-kv__row:hover { background: var(--surface-2); }
+.rd-kv dt { min-width: 0; padding: 6px 8px 6px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/20px var(--font-mono); color: var(--ink-muted); }
+.rd-kv dd { display: flex; align-items: flex-start; gap: 4px; min-width: 0; margin: 0; padding: 6px 6px 6px 0; font: 400 12px/20px var(--font-mono); color: var(--ink); }
+.rd-kv__v { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.rd-copy { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); cursor: pointer; opacity: 0; }
+.rd-kv__row:hover .rd-copy, .rd-copy:focus-visible, .rd-copy.is-done, .rd-block__actions .rd-copy { opacity: 1; }
+.rd-copy:hover { background: var(--surface-1); color: var(--ink); }
+.rd-copy:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.rd-copy svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.rd-copy.is-done { color: var(--ok); }
+@media (hover: none) { .rd-copy { opacity: 1; } }
+.rd-inline-json { font: 400 12px/20px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The SDK's markers: [redacted] and [masked] are muted badges, not text. */
+.rd-marker--redacted, .rd-marker--masked { padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--ink-muted); font: 500 11px/16px var(--font-mono); }
+/* Fields | Raw, the shared segmented control at 22px. */
+.rd-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); }
+.rd-seg button { height: 20px; padding: 0 8px; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); font: 500 11px/16px var(--font-sans); cursor: pointer; }
+.rd-seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); }
+.rd-seg button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.rd-block .rd-pre { max-height: 360px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rd-block .rd-json { border-radius: 8px; }
+.rd-json__scroll { max-height: 480px; min-height: 0; }
+/* The timeline as a waterfall: kind, name, an aligned track with each span's bar, duration, offset. */
+.exd-step__track { position: relative; flex: none; width: 28%; height: 6px; border-radius: 3px; background: var(--surface-2); }
+.exd-step__bar { position: absolute; top: 0; height: 6px; border-radius: 3px; background: var(--accent); }
+.exd-step--error .exd-step__bar { background: var(--error); }
+.exd-step__bar.is-tick { width: 2px; background: var(--ink-muted); }
+.exd-step__dur { min-width: 56px; text-align: right; }
+
+/* Narrow (phones, or a drawer squeezed under 760px of window): the sidebar goes on top, the
+   section nav a scrolling row, the facts two columns. */
+@media (max-width: 759px) {
+  .exd-split { flex-direction: column; overflow-y: auto; }
+  .exd-side { width: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px 0 12px; }
+  .exd-menu { flex-direction: row; overflow-x: auto; scrollbar-width: none; padding: 0 12px 8px; }
+  .exd-menu button { flex: none; }
+  .exd-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+  .exd-main { overflow: visible; }
+  .exd-step__track { display: none; }
+  .exd-actions .exd-act { display: none; }
+}

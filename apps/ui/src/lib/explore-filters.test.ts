@@ -125,7 +125,7 @@ describe("the URL round trip", () => {
   });
   it("lists the filters in a fixed order whatever the input order", () => {
     const href = exploreHref("shop", parseExploreQuery({ sampled: "true", env: "prod", latency_max: "50" }));
-    expect(href).toBe("/project/shop/explore?env=prod&latency_max=50&sampled=true");
+    expect(href).toBe("/project/shop/explore?range=1h&env=prod&latency_max=50&sampled=true");
   });
   it("round-trips each filter alone", () => {
     for (const k of FILTER_KEYS) {

@@ -14,6 +14,13 @@ import {
   isoToZonedInput,
   legacyConds,
   levelOf,
+  levelState,
+  statusInLevels,
+  termLevel,
+  toggleLevel,
+  toggleStatus,
+  untickLevel,
+  withCodeLevels,
   makeCond,
   onlyValue,
   parseCond,
@@ -92,7 +99,7 @@ describe("?range= links (the Last 1 hour bug)", () => {
     for (const r of ["10m", "15m", "30m", "1h", "3h", "6h", "24h", "7d"]) expect(readExploreUrl({ range: r }).range).toBe(r);
     expect(rangeText(readExploreUrl({ range: "7d" }), "UTC")).toBe("Last 7 days");
     expect(readExploreUrl({ range: "30d" }).range).toBe("7d");
-    expect(readExploreUrl({ range: "nope" }).range).toBe("1h");
+    expect(readExploreUrl({ range: "nope" }).range).toBe("24h");
   });
 
   it("keeps the range through the page URL and the route handlers", () => {
@@ -181,22 +188,29 @@ describe("legacyConds", () => {
 
 describe("readExploreUrl and exploreUrl", () => {
   it("round-trips the state", () => {
-    const q = readExploreUrl({ range: "24h", filter: ["status:eq:5xx", "path:contains:/orders"], id: "req_1" });
-    expect(q).toEqual({ range: "24h", conds: [c("status:eq:5xx"), c("path:contains:/orders")], id: "req_1" });
+    const q = readExploreUrl({ range: "1h", filter: ["status:eq:5xx", "path:contains:/orders"], id: "req_1" });
+    expect(q).toEqual({ range: "1h", conds: [c("status:eq:5xx"), c("path:contains:/orders")], id: "req_1" });
     const url = exploreUrl("shop", q);
-    expect(url).toBe("/project/shop/explore?range=24h&filter=status%3Aeq%3A5xx&filter=path%3Acontains%3A%2Forders&id=req_1");
+    expect(url).toBe("/project/shop/explore?range=1h&filter=status%3Aeq%3A5xx&filter=path%3Acontains%3A%2Forders&id=req_1");
     const back = Object.fromEntries([...new URL(url, "http://x").searchParams.keys()].map((k) => [k, new URL(url, "http://x").searchParams.getAll(k)]));
     expect(readExploreUrl(back)).toEqual(q);
   });
 
   it("redirects an older link to the same view", () => {
     const q = readExploreUrl({ range: "1h", status: "5xx", env: "production", at: "2026-11-05T10:10:00Z", request: "req_charge" });
-    expect(exploreUrl("shop", q)).toBe("/project/shop/explore?to=2026-11-05T10%3A10%3A00Z&filter=env%3Aeq%3Aproduction&filter=status%3Aeq%3A5xx&id=req_charge");
+    expect(exploreUrl("shop", q)).toBe("/project/shop/explore?range=1h&to=2026-11-05T10%3A10%3A00Z&filter=env%3Aeq%3Aproduction&filter=status%3Aeq%3A5xx&id=req_charge");
   });
 
   it("leaves defaults out and drops a reversed window", () => {
-    expect(queryEntries(readExploreUrl({ range: "1h", from: "2026-11-05T11:00:00Z", to: "2026-11-05T10:00:00Z" }))).toEqual([]);
-    expect(readExploreUrl({ range: "1y" }).range).toBe("1h");
+    expect(queryEntries(readExploreUrl({ range: "24h", from: "2026-11-05T11:00:00Z", to: "2026-11-05T10:00:00Z" }))).toEqual([]);
+    expect(readExploreUrl({ range: "1y" }).range).toBe("24h");
+    // 24 hours is the default and left out; the last hour is written.
+    expect(readExploreUrl({}).range).toBe("24h");
+    expect(exploreUrl("shop", { range: "24h", conds: [] })).toBe("/project/shop/explore");
+    expect(exploreUrl("shop", { range: "1h", conds: [] })).toBe("/project/shop/explore?range=1h");
+    // A window with an end only reaches back by its range, so the range stays.
+    expect(queryEntries({ range: "1h", to: "2026-11-05T10:00:00Z" })).toEqual([["range", "1h"], ["to", "2026-11-05T10:00:00Z"]]);
+    expect(queryEntries({ range: "1h", from: "2026-11-05T09:00:00Z", to: "2026-11-05T10:00:00Z" })).toEqual([["from", "2026-11-05T09:00:00Z"], ["to", "2026-11-05T10:00:00Z"]]);
     expect(readExploreUrl({ id: "../x" }).id).toBeUndefined();
   });
 
@@ -229,7 +243,8 @@ describe("apiWindow and bucketFor", () => {
 
   it("sends the conditions as filter values", () => {
     expect(apiQuery({ range: "24h", conds: [c("method:neq:GET")] }, now)).toEqual({ range: "24h", filter: ["method:neq:GET"] });
-    expect(routeSearch({ range: "1h", conds: [c("method:neq:GET")] }, { cursor: "x" })).toBe("?filter=method%3Aneq%3AGET&cursor=x");
+    expect(routeSearch({ range: "24h", conds: [c("method:neq:GET")] }, { cursor: "x" })).toBe("?filter=method%3Aneq%3AGET&cursor=x");
+    expect(routeSearch({ range: "1h", conds: [] })).toBe("?range=1h");
   });
 });
 
@@ -265,16 +280,68 @@ describe("facets and pills", () => {
     expect([levelOf(101), levelOf(204), levelOf(301), levelOf(404), levelOf(503)]).toEqual(["success", "success", "success", "warning", "error"]);
   });
 
-  it("sends a level to the API as status exclusions, ANDed with status conditions", () => {
-    expect(apiConds([c("level:eq:warning")]).map(condString)).toEqual(["status:neq:1xx,2xx,3xx", "status:neq:5xx"]);
-    expect(apiConds([c("level:eq:success"), c("level:eq:error"), c("method:eq:GET")]).map(condString)).toEqual(["method:eq:GET", "status:neq:4xx"]);
+  it("sends levels to the API as one status group, a level's ticked codes refining it", () => {
+    // A level alone is its classes, any level matching.
+    expect(apiConds([c("level:eq:warning")]).map(condString)).toEqual(["status:eq:4xx"]);
+    expect(apiConds([c("level:eq:success"), c("level:eq:error"), c("method:eq:GET")]).map(condString)).toEqual(["method:eq:GET", "status:eq:1xx,2xx,3xx", "status:eq:5xx"]);
+    // Every level whole is no filter at all.
     expect(apiConds([c("level:eq:success"), c("level:eq:warning"), c("level:eq:error")])).toEqual([]);
+    // Level = Warning + Status = 404 is the 404s (it used to be ANDed into nonsense with 200).
+    expect(apiConds([c("level:eq:warning"), c("status:eq:404")]).map(condString)).toEqual(["status:eq:404"]);
+    // Warning refined to 404, Error whole: the 404s and every 5xx.
+    expect(apiConds([c("level:eq:warning"), c("level:eq:error"), c("status:eq:404")]).map(condString)).toEqual(["status:eq:404", "status:eq:5xx"]);
+    // Exclusions stay ANDed.
     expect(apiConds([c("level:neq:error"), c("status:eq:200")]).map(condString)).toEqual(["status:eq:200", "status:neq:5xx"]);
-    expect(apiQuery({ range: "1h", conds: [c("level:eq:error")] }, 0).filter).toEqual(["status:neq:1xx,2xx,3xx", "status:neq:4xx"]);
+    expect(apiQuery({ range: "1h", conds: [c("level:eq:error")] }, 0).filter).toEqual(["status:eq:5xx"]);
     // The URL keeps the level, as the page reads it back.
-    expect(routeSearch({ range: "1h", conds: [c("level:eq:error")] })).toBe("?filter=level%3Aeq%3Aerror");
-    // Older status links are untouched.
+    expect(routeSearch({ range: "24h", conds: [c("level:eq:error")] })).toBe("?filter=level%3Aeq%3Aerror");
+    // Older status links carry no level and are untouched.
     expect(apiConds([c("status:eq:4xx")]).map(condString)).toEqual(["status:eq:4xx"]);
+    expect(apiConds(readExploreUrl({ filter: ["status:eq:404", "status:neq:401"] }).conds).map(condString)).toEqual(["status:eq:404", "status:neq:401"]);
+  });
+
+  it("places status terms in levels", () => {
+    expect(["200", "301", "404", "4xx", "5xx", "500-503", "2xx", "399-404"].map(termLevel)).toEqual(["success", "success", "warning", "warning", "error", "error", "success", null]);
+  });
+
+  it("ticks a code's level along while levels are ticked, never on its own", () => {
+    // No level ticked: the code alone.
+    expect(toggleStatus([], "404", true).map(condString)).toEqual(["status:eq:404"]);
+    // Error ticked, then 404: Warning comes too, so the pills read Level = Warning › 404, Level = Error.
+    expect(toggleStatus([c("level:eq:error")], "404", true).map(condString)).toEqual(["level:eq:error", "status:eq:404", "level:eq:warning"]);
+    // A ticked code's level is not added twice, and a Level ≠ of it gives way.
+    expect(toggleStatus([c("level:eq:warning")], "404", true).map(condString)).toEqual(["level:eq:warning", "status:eq:404"]);
+    expect(withCodeLevels([c("level:eq:error"), c("level:neq:warning"), c("status:eq:404")]).map(condString)).toEqual(["level:eq:error", "status:eq:404", "level:eq:warning"]);
+    // Unticking a code leaves its level whole.
+    expect(toggleStatus([c("level:eq:warning"), c("status:eq:404")], "404", false).map(condString)).toEqual(["level:eq:warning"]);
+  });
+
+  it("unticks a level with its codes, and ticks a level whole", () => {
+    const conds = [c("level:eq:warning"), c("status:eq:404"), c("status:eq:429"), c("level:eq:error"), c("status:eq:500"), c("method:eq:GET")];
+    expect(untickLevel(conds, "warning").map(condString)).toEqual(["level:eq:error", "status:eq:500", "method:eq:GET"]);
+    expect(levelState(conds, "warning")).toBe("partial");
+    expect(levelState([c("level:eq:warning")], "warning")).toBe("on");
+    expect(levelState([c("status:eq:404")], "warning")).toBe("partial");
+    expect(levelState([c("status:eq:404")], "error")).toBe("off");
+    // Clicking a partial level clears it; clicking an off one ticks it whole and gives loose codes their levels.
+    expect(toggleLevel(conds, "warning").map(condString)).toEqual(["level:eq:error", "status:eq:500", "method:eq:GET"]);
+    expect(toggleLevel([c("status:eq:404")], "warning").map(condString)).toEqual([]);
+    expect(toggleLevel([c("status:eq:404")], "error").map(condString)).toEqual(["status:eq:404", "level:eq:error", "level:eq:warning"]);
+    expect(apiConds(toggleLevel([c("status:eq:404")], "error")).map(condString)).toEqual(["status:eq:404", "status:eq:5xx"]);
+  });
+
+  it("lists only codes inside the ticked levels, so counts never show impossible pairs", () => {
+    expect(statusInLevels(200, [])).toBe(true);
+    expect(statusInLevels(200, [c("level:eq:warning")])).toBe(false);
+    expect(statusInLevels(404, [c("level:eq:warning")])).toBe(true);
+    expect(statusInLevels(503, [c("level:eq:warning"), c("level:eq:error")])).toBe(true);
+    expect(statusInLevels(503, [c("level:neq:error")])).toBe(false);
+  });
+
+  it("matches a code against the level hierarchy", () => {
+    const conds = [c("level:eq:warning"), c("status:eq:404"), c("level:eq:error")];
+    expect([200, 401, 404, 500, 503].map((code) => statusHit(code, conds))).toEqual([false, false, true, true, true]);
+    expect([...shownClasses(conds)]).toEqual(["4xx", "5xx"]);
   });
 
   it("matches a code against status and level conditions", () => {

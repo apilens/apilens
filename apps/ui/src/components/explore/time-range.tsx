@@ -20,7 +20,8 @@ import {
   zonedDayTime,
   zonedInstant,
 } from "@/lib/explore-calendar";
-import { EXPLORE_RANGES, type ExploreQuery, type ExploreRange, MAX_RANGE_MS, isCustom, parseDuration, rangeMs, rangeText, rangeWords } from "@/lib/explore-query";
+import { DEFAULT_RANGE, EXPLORE_RANGES, type ExploreQuery, type ExploreRange, MAX_RANGE_MS, isCustom, parseDuration, rangeMs, rangeText, rangeWords } from "@/lib/explore-query";
+import { copyText } from "@/lib/clipboard";
 import { zoneLabel } from "@/lib/time-zone";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { Icon } from "../icons";
@@ -36,8 +37,9 @@ const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [tabindex]:not
 /**
  * The Time Range facet (Supabase Unified Logs' first sidebar filter, DataTableFilterTimerange in
  * its `h-8` block button): a collapsible section holding one full-width bordered button, a clock
- * and the range (`Last 60 minutes`), that opens the date picker under it. The range lives only
- * here: the filter box takes `time:2h` but shows no pill for it.
+ * and the range (`Last 24 hours`, the default), that opens the date picker under it. The range is
+ * always here; the filter bar adds a Time range pill only while it differs from the default
+ * (TimeRangePill).
  */
 export function TimeRangeFacet({ query, onRange, open, onToggle }: { query: ExploreQuery; onRange: (r: RangePick) => void; open: boolean; onToggle: () => void }) {
   const id = useId();
@@ -99,6 +101,63 @@ function TimeRangeButton({ query: q, onRange }: { query: ExploreQuery; onRange: 
         </Popover>
       ) : null}
     </>
+  );
+}
+
+/** Whether the range is not Explore's default (the last 24 hours, live): the filter bar then shows it as a pill. */
+export const rangeIsSet = (q: Pick<ExploreQuery, "range" | "from" | "to">) => isCustom(q) || q.range !== DEFAULT_RANGE;
+
+/**
+ * The filter bar's Time range pill (`Time range = Last 7 days`, or the custom window), shown only
+ * while the range differs from the default 24 hours. Its body opens the same date picker as the
+ * sidebar's button; its × goes back to the default.
+ */
+export function TimeRangePill({ query: q, onRange }: { query: ExploreQuery; onRange: (r: RangePick) => void }) {
+  const tz = useTimeZone();
+  const id = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  if (!rangeIsSet(q)) return null;
+  const text = rangeText(q, tz);
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  return (
+    <li className="exp-pill exp-pill--time">
+      <button
+        ref={trigger}
+        type="button"
+        className="exp-pill__body"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? `${id}-pop` : undefined}
+        aria-label={`Edit time range: ${text}`}
+        title={text}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="exp-pill__field">Time range</span>
+        <span className="exp-pill__op">=</span>
+        <span className="exp-pill__value">{text}</span>
+      </button>
+      <button type="button" className="exp-pill__x" aria-label="Reset time range to the last 24 hours" title="Reset to the last 24 hours" onClick={() => onRange({ range: DEFAULT_RANGE })}>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+        </svg>
+      </button>
+      {open ? (
+        <Popover id={`${id}-pop`} anchor={trigger} onClose={close}>
+          <DatePicker
+            query={q}
+            tz={tz}
+            onPick={(r) => {
+              close();
+              onRange(r);
+            }}
+          />
+        </Popover>
+      ) : null}
+    </li>
   );
 }
 
@@ -237,15 +296,10 @@ function DatePicker({ query: q, tz, onPick }: { query: ExploreQuery; tz: string;
     onPick({ range: q.range, from: w.from, ...(b < at ? { to: w.to } : {}) });
   };
 
-  const copy = async () => {
+  const copy = () => {
     const w = window_();
     if (!w) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(w));
-      setSaid("copied");
-    } catch {
-      setErr("Couldn’t copy. Your browser blocked the clipboard.");
-    }
+    copyText(JSON.stringify(w)).then((ok) => (ok ? setSaid("copied") : setErr("Couldn’t copy. Your browser blocked the clipboard.")));
   };
 
   // Pasting a copied range (`{"from": …, "to": …}`) anywhere outside the inputs fills it in.

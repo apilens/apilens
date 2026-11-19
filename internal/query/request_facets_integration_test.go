@@ -14,8 +14,9 @@ import (
 )
 
 type requestFacets struct {
-	Field  string `json:"field"`
-	Values []struct {
+	Field   string `json:"field"`
+	HasMore bool   `json:"has_more"`
+	Values  []struct {
 		Value string `json:"value"`
 		Label string `json:"label"`
 		Count uint64 `json:"count"`
@@ -87,6 +88,8 @@ func TestRequestFacets(t *testing.T) {
 		{"env param ignored for env", "field=env&env=staging", []string{"production=4", "staging=2"}},
 		{"env param narrows others", "field=method&env=staging", []string{"POST=1", "PUT=1"}},
 		{"limit", "field=status&limit=2", []string{"200=2", "201=1"}},
+		{"offset pages", "field=status&limit=2&offset=2", []string{"404=1", "500=1"}},
+		{"last page", "field=status&limit=2&offset=4", []string{"503=1"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var out requestFacets
@@ -99,13 +102,21 @@ func TestRequestFacets(t *testing.T) {
 		})
 	}
 
+	// has_more says whether a page has values after it.
+	for q, want := range map[string]bool{"limit=2": true, "limit=2&offset=2": true, "limit=2&offset=3": false, "limit=50": false} {
+		var out requestFacets
+		if code := get(mine.ReadKey, "/api/v1/requests/facets?range=1h&field=status&"+q, &out); code != http.StatusOK || out.HasMore != want {
+			t.Errorf("%s: status %d, has_more %v, want %v", q, code, out.HasMore, want)
+		}
+	}
+
 	// A consumer's name comes with its id.
 	var consumers requestFacets
 	if code := get(mine.ReadKey, "/api/v1/requests/facets?range=1h&field=consumer&search=c1", &consumers); code != http.StatusOK || len(consumers.Values) != 1 || consumers.Values[0].Label != "Alice" {
 		t.Fatalf("consumer label: %d %+v", code, consumers)
 	}
 
-	for _, bad := range []string{"", "field=ip", "field=status&limit=51", "field=status" + f("bogus")} {
+	for _, bad := range []string{"", "field=ip", "field=status&limit=51", "field=status&offset=-1", "field=status&offset=1001", "field=status" + f("bogus")} {
 		if code := get(mine.ReadKey, "/api/v1/requests/facets?range=1h&"+bad, nil); code != http.StatusUnprocessableEntity {
 			t.Errorf("%q: status %d, want 422", bad, code)
 		}

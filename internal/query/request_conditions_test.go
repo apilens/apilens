@@ -97,7 +97,7 @@ func TestRequestFilterTakesConditions(t *testing.T) {
 }
 
 func TestFacetQuery(t *testing.T) {
-	q, args, err := facetQuery("consumer", "ali", 200, []string{"project_id = ?"}, []any{"p"})
+	q, args, err := facetQuery("consumer", "ali", 200, 0, []string{"project_id = ?"}, []any{"p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,16 +106,16 @@ func TestFacetQuery(t *testing.T) {
 			t.Errorf("query lacks %q:\n%s", part, q)
 		}
 	}
-	// The limit is capped at maxFacetValues.
-	if len(args) != 4 || args[1] != "%ali%" || args[3] != maxFacetValues {
+	// The limit is capped at maxFacetValues (read one past it, for has_more).
+	if len(args) != 5 || args[1] != "%ali%" || args[3] != maxFacetValues+1 || args[4] != 0 {
 		t.Fatalf("args = %v", args)
 	}
 	// search only narrows the fields that take it.
-	q, args, _ = facetQuery("status", "50", 20, []string{"project_id = ?"}, []any{"p"})
-	if strings.Contains(q, "ILIKE") || len(args) != 2 {
+	q, args, _ = facetQuery("status", "50", 20, 0, []string{"project_id = ?"}, []any{"p"})
+	if strings.Contains(q, "ILIKE") || len(args) != 3 {
 		t.Fatalf("status facet: %s %v", q, args)
 	}
-	if _, _, err := facetQuery("ip", "", 10, nil, nil); err == nil {
+	if _, _, err := facetQuery("ip", "", 10, 0, nil, nil); err == nil {
 		t.Fatal("unknown facet accepted")
 	}
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  relativeText,
+  stampText,
   logCaption,
   logPages,
   LOG_LIMIT,
@@ -26,9 +28,10 @@ import {
 import { NO_FILTERS } from "./explore-filters";
 
 describe("parseExploreQuery / exploreHref", () => {
-  it("defaults to the last hour and leaves the default out of the URL", () => {
+  it("defaults to the last hour and always writes a given range (Explore's own default is 24 hours)", () => {
     expect(parseExploreQuery({})).toEqual({ range: "1h", filters: NO_FILTERS });
-    expect(exploreHref("shop", { range: "1h" })).toBe("/project/shop/explore");
+    expect(exploreHref("shop", { range: "1h" })).toBe("/project/shop/explore?range=1h");
+    expect(exploreHref("shop", {})).toBe("/project/shop/explore");
   });
   it("keeps a known range and drops an unknown one", () => {
     expect(parseExploreQuery({ range: "7d" })).toEqual({ range: "7d", filters: NO_FILTERS });
@@ -239,5 +242,24 @@ describe("bucketHrefs (#977)", () => {
     expect(bucketHrefs("shop", { range: "1h" }, [{ ts: ts(0) }])).toEqual(["/project/shop/explore?range=1h"]);
     expect(bucketHrefs("shop", { range: "1h" }, [{ ts: "nope" }, { ts: ts(5) }])[0]).toBe("/project/shop/explore?range=1h");
     expect(bucketHrefs("shop", { range: "1h" }, [])).toEqual([]);
+  });
+});
+
+describe("stampText / relativeText (the time hover card)", () => {
+  const at = Date.parse("2026-11-19T09:28:13.466Z");
+  it("writes Supabase's DD MMM YY HH:mm:ss in a zone", () => {
+    expect(stampText(at, "UTC")).toBe("19 Nov 26 09:28:13");
+    expect(stampText(at, "Asia/Kolkata")).toBe("19 Nov 26 14:58:13");
+    expect(stampText(Date.parse("2027-01-02T03:04:05Z"), "UTC")).toBe("02 Jan 27 03:04:05");
+  });
+  it("says how long ago, as dayjs fromNow", () => {
+    expect(relativeText(at, at + 10_000)).toBe("a few seconds ago");
+    expect(relativeText(at, at + 60_000)).toBe("a minute ago");
+    expect(relativeText(at, at + 11 * 60_000)).toBe("11 minutes ago");
+    expect(relativeText(at, at + 60 * 60_000)).toBe("an hour ago");
+    expect(relativeText(at, at + 5 * 3_600_000)).toBe("5 hours ago");
+    expect(relativeText(at, at + 30 * 3_600_000)).toBe("a day ago");
+    expect(relativeText(at, at + 3 * 86_400_000)).toBe("3 days ago");
+    expect(relativeText(at, at - 5 * 60_000)).toBe("in 5 minutes");
   });
 });

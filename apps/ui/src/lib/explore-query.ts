@@ -261,7 +261,8 @@ export function legacyConds(params: SearchParams): Cond[] {
 export type ExploreRange = `${number}${"m" | "h" | "d"}`;
 /** The presets of the time range picker (Supabase's REPORTS_DATEPICKER_HELPERS, up to the API's 7 days). */
 export const EXPLORE_RANGES: readonly ExploreRange[] = ["10m", "30m", "1h", "3h", "24h", "7d"];
-export const DEFAULT_RANGE: ExploreRange = "1h";
+/** Explore opens on the last 24 hours (left out of the URL, so `?range=1h` is written explicitly). */
+export const DEFAULT_RANGE: ExploreRange = "24h";
 const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 const UNIT_WORD = { m: "minute", h: "hour", d: "day" } as const;
 /** The longest range the query API reads (it clamps anything older to 7 days). */
@@ -271,10 +272,10 @@ const API_RANGE_MS: Record<QueryRange, number> = { "1h": 3_600_000, "6h": 6 * 3_
 
 const TOKEN_RE = /^(\d{1,5})(m|h|d)$/;
 
-/** How long `r` reaches back, in ms (the default's hour for anything that is not a token). */
+/** How long `r` reaches back, in ms (the default's 24 hours for anything that is not a token). */
 export function rangeMs(r: string): number {
   const m = TOKEN_RE.exec(r);
-  return m ? Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] : UNIT_MS.h;
+  return m ? Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] : 24 * UNIT_MS.h;
 }
 
 /**
@@ -336,7 +337,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,256}$/;
  */
 export function readExploreUrl(params: SearchParams): ExploreQuery {
   // Any duration token is honoured (`?range=7d`, and `15m` / `6h` from links made before the
-  // presets changed); only a value that is not one falls back to the default hour.
+  // presets changed); only a value that is not one falls back to the default 24 hours.
   const q: ExploreQuery = { range: parseRange(first(params.range)) ?? DEFAULT_RANGE, conds: [] };
   let from = timeParam(first(params.from));
   let to = timeParam(first(params.to)) ?? timeParam(first(params.at));
@@ -355,7 +356,8 @@ export function readExploreUrl(params: SearchParams): ExploreQuery {
 /** The search entries of `q`, in a fixed order, defaults left out. */
 export function queryEntries(q: Partial<ExploreQuery>): [string, string][] {
   const out: [string, string][] = [];
-  if (q.range && q.range !== DEFAULT_RANGE && !q.from && !q.to) out.push(["range", q.range]);
+  // The range matters unless the window has a start: `?to=` alone reaches back by it.
+  if (q.range && q.range !== DEFAULT_RANGE && !q.from) out.push(["range", q.range]);
   if (q.from) out.push(["from", q.from]);
   if (q.to) out.push(["to", q.to]);
   for (const c of q.conds ?? []) out.push(["filter", condString(c)]);
@@ -457,6 +459,8 @@ export function valueText(c: Cond, names: { app?: (id: string) => string | null;
       return `${c.value.replace("-", "–")} B`;
     case "sampled":
       return c.value === "true" ? "kept in full" : "sampled out";
+    case "level":
+      return `${c.value[0].toUpperCase()}${c.value.slice(1)}`;
     default:
       return c.value;
   }
@@ -484,18 +488,104 @@ export const LEVEL_CLASS: Record<Level, string> = { success: "2xx", warning: "4x
 /** A status code's level. */
 export const levelOf = (code: number): Level => (code >= 500 ? "error" : code >= 400 ? "warning" : "success");
 
+/*
+ * Level and Status (#b5): one hierarchy on status_code, not two ANDed filters.
+ *
+ *   A level is the set of its codes (success: under 400, warning: 4xx, error: 5xx), and a ticked
+ *   Status term refines its level. The rows shown are, for each ticked level, its ticked codes if
+ *   it has any, else the whole level; with no level ticked, just the ticked codes. Different
+ *   levels are alternatives (OR), as two values of one facet always are. So `Level = Warning` +
+ *   `Status = 404` reads "warnings, only 404s", never the empty AND it used to be, and
+ *   `Level = Warning` + `Level = Error` + `Status = 500` reads "every warning, and the 500s".
+ *
+ * Kept true by the actions, not re-derived:
+ *   - ticking a code while some level is ticked ticks the code's level too (`withCodeLevels`);
+ *   - unticking a level drops its codes (`untickLevel`), so a code never outlives its level;
+ *   - the Status facet lists only codes inside the ticked levels (`statusInLevels`), and the
+ *     Level counts are whole-level totals, so no count is of an impossible combination.
+ * Exclusions (`≠`) stay exclusions: `Level ≠ Error` and `Status ≠ 404` are ANDed as before.
+ * Older `?filter=status:…` links carry no level, so they read exactly as before.
+ */
+
+/** The level a status term sits in (`404`, `4xx`, `500-503`), or null for a range across levels. */
+export function termLevel(term: string): Level | null {
+  const t = term.trim().toLowerCase();
+  const cls = /^([1-5])xx$/.exec(t);
+  if (cls) return levelOf(Number(cls[1]) * 100);
+  const [lo, hi] = t.split("-").map(Number);
+  if (!Number.isFinite(lo)) return null;
+  const a = levelOf(lo);
+  return hi === undefined || (Number.isFinite(hi) && levelOf(hi) === a) ? a : null;
+}
+
+/** The ticked levels: the level `=` conditions. */
+export const tickedLevels = (conds: readonly Cond[]): Level[] => ticked(conds, "level") as Level[];
+
+/** The ticked status terms inside `level`. */
+export const levelCodes = (conds: readonly Cond[], level: Level): string[] => ticked(conds, "status").filter((t) => t.split(",").every((x) => termLevel(x) === level));
+
+/** How a Level checkbox reads: on (ticked, whole or refined), partial (only codes of it ticked), off. */
+export function levelState(conds: readonly Cond[], level: Level): "on" | "partial" | "off" {
+  if (tickedLevels(conds).includes(level)) return levelCodes(conds, level).length ? "partial" : "on";
+  return levelCodes(conds, level).length ? "partial" : "off";
+}
+
+/** While any level is ticked, every ticked code's level is ticked too (a code refines its level). */
+export function withCodeLevels(conds: readonly Cond[]): Cond[] {
+  const levels = tickedLevels(conds);
+  if (!levels.length) return [...conds];
+  const add = new Set<Level>();
+  for (const t of ticked(conds, "status")) {
+    const l = termLevel(t);
+    if (l && !levels.includes(l)) add.add(l);
+  }
+  if (!add.size) return [...conds];
+  return dedupe([...conds.filter((c) => !(c.field === "level" && c.op === "neq" && add.has(c.value as Level))), ...[...add].map((l): Cond => ({ field: "level", op: "eq", value: l }))]);
+}
+
+/** Unticks a level and the codes refining it. */
+export function untickLevel(conds: readonly Cond[], level: Level): Cond[] {
+  return conds.filter((c) => !(c.field === "level" && c.value === level) && !(c.field === "status" && c.op === "eq" && c.value.split(",").every((x) => termLevel(x) === level)));
+}
+
 /**
- * The conditions as the API takes them. The API has no level: a level condition becomes status
- * exclusions (`level = warning` excludes 1xx–3xx and 5xx), so it ANDs with any status condition
- * as Supabase's two fields do, rather than joining a status `=` group as an alternative.
+ * A Level checkbox clicked: off → the whole level; on or partial → off, its codes with it.
+ * Ticking a level while codes of other levels stand alone ticks their levels too.
+ */
+export function toggleLevel(conds: readonly Cond[], level: Level): Cond[] {
+  if (levelState(conds, level) !== "off") return untickLevel(conds, level);
+  return withCodeLevels(toggleValue(conds, "level", level, true));
+}
+
+/** A Status checkbox clicked: ticks (with its level, while levels are ticked) or unticks the code. */
+export const toggleStatus = (conds: readonly Cond[], code: string, on: boolean): Cond[] => withCodeLevels(toggleValue(conds, "status", code, on));
+
+/** Whether a status code is listed by the Status facet: inside a ticked level, or any with none ticked. */
+export function statusInLevels(code: number, conds: readonly Cond[]): boolean {
+  const levels = tickedLevels(conds);
+  const neq = conds.filter((c) => c.field === "level" && c.op === "neq").map((c) => c.value as Level);
+  const l = levelOf(code);
+  return (!levels.length || levels.includes(l)) && !neq.includes(l);
+}
+
+/**
+ * The conditions as the API takes them. The API has no level: the ticked levels and codes become
+ * one status `=` group (any matches): each ticked level's codes, or the whole level when it has
+ * none, plus codes whose level is not ticked; `Level ≠` becomes status exclusions.
  */
 export function apiConds(conds: readonly Cond[]): Cond[] {
-  const eq = conds.filter((c) => c.field === "level" && c.op === "eq").map((c) => c.value as Level);
+  const levels = tickedLevels(conds);
   const neq = conds.filter((c) => c.field === "level" && c.op === "neq").map((c) => c.value as Level);
   const out = conds.filter((c) => c.field !== "level");
-  if (!eq.length && !neq.length) return out;
-  const dropped = LEVELS.filter((l) => (eq.length && !eq.includes(l)) || neq.includes(l));
-  return dedupe([...out, ...dropped.map((l): Cond => ({ field: "status", op: "neq", value: LEVEL_STATUS[l] }))]);
+  if (!levels.length && !neq.length) return out;
+  const eq: Cond[] = [];
+  if (levels.length) {
+    for (const l of LEVELS) if (levels.includes(l) && !levelCodes(conds, l).length) eq.push({ field: "status", op: "eq", value: LEVEL_STATUS[l] });
+  }
+  const excl = neq.map((l): Cond => ({ field: "status", op: "neq", value: LEVEL_STATUS[l] }));
+  // A level ticked whole adds to the codes; every level ticked whole and nothing else is no filter.
+  const whole = eq.length === LEVELS.length && !ticked(conds, "status").length;
+  return dedupe([...out, ...(whole ? [] : eq), ...excl]);
 }
 
 /** Whether a status code matches one status term: a code (404), a class (4xx) or a range (500-503). */
@@ -506,7 +596,7 @@ export function statusTermHit(code: number, term: string): boolean {
   return hi === undefined ? code === lo : code >= lo && code <= hi;
 }
 
-/** Whether a status code passes the status (and level) conditions: any `=` term, no `≠` term. */
+/** Whether a status code passes the status and level conditions: any `=` term, no `≠` term. */
 export function statusHit(code: number, conds: readonly Cond[]): boolean {
   const own = apiConds(conds).filter((c) => c.field === "status");
   const eq = own.filter((c) => c.op === "eq").flatMap((c) => c.value.split(","));

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { copyText } from "@/lib/clipboard";
 import { rowKey } from "@/lib/explore";
 import { type ColumnId, type ColumnPrefs, DEFAULT_PREFS, autoHidden, isPrefs, readPrefs } from "@/lib/explore-columns";
 import { exportFileName, neighborId, rangeKeys, toCsv, toJson, windowAround } from "@/lib/explore-detail";
@@ -18,6 +19,7 @@ import {
   rangeText,
   routeSearch,
   shownClasses,
+  withCodeLevels,
 } from "@/lib/explore-query";
 import { logPoll } from "@/lib/explore";
 import { timelinePoll } from "@/lib/explore-timeline";
@@ -201,7 +203,9 @@ export function ExploreApp({
     [project],
   );
 
-  const setConds = useCallback((conds: Cond[]) => update({ ...q, conds }), [q, update]);
+  // A ticked status code brings its level along while levels are ticked (the Level/Status rule,
+  // explore-query.ts), whichever control added it.
+  const setConds = useCallback((conds: Cond[]) => update({ ...q, conds: withCodeLevels(conds) }), [q, update]);
   const setRange = useCallback(
     (r: { range: ExploreRange; from?: string; to?: string }) => {
       // Picking a range or a window pauses Live (Supabase exits live on a date pick).
@@ -381,8 +385,10 @@ export function ExploreApp({
         else if (selected.size) clearSelection();
         return;
       }
-      // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way).
-      if (qRef.current.id && !(e.target as HTMLElement).closest?.(".exl-grid") && ["ArrowDown", "ArrowUp", "j", "k"].includes(e.key) && !e.shiftKey) {
+      // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way),
+      // unless a control used the key (the drawer's section nav: React and this listener share
+      // `document`, so its stopPropagation cannot stop this one).
+      if (qRef.current.id && !e.defaultPrevented && !(e.target as HTMLElement).closest?.(".exl-grid") && ["ArrowDown", "ArrowUp", "j", "k"].includes(e.key) && !e.shiftKey) {
         e.preventDefault();
         move(e.key === "ArrowDown" || e.key === "j" ? 1 : -1);
         return;
@@ -448,7 +454,7 @@ export function ExploreApp({
               </button>
             </div>
             <div className="exr-filter">
-              <PillBar conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
+              <PillBar query={q} conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
             </div>
             <div className="exr-tools__end" ref={toolsEnd}>
               <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>
@@ -573,14 +579,9 @@ export function ExploreApp({
 /** Two or more rows selected: how many, Copy as JSON, Export selected and Clear selection. */
 function SelectionPanel({ rows, onClear, fileName }: { rows: RequestRow[]; onClear: () => void; fileName: (ext: "csv" | "json") => string }) {
   const [said, setSaid] = useState<string | null>(null);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(toJson(rows));
-      setSaid(`Copied ${rows.length} requests as JSON.`);
-    } catch {
-      setSaid("Couldn’t copy. Your browser blocked the clipboard.");
-    }
-  };
+  // Written inside the click (lib/clipboard), as Safari asks.
+  const copy = () =>
+    copyText(toJson(rows)).then((ok) => setSaid(ok ? `Copied ${rows.length} requests as JSON.` : "Couldn’t copy. Your browser blocked the clipboard."));
   return (
     <section className="exd exd-sel" aria-label="Selected requests">
       <header className="exd-head">

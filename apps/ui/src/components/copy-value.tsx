@@ -4,6 +4,7 @@
 // 24x24 px). The result is announced through `role="status"` without moving focus; when the
 // clipboard is blocked the value is selected so the keyboard can copy it. Styled by copy-value.css.
 import { useEffect, useId, useRef, useState } from "react";
+import { copyText } from "@/lib/clipboard";
 import "./copy-value.css";
 
 export interface CopyValueProps {
@@ -25,10 +26,9 @@ export function CopyValue({ value, label, className }: CopyValueProps) {
   }, [state]);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setState("copied");
-    } catch {
+    // Started inside the click (lib/clipboard), as Safari asks.
+    if (await copyText(value)) setState("copied");
+    else {
       setState("failed");
       const el = valueRef.current;
       const sel = typeof window === "undefined" ? null : window.getSelection();

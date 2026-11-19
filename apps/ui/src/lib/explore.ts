@@ -57,9 +57,12 @@ function exploreSearch(q: Partial<ExploreState>, withRange: boolean, w: ExploreW
   return s ? `?${s}` : "";
 }
 
-/** The page URL for `q`, leaving defaults out. */
+/**
+ * The page URL for `q`. A range given always goes in: Explore's own default (24 hours,
+ * explore-query.ts) is not this module's 1 hour, so leaving `1h` out would widen the link.
+ */
 export function exploreHref(project: string, q: Partial<ExploreState>): string {
-  return `${projectHref(project, "explore")}${exploreSearch(q, false, q)}`;
+  return `${projectHref(project, "explore")}${exploreSearch(q, true, q)}`;
 }
 
 /**
@@ -199,6 +202,39 @@ export function logTime(ts: string, now: number, tz: string): { day: string; clo
     clock: `${pad(d.hour)}:${pad(d.minute)}:${pad(d.second)}`,
     ms: `.${pad(d.millisecond, 3)}`,
   };
+}
+
+/**
+ * An instant as Supabase's log table and its TimestampInfo card write it (dayjs `DD MMM YY
+ * HH:mm:ss`): `19 Nov 26 14:58:13`, in `tz`. Built from parts, so the server and every browser
+ * engine render the same text (no hydration mismatch).
+ */
+export function stampText(at: number, tz: string): string {
+  const d = zonedParts(at, tz);
+  return `${pad(d.day)} ${MONTHS[d.month]} ${pad(d.year % 100)} ${pad(d.hour)}:${pad(d.minute)}:${pad(d.second)}`;
+}
+
+/**
+ * How long ago `at` was at `now`, in dayjs' `fromNow` words (TimestampInfo's Relative row):
+ * `a few seconds ago`, `11 minutes ago`, `an hour ago`, `3 days ago`; `in …` for the future.
+ */
+export function relativeText(at: number, now: number): string {
+  const diff = now - at;
+  const s = Math.abs(diff) / 1000;
+  const round = Math.round;
+  const words =
+    s < 45 ? "a few seconds"
+    : s < 90 ? "a minute"
+    : s < 45 * 60 ? `${round(s / 60)} minutes`
+    : s < 90 * 60 ? "an hour"
+    : s < 22 * 3600 ? `${round(s / 3600)} hours`
+    : s < 36 * 3600 ? "a day"
+    : s < 26 * 86400 ? `${round(s / 86400)} days`
+    : s < 45 * 86400 ? "a month"
+    : s < 320 * 86400 ? `${round(s / (30 * 86400))} months`
+    : s < 548 * 86400 ? "a year"
+    : `${round(s / (365 * 86400))} years`;
+  return diff < 0 ? `in ${words}` : `${words} ago`;
 }
 
 /**
