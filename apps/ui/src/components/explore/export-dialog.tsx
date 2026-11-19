@@ -5,6 +5,7 @@ import { logPoll } from "@/lib/explore";
 import { EXPORT_LIMITS, exportFileName, toCsv, toJson } from "@/lib/explore-detail";
 import { type ExploreQuery, isCustom, routeSearch } from "@/lib/explore-query";
 import type { RequestRow } from "@/lib/identity";
+import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
 
 /** The most rows one read of the log answers. */
@@ -79,18 +80,17 @@ export function ExportMenu({ project, query: q, rangeLabel }: { project: string;
       <button
         ref={trigger}
         type="button"
-        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn"
+        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon"
         aria-haspopup="dialog"
+        aria-label="Export requests"
+        title="Export requests"
         aria-expanded={open}
         onClick={() => {
           setErr(null);
           setOpen((o) => !o);
         }}
       >
-        <svg viewBox="0 0 16 16" aria-hidden="true" className="ex-tbtn__icon">
-          <path d="M8 2.5v8M4.75 7.25 8 10.5l3.25-3.25M3 13.25h10" />
-        </svg>
-        <span className="ex-tbtn__label">Export</span>
+        <Icon name="download" />
       </button>
       <PopMenu
         open={open}

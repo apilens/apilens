@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXPLORE_RANGES,
   apiConds,
   apiQuery,
   apiWindow,
@@ -27,28 +28,78 @@ import {
   typedCond,
   typedTime,
   parseDuration,
+  parseRange,
   presetOf,
+  rangeMs,
+  rangeOfMs,
+  rangeWords,
   zonedInputToIso,
 } from "./explore-query";
 
-describe("time in the filter box (#1061)", () => {
-  const now = Date.parse("2026-11-05T10:00:00Z");
+describe("time ranges (the sidebar's Time Range)", () => {
   it("reads durations as Supabase's date picker does", () => {
-    expect(parseDuration("2h")).toEqual({ ms: 7_200_000, words: "Last 2 hours" });
-    expect(parseDuration("last 30m")).toEqual({ ms: 1_800_000, words: "Last 30 minutes" });
-    expect(parseDuration("1 day")).toEqual({ ms: 86_400_000, words: "Last 1 day" });
+    expect(parseDuration("2h")).toEqual({ range: "2h", ms: 7_200_000, words: "Last 2 hours" });
+    expect(parseDuration("last 30m")).toEqual({ range: "30m", ms: 1_800_000, words: "Last 30 minutes" });
+    expect(parseDuration("1 day")).toEqual({ range: "24h", ms: 86_400_000, words: "Last 24 hours" });
+    expect(parseDuration("60 minutes")).toEqual({ range: "1h", ms: 3_600_000, words: "Last 60 minutes" });
+    expect(parseDuration("7d")?.range).toBe("7d");
     expect(parseDuration("8d")).toBeNull();
     expect(parseDuration("0h")).toBeNull();
     expect(parseDuration("soon")).toBeNull();
     expect(presetOf(3_600_000)).toBe("1h");
+    expect(presetOf(10 * 60_000)).toBe("10m");
     expect(presetOf(7_200_000)).toBeNull();
   });
+
+  it("offers Supabase's presets up to the API's 7 days, in its words", () => {
+    expect(EXPLORE_RANGES.map((r) => `Last ${rangeWords(r)}`)).toEqual(["Last 10 minutes", "Last 30 minutes", "Last 60 minutes", "Last 3 hours", "Last 24 hours", "Last 7 days"]);
+    expect(rangeWords("15m")).toBe("15 minutes");
+    expect(rangeWords("2d")).toBe("2 days");
+  });
+
+  it("normalises tokens", () => {
+    expect(rangeOfMs(60 * 60_000)).toBe("1h");
+    expect(rangeOfMs(90 * 60_000)).toBe("90m");
+    expect(rangeOfMs(86_400_000)).toBe("24h");
+    expect(rangeOfMs(2 * 86_400_000)).toBe("2d");
+    expect(rangeOfMs(30 * 86_400_000)).toBe("7d");
+    expect(rangeMs("3h")).toBe(3 * 3_600_000);
+    expect(rangeMs("7d")).toBe(7 * 86_400_000);
+  });
+
+  it("parses ?range= values, old links included", () => {
+    expect(parseRange("7d")).toBe("7d");
+    expect(parseRange("15m")).toBe("15m");
+    expect(parseRange("6h")).toBe("6h");
+    expect(parseRange("60m")).toBe("1h");
+    expect(parseRange("30d")).toBe("7d");
+    expect(parseRange("0h")).toBeNull();
+    expect(parseRange("1y")).toBeNull();
+    expect(parseRange(undefined)).toBeNull();
+  });
+
   it("turns time: and date: into a range", () => {
-    expect(typedTime("time:24h", now)).toEqual({ range: "24h" });
-    expect(typedTime("date = last 15m", now)).toEqual({ range: "15m" });
-    expect(typedTime("time:2h", now)).toEqual({ range: "1h", from: "2026-11-05T08:00:00Z" });
-    expect(typedTime("path:/time", now)).toBeNull();
-    expect(typedTime("time:forever", now)).toBeNull();
+    expect(typedTime("time:24h")).toEqual({ range: "24h" });
+    expect(typedTime("date = last 15m")).toEqual({ range: "15m" });
+    expect(typedTime("time:2h")).toEqual({ range: "2h" });
+    expect(typedTime("path:/time")).toBeNull();
+    expect(typedTime("time:forever")).toBeNull();
+  });
+});
+
+describe("?range= links (the Last 1 hour bug)", () => {
+  it("honours every range a link can carry", () => {
+    for (const r of ["10m", "15m", "30m", "1h", "3h", "6h", "24h", "7d"]) expect(readExploreUrl({ range: r }).range).toBe(r);
+    expect(rangeText(readExploreUrl({ range: "7d" }), "UTC")).toBe("Last 7 days");
+    expect(readExploreUrl({ range: "30d" }).range).toBe("7d");
+    expect(readExploreUrl({ range: "nope" }).range).toBe("1h");
+  });
+
+  it("keeps the range through the page URL and the route handlers", () => {
+    const q = readExploreUrl({ range: "7d" });
+    expect(exploreUrl("shop", q)).toBe("/project/shop/explore?range=7d");
+    expect(routeSearch(q)).toBe("?range=7d");
+    expect(readExploreUrl(Object.fromEntries(new URLSearchParams(routeSearch(q).slice(1)))).range).toBe("7d");
   });
 });
 
@@ -156,9 +207,12 @@ describe("readExploreUrl and exploreUrl", () => {
 
 describe("apiWindow and bucketFor", () => {
   const now = Date.parse("2026-11-05T12:00:30Z");
-  it("reads 15m as the end of the API's 1h", () => {
+  it("reads a range the API lacks as the end of the smallest API range holding it", () => {
     expect(apiWindow({ range: "15m" }, now)).toEqual({ range: "1h", from: "2026-11-05T11:45:30Z" });
+    expect(apiWindow({ range: "10m" }, now)).toEqual({ range: "1h", from: "2026-11-05T11:50:30Z" });
+    expect(apiWindow({ range: "3h" }, now)).toEqual({ range: "6h", from: "2026-11-05T09:00:30Z" });
     expect(apiWindow({ range: "6h" }, now)).toEqual({ range: "6h" });
+    expect(apiWindow({ range: "7d" }, now)).toEqual({ range: "7d" });
   });
 
   it("picks the smallest range holding a custom window", () => {
@@ -274,7 +328,7 @@ describe("custom range", () => {
   });
 
   it("says the range", () => {
-    expect(rangeText({ range: "1h" }, "UTC")).toBe("Last 1 hour");
+    expect(rangeText({ range: "1h" }, "UTC")).toBe("Last 60 minutes");
     expect(rangeText({ range: "1h", from: "2026-11-05T10:00:00Z", to: "2026-11-05T11:00:00Z" }, "UTC")).toBe("Nov 5, 10:00 – Nov 5, 11:00 UTC");
   });
 

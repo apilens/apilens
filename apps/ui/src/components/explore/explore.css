@@ -14,31 +14,41 @@
 
 
 
-/* The toolbar row (UnifiedLogs.tsx:688-750): `flex flex-wrap items-center gap-2 px-2 border-b`,
-   the filter box in `sm:flex-1 py-2`, the buttons in `ml-auto flex items-center gap-x-2`. */
-.exr-tools { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 8px; border-bottom: 1px solid var(--border); }
-.exr-filter { flex: 1 1 0; min-width: 0; padding: 8px 0; }
-.exr-tools__end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* The toolbar row (search_bar_panel.png; UnifiedLogs.tsx:688): as tall as the sidebar's header
+   (the shell's --tb-h, 48px with its hairline), so both bottom borders sit on one line. A 42px
+   sidebar-toggle cell with a hairline after it, the filter box filling the row, then tiny buttons
+   8px apart (measured: 26px squares at a 34px pitch) and Live, 8px from the edge. */
+.exr-tools { flex: none; display: flex; align-items: stretch; gap: 8px; box-sizing: border-box; height: var(--tb-h, 48px); padding: 0 8px 0 0; border-bottom: 1px solid var(--border); }
+.exr-side { flex: none; display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 42px; border-right: 1px solid var(--border); }
+.exr-sidebtn { position: relative; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-muted); cursor: pointer; }
+.exr-sidebtn:hover { background: var(--surface-2); color: var(--ink); }
+.exr-sidebtn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exr-sidebtn .cp-ic { width: 14px; height: 14px; stroke-width: 2; }
+.exr-sidebtn__n { position: absolute; top: -2px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: var(--radius-pill); background: var(--accent); color: var(--on-accent); font: 500 10px/14px var(--font-mono); }
+.exr-filter { flex: 1 1 0; min-width: 0; display: flex; align-items: center; }
+.exr-tools__end { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* The row holds 47px above its hairline; the filter box and the buttons centre in 46 so the 26px
+   buttons land on whole pixels (10px above and below). */
+.exr-filter, .exr-tools__end { margin-bottom: 1px; }
 
-/* Toolbar buttons are the shared tiny button (`.ah-btn.ah-btn--sm` = Supabase `size="tiny"`, #1062:
-   26px, `px-2.5`, 12/16 medium, 14px icons 8px from the label); `secondary` = Supabase `default`,
-   `primary` for Live on (LiveButton.tsx:70). Icon-only ones are 26px square (RefreshButton.tsx:38
-   `w-[26px]`). */
+/* Toolbar buttons: the shared tiny button (`.ah-btn.ah-btn--sm`, #1062) at Supabase's `size="tiny"`:
+   26px, 12px text, 14px icons; `secondary` = Supabase `default`, with its control border.
+   Icon-only ones are 26px square (RefreshButton.tsx:38 `w-[26px]`); Live has 10px sides. */
+.ex-tbtn { height: 26px; padding: 0 10px; gap: 8px; border-radius: var(--radius-sm); font: 500 12px/16px var(--font-sans); }
+.ex-tbtn.ah-btn--secondary { border-color: var(--control-border); }
 .ex-tbtn--icon { width: 26px; padding: 0; }
-.ex-tbtn__icon, .exr-live__icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.ex-tbtn__icon.is-spinning { animation: ex-spin 1s linear infinite; }
+.ex-tbtn .cp-ic { width: 14px; height: 14px; flex: none; stroke-width: 2; color: var(--ink); }
+.ex-tbtn.ah-btn--primary .cp-ic { color: var(--on-accent); }
+.ex-tbtn__spin { display: grid; animation: ex-spin 1s linear infinite; }
 @keyframes ex-spin { to { transform: rotate(360deg); } }
 
-.exr-paused, .exr-banner { flex: none; margin: 0; padding: 4px 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
-.exr-banner { margin: 0 8px 4px; border-radius: 6px; background: var(--warn-soft); color: var(--ink); }
+.exr-banner { flex: none; margin: 4px 8px; padding: 4px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--ink); font: 400 12px/16px var(--font-sans); }
 
-/* The filter box (ui-patterns FilterBar.tsx:61-98, pill variant): one bordered `rounded-md` box,
-   (Studio's 8px), `bg-foreground/[.026]`, a 16px search icon in an 8px-padded lead, then the conditions as 26px
-   pills (FilterCondition.tsx:281: `h-[26px] rounded-sm border bg-muted`), 12px text
-   (LogsFilterBar.tsx:213). */
-.exp { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-height: 32px; padding: 2px 4px 2px 0; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--ink) 2.6%, var(--bg)); box-sizing: border-box; cursor: text; }
-.exp:focus-within { border-color: var(--border-strong); }
-.exp-lead { flex: none; display: flex; align-items: center; padding: 0 8px; }
+/* The filter box (DataTableFilterCommand in the toolbar row): no box of its own, a 16px search icon
+   15px from the toggle's hairline, the text 12px and starting at 94px (measured), pills when there
+   are conditions. */
+.exp { position: relative; flex: 1; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; height: 100%; }
+.exp-lead { flex: none; display: flex; align-items: center; padding: 0 11px 0 8px; cursor: text; }
 .exp-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
 .exp-pills { display: flex; flex-wrap: nowrap; flex: 0 1 auto; gap: 4px; margin: 0; padding: 0; list-style: none; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .exp-pill { flex: none; display: inline-flex; align-items: stretch; max-width: 320px; height: 26px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); box-sizing: border-box; }
@@ -69,28 +79,69 @@
 .exp-edit__op[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .exp-edit__op:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 
-/* The date picker of the time pill (Logs.DatePickers.tsx:295-428): helpers on the left
-   (`border-r p-2 flex flex-col gap-px`; the box `mb-2 text-xs h-7 rounded-xs`; each helper
-   `px-4 py-1.5 text-xs rounded-xs`, checked `bg-background-overlay-hover text-foreground`), the
-   start and end on the right (`flex p-2 gap-2 font-mono`), Apply in a `p-2 border-t` footer. */
-.org-pop:has(.ext) { width: auto; max-width: calc(100vw - 16px); padding: 0; }
+/* The Time Range facet's button (DataTableFilterTimerange: LogsDatePicker's trigger, `block h-8`,
+   a 12px ClockIcon): full width, 32px, centred, bordered, rounded. */
+.ext-trigger { display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font: 400 12px/16px var(--font-sans); cursor: pointer; transition: background-color .2s cubic-bezier(0.22, 1, 0.36, 1); }
+.ext-trigger:hover, .ext-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--ink) 4%, var(--surface-2)); }
+.ext-trigger:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ext-trigger .cp-ic { width: 14px; height: 14px; flex: none; stroke-width: 2; color: var(--ink-muted); }
+.ext-trigger__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The date picker (Logs.DatePickers.tsx:295-428 in Radix's PopoverContent `p-0`), measured from
+   time_range_opned.png: 4px under the trigger, 489 x 392. Left a 211px column (`border-r p-2`, the
+   box `h-7 mb-2`, helpers `px-4 py-1.5 text-xs` 1px apart, the current one tinted); right the
+   times (`p-2 gap-2`, two 109px HH : MM : SS boxes and a 26px reset), a hairline, the calendar
+   (`p-3`, 36px days 8px apart, the picked ones in the accent) and a `p-2 border-t` footer. */
+.ext-pop { position: fixed; z-index: 90; box-sizing: border-box; max-width: calc(100vw - 16px); border: 1px solid color-mix(in srgb, var(--border-strong) 30%, var(--surface-2)); border-radius: var(--radius-sm); background: var(--surface-2); box-shadow: var(--shadow-frame); overflow: hidden; }
 .ext { display: flex; font: 400 12px/16px var(--font-sans); color: var(--ink); }
-.ext-helpers { display: flex; flex-direction: column; gap: 1px; padding: 8px; border-right: 1px solid var(--border); }
-.ext-custom { box-sizing: border-box; width: 160px; height: 28px; margin-bottom: 8px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 2px; background: var(--surface-1); color: var(--ink); font: 400 12px/16px var(--font-sans); }
-.ext-custom:focus-visible { outline: none; border-color: var(--accent); }
+.ext-helpers { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: 211px; padding: 8px; border-right: 1px solid var(--border); }
+.ext-custom { box-sizing: border-box; width: 100%; height: 28px; margin-bottom: 8px; padding: 0 12px; border: 1px solid var(--control-border); border-radius: var(--radius-xs); outline: none; background: transparent; color: var(--ink); font: 400 12px/16px var(--font-sans); }
+.ext-custom::placeholder { color: var(--ink-muted); }
+.ext-custom:focus-visible { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--ring); }
 .ext-list { display: flex; flex-direction: column; gap: 1px; }
-.ext-helper { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 16px; border: 0; border-radius: 2px; background: none; color: var(--ink-muted); font: 400 12px/16px var(--font-sans); text-align: left; cursor: pointer; }
-.ext-helper:hover, .ext-helper[aria-checked="true"] { background: var(--surface-2); color: var(--ink); }
-.ext-helper:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ext-helper { display: flex; align-items: center; box-sizing: border-box; width: 100%; height: 28px; padding: 0 16px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--ink-soft); font: 400 12px/16px var(--font-sans); text-align: left; cursor: pointer; transition: background-color .15s, color .15s; }
+.ext-helper:hover, .ext-helper[aria-checked="true"] { background: var(--selection); color: var(--ink); }
+.ext-helper:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ext-invalid { margin: 0; padding: 6px 8px; color: var(--ink-muted); }
-.ext-abs { display: flex; flex-direction: column; min-width: 0; }
-.ext-times { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; padding: 8px; font-family: var(--font-mono); }
-.ext-times label { color: var(--ink-muted); font-family: var(--font-sans); }
-.ext-zone { margin-left: 4px; font-family: var(--font-mono); font-size: 11px; }
-.ext-time { box-sizing: border-box; height: 26px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 400 12px/16px var(--font-mono); }
-.ext-time:focus-visible { outline: none; border-color: var(--accent); }
-.ext-err { margin: 0; padding: 0 8px 8px; color: var(--error); }
-.ext-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding: 8px; border-top: 1px solid var(--border); }
+.ext-main { display: flex; flex-direction: column; min-width: 0; }
+.ext-times { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border); }
+.ext-split { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 109px; height: 28px; border: 1px solid var(--control-border); border-radius: var(--radius-xs); font: 400 12px/16px var(--font-mono); color: var(--ink); }
+.ext-split:focus-within { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--ring); }
+.ext-split__part { display: flex; align-items: center; }
+.ext-split__sep { padding: 0 4px; color: var(--ink-muted); }
+.ext-split__input { box-sizing: content-box; width: 2ch; padding: 0; border: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: center; }
+.ext-split__input:focus { background: var(--selection); border-radius: 2px; }
+.ext-reset { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-muted); cursor: pointer; }
+.ext-reset:hover { background: var(--selection); color: var(--ink); }
+.ext-reset:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.ext-reset .cp-ic { width: 14px; height: 14px; stroke-width: 2; }
+.ext-err { margin: 0; padding: 0 12px 8px; color: var(--error); }
+.ext-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: auto; padding: 8px; border-top: 1px solid var(--border); }
+.ext-btn { height: 26px; padding: 0 10px; border-radius: var(--radius-sm); font: 400 12px/16px var(--font-sans); }
+.ext-btn.ah-btn--outline { border-color: var(--control-border); }
+.ext-btn.is-said { color: var(--accent-ink); }
+/* packages/ui Calendar: caption `‹ Month YYYY ›` (28px outline nav buttons), Su–Sa in 12.8px
+   muted, days `h-9 w-9` text-sm with rows `mt-2`; picked days filled, days between tinted,
+   other months' days dim, today's number underlined. */
+.extc { padding: 12px; }
+.extc-head { display: flex; align-items: center; justify-content: space-between; height: 28px; margin-bottom: 11px; }
+.extc-title { margin: 0; font: 500 13px/16px var(--font-sans); color: var(--ink); }
+.extc-nav { display: grid; place-items: center; box-sizing: border-box; width: 28px; height: 28px; padding: 0; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted); cursor: pointer; }
+.extc-nav:hover:not(:disabled) { background: var(--selection); color: var(--ink); }
+.extc-nav:disabled { opacity: .5; cursor: default; }
+.extc-nav:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.extc-nav .cp-ic { width: 14px; height: 14px; stroke-width: 2; }
+.extc-grid { border-collapse: collapse; border-spacing: 0; }
+.extc-wd { width: 36px; height: 20px; padding: 0; font: 400 12.8px/20px var(--font-sans); color: var(--ink-muted); text-align: center; }
+.extc-grid td { padding: 8px 0 0; }
+.extc-day { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink); font: 400 13px/1 var(--font-sans); font-variant-numeric: tabular-nums; cursor: pointer; }
+.extc-day:hover:not(:disabled) { background: var(--selection); }
+.extc-day.is-outside { color: var(--ink-muted); opacity: .5; }
+.extc-day.is-between { border-radius: 0; background: var(--accent-soft); }
+.extc-day.is-end, .extc-day.is-end:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); opacity: 1; }
+.extc-day.is-today:not(.is-end) { text-decoration: underline; text-underline-offset: 3px; }
+.extc-day:disabled { cursor: default; color: var(--ink-muted); opacity: .35; }
+.extc-day:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
 
 .exr-data { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; transition: opacity .15s ease; }
 /* Supabase fades the chart and table to 60% while refetching (UnifiedLogs.tsx:763, 805). */
@@ -136,7 +187,11 @@
 .exc-menu__item:hover, .exc-menu__item:focus-visible { outline: none; background: var(--surface-2); }
 .exc-menu__item svg { width: 12px; height: 12px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-linecap: round; }
 
-/* The facets in the shell's sidebar (#1061): the SidePanel body scrolls them, its header holds Reset. */
+/* The facets in the shell's sidebar (#1061): the SidePanel body scrolls them, its header holds Reset.
+   The toolbar's sidebar toggle folds the whole menu away on wide screens. */
+@media (min-width: 861px) {
+  .shell-menu[data-ex-hidden] { display: none; }
+}
 .exf-slot .exf { height: auto; }
 .exf-slot .exf-scroll { overflow: visible; }
 .exf-actions { display: flex; }
@@ -189,19 +244,20 @@
 
 @media (max-width: 759px) {
   /* Phones (UnifiedLogs.tsx:710 `order-first w-full`): the filter box takes its own first row. */
-  .exr-filter { order: -1; flex-basis: 100%; padding-bottom: 0; }
-  .exr-tools { padding-bottom: 8px; }
-  .ex-tbtn__label { display: none; }
+  /* Phones (UnifiedLogs.tsx:710 `order-first w-full`): the toggle and the filter box take the
+     first row, the buttons wrap under it. */
+  .exr-tools { flex-wrap: wrap; height: auto; padding-bottom: 8px; }
+  .exr-side { height: 44px; }
+  .exr-filter { flex-basis: calc(100% - 50px); height: 44px; }
   .exd-sheet { width: 100vw; border-left: 0; }
   .exd-actions .exd-act { display: none; }
   .exd-tabs { -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
   .exd-keys { visibility: hidden; }
   .ext { flex-direction: column; }
-  .ext-helpers { border-right: 0; border-bottom: 1px solid var(--border); }
-  .ext-custom { width: 100%; }
+  .ext-helpers { width: auto; border-right: 0; border-bottom: 1px solid var(--border); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .exl-bone, .ex-tbtn__icon.is-spinning, .exd-sheet { animation: none; }
+  .exl-bone, .ex-tbtn__spin, .exd-sheet { animation: none; }
   .exr-data, .exf-facet__title .cp-ic, .exf-item, .exf-check input { transition: none; }
 }
 
@@ -211,7 +267,7 @@
 .exl-grid:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 .exl-head { position: sticky; top: 0; z-index: 2; background: var(--bg); }
 .exl-row { display: grid; align-items: center; box-sizing: border-box; }
-.exl-row--head { height: 30px; box-shadow: inset 0 -1px 0 var(--border); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exl-row--head { height: 36px; box-shadow: inset 0 -1px 0 var(--border); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
 .exl-body { position: relative; }
 .exl-body > .exl-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font: 400 12px/16px var(--font-mono); }
 .exl-body > .exl-row.is-openable { cursor: pointer; }
@@ -251,7 +307,7 @@
 .exl-bone--dot { width: 7px; height: 7px; border-radius: 50%; }
 @keyframes exl-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .exl-grid.is-loading .exl-body { -webkit-mask-image: linear-gradient(to bottom, var(--ink) 20%, transparent 95%); mask-image: linear-gradient(to bottom, var(--ink) 20%, transparent 95%); }
-.exl-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: 32px; padding: 0 var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.exl-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: 33px; padding: 0 var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .exl-foot p { margin: 0; }
 .exr-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); border-top: 1px solid var(--border); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .exr-empty p { margin: 0; }
@@ -272,7 +328,7 @@
    py-0, font-medium, text-sm (13px) in a py-2 box; closed text-muted-foreground (--foreground-light),
    open text-foreground, a closed one hovered or focused text-foreground; never underlined. Focus is
    focus-inset (utilities.css): a 2px --ring outline, offset -2px, rounded-md, drawn at once. */
-.exf-facet__title button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0 8px; border: 0; border-radius: var(--radius-control); outline: 2px solid transparent; outline-offset: -2px; background: none; color: var(--ink-soft); font: 500 13px/calc(1.25 / 0.875) var(--font-sans); text-align: left; cursor: pointer; transition: color .15s cubic-bezier(.4, 0, .2, 1); }
+.exf-facet__title button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0 8px; border: 0; border-radius: var(--radius-control); outline: 2px solid transparent; outline-offset: -2px; background: none; color: var(--ink-soft); font: 500 13px/18px var(--font-sans); text-align: left; cursor: pointer; transition: color .15s cubic-bezier(.4, 0, .2, 1); }
 .exf-facet__title button:hover, .exf-facet__title button:focus-visible, .exf-facet.is-open .exf-facet__title button { color: var(--ink); }
 .exf-facet__title button:focus-visible { outline-color: var(--ring); }
 .exf-facet__name { min-width: 0; overflow: hidden; padding: 8px 0; text-overflow: ellipsis; white-space: nowrap; }

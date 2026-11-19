@@ -23,6 +23,7 @@ import { logPoll } from "@/lib/explore";
 import { timelinePoll } from "@/lib/explore-timeline";
 import type { NamedApp, RequestRow, RequestTimeline } from "@/lib/identity";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { Icon } from "../icons";
 import { ObIcon } from "../onboarding/ob";
 import { AppNamesProvider } from "./app-names";
 import { ColumnsMenu } from "./columns-menu";
@@ -71,9 +72,9 @@ const dataUrl = (project: string, q: ExploreQuery) => exploreUrl(project, { ...q
 
 /**
  * Explore (#585, revamped after Supabase Unified Logs in #1052 and #1061): the facets in the
- * shell's secondary sidebar (portalled into ExploreMenu's slots), then a full-height page of one
- * toolbar row (UnifiedLogs.tsx:688 `flex flex-wrap items-center gap-2 px-2 border-b`: the filter
- * box with the time range in it, then Refresh, Columns, Export, shortcuts and Live), the 60px chart
+ * shell's secondary sidebar (portalled into ExploreMenu's slots; the Time Range is their first
+ * facet), then a full-height page of one toolbar row (the sidebar toggle, the filter box, then
+ * Refresh, Columns, Export and Live), the 60px chart
  * and the request table; a request opens in a drawer over the page from the right. The state
  * (range or window, conditions) lives here and in the URL: a change shows at once, and the URL
  * follows 250ms later (replace, so typing does not fill the history), which reads the rows again
@@ -127,9 +128,26 @@ export function ExploreApp({
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
   const facetSlot = useSlot(FACETS_SLOT_ID);
+  const [shortcuts, setShortcuts] = useState(false);
+  const toolsEnd = useRef<HTMLDivElement>(null);
+  const [facetsHidden, setFacetsHidden] = useStored<boolean>("apilens.explore.facets.hidden", false, (v): v is boolean => typeof v === "boolean");
   const actionSlot = useSlot(FACETS_ACTIONS_ID);
   const [storedPrefs, setPrefs] = useStored<ColumnPrefs>("apilens.explore.columns", DEFAULT_PREFS, isPrefs);
   const prefs = readPrefs(storedPrefs);
+
+  // The sidebar toggle (UnifiedLogs.tsx's DataTableSideBarLayout toggle) folds the shell's menu
+  // holding the facets away on wide screens; on phones the facets are in the drawer it opens.
+  useEffect(() => {
+    const menu = facetSlot?.closest<HTMLElement>(".shell-menu");
+    if (!menu) return;
+    if (facetsHidden) menu.setAttribute("data-ex-hidden", "");
+    else menu.removeAttribute("data-ex-hidden");
+    return () => menu.removeAttribute("data-ex-hidden");
+  }, [facetSlot, facetsHidden]);
+  const toggleFacets = () => {
+    if (narrow) document.querySelector<HTMLButtonElement>(".tb-menu")?.click();
+    else setFacetsHidden(!facetsHidden);
+  };
 
   // The server answered: new rows for the URL. A URL this page did not write (back, forward, a
   // link) also brings its own state.
@@ -350,7 +368,7 @@ export function ExploreApp({
       }
       if (isTyping(e.target) || mod || e.altKey) return;
       if (e.key === "Escape") {
-        if (document.querySelector(".org-pop")) return;
+        if (document.querySelector(".org-pop, .ext-pop")) return;
         if (qRef.current.id) openRequest(undefined);
         else if (selected.size) setSelected(new Set());
         return;
@@ -363,7 +381,7 @@ export function ExploreApp({
       }
       if (e.key === "?") {
         e.preventDefault();
-        document.getElementById("ex-shortcuts")?.click();
+        setShortcuts((o) => !o);
         return;
       }
       if (e.key === "F" && e.shiftKey) {
@@ -386,7 +404,7 @@ export function ExploreApp({
   });
 
   const total = timeline ? (timeline.buckets ?? []).reduce((n, b) => n + b.requests, 0) : null;
-  const facets = <FacetPanel project={project} query={q} onChange={setConds} refresh={refresh} />;
+  const facets = <FacetPanel project={project} query={q} onChange={setConds} onRange={setRange} refresh={refresh} />;
   const auto = autoHidden(rows ?? []);
 
   return (
@@ -403,36 +421,40 @@ export function ExploreApp({
       <div className="exr">
         <div className="exr-main">
           {notice}
+          {/* The toolbar row (search_bar_panel): the sidebar toggle in its own cell, the filter box,
+              then tiny 26px buttons 8px apart (RefreshButton, DataTableViewOptions,
+              DownloadLogsButton) and Live (LiveButton.tsx:68-77). */}
           <div className="exr-tools" role="toolbar" aria-label="Explore">
-            <div className="exr-filter">
-              <PillBar conds={q.conds} onChange={setConds} query={q} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
-            </div>
-            {narrow ? (
-              // Phones: the facets are in the shell's drawer, under the page links.
-              <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" aria-haspopup="dialog" onClick={() => document.querySelector<HTMLButtonElement>(".tb-menu")?.click()}>
-                Filters{q.conds.length ? ` (${q.conds.length})` : ""}
+            <div className="exr-side">
+              <button
+                type="button"
+                className="exr-sidebtn"
+                aria-label={narrow ? "Show filters" : facetsHidden ? "Show filters" : "Hide filters"}
+                title={narrow ? "Show filters" : facetsHidden ? "Show filters" : "Hide filters"}
+                aria-expanded={narrow ? false : !facetsHidden}
+                aria-controls={FACETS_SLOT_ID}
+                onClick={toggleFacets}
+              >
+                <Icon name={!narrow && facetsHidden ? "panelOpen" : "panelClose"} />
+                {narrow && q.conds.length ? <span className="exr-sidebtn__n">{q.conds.length}</span> : null}
               </button>
-            ) : null}
-            <div className="exr-tools__end">
-              {/* Supabase's RefreshButton (DataTable/RefreshButton.tsx:34-41): tiny, 26px wide, RefreshCcw, LoaderCircle spinning while loading. */}
+            </div>
+            <div className="exr-filter">
+              <PillBar conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
+            </div>
+            <div className="exr-tools__end" ref={toolsEnd}>
               <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>
                 {pending ? (
-                  <svg viewBox="0 0 24 24" aria-hidden="true" className="ex-tbtn__icon is-spinning">
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
+                  <span className="ex-tbtn__spin">
+                    <Icon name="loader" />
+                  </span>
                 ) : (
-                  <svg viewBox="0 0 24 24" aria-hidden="true" className="ex-tbtn__icon">
-                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                    <path d="M3 3v5h5" />
-                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-                    <path d="M16 16h5v5" />
-                  </svg>
+                  <Icon name="refresh" />
                 )}
               </button>
               <ColumnsMenu prefs={prefs} auto={auto} onPrefs={setPrefs} />
               <ExportMenu project={project} query={q} rangeLabel={rangeText(q, tz)} />
-              <Shortcuts />
-              {/* Supabase's LiveButton (DataTable/LiveButton.tsx:68-77): tiny, primary when live and default when not, CirclePause / CirclePlay at 16px, "Live". */}
+              <Shortcuts open={shortcuts} onClose={() => setShortcuts(false)} anchor={toolsEnd} />
               <button
                 type="button"
                 className={`ah-btn ah-btn--sm ex-tbtn exr-live${liveOn ? " ah-btn--primary is-on" : " ah-btn--secondary"}`}
@@ -440,17 +462,7 @@ export function ExploreApp({
                 title={`${liveOn ? "Pause live mode" : "Start live mode"} (⌘J)`}
                 onClick={toggleLive}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true" className="exr-live__icon">
-                  <circle cx="12" cy="12" r="10" />
-                  {liveOn ? (
-                    <>
-                      <path d="M10 15V9" />
-                      <path d="M14 15V9" />
-                    </>
-                  ) : (
-                    <path d="M10 8l6 4-6 4z" />
-                  )}
-                </svg>
+                <Icon name={liveOn ? "circlePause" : "circlePlay"} />
                 Live
               </button>
             </div>
@@ -465,14 +477,6 @@ export function ExploreApp({
           ) : null}
           <div className={`exr-data${stale ? " is-stale" : ""}`} aria-busy={stale || undefined}>
             <StatusChart timeline={timeline} shown={shownClasses(q.conds)} onRange={(from, to) => setRange({ range: q.range, from, to })} />
-            {!liveOn && !stale ? (
-              <p className="exr-paused" role="status">
-                {canLive ? "Live paused." : "Showing a past window."}{" "}
-                <button type="button" className="exf-link" onClick={goLive}>
-                  Back to live
-                </button>
-              </p>
-            ) : null}
             {rows === null && !stale ? (
               <div className="ex-notice ex-notice--error" role="alert">
                 <ObIcon name="info" />

@@ -23,6 +23,7 @@ import {
 import { reasonPhrase, statusText } from "@/lib/http-status";
 import { Icon } from "../icons";
 import { useAppNames } from "./app-names";
+import { type RangePick, TimeRangeFacet } from "./time-range";
 import { isOpenMap, useStored } from "./use-stored";
 
 /** A list taller than this (px) scrolls, as Supabase's. */
@@ -43,8 +44,8 @@ const LABELS: Record<PanelField, string> = {
   consumer_group: "Consumer group",
 };
 
-/** Open until toggled: Level, App and Environment (Supabase opens Level and closes Status). */
-const DEFAULT_OPEN: Record<string, boolean> = { level: true, app: true, env: true };
+/** Open until toggled: Time Range, Level, App and Environment (Supabase opens Time Range and Level, closes Status). */
+const DEFAULT_OPEN: Record<string, boolean> = { time: true, level: true, app: true, env: true };
 
 /** Facets that ask the API as you type (their values are too many to list). */
 const ASYNC: ReadonlySet<PanelField> = new Set(["path", "consumer"]);
@@ -101,7 +102,8 @@ function useFacetValues(project: string, q: ExploreQuery, panel: PanelField, sea
 }
 
 /**
- * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): Level (success,
+ * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): first the Time Range
+ * (the only place the range is set, time-range.tsx), then Level (success,
  * warning, error), Status (the codes), App, Environment, Method, Path, Consumer and Consumer group, each a list of values with a checkbox
  * and the server's count (compact mono, 1.2k). Hovering a value swaps its count for "Only", which
  * keeps just that value. Ticking adds an `=` condition, so the facets and the filter bar's pills
@@ -112,11 +114,13 @@ export function FacetPanel({
   project,
   query: q,
   onChange,
+  onRange,
   refresh,
 }: {
   project: string;
   query: ExploreQuery;
   onChange: (conds: Cond[]) => void;
+  onRange: (r: RangePick) => void;
   refresh: number;
 }) {
   const [open, setOpen] = useStored<Record<string, boolean>>("apilens.explore.facets.open", DEFAULT_OPEN, isOpenMap);
@@ -125,6 +129,7 @@ export function FacetPanel({
   return (
     <div className="exf" role="region" aria-label="Filters">
       <div className="exf-scroll">
+        <TimeRangeFacet query={q} onRange={onRange} open={open.time ?? true} onToggle={() => setOpen((m) => ({ ...m, time: !(m.time ?? true) }))} />
         {PANEL_FIELDS.map((f) => (
           <Facet
             key={f}

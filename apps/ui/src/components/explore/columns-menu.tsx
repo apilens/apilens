@@ -2,6 +2,7 @@
 
 import { type DragEvent, type KeyboardEvent, useId, useRef, useState } from "react";
 import { type ColumnId, type ColumnPrefs, DEFAULT_PREFS, columnDef, isShown, moveColumn } from "@/lib/explore-columns";
+import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
 
 /** Columns that never hide: the table always has a time and a path. */
@@ -35,12 +36,18 @@ export function ColumnsMenu({ prefs, auto, onPrefs }: { prefs: ColumnPrefs; auto
 
   return (
     <>
-      <button ref={trigger} type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} title="Columns">
-        <svg viewBox="0 0 16 16" aria-hidden="true" className="ex-tbtn__icon">
-          <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5" />
-          <path d="M6.25 2.75v10.5M9.75 2.75v10.5" />
-        </svg>
-        <span className="ex-tbtn__label">Columns</span>
+      {/* DataTableViewOptions.tsx:41-48: a tiny 26px icon-only button, Settings2 (the sliders). */}
+      <button
+        ref={trigger}
+        type="button"
+        className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Columns"
+        title="Columns (⌘U resets)"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Icon name="sliders" />
       </button>
       <PopMenu open={open} onClose={() => setOpen(false)} triggerRef={trigger} label="Columns" role="dialog" id={`${id}-pop`} align="end">
         <div className="exm-cols">

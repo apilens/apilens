@@ -254,14 +254,59 @@ export function legacyConds(params: SearchParams): Cond[] {
 
 // Page state ------------------------------------------------------------------------------------
 
-/** The time ranges Explore offers, each ending now. 15m reads the API's 1h range narrowed by `from`. */
-export type ExploreRange = "15m" | "1h" | "6h" | "24h" | "7d";
-export const EXPLORE_RANGES: readonly ExploreRange[] = ["15m", "1h", "6h", "24h", "7d"];
+/**
+ * A time range ending now, as a duration token: `10m`, `1h`, `3h`, `24h`, `7d`, or any other
+ * length up to the API's 7 days (`2h` typed in the date picker, `15m` and `6h` from older links).
+ */
+export type ExploreRange = `${number}${"m" | "h" | "d"}`;
+/** The presets of the time range picker (Supabase's REPORTS_DATEPICKER_HELPERS, up to the API's 7 days). */
+export const EXPLORE_RANGES: readonly ExploreRange[] = ["10m", "30m", "1h", "3h", "24h", "7d"];
 export const DEFAULT_RANGE: ExploreRange = "1h";
-export const RANGE_MS: Record<ExploreRange, number> = { "15m": 15 * 60_000, "1h": 3_600_000, "6h": 6 * 3_600_000, "24h": 86_400_000, "7d": 7 * 86_400_000 };
-export const RANGE_WORDS: Record<ExploreRange, string> = { "15m": "15 minutes", "1h": "1 hour", "6h": "6 hours", "24h": "24 hours", "7d": "7 days" };
+const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+const UNIT_WORD = { m: "minute", h: "hour", d: "day" } as const;
+/** The longest range the query API reads (it clamps anything older to 7 days). */
+export const MAX_RANGE_MS = 7 * UNIT_MS.d;
 const API_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
-const API_RANGE_MS: Record<QueryRange, number> = { "1h": 3_600_000, "6h": 6 * 3_600_000, "24h": 86_400_000, "7d": 7 * 86_400_000 };
+const API_RANGE_MS: Record<QueryRange, number> = { "1h": 3_600_000, "6h": 6 * 3_600_000, "24h": 86_400_000, "7d": MAX_RANGE_MS };
+
+const TOKEN_RE = /^(\d{1,5})(m|h|d)$/;
+
+/** How long `r` reaches back, in ms (the default's hour for anything that is not a token). */
+export function rangeMs(r: string): number {
+  const m = TOKEN_RE.exec(r);
+  return m ? Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] : UNIT_MS.h;
+}
+
+/**
+ * The token of a length in ms, whole minutes: in days from 2 days on when whole, else in hours
+ * when whole, else minutes (`1h`, `24h`, `2d`, `90m`). Clamped to 1 minute to 7 days.
+ */
+export function rangeOfMs(ms: number): ExploreRange {
+  const min = Math.min(MAX_RANGE_MS / UNIT_MS.m, Math.max(1, Math.round(ms / UNIT_MS.m)));
+  if (min % 1440 === 0 && min >= 2880) return `${min / 1440}d`;
+  if (min % 60 === 0) return `${min / 60}h`;
+  return `${min}m`;
+}
+
+/**
+ * The range of a `?range=` value: any duration token (`7d`, `15m`, `6h`, `90m`), normalised
+ * (`60m` is `1h`) and capped at the API's 7 days (`30d` reads 7 days), or null when it is not one.
+ */
+export function parseRange(v: string | undefined): ExploreRange | null {
+  const m = TOKEN_RE.exec((v ?? "").trim().toLowerCase());
+  if (!m || Number(m[1]) <= 0) return null;
+  return rangeOfMs(Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS]);
+}
+
+/** A range in words, as Supabase's helpers say them: `60 minutes` for the hour, `3 hours`, `7 days`. */
+export function rangeWords(r: ExploreRange): string {
+  const m = TOKEN_RE.exec(r);
+  if (!m) return "60 minutes";
+  if (r === "1h") return "60 minutes";
+  const n = Number(m[1]);
+  const unit = m[2] as keyof typeof UNIT_WORD;
+  return `${n} ${UNIT_WORD[unit]}${n === 1 ? "" : "s"}`;
+}
 
 /**
  * Explore's state, all of it in the URL: a range ending now (`?range=`) or a custom window
@@ -290,8 +335,9 @@ const ID_RE = /^[A-Za-z0-9_-]{1,256}$/;
  * (`?request=`) the `?id=`.
  */
 export function readExploreUrl(params: SearchParams): ExploreQuery {
-  const range = first(params.range);
-  const q: ExploreQuery = { range: EXPLORE_RANGES.includes(range as ExploreRange) ? (range as ExploreRange) : DEFAULT_RANGE, conds: [] };
+  // Any duration token is honoured (`?range=7d`, and `15m` / `6h` from links made before the
+  // presets changed); only a value that is not one falls back to the default hour.
+  const q: ExploreQuery = { range: parseRange(first(params.range)) ?? DEFAULT_RANGE, conds: [] };
   let from = timeParam(first(params.from));
   let to = timeParam(first(params.to)) ?? timeParam(first(params.at));
   if (from && to && Date.parse(from) >= Date.parse(to)) {
@@ -337,10 +383,12 @@ export const isCustom = (q: Pick<ExploreQuery, "from" | "to">) => Boolean(q.from
  */
 export function apiWindow(q: Pick<ExploreQuery, "range" | "from" | "to">, now: number): { range: QueryRange; from?: string; to?: string } {
   if (!isCustom(q)) {
-    if (q.range === "15m") return { range: "1h", from: isoSecond(now - RANGE_MS["15m"]) };
-    return { range: q.range };
+    const ms = rangeMs(q.range);
+    const exact = API_RANGES.find((r) => API_RANGE_MS[r] === ms);
+    if (exact) return { range: exact };
+    return { range: API_RANGES.find((r) => ms <= API_RANGE_MS[r]) ?? "7d", from: isoSecond(now - ms) };
   }
-  const start = q.from ? Date.parse(q.from) : (q.to ? Date.parse(q.to) : now) - RANGE_MS[q.range];
+  const start = q.from ? Date.parse(q.from) : (q.to ? Date.parse(q.to) : now) - rangeMs(q.range);
   const reach = now - start;
   const range = API_RANGES.find((r) => reach <= API_RANGE_MS[r]) ?? "7d";
   return { range, ...(q.from ? { from: q.from } : { from: isoSecond(start) }), ...(q.to ? { to: q.to } : {}) };
@@ -349,7 +397,7 @@ export function apiWindow(q: Pick<ExploreQuery, "range" | "from" | "to">, now: n
 /** The window `q` covers at `now`, in ms. */
 export function windowSpan(q: Pick<ExploreQuery, "range" | "from" | "to">, now: number): { start: number; end: number } {
   const end = q.to ? Date.parse(q.to) : now;
-  const start = q.from ? Date.parse(q.from) : end - RANGE_MS[q.range];
+  const start = q.from ? Date.parse(q.from) : end - rangeMs(q.range);
   return { start, end };
 }
 
@@ -385,15 +433,15 @@ export function shortInstant(iso: string, tz: string): string {
 
 /** What the range button says: `Last 1 hour`, or the custom window `Nov 5, 10:00 – 11:00 IST`. */
 export function rangeText(q: Pick<ExploreQuery, "range" | "from" | "to">, tz: string): string {
-  if (!isCustom(q)) return `Last ${RANGE_WORDS[q.range]}`;
+  if (!isCustom(q)) return `Last ${rangeWords(q.range)}`;
   const end = q.to ? Date.parse(q.to) : Date.now();
-  const from = q.from ? shortInstant(q.from, tz) : `${RANGE_WORDS[q.range]} before`;
+  const from = q.from ? shortInstant(q.from, tz) : `${rangeWords(q.range)} before`;
   const to = q.to ? shortInstant(q.to, tz) : "now";
   return `${from} – ${to} ${zoneLabel(tz, end)}`;
 }
 
 /** The time range in a sentence: `the last 1 hour`, `Nov 5, 10:00 – 11:00 IST`. */
-export const rangeSentence = (q: Pick<ExploreQuery, "range" | "from" | "to">, tz: string) => (isCustom(q) ? rangeText(q, tz) : `the last ${RANGE_WORDS[q.range]}`);
+export const rangeSentence = (q: Pick<ExploreQuery, "range" | "from" | "to">, tz: string) => (isCustom(q) ? rangeText(q, tz) : `the last ${rangeWords(q.range)}`);
 
 /** A pill's value as people read it: an app's name, a consumer's name, `100–500 ms`, `2 KB`. */
 export function valueText(c: Cond, names: { app?: (id: string) => string | null; consumer?: (id: string) => string | null } = {}): string {
@@ -635,41 +683,36 @@ export function isoToZonedInput(iso: string, tz: string): string {
   return `${p.year}-${pad(p.month + 1)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
 }
 
-// The time range in the filter box (#1061, after Supabase's LogsDatePicker) ---------------------
-
-const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
-const UNIT_WORD: Record<string, string> = { m: "minute", h: "hour", d: "day" };
+// Durations typed in the date picker or the filter box (#1061, after Supabase's LogsDatePicker) --
 
 /**
  * A relative duration as Supabase's date picker takes it (`e.g. 2h, 30m, 7d`), with an optional
- * `last`: its length and its words (`Last 2 hours`), or null. At most Explore's 7 days.
+ * `last`: its range token and its words (`Last 2 hours`), or null. At most the API's 7 days.
  */
-export function parseDuration(text: string): { ms: number; words: string } | null {
+export function parseDuration(text: string): { range: ExploreRange; ms: number; words: string } | null {
   const m = text
     .trim()
     .toLowerCase()
     .replace(/^last\s+/, "")
-    .match(/^(\d{1,4})\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?)$/);
+    .match(/^(\d{1,5})\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?)$/);
   if (!m) return null;
   const n = Number(m[1]);
-  const unit = m[2][0];
-  const ms = n * UNIT_MS[unit];
-  if (n <= 0 || ms > RANGE_MS["7d"]) return null;
-  return { ms, words: `Last ${n} ${UNIT_WORD[unit]}${n === 1 ? "" : "s"}` };
+  const ms = n * UNIT_MS[m[2][0] as keyof typeof UNIT_MS];
+  if (n <= 0 || ms > MAX_RANGE_MS) return null;
+  const range = rangeOfMs(ms);
+  return { range, ms, words: `Last ${rangeWords(range)}` };
 }
 
-/** The preset range of a duration (`1h` for an hour), or null when it is not one of them. */
-export const presetOf = (ms: number): ExploreRange | null => EXPLORE_RANGES.find((r) => RANGE_MS[r] === ms) ?? null;
+/** The preset of a range (`1h` for 60 minutes), or null when the picker does not list it. */
+export const presetOf = (ms: number): ExploreRange | null => EXPLORE_RANGES.find((r) => rangeMs(r) === ms) ?? null;
 
 /**
- * Time typed in the filter box: `time:2h`, `date: last 24h`, `time=15m`. The range it asks for:
- * a preset, or a window starting that long ago and staying live (`from` only). Null otherwise.
+ * Time typed in the filter box: `time:2h`, `date: last 24h`, `time=15m`. The range it asks for
+ * (it becomes the sidebar's Time Range, not a pill), or null.
  */
-export function typedTime(text: string, now: number): { range: ExploreRange; from?: string } | null {
+export function typedTime(text: string): { range: ExploreRange } | null {
   const m = text.trim().match(/^(?:time|date)\s*[:=]\s*(.+)$/i);
   if (!m) return null;
   const d = parseDuration(m[1]);
-  if (!d) return null;
-  const preset = presetOf(d.ms);
-  return preset ? { range: preset } : { range: DEFAULT_RANGE, from: isoSecond(now - d.ms) };
+  return d ? { range: d.range } : null;
 }
