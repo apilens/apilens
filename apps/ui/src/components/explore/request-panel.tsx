@@ -1038,23 +1038,44 @@ function ListBar({ hint, anyOpen, onAll, onNone }: { hint: string; anyOpen: bool
 /** Lets a section deep in the drawer open Timeline for the request's trace. */
 const DrawerNav = createContext<{ traceId: string; openTimeline: () => void } | null>(null);
 
-/** The streamed output shows this many characters until Show all. */
+/** Long text shows this many characters until Show all. */
 const OUTPUT_PREVIEW = 1200;
 
+/** Text that shows its first OUTPUT_PREVIEW characters, then Show all. */
+function LongText({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  return (
+    <>
+      <pre className="rd-pre rd-stream__text">{all || text.length <= OUTPUT_PREVIEW ? text : `${text.slice(0, OUTPUT_PREVIEW)}…`}</pre>
+      {text.length > OUTPUT_PREVIEW ? (
+        <button type="button" className="exf-link" onClick={() => setAll((a) => !a)}>
+          {all ? "Show less" : `Show all ${text.length.toLocaleString("en-US")} characters`}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 /**
- * A server-sent event stream, summed up before it is listed: its count and types (each a filter),
- * the ids it carries (run, session, agent, model, tools; the trace opens Timeline), the text it
- * streamed joined from its content deltas, then the events with runs of the same event folded
- * into one row (`RunContent × 120`). A row opens its events; an event opens its data as JSON.
+ * Any server-sent event stream, read without assuming its shape: first the real response (the
+ * last event: the whole text it carries, else its data), then the text joined from the content
+ * deltas when that differs, then the events. One toolbar filters them (search over names and
+ * data, one type picker); the fields every event shares (ids, models, whatever they are called)
+ * fold into one line with the trace; runs of the same event fold into one row.
  */
 function EventStream({ events }: { events: StreamEvent[] }) {
   const sum = useMemo(() => streamSummary(events), [events]);
   const nav = useContext(DrawerNav);
-  const [only, setOnly] = useState<string | null>(null);
-  const [allOutput, setAllOutput] = useState(false);
+  const [type, setType] = useState("");
+  const [q, setQ] = useState("");
+  const [sharedOpen, setSharedOpen] = useState(false);
   const { open, toggle, none } = useOpenRows(events.length);
   const [openGroups, setOpenGroups] = useState<Set<number>>(new Set());
   const id = useId();
+  const needle = q.trim().toLowerCase();
+  const filtering = Boolean(type || needle);
+  const matches = (e: StreamEvent) => (!type || e.event === type) && (!needle || e.event.toLowerCase().includes(needle) || e.text.toLowerCase().includes(needle));
+  const shown = filtering ? events.map((e, i) => [e, i] as const).filter(([e]) => matches(e)) : [];
   const toggleGroup = (g: number) =>
     setOpenGroups((s) => {
       const next = new Set(s);
@@ -1090,81 +1111,139 @@ function EventStream({ events }: { events: StreamEvent[] }) {
     );
   };
 
-  const shownOutput = allOutput || sum.output.length <= OUTPUT_PREVIEW ? sum.output : `${sum.output.slice(0, OUTPUT_PREVIEW)}…`;
+  const fin = sum.final;
+  // The real response: the last event's own text when it carries the whole answer (RunCompleted),
+  // else the text joined from the deltas (OpenAI, Anthropic), else the last event's data.
+  const responseText = fin?.text || (sum.chunks ? sum.output : "");
+  const fromDeltas = !fin?.text && sum.chunks > 0;
+  const streamedDiffers = Boolean(fin?.text) && sum.chunks >= 2 && sum.output.trim() !== "" && sum.output.trim() !== fin?.text.trim();
+  const lastEvent = (
+    <>
+      {fin && fin.data !== null && typeof fin.data === "object" ? (
+        <JsonView value={fin.data} />
+      ) : fin ? (
+        <pre className="rd-pre">
+          <Marked text={events[fin.index].text} />
+        </pre>
+      ) : null}
+    </>
+  );
 
   return (
     <div className="rd-stream">
-      <div className="rd-stream__types" role="group" aria-label="Filter events by type">
-        <button type="button" aria-pressed={only === null} onClick={() => setOnly(null)}>
-          All <b>{events.length}</b>
-        </button>
-        {sum.types.map((t) => (
-          <button key={t.name} type="button" aria-pressed={only === t.name} onClick={() => setOnly(only === t.name ? null : t.name)}>
-            {t.name} <b>{t.count}</b>
-          </button>
-        ))}
-      </div>
-
-      {sum.ids.length || (nav?.traceId && nav.openTimeline) ? (
-        <dl className="rd-stream__ids" aria-label="Correlated">
-          {sum.ids.map((x) => (
-            <div key={x.key}>
-              <dt>{x.label}</dt>
-              <dd>
-                <code title={x.values.join(", ")}>{x.values.join(", ")}</code>
-                {x.key !== "tools" ? <CopyButton text={x.values.join(", ")} label={x.label.toLowerCase()} /> : null}
-              </dd>
-            </div>
-          ))}
-          {nav?.traceId ? (
-            <div>
-              <dt>Trace</dt>
-              <dd>
-                <code>{nav.traceId}</code>
-                <button type="button" className="exf-link" onClick={nav.openTimeline}>
-                  Open in Timeline
-                </button>
-              </dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : null}
-
-      {sum.output ? (
-        <section className="rd-stream__out" aria-label="Streamed output">
-          <header>
-            <span>
-              Streamed output <span className="rd-block__meta">{sum.chunks} chunks</span>
+      {fin ? (
+        <section className="rd-stream__card" aria-label="Response">
+          <header className="rd-stream__head">
+            <span className="rd-stream__title">Response</span>
+            <span className="rd-block__meta">
+              {fromDeltas ? (
+                `joined from ${sum.chunks} ${sum.chunks === 1 ? "chunk" : "chunks"}`
+              ) : (
+                <>
+                  last event · <code>{fin.name}</code> · #{fin.index + 1}
+                </>
+              )}
             </span>
-            <SectionCopy text={() => sum.output} what="the streamed output" label="Copy output" />
           </header>
-          <pre className="rd-pre">{shownOutput}</pre>
-          {sum.output.length > OUTPUT_PREVIEW ? (
-            <button type="button" className="exf-link" onClick={() => setAllOutput((a) => !a)}>
-              {allOutput ? "Show less" : `Show all ${sum.output.length.toLocaleString("en-US")} characters`}
-            </button>
-          ) : null}
+          {responseText ? <LongText text={responseText} /> : lastEvent}
         </section>
       ) : null}
 
-      <div className="rd-list">
-        <div className="rd-listbar">
-          <span className="rd-listbar__hint">{only ? `${sum.types.find((t) => t.name === only)?.count ?? 0} ${only} events` : `${events.length} events, repeats folded`}</span>
-          <button
-            type="button"
-            className="ah-btn ah-btn--ghost ah-btn--sm"
-            onClick={() => {
-              none();
-              setOpenGroups(new Set());
-            }}
-            disabled={open.size === 0 && openGroups.size === 0}
-          >
-            Collapse all
-          </button>
+      {fin && fromDeltas ? (
+        <details className="rd-stream__card rd-stream__more">
+          <summary>
+            <Chevron /> Last event <span className="rd-block__meta">
+              <code>{fin.name}</code> · #{fin.index + 1}
+            </span>
+          </summary>
+          {lastEvent}
+        </details>
+      ) : null}
+
+      {streamedDiffers ? (
+        <details className="rd-stream__card rd-stream__more">
+          <summary>
+            <Chevron /> Streamed text <span className="rd-block__meta">{sum.chunks} chunks joined</span>
+          </summary>
+          <LongText text={sum.output} />
+        </details>
+      ) : null}
+
+      <section className="rd-stream__events" aria-label="Events">
+        <div className="rd-stream__bar">
+          <input
+            type="search"
+            className="rd-stream__search"
+            placeholder="Search events"
+            aria-label="Search events by name or data"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <select className="rd-stream__type" aria-label="Event type" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="">All types · {sum.types.length}</option>
+            {sum.types.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name} · {t.count}
+              </option>
+            ))}
+          </select>
+          <span className="rd-stream__count">{filtering ? `${shown.length} of ${events.length}` : `${events.length} events`}</span>
+          {open.size || openGroups.size ? (
+            <button
+              type="button"
+              className="ah-btn ah-btn--ghost ah-btn--sm"
+              onClick={() => {
+                none();
+                setOpenGroups(new Set());
+              }}
+            >
+              Collapse all
+            </button>
+          ) : null}
         </div>
+
+        {sum.shared.length || nav?.traceId ? (
+          <div className={`rd-stream__shared${sharedOpen ? " is-open" : ""}`}>
+            <button type="button" className="rd-stream__sharedrow" aria-expanded={sharedOpen} onClick={() => setSharedOpen((o) => !o)}>
+              <Chevron />
+              <span>Shared by every event</span>
+              <span className="rd-stream__keys">{[...sum.shared.map((x) => x.key), ...(nav?.traceId ? ["trace"] : [])].join(" · ")}</span>
+            </button>
+            {sharedOpen ? (
+              <dl className="rd-stream__ids">
+                {sum.shared.map((x) => (
+                  <div key={x.key}>
+                    <dt>{x.key}</dt>
+                    <dd>
+                      <code title={x.value}>{x.value}</code>
+                    </dd>
+                  </div>
+                ))}
+                {nav?.traceId ? (
+                  <div>
+                    <dt>trace</dt>
+                    <dd>
+                      <code>{nav.traceId}</code>
+                      <button type="button" className="exf-link" onClick={nav.openTimeline}>
+                        Open in Timeline
+                      </button>
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
+          </div>
+        ) : null}
+
         <ol className="rd-events">
-          {only
-            ? events.map((e, i) => (e.event === only ? row(e, i) : null))
+          {filtering
+            ? shown.length
+              ? shown.map(([e, i]) => row(e, i))
+              : [
+                  <li key="none" className="rd-events__none">
+                    No events match.
+                  </li>,
+                ]
             : sum.groups.map((g, k) =>
                 g.from === g.to ? (
                   row(events[g.from], g.from)
@@ -1184,7 +1263,7 @@ function EventStream({ events }: { events: StreamEvent[] }) {
                 ),
               )}
         </ol>
-      </div>
+      </section>
     </div>
   );
 }

@@ -171,14 +171,15 @@ export interface StreamGroup {
   to: number;
 }
 
-/** A correlated value the stream carries (run, session, agent, model, tools), its distinct values in order. */
-export interface StreamId {
+/** A field every event that has it carries with one value (a run, session, model or request id). */
+export interface StreamShared {
   key: string;
-  label: string;
-  values: string[];
+  value: string;
+  /** How many events carry it. */
+  count: number;
 }
 
-/** What a stream adds up to: its event types, its runs, the text it streamed and the ids it carries. */
+/** What a stream adds up to: its event types, its runs, the text it streamed and the fields its events share. */
 export interface StreamSummary {
   types: { name: string; count: number }[];
   groups: StreamGroup[];
@@ -186,36 +187,39 @@ export interface StreamSummary {
   output: string;
   /** How many events added to `output`. */
   chunks: number;
-  ids: StreamId[];
+  shared: StreamShared[];
+  /**
+   * The stream's real response: its last event with data (a `[DONE]` marker skipped), and the
+   * whole text that event carries (`content`, `output`, `result`, `text`, `message`) when it does.
+   */
+  final: { index: number; name: string; data: unknown; text: string } | null;
 }
 
-/** Fields that tie a stream's events to runs, sessions, agents and models (Agno, OpenAI, Anthropic shapes). */
-const STREAM_IDS: [string, string][] = [
-  ["run_id", "Run"],
-  ["session_id", "Session"],
-  ["agent_name", "Agent"],
-  ["agent_id", "Agent ID"],
-  ["team_name", "Team"],
-  ["workflow_id", "Workflow"],
-  ["user_id", "User"],
-  ["model", "Model"],
-  ["model_provider", "Provider"],
-];
-/** The most distinct values one id row lists. */
-const STREAM_ID_MAX = 3;
+/** The whole text a final event carries, or "" (a string `content`, `output`, `result`, `text` or `message`, or `message.content`). */
+function finalText(data: unknown): string {
+  const d = record(data);
+  if (!d) return "";
+  for (const v of [d.content, d.output, d.result, d.text, d.message, record(d.message)?.content]) if (typeof v === "string" && v.trim()) return v;
+  return "";
+}
+
+/** Fields that name an event or its place rather than tie events together. */
+const NOT_SHARED = new Set(["event", "type", "object", "index", "content", "delta", "text", "data", "created_at", "created", "timestamp", "sequence_number"]);
+/** A shared value longer than this is content, not an id. */
+const SHARED_MAX = 120;
 
 const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
 /**
- * The text one event adds to the streamed output, or null: `content` / `delta` / `text` of a
- * content or delta event (Agno RunContent, Anthropic content_block_delta), or OpenAI's
- * `choices[0].delta.content`. Completed events repeat the whole output, so they add nothing.
+ * The text one event adds to the streamed output, or null: OpenAI's `choices[0].delta.content`,
+ * or a string `content` / `delta` / `text` (or `delta.text`) on an event whose name says content,
+ * delta, chunk or token. Completed and done events repeat the whole output, so they add nothing.
  */
 export function eventDelta(e: Pick<StreamEvent, "event" | "data">): string | null {
   const d = record(e.data);
   if (!d) return null;
-  const name = `${e.event} ${typeof d.event === "string" ? d.event : ""}`.toLowerCase();
-  if (/complete|done|end|stop/.test(name)) return null;
+  const name = `${e.event} ${typeof d.event === "string" ? d.event : ""} ${typeof d.type === "string" ? d.type : ""}`.toLowerCase();
+  if (/complete|done|\bend\b|stop/.test(name)) return null;
   const choice = record(Array.isArray(d.choices) ? d.choices[0] : null);
   const openai = record(choice?.delta)?.content;
   if (typeof openai === "string") return openai;
@@ -224,12 +228,15 @@ export function eventDelta(e: Pick<StreamEvent, "event" | "data">): string | nul
   return null;
 }
 
-/** A stream's summary for the drawer (see StreamSummary). */
+/**
+ * A stream's summary for the drawer, for any stream: its types and runs, the text joined from its
+ * content deltas, the top-level fields that every event carrying them carries with one value (in
+ * at least two events), whatever they are called, and its final event, the real response.
+ */
 export function streamSummary(events: readonly StreamEvent[]): StreamSummary {
   const counts = new Map<string, number>();
   const groups: StreamGroup[] = [];
-  const found = new Map<string, string[]>();
-  const tools: string[] = [];
+  const seen = new Map<string, { value: string; count: number; same: boolean }>();
   let output = "";
   let chunks = 0;
   events.forEach((e, i) => {
@@ -244,19 +251,22 @@ export function streamSummary(events: readonly StreamEvent[]): StreamSummary {
     }
     const d = record(e.data);
     if (!d) return;
-    for (const [key] of STREAM_IDS) {
-      const v = d[key];
-      if (typeof v !== "string" && typeof v !== "number") continue;
-      const list = found.get(key) ?? [];
-      if (!list.includes(String(v)) && list.length < STREAM_ID_MAX) list.push(String(v));
-      found.set(key, list);
+    for (const [key, raw] of Object.entries(d)) {
+      if (NOT_SHARED.has(key) || (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean")) continue;
+      const value = String(raw);
+      const had = seen.get(key);
+      if (!had) seen.set(key, { value, count: 1, same: value !== "" && value.length <= SHARED_MAX });
+      else {
+        had.count++;
+        if (had.value !== value) had.same = false;
+      }
     }
-    const tool = record(d.tool)?.tool_name ?? d.tool_name;
-    if (typeof tool === "string" && !tools.includes(tool)) tools.push(tool);
   });
-  const ids: StreamId[] = STREAM_IDS.filter(([k]) => found.get(k)?.length).map(([key, label]) => ({ key, label, values: found.get(key) ?? [] }));
-  if (tools.length) ids.push({ key: "tools", label: "Tools", values: tools });
-  return { types: [...counts].map(([name, count]) => ({ name, count })), groups, output, chunks, ids };
+  const shared = [...seen].filter(([, v]) => v.same && v.count >= 2).map(([key, v]) => ({ key, value: v.value, count: v.count }));
+  let at = events.length - 1;
+  while (at >= 0 && typeof events[at].data === "string" && /^\s*\[DONE\]\s*$/.test(events[at].text)) at--;
+  const final = at >= 0 ? { index: at, name: events[at].event, data: events[at].data, text: finalText(events[at].data) } : null;
+  return { types: [...counts].map(([name, count]) => ({ name, count })), groups, output, chunks, shared, final };
 }
 
 /**

@@ -332,13 +332,10 @@ describe("streamSummary", () => {
     ]);
     expect(s.output).toBe("Hello!");
     expect(s.chunks).toBe(3);
-    expect(s.ids.map((i) => [i.label, i.values])).toEqual([
-      ["Run", ["r1"]],
-      ["Session", ["s1"]],
-      ["Agent", ["Mira"]],
-      ["Model", ["gpt-x"]],
-      ["Tools", ["search"]],
-    ]);
+    // Fields every event carrying them shares: run_id in all six; the others are in only one.
+    expect(s.shared).toEqual([{ key: "run_id", value: "r1", count: 6 }]);
+    // The real response: the last event, with the whole text it carries.
+    expect(s.final).toEqual({ index: 5, name: "RunCompleted", data: { run_id: "r1", content: "Hello!" }, text: "Hello!" });
   });
 
   it("reads OpenAI and Anthropic deltas and ignores plain messages", () => {
@@ -347,5 +344,25 @@ describe("streamSummary", () => {
     expect(eventDelta(ev("message", { content: "whole" }))).toBeNull();
     expect(eventDelta(ev("message", "plain"))).toBeNull();
   });
-});
 
+  it("finds shared fields whatever they are called, and skips ones that change", () => {
+    const s = streamSummary([
+      ev("progress", { job: "j-9", region: "eu", pct: 10 }),
+      ev("progress", { job: "j-9", region: "eu", pct: 60 }),
+      ev("result", { job: "j-9", ok: true }),
+    ]);
+    expect(s.shared).toEqual([
+      { key: "job", value: "j-9", count: 3 },
+      { key: "region", value: "eu", count: 2 },
+    ]);
+    expect(s.output).toBe("");
+    expect(s.final).toEqual({ index: 2, name: "result", data: { job: "j-9", ok: true }, text: "" });
+  });
+
+  it("skips a [DONE] marker when it picks the response", () => {
+    const done = { event: "message", data: "[DONE]", text: "[DONE]", partial: false };
+    const s = streamSummary([ev("message", { choices: [{ delta: { content: "Hi" } }] }), ev("message", { choices: [{ delta: {}, finish_reason: "stop" }] }), done]);
+    expect(s.final?.index).toBe(1);
+    expect(s.output).toBe("Hi");
+  });
+});
