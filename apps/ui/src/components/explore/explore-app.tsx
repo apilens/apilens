@@ -290,7 +290,9 @@ export function ExploreApp({
   const keys = rows?.map(rowKey) ?? [];
   const onRow = (r: RequestRow, how: { shift: boolean; toggle: boolean }) => {
     const k = rowKey(r, keys.indexOf(r.id ?? ""));
-    if (how.shift && anchor.current) {
+    if (how.shift) {
+      // Without an anchor (nothing clicked yet, or the selection was just cleared) the range starts here.
+      if (!anchor.current) anchor.current = k;
       setSelected(new Set(rangeKeys(keys, anchor.current, k)));
       return;
     }
@@ -309,7 +311,8 @@ export function ExploreApp({
     if (r.id) openRequest(r.id);
   };
   const onExtend = (from: RequestRow, to: RequestRow) => {
-    const a = anchor.current ?? rowKey(from, 0);
+    // A fresh selection starts at the focused row, not at an anchor left from an earlier one.
+    const a = selected.size && anchor.current ? anchor.current : rowKey(from, 0);
     anchor.current = a;
     setSelected(new Set(rangeKeys(keys, a, rowKey(to, 0))));
   };
@@ -322,6 +325,11 @@ export function ExploreApp({
       else next.delete(k);
       return next;
     });
+  };
+  /** Empties the selection and forgets its anchor, so the next Shift-extend starts afresh. */
+  const clearSelection = () => {
+    anchor.current = null;
+    setSelected(new Set());
   };
   const selectedRows = (rows ?? []).filter((r, i) => selected.has(rowKey(r, i)));
 
@@ -370,7 +378,7 @@ export function ExploreApp({
       if (e.key === "Escape") {
         if (document.querySelector(".org-pop, .ext-pop")) return;
         if (qRef.current.id) openRequest(undefined);
-        else if (selected.size) setSelected(new Set());
+        else if (selected.size) clearSelection();
         return;
       }
       // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way).
@@ -526,10 +534,10 @@ export function ExploreApp({
         </div>
       </div>
       {selectedRows.length >= 2 ? (
-        <RequestDrawer label="Selected requests" onClose={() => setSelected(new Set())}>
+        <RequestDrawer label="Selected requests" onClose={clearSelection}>
           <SelectionPanel
             rows={selectedRows}
-            onClear={() => setSelected(new Set())}
+            onClear={clearSelection}
             fileName={(ext) => exportFileName(project, isCustom(q) ? rangeText(q, tz) : q.range, Date.now(), ext)}
           />
         </RequestDrawer>
