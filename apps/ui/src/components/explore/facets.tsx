@@ -28,6 +28,7 @@ import { reasonPhrase, statusText } from "@/lib/http-status";
 import { Icon } from "../icons";
 import { useAppNames } from "./app-names";
 import { type RangePick, TimeRangeFacet } from "./time-range";
+import { Tip } from "./tip";
 import { isOpenMap, useStored } from "./use-stored";
 
 /** A list taller than this (px) scrolls, as Supabase's. */
@@ -321,10 +322,12 @@ function Facet({
           </button>
         </h3>
         {active ? (
-          <button type="button" className="exf-clear" aria-label={`Reset ${LABELS[field]} (${active} selected)`} onClick={() => onChange(clearField(q.conds, field))}>
-            <Icon name="x" />
-            <span>{active}</span>
-          </button>
+          <Tip label={`Reset ${LABELS[field]}: ${active} selected`}>
+            <button type="button" className="exf-clear" aria-label={`Reset ${LABELS[field]} (${active} selected)`} onClick={() => onChange(clearField(q.conds, field))}>
+              <Icon name="x" />
+              <span>{active}</span>
+            </button>
+          </Tip>
         ) : null}
       </div>
       {open ? (

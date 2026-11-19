@@ -147,11 +147,10 @@ export function RequestPanel({
   const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : (row?.status_code ?? 0) >= 400;
   const tab: DrawerTab = picked ?? (failed ? "response" : "request");
 
-  // The section nav is a vertical tablist (a row of tabs on phones): ↑/↓ (and ←/→) move between
-  // sections there; elsewhere in the drawer ↑/↓ keep walking the requests.
+  // The sections are a row of tabs under the facts: ←/→ (Home/End) move between them; ↑/↓ keep
+  // walking the requests, everywhere in the drawer.
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const key = e.key === "ArrowDown" ? "ArrowRight" : e.key === "ArrowUp" ? "ArrowLeft" : e.key;
-    const next = moveTab(key, tab);
+    const next = moveTab(e.key, tab);
     if (next === null) return;
     e.preventDefault();
     e.stopPropagation();
@@ -208,11 +207,13 @@ export function RequestPanel({
               text={() => (detail ? JSON.stringify(detail.request, null, 2) : "")}
             />
           </Tip>
-          <button type="button" className="exd-close" aria-label="Close request details (Esc)" title="Close (Esc)" onClick={onClose}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
+          <Tip label="Close" keys={["Esc"]}>
+            <button type="button" className="exd-close" aria-label="Close request details" aria-keyshortcuts="Escape" onClick={onClose}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          </Tip>
         </div>
       </header>
       {!inList && r ? (
@@ -225,26 +226,24 @@ export function RequestPanel({
       ) : null}
 
       <div className="exd-split">
-        <aside className="exd-side" aria-label="Request facts and sections">
-          <div className="exd-menu" role="tablist" aria-label="Request details" aria-orientation="vertical" onKeyDown={onTabKey}>
-            {DRAWER_TABS.map((x) => (
-              <button
-                key={x.slug}
-                type="button"
-                role="tab"
-                id={`${tabsId}-${x.slug}-tab`}
-                aria-controls={`${tabsId}-panel`}
-                aria-selected={tab === x.slug}
-                tabIndex={tab === x.slug ? 0 : -1}
-                onClick={() => setPicked(x.slug)}
-              >
-                <span>{x.label}</span>
-                {counts[x.slug] ? <span className="exd-menu__n">{counts[x.slug]}</span> : null}
-              </button>
-            ))}
-          </div>
-          {r ? <Facts r={r} tz={tz} /> : null}
-        </aside>
+        {r ? <Facts r={r} tz={tz} /> : null}
+        <div className="exd-menu" role="tablist" aria-label="Request details" aria-orientation="horizontal" onKeyDown={onTabKey}>
+          {DRAWER_TABS.map((x) => (
+            <button
+              key={x.slug}
+              type="button"
+              role="tab"
+              id={`${tabsId}-${x.slug}-tab`}
+              aria-controls={`${tabsId}-panel`}
+              aria-selected={tab === x.slug}
+              tabIndex={tab === x.slug ? 0 : -1}
+              onClick={() => setPicked(x.slug)}
+            >
+              <span>{x.label}</span>
+              {counts[x.slug] ? <span className="exd-menu__n">{counts[x.slug]}</span> : null}
+            </button>
+          ))}
+        </div>
 
         <div className="exd-main" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}-tab`} tabIndex={0}>
           {load.kind === "loading" ? (
@@ -278,25 +277,29 @@ export function RequestPanel({
 
       <footer className="exd-foot">
         <span className="exd-keys">↑ ↓ to move · Shift ↑ ↓ to select · Esc to close</span>
-        <button type="button" className="exd-nav" aria-label="Previous request" disabled={!canPrev} onClick={() => onMove(-1)}>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4 10l4-4 4 4" />
-          </svg>
-        </button>
-        <button type="button" className="exd-nav" aria-label="Next request" disabled={!canNext} onClick={() => onMove(1)}>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" />
-          </svg>
-        </button>
+        <Tip label="Previous request" keys={["↑"]}>
+          <button type="button" className="exd-nav" aria-label="Previous request" aria-keyshortcuts="ArrowUp" disabled={!canPrev} onClick={() => onMove(-1)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 10l4-4 4 4" />
+            </svg>
+          </button>
+        </Tip>
+        <Tip label="Next request" keys={["↓"]}>
+          <button type="button" className="exd-nav" aria-label="Next request" aria-keyshortcuts="ArrowDown" disabled={!canNext} onClick={() => onMove(1)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </button>
+        </Tip>
       </footer>
     </section>
   );
 }
 
 /**
- * The drawer's key facts, under the section nav: status, method, time, latency, sizes, app,
- * environment, consumer and trace id, each a small muted label over its value (mono, cut with an
- * ellipsis, the whole value in its title). On phones they wrap in two columns above the content.
+ * The drawer's key facts, a strip across the top above the section tabs: status, time, latency,
+ * sizes, app, environment, consumer and trace id, each a small muted label over its value (mono,
+ * cut with an ellipsis, the whole value in its title), as many to a row as fit.
  */
 function Facts({ r, tz }: { r: RequestRow; tz: string }) {
   const app = useAppName(r.app_id);
@@ -470,11 +473,13 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     return () => window.clearTimeout(t);
   }, [done]);
   return (
-    <button type="button" className={`rd-copy${done ? " is-done" : ""}`} aria-label={done ? `Copied ${label}` : `Copy ${label}`} title={done ? "Copied" : "Copy"} onClick={() => copyText(text).then((ok) => ok && setDone(true))}>
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        {done ? <path d="M3.5 8.5l3 3 6-7" /> : <path d="M5.5 5.5h7v7h-7zM10.5 5.5v-2h-7v7h2" />}
-      </svg>
-    </button>
+    <Tip label={done ? "Copied" : `Copy ${label}`}>
+      <button type="button" className={`rd-copy${done ? " is-done" : ""}`} aria-label={done ? `Copied ${label}` : `Copy ${label}`} onClick={() => copyText(text).then((ok) => ok && setDone(true))}>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {done ? <path d="M3.5 8.5l3 3 6-7" /> : <path d="M5.5 5.5h7v7h-7zM10.5 5.5v-2h-7v7h2" />}
+        </svg>
+      </button>
+    </Tip>
   );
 }
 

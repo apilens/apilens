@@ -460,9 +460,11 @@ export function ExploreApp({
       {facetSlot ? createPortal(facets, facetSlot) : null}
       {actionSlot && q.conds.length
         ? createPortal(
-            <button type="button" className="exf-reset" onClick={() => setConds([])} title="Clear filters (F then C)">
-              Reset
-            </button>,
+            <Tip label="Clear all filters" keys={["F", "then", "C"]}>
+              <button type="button" className="exf-reset" aria-keyshortcuts="F C" onClick={() => setConds([])}>
+                Reset
+              </button>
+            </Tip>,
             actionSlot,
           )
         : null}
@@ -474,18 +476,19 @@ export function ExploreApp({
               DownloadLogsButton) and Live (LiveButton.tsx:68-77). */}
           <div className="exr-tools" role="toolbar" aria-label="Explore">
             <div className="exr-side">
-              <button
-                type="button"
-                className="exr-sidebtn"
-                aria-label={narrow ? "Show filters" : facetsHidden ? "Show filters" : "Hide filters"}
-                title={narrow ? "Show filters" : facetsHidden ? "Show filters" : "Hide filters"}
-                aria-expanded={narrow ? false : !facetsHidden}
-                aria-controls={FACETS_SLOT_ID}
-                onClick={toggleFacets}
-              >
-                <Icon name={!narrow && facetsHidden ? "panelOpen" : "panelClose"} />
-                {narrow && q.conds.length ? <span className="exr-sidebtn__n">{q.conds.length}</span> : null}
-              </button>
+              <Tip label={narrow ? "Show filters" : facetsHidden ? "Show filters" : "Hide filters"}>
+                <button
+                  type="button"
+                  className="exr-sidebtn"
+                  aria-label={narrow ? "Show filters" : facetsHidden ? "Show filters" : "Hide filters"}
+                  aria-expanded={narrow ? false : !facetsHidden}
+                  aria-controls={FACETS_SLOT_ID}
+                  onClick={toggleFacets}
+                >
+                  <Icon name={!narrow && facetsHidden ? "panelOpen" : "panelClose"} />
+                  {narrow && q.conds.length ? <span className="exr-sidebtn__n">{q.conds.length}</span> : null}
+                </button>
+              </Tip>
             </div>
             <div className="exr-filter">
               <PillBar project={project} query={q} conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} />
@@ -662,20 +665,28 @@ function SelectionPanel({
       <header className="exd-head">
         <h2 className="exd-title">{rows.length} requests selected</h2>
         <div className="exd-actions">
-          <CopyAction className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" icon="copy" label="Copy" ariaLabel={`Copy ${rows.length} requests as JSON`} text={() => toJson(rows)} />
-          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" onClick={() => download(toCsv(rows), fileName("csv"), "text/csv")}>
-            <Icon name="download" />
-            CSV
-          </button>
-          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" onClick={() => download(toJson(rows), fileName("json"), "application/json")}>
-            <Icon name="download" />
-            JSON
-          </button>
-          <button type="button" className="exd-close" aria-label="Clear selection (Esc)" title="Clear selection (Esc)" onClick={onClear}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
+          <Tip label={`Copy the ${rows.length} requests as JSON`}>
+            <CopyAction className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" icon="copy" label="Copy" ariaLabel={`Copy ${rows.length} requests as JSON`} text={() => toJson(rows)} />
+          </Tip>
+          <Tip label={`Download the ${rows.length} requests as CSV`}>
+            <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" onClick={() => download(toCsv(rows), fileName("csv"), "text/csv")}>
+              <Icon name="download" />
+              CSV
+            </button>
+          </Tip>
+          <Tip label={`Download the ${rows.length} requests as JSON`}>
+            <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" onClick={() => download(toJson(rows), fileName("json"), "application/json")}>
+              <Icon name="download" />
+              JSON
+            </button>
+          </Tip>
+          <Tip label="Clear selection" keys={["Esc"]}>
+            <button type="button" className="exd-close" aria-label="Clear selection" aria-keyshortcuts="Escape" onClick={onClear}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          </Tip>
         </div>
       </header>
       <div className="exd-sel__body">
@@ -724,7 +735,7 @@ function SelectionPanel({
         <ul className="exd-sel__list" aria-label="Selected requests">
           {rows.slice(0, SELECTION_LIST).map((r, i) => (
             <li key={rowKey(r, i)}>
-              <button type="button" onClick={() => onOpen(r)} disabled={!r.id} title={r.id ? "Open this request" : undefined}>
+              <button type="button" onClick={() => onOpen(r)} disabled={!r.id} aria-label={r.id ? `Open ${r.method.toUpperCase()} ${shownPath(r)}, ${r.status_code}` : undefined}>
                 <span className="exd-sel__t">{stampText(Date.parse(r.timestamp), tz)}</span>
                 <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{r.status_code}</span>
                 <span className="exd-sel__m">{r.method.toUpperCase()}</span>
