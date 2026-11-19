@@ -36,8 +36,10 @@ import { endpointHref, formatLatency } from "@/lib/traffic";
 import { projectHref } from "@/lib/routes";
 import { ObIcon } from "../onboarding/ob";
 import { useAppName } from "./app-names";
+import { CopyAction } from "./copy-action";
 import { type FilterApi, filterActions } from "./field-actions";
 import { type FieldAction, FieldMenu } from "./field-menu";
+import { Tip } from "./tip";
 
 /** Height of one JSON line in px; the viewer's virtual window depends on it, so the CSS uses the same number. */
 const LINE_HEIGHT = 20;
@@ -119,14 +121,12 @@ export function RequestPanel({
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [picked, setPicked] = useState<DrawerTab | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
   const titleId = useId();
   const tabsId = useId();
 
   useEffect(() => {
     const ctl = new AbortController();
     setLoad({ kind: "loading" });
-    setSaid(null);
     (async () => {
       try {
         const res = await fetch(requestDetailPath(project, id), { signal: ctl.signal, cache: "no-store", headers: { accept: "application/json" } });
@@ -146,9 +146,6 @@ export function RequestPanel({
   // Until the reader picks a tab: Response when the request failed, else Request (#988).
   const failed = detail ? leadSection(detail.request, Boolean(exceptionLog(detail.logs ?? []))) !== "summary" || detail.request.status_code >= 400 : (row?.status_code ?? 0) >= 400;
   const tab: DrawerTab = picked ?? (failed ? "response" : "request");
-
-  // Written inside the click (lib/clipboard), as Safari asks.
-  const copy = (text: string, ok: string) => copyText(text).then((done) => setSaid(done ? ok : "Couldn’t copy. Your browser blocked the clipboard."));
 
   // The section nav is a vertical tablist (a row of tabs on phones): ↑/↓ (and ←/→) move between
   // sections there; elsewhere in the drawer ↑/↓ keep walking the requests.
@@ -184,29 +181,33 @@ export function RequestPanel({
           )}
         </h2>
         <div className="exd-actions">
-          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" aria-label="Copy link" title="Copy link" onClick={() => copy(`${window.location.origin}${link}`, "Copied the link to this request.")}>
-            Link
-          </button>
-          <button
-            type="button"
-            className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
-            aria-label="Copy as cURL"
-            title="Copy as cURL"
-            disabled={!detail}
-            onClick={() => detail && copy(curlCommand(detail.request), "Copied the cURL command. Redacted values stay as [redacted].")}
-          >
-            cURL
-          </button>
-          <button
-            type="button"
-            className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
-            aria-label="Copy JSON"
-            title="Copy JSON"
-            disabled={!detail}
-            onClick={() => detail && copy(JSON.stringify(detail.request, null, 2), "Copied the request as JSON.")}
-          >
-            JSON
-          </button>
+          <Tip label="Copy a link to this request, for anyone with access to the project">
+            <CopyAction
+              className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
+              icon="link"
+              label="Copy link"
+              ariaLabel="Copy a link to this request"
+              text={() => `${window.location.origin}${link}`}
+            />
+          </Tip>
+          <Tip label="Copy as a cURL command; redacted values stay [redacted]">
+            <CopyAction
+              className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
+              label="cURL"
+              ariaLabel="Copy as cURL"
+              disabled={!detail}
+              text={() => (detail ? curlCommand(detail.request) : "")}
+            />
+          </Tip>
+          <Tip label="Copy the stored request as JSON">
+            <CopyAction
+              className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act"
+              label="JSON"
+              ariaLabel="Copy JSON"
+              disabled={!detail}
+              text={() => (detail ? JSON.stringify(detail.request, null, 2) : "")}
+            />
+          </Tip>
           <button type="button" className="exd-close" aria-label="Close request details (Esc)" title="Close (Esc)" onClick={onClose}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M4 4l8 8M12 4l-8 8" />
@@ -214,9 +215,6 @@ export function RequestPanel({
           </button>
         </div>
       </header>
-      <p className="exd-said" role="status">
-        {said}
-      </p>
       {!inList && r ? (
         <div className="exd-outside" role="status">
           This request is outside the current list.{" "}
@@ -273,7 +271,7 @@ export function RequestPanel({
           ) : tab === "consumer" ? (
             <ConsumerTab project={project} r={load.data.request} api={api} />
           ) : (
-            <RawTab data={load.data} onCopy={(text) => copy(text, "Copied the stored request.")} />
+            <RawTab data={load.data} />
           )}
         </div>
       </div>
@@ -563,7 +561,8 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
 
 /**
  * The Response section (#1061, redesigned in b5): for a failure the Error block, the validation
- * errors and the exception lead (#988), then Status, Headers and Body blocks.
+ * errors and the exception lead (#988), then Headers and Body. Status, latency and size are in
+ * the facts beside it, so they are not repeated here; nor is the body inside the Error block.
  */
 function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
   const r = data.request;
@@ -572,7 +571,8 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
   const summary = errorSummary(r, excInfo);
   const validation = r.validation_errors ?? [];
   const headers = parseHeaders(r.response_headers);
-  const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
+  // The Body block shows the response body; the Error block repeats it only when that block can't.
+  const bodyBelow = !isSampledOut(r) && Boolean(r.response_body);
 
   return (
     <div className="rd-blocks">
@@ -581,7 +581,7 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
           <div className="exd-error">
             <p className="exd-error__title">{summary.title}</p>
             {summary.detail ? <p className="exd-error__detail">{summary.detail}</p> : null}
-            {summary.body ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
+            {summary.body && !bodyBelow ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
           </div>
         </Block>
       ) : null}
@@ -595,19 +595,6 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
           <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
         </Block>
       ) : null}
-      <Block title="Status">
-        <dl className="exd-dl">
-          <Field label="Status" copy={String(r.status_code)} actions={fa("status", String(r.status_code))}>
-            <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
-          </Field>
-          <Field label="Latency" copy={String(r.response_time_ms)}>
-            <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
-          </Field>
-          <Field label="Size" copy={String(r.response_size ?? "")}>
-            {formatBytes(r.response_size)}
-          </Field>
-        </dl>
-      </Block>
       {isSampledOut(r) ? (
         <Notice>{SAMPLED_OUT}</Notice>
       ) : (
@@ -817,15 +804,13 @@ function ConsumerTab({ project, r, api }: { project: string; r: RequestDetail; a
 
 // ---------------------------------------------------------------- raw
 
-function RawTab({ data, onCopy }: { data: RequestDetailRead; onCopy: (text: string) => void }) {
+function RawTab({ data }: { data: RequestDetailRead }) {
   const text = useMemo(() => JSON.stringify(data.request, null, 2), [data.request]);
   return (
     <section className="rd-section" aria-label="Raw request">
       <div className="rd-exc__bar">
         <h3 className="rd-h">The stored request</h3>
-        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => onCopy(text)}>
-          Copy
-        </button>
+        <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm" icon="copy" label="Copy" ariaLabel="Copy the stored request" text={() => text} />
       </div>
       <JsonView value={data.request} />
     </section>
@@ -1149,22 +1134,15 @@ function ExceptionView({
     el?.scrollIntoView({ block: "start" });
   }, [autoFocus]);
   const parsed = useMemo(() => parseException(payload), [payload]);
-  const [copied, setCopied] = useState<string | null>(null);
   const head = parsed.blocks[0];
   const shownType = type || head?.type || "";
   const shownMessage = message ?? head?.message ?? "";
-  const copy = () => copyText(payload).then((ok) => setCopied(ok ? "Copied the full exception." : "Couldn’t copy. Your browser blocked the clipboard."));
   return (
     <section ref={sectionRef} className="rd-section rd-exc" aria-label={label} tabIndex={autoFocus ? -1 : undefined}>
       <div className="rd-exc__bar">
         <h3 className="rd-h">{label}</h3>
-        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={copy} disabled={!payload} aria-disabled={!payload || undefined}>
-          Copy exception
-        </button>
+        <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm" icon="copy" label="Copy exception" ariaLabel="Copy the full exception" disabled={!payload} text={() => payload} />
       </div>
-      <p className="rd-copied rd-exc__copied" role="status">
-        {copied}
-      </p>
       {shownType || shownMessage ? (
         <p className="rd-exc__title">
           {shownType ? <code className="rd-exc__type">{shownType}</code> : null}
@@ -1284,24 +1262,17 @@ function AttrTable({ attrs, label }: { attrs: [string, string][]; label: string 
 }
 
 function LogDetail({ log: l }: { log: TraceLog }) {
-  const [copied, setCopied] = useState<string | null>(null);
   const attrs = Object.entries(l.attributes ?? {});
   const payload = l.payload ?? "";
-  const copy = () => copyText(payload).then((ok) => setCopied(ok ? "Copied the payload." : "Couldn’t copy. Your browser blocked the clipboard."));
   return (
     <div className="rd-logdetail">
       {l.logger_name === EXCEPTION_LOGGER ? <p className="rd-logdetail__exc">This log is the request’s exception; Overview shows it in full.</p> : null}
       <div className="rd-exc__bar">
         <h3 className="rd-h rd-h--sub">Payload</h3>
         {payload ? (
-          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={copy}>
-            Copy payload
-          </button>
+          <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm" icon="copy" label="Copy payload" ariaLabel="Copy the payload" text={() => payload} />
         ) : null}
       </div>
-      <p className="rd-copied rd-logdetail__copied" role="status">
-        {copied}
-      </p>
       {payload ? (
         <pre className="rd-pre rd-logdetail__payload" tabIndex={0} aria-label="Log payload">
           <Marked text={payload} />

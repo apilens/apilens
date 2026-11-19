@@ -73,6 +73,9 @@ importers:
       '@types/react-dom':
         specifier: ~19.2.7
         version: 19.2.7(@types/react@19.2.18)
+      agentation:
+        specifier: ^3.1.2
+        version: 3.1.2(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       otplib:
         specifier: ^13.6.0
         version: 13.6.0
@@ -1072,6 +1075,17 @@ packages:
     resolution: {integrity: sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==}
     engines: {node: '>=0.4.0'}
     hasBin: true
+
+  agentation@3.1.2:
+    resolution: {integrity: sha512-ZZr6PRgX3ussGbvC9NVh5vFfKKFkQyHL6KuxOfBAAM/mJS3bM2XyhZ7wLPakDwU3pqkzq7u6vEfLikFsCOu5+Q==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -3092,6 +3106,11 @@ snapshots:
       negotiator: 1.0.0
 
   acorn@8.16.0: {}
+
+  agentation@3.1.2(react-dom@19.2.9(react@19.2.9))(react@19.2.9):
+    optionalDependencies:
+      react: 19.2.9
+      react-dom: 19.2.9(react@19.2.9)
 
   ajv-formats@3.0.1:
     dependencies:

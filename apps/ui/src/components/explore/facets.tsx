@@ -54,7 +54,7 @@ const DEFAULT_OPEN: Record<string, boolean> = { time: true, level: true, app: tr
 /** Facets that ask the API as you type (their values are too many to list). */
 const ASYNC: ReadonlySet<PanelField> = new Set(["path", "consumer"]);
 
-type Values = { value: string; label: string; count: number }[];
+export type Values = { value: string; label: string; count: number }[];
 /** `search` is the search the values answer, so typed-ahead text can hide stale values. */
 type Read = { state: "loading" } | { state: "error" } | { state: "ok"; values: Values; search: string; hasMore: boolean };
 type Page = { values: Values; hasMore: boolean };
@@ -75,13 +75,13 @@ const CACHE_MAX = 200;
 const cache = new Map<string, { at: number; page: Page }>();
 const inflight = new Map<string, Promise<Page>>();
 
-class SessionExpired extends Error {
+export class SessionExpired extends Error {
   constructor(public next: string) {
     super("session expired");
   }
 }
 
-function readFacetPage(path: string): Promise<Page> {
+export function readFacetPage(path: string): Promise<Page> {
   const hit = cache.get(path);
   if (hit && Date.now() - hit.at < CACHE_MS) return Promise.resolve(hit.page);
   const pending = inflight.get(path);

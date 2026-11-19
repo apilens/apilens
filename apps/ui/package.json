@@ -28,6 +28,7 @@
     "@types/node": "^22.13.10",
     "@types/react": "~19.2.18",
     "@types/react-dom": "~19.2.7",
+    "agentation": "^3.1.2",
     "otplib": "^13.6.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12"

@@ -403,13 +403,24 @@ export function windowSpan(q: Pick<ExploreQuery, "range" | "from" | "to">, now: 
   return { start, end };
 }
 
-/** The timeline's bucket width, as Supabase picks it: minutes under 12 hours, hours under 2 days, days beyond. */
-export function bucketFor(q: Pick<ExploreQuery, "range" | "from" | "to">, now: number): "minute" | "hour" | "day" {
+/** The fewest and most bars a named bucket width may draw before the server picks the width. */
+const MIN_BARS = 30;
+const MAX_BARS = 120;
+
+/**
+ * The timeline's bucket width: a minute, hour or day when that draws the window in 30 to 120
+ * bars, else undefined, so the server picks the finest width that draws it in at most 100. A
+ * 10-hour window at one-minute buckets drew 600 hairline bars, a 3-minute one three slabs.
+ */
+export function bucketFor(q: Pick<ExploreQuery, "range" | "from" | "to">, now: number): "minute" | "hour" | "day" | undefined {
   const { start, end } = windowSpan(q, now);
   const span = end - start;
-  if (span < 12 * 3_600_000) return "minute";
-  if (span < 48 * 3_600_000) return "hour";
-  return "day";
+  const widths = [
+    ["minute", 60_000],
+    ["hour", 3_600_000],
+    ["day", 86_400_000],
+  ] as const;
+  return widths.find(([, ms]) => span / ms >= MIN_BARS && span / ms <= MAX_BARS)?.[0];
 }
 
 /** The API query of `q` at `now`: its window and its conditions as `filter` values. */

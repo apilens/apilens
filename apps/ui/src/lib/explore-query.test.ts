@@ -235,10 +235,14 @@ describe("apiWindow and bucketFor", () => {
     expect(apiWindow({ range: "1h", to: "2026-11-05T11:00:00Z" }, now)).toEqual({ range: "6h", from: "2026-11-05T10:00:00Z", to: "2026-11-05T11:00:00Z" });
   });
 
-  it("buckets by minute under 12h, hour under 2d, day beyond", () => {
-    expect(bucketFor({ range: "6h" }, now)).toBe("minute");
-    expect(bucketFor({ range: "24h" }, now)).toBe("hour");
-    expect(bucketFor({ range: "7d" }, now)).toBe("day");
+  it("names a width only when it draws 30 to 120 bars, else leaves it to the server", () => {
+    expect(bucketFor({ range: "1h" }, now)).toBe("minute");
+    expect(bucketFor({ range: "6h" }, now)).toBeUndefined();
+    expect(bucketFor({ range: "24h" }, now)).toBeUndefined();
+    expect(bucketFor({ range: "1h", from: "2026-11-03T00:00:00Z", to: "2026-11-05T00:00:00Z" }, now)).toBe("hour");
+    expect(bucketFor({ range: "7d" }, now)).toBeUndefined();
+    expect(bucketFor({ range: "1h", from: "2026-11-05T00:00:00Z", to: "2026-11-05T10:44:00Z" }, now)).toBeUndefined();
+    expect(bucketFor({ range: "1h", from: "2026-11-05T10:00:00Z", to: "2026-11-05T10:03:00Z" }, now)).toBeUndefined();
   });
 
   it("sends the conditions as filter values", () => {

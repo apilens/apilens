@@ -15,6 +15,8 @@ export function PopMenu({
   align = "start",
   role = "menu",
   id,
+  width = 280,
+  className,
   children,
 }: {
   open: boolean;
@@ -25,6 +27,9 @@ export function PopMenu({
   /** `dialog` for a small inline form in place of menu items. */
   role?: "menu" | "dialog";
   id?: string;
+  /** Menu width (px), for placing an end-aligned menu flush with its trigger. */
+  width?: number;
+  className?: string;
   children: ReactNode;
 }) {
   const menu = useRef<HTMLDivElement>(null);
@@ -37,7 +42,6 @@ export function PopMenu({
     }
     const r = triggerRef.current?.getBoundingClientRect();
     if (r) {
-      const width = 280;
       const side = align === "side" || align === "side-up";
       // Side menus clear the whole sidebar, not just the trigger inside it.
       const edge = triggerRef.current?.closest("aside")?.getBoundingClientRect().right ?? r.right;
@@ -64,11 +68,18 @@ export function PopMenu({
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", onClose);
     };
-  }, [open, align, onClose, triggerRef]);
+  }, [open, align, onClose, triggerRef, width]);
 
   if (!open || !pos) return null;
   return createPortal(
-    <div ref={menu} className="ah cp-orgmenu org-pop" id={id} role={role} aria-label={label} style={{ top: pos.top, bottom: pos.bottom, left: pos.left }}>
+    <div
+      ref={menu}
+      className={`ah cp-orgmenu org-pop${className ? ` ${className}` : ""}`}
+      id={id}
+      role={role}
+      aria-label={label}
+      style={{ top: pos.top, bottom: pos.bottom, left: pos.left, ...(width === 280 ? {} : { width }) }}
+    >
       {children}
     </div>,
     document.body,
