@@ -497,12 +497,9 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="rd-none">{children}</p>;
 }
 
-type RequestSub = "headers" | "payload";
-
 /**
  * The Request tab (#1061, redesigned in b5): Overview fixed at the top (then the query parameters
- * and attributes when there are any), and under it Headers and Body as nested tabs (←/→), the
- * open one's size, type and Copy on the tab row's right.
+ * and attributes when there are any), and under it Headers | Body (HeadersBodyTabs).
  */
 function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
@@ -517,27 +514,8 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
   const query = queryPairs(r.raw_path);
   const url = r.base_url ? `${r.base_url.replace(/\/+$/, "")}${r.raw_path}` : r.raw_path;
   const attrs = Object.entries(r.attributes ?? {});
-  const headers = parseHeaders(r.request_headers);
 
-  // Overview (with the query parameters and attributes) stays put; Headers and Body are nested
-  // tabs under it. A sampled-out request kept neither, so it has no tabs.
   const sampled = isSampledOut(r);
-  const [sub, setSub] = useState<RequestSub>("headers");
-  const subs: { slug: RequestSub; label: string; n?: number }[] = [
-    { slug: "headers", label: "Headers", n: headers?.length },
-    { slug: "payload", label: "Body" },
-  ];
-  const subId = useId();
-  const bodyType = contentTypeOf(r.request_headers);
-  const bodyMeta = [r.request_size ? formatBytes(r.request_size) : null, bodyType || null].filter(Boolean).join(" · ");
-  const onSubKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const next: RequestSub = e.key === "Home" ? "headers" : e.key === "End" ? "payload" : sub === "headers" ? "payload" : "headers";
-    setSub(next);
-    document.getElementById(`${subId}-${next}`)?.focus();
-  };
 
   return (
     <div className="rd-blocks">
@@ -588,58 +566,16 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
       {sampled ? (
         <Notice>{SAMPLED_OUT}</Notice>
       ) : (
-        <section className="rd-block exd-subsec" aria-label="Headers and body">
-          <div className="exd-subbar">
-          <div className="exd-subtabs" role="tablist" aria-label="Headers and body" onKeyDown={onSubKey}>
-            {subs.map((x) => (
-              <button
-                key={x.slug}
-                type="button"
-                role="tab"
-                id={`${subId}-${x.slug}`}
-                aria-controls={`${subId}-panel`}
-                aria-selected={sub === x.slug}
-                tabIndex={sub === x.slug ? 0 : -1}
-                onClick={() => setSub(x.slug)}
-              >
-                {x.label}
-                {x.n ? <span className="exd-menu__n">{x.n}</span> : null}
-              </button>
-            ))}
-          </div>
-            {/* What the open tab is, and Copy for it: one quiet line on the tab row's right. */}
-            <span className="exd-subbar__end">
-              {sub === "payload" ? (
-                <>
-                  {bodyMeta ? <span className="exd-subbar__meta">{bodyMeta}</span> : null}
-                  {r.request_body ? <CopyButton text={r.request_body} label="request body" /> : null}
-                </>
-              ) : headers ? (
-                <CopyButton text={headersJson(headers)} label="request headers as JSON" />
-              ) : null}
-            </span>
-          </div>
-          <div role="tabpanel" id={`${subId}-panel`} aria-labelledby={`${subId}-${sub}`}>
-            {sub === "headers" ? (
-              headers ? (
-                <KvTable pairs={headers} label="Request headers" />
-              ) : (
-                <Empty>The request headers were not captured.</Empty>
-              )
-            ) : (
-              <BodyBlock text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" bare />
-            )}
-          </div>
-        </section>
+        <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} first="headers" />
       )}
     </div>
   );
 }
 
 /**
- * The Response section (#1061, redesigned in b5): for a failure the Error block, the validation
- * errors and the exception lead (#988), then Headers and Body, under one line with the status
- * code, latency, size and type. The body is not repeated inside the Error block.
+ * The Response tab (#1061, redesigned in b5), Postman's way: the status code, latency, size and
+ * type on one line, a failure's Error, validation errors and exception (#988), then Body |
+ * Headers (HeadersBodyTabs, Body first). The body is not repeated inside the Error block.
  */
 function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
   const r = data.request;
@@ -647,7 +583,6 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
   const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
   const summary = errorSummary(r, excInfo);
   const validation = r.validation_errors ?? [];
-  const headers = parseHeaders(r.response_headers);
   // The Body block shows the response body; the Error block repeats it only when that block can't.
   const bodyBelow = !isSampledOut(r) && Boolean(r.response_body);
 
@@ -681,15 +616,90 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
       {isSampledOut(r) ? (
         <Notice>{SAMPLED_OUT}</Notice>
       ) : (
-        <>
-          <Block title="Headers" meta={[headers ? String(headers.length) : null]} actions={headers ? <CopyButton text={headersJson(headers)} label="response headers as JSON" /> : undefined}>
-            {headers ? <KvTable pairs={headers} label="Response headers" /> : <Empty>The response headers were not captured.</Empty>}
-          </Block>
-          <BodyBlock text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />
-        </>
+        <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} first="body" />
       )}
     </div>
   );
+}
+
+/**
+ * Headers and Body as nested tabs (Postman's response view): the tab row's right says what the
+ * open one holds (the body's size and type) and has its Copy (headers as JSON). Request opens on
+ * Headers, Response on Body. ←/→ switch.
+ */
+function HeadersBodyTabs({ what, headersText, body, size, first }: { what: "request" | "response"; headersText: string; body: string; size: number | undefined; first: "headers" | "body" }) {
+  const headers = parseHeaders(headersText);
+  const [sub, setSub] = useState<"headers" | "body">(first);
+  const id = useId();
+  const tabs: { slug: "headers" | "body"; label: string; n?: number }[] =
+    first === "body"
+      ? [
+          { slug: "body", label: "Body" },
+          { slug: "headers", label: "Headers", n: headers?.length },
+        ]
+      : [
+          { slug: "headers", label: "Headers", n: headers?.length },
+          { slug: "body", label: "Body" },
+        ];
+  const type = contentTypeOf(headersText);
+  const meta = [size ? formatBytes(size) : null, type || null].filter(Boolean).join(" · ");
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = e.key === "Home" ? tabs[0].slug : e.key === "End" ? tabs[1].slug : sub === "headers" ? "body" : "headers";
+    setSub(next);
+    document.getElementById(`${id}-${next}`)?.focus();
+  };
+  return (
+    <section className="rd-block exd-subsec" aria-label={`${what === "request" ? "Request" : "Response"} headers and body`}>
+      <div className="exd-subbar">
+        <div className="exd-subtabs" role="tablist" aria-label={`${what === "request" ? "Request" : "Response"} headers and body`} onKeyDown={onKey}>
+          {tabs.map((x) => (
+            <button
+              key={x.slug}
+              type="button"
+              role="tab"
+              id={`${id}-${x.slug}`}
+              aria-controls={`${id}-panel`}
+              aria-selected={sub === x.slug}
+              tabIndex={sub === x.slug ? 0 : -1}
+              onClick={() => setSub(x.slug)}
+            >
+              {x.label}
+              {x.n ? <span className="exd-menu__n">{x.n}</span> : null}
+            </button>
+          ))}
+        </div>
+        <span className="exd-subbar__end">
+          {sub === "body" ? (
+            <>
+              {meta ? <span className="exd-subbar__meta">{meta}</span> : null}
+              {body ? <SectionCopy text={() => body} what={`the ${what} body`} /> : null}
+            </>
+          ) : headers ? (
+            <SectionCopy text={() => headersJson(headers)} what={`the ${what} headers as JSON`} />
+          ) : null}
+        </span>
+      </div>
+      <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${sub}`}>
+        {sub === "headers" ? (
+          headers ? (
+            <KvTable pairs={headers} label={what === "request" ? "Request headers" : "Response headers"} />
+          ) : (
+            <Empty>The {what} headers were not captured.</Empty>
+          )
+        ) : (
+          <BodyBlock text={body} size={size} headers={headersText} what={what} bare />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The drawer's one Copy for a whole section (Raw's): "⧉ Copy", then "✓ Copied" in place. */
+function SectionCopy({ text, what, disabled }: { text: () => string; what: string; disabled?: boolean }) {
+  return <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm rd-copybtn" icon="copy" label="Copy" ariaLabel={`Copy ${what}`} text={text} disabled={disabled} />;
 }
 
 /** The start of the response body in the Error block, with Show more. */
@@ -893,7 +903,7 @@ function RawTab({ data }: { data: RequestDetailRead }) {
     <section className="rd-section" aria-label="Raw request">
       <div className="rd-exc__bar">
         <h3 className="rd-h">The stored request</h3>
-        <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm" icon="copy" label="Copy" ariaLabel="Copy the stored request" text={() => text} />
+        <SectionCopy text={() => text} what="the stored request" />
       </div>
       <JsonView value={data.request} />
     </section>
@@ -937,7 +947,7 @@ function BodyBlock({ text, size, headers, what, bare = false }: { text: string; 
           </button>
         </span>
       ) : null}
-      {bare ? null : <CopyButton text={text} label={`${what} body`} />}
+      {bare ? null : <SectionCopy text={() => text} what={`the ${what} body`} />}
     </>
   );
   const content = (
@@ -1131,7 +1141,7 @@ function EventStream({ events }: { events: StreamEvent[] }) {
             <span>
               Streamed output <span className="rd-block__meta">{sum.chunks} chunks</span>
             </span>
-            <CopyButton text={sum.output} label="streamed output" />
+            <SectionCopy text={() => sum.output} what="the streamed output" />
           </header>
           <pre className="rd-pre">{shownOutput}</pre>
           {sum.output.length > OUTPUT_PREVIEW ? (
@@ -1350,7 +1360,7 @@ function ExceptionView({
     <section ref={sectionRef} className="rd-section rd-exc" aria-label={label} tabIndex={autoFocus ? -1 : undefined}>
       <div className="rd-exc__bar">
         <h3 className="rd-h">{label}</h3>
-        <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm" icon="copy" label="Copy exception" ariaLabel="Copy the full exception" disabled={!payload} text={() => payload} />
+        <SectionCopy text={() => payload} what="the full exception" disabled={!payload} />
       </div>
       {shownType || shownMessage ? (
         <p className="rd-exc__title">
@@ -1479,7 +1489,7 @@ function LogDetail({ log: l }: { log: TraceLog }) {
       <div className="rd-exc__bar">
         <h3 className="rd-h rd-h--sub">Payload</h3>
         {payload ? (
-          <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm" icon="copy" label="Copy payload" ariaLabel="Copy the payload" text={() => payload} />
+          <SectionCopy text={() => payload} what="the payload" />
         ) : null}
       </div>
       {payload ? (
