@@ -14,7 +14,7 @@ import {
   ticked,
   toggleValue,
 } from "@/lib/explore-query";
-import { classWords, statusText } from "@/lib/http-status";
+import { classWords, reasonPhrase, statusText } from "@/lib/http-status";
 import { Icon } from "../icons";
 import { useAppNames } from "./app-names";
 import { isOpenMap, useStored } from "./use-stored";
@@ -23,8 +23,8 @@ import { isOpenMap, useStored } from "./use-stored";
 const LIST_MAX = 215;
 /** Lists with more values than this get a search box. */
 const SEARCH_FROM = 4;
-/** How long typed search waits before it asks the API. */
-const SEARCH_DEBOUNCE_MS = 250;
+/** How long typed search waits before it asks the API (useUnifiedLogsPathnameOptions.ts:24). */
+const SEARCH_DEBOUNCE_MS = 700;
 
 const LABELS: Record<FacetField, string> = {
   status: "Status",
@@ -40,15 +40,17 @@ const LABELS: Record<FacetField, string> = {
 const ASYNC: ReadonlySet<FacetField> = new Set(["path", "consumer"]);
 
 type Values = { value: string; label: string; count: number }[];
-type Read = { state: "loading" } | { state: "error" } | { state: "ok"; values: Values };
+/** `search` is the search the values answer, so typed-ahead text can hide stale values. */
+type Read = { state: "loading" } | { state: "error" } | { state: "ok"; values: Values; search: string };
 
 /**
  * The counts of one facet: requests per value under every other condition (the field's own are
  * left out, so ticking one value keeps the others), read when the facet is open and again when
  * the other conditions, the window or `refresh` change.
  */
-function useFacetValues(project: string, q: ExploreQuery, field: FacetField, search: string, enabled: boolean, refresh: number): [Read, () => void] {
+function useFacetValues(project: string, q: ExploreQuery, field: FacetField, search: string, enabled: boolean, refresh: number): [Read, () => void, boolean] {
   const [read, setRead] = useState<Read>({ state: "loading" });
+  const [fetching, setFetching] = useState(false);
   const [retry, setRetry] = useState(0);
   const others = clearField(q.conds, field);
   const path = `/api/projects/${encodeURIComponent(project)}/requests/facets${routeSearch({ ...q, conds: others }, { field, ...(search ? { search } : {}) })}`;
@@ -58,6 +60,7 @@ function useFacetValues(project: string, q: ExploreQuery, field: FacetField, sea
     setRead((r) => (r.state === "ok" ? r : { state: "loading" }));
     const t = window.setTimeout(
       async () => {
+        setFetching(true);
         try {
           const res = await fetch(path, { signal: ctl.signal, cache: "no-store", headers: { accept: "application/json" } });
           const body = (await res.json().catch(() => null)) as { ok?: boolean; values?: Values; code?: string; next?: string } | null;
@@ -65,9 +68,13 @@ function useFacetValues(project: string, q: ExploreQuery, field: FacetField, sea
             window.location.assign(body.next ?? "/sign-in");
             return;
           }
-          setRead(body?.ok ? { state: "ok", values: body.values ?? [] } : { state: "error" });
+          setRead(body?.ok ? { state: "ok", values: body.values ?? [], search } : { state: "error" });
+          setFetching(false);
         } catch (err) {
-          if ((err as Error).name !== "AbortError") setRead({ state: "error" });
+          if ((err as Error).name !== "AbortError") {
+            setRead({ state: "error" });
+            setFetching(false);
+          }
         }
       },
       search ? SEARCH_DEBOUNCE_MS : 0,
@@ -77,7 +84,7 @@ function useFacetValues(project: string, q: ExploreQuery, field: FacetField, sea
       ctl.abort();
     };
   }, [path, enabled, refresh, retry, search]);
-  return [read, () => setRetry((n) => n + 1)];
+  return [read, () => setRetry((n) => n + 1), fetching];
 }
 
 /**
@@ -141,9 +148,12 @@ function Facet({
   const appName = useAppNames();
   const [search, setSearch] = useState("");
   const async = ASYNC.has(field);
-  const [read, retry] = useFacetValues(project, q, field, async ? search.trim() : "", open, refresh);
+  const typed = async ? search.trim() : "";
+  const [read, retry, fetching] = useFacetValues(project, q, field, typed, open, refresh);
   const selected = ticked(q.conds, field);
   const active = q.conds.filter((c) => c.field === field).length;
+  // Supabase hides an async facet's values until they answer what's typed (useUnifiedLogsPathnameOptions.ts:61).
+  const settled = read.state === "ok" && (!async || read.search === typed);
 
   const label = (v: { value: string; label: string }) => {
     if (field === "app") return appName(v.value) ?? `Unknown app ${v.value.slice(0, 8)}`;
@@ -152,17 +162,19 @@ function Facet({
     return v.value;
   };
 
-  // A ticked value the counts no longer list stays, at 0, so it can be unticked.
+  // Ticked values come first (useUnifiedLogsPathnameOptions.ts:62-73); one the counts no longer
+  // list stays, at 0, so it can be unticked.
   const values: Values = useMemo(() => {
-    if (read.state !== "ok") return [];
-    const list = [...read.values];
-    if (field !== "status") for (const s of selected) if (!list.some((v) => v.value === s)) list.unshift({ value: s, label: "", count: 0 });
-    return list;
-  }, [read, selected.join("\n"), field]);
+    const list = read.state === "ok" && settled ? read.values : [];
+    if (field === "status") return list;
+    const picked = selected.map((s) => list.find((v) => v.value === s) ?? { value: s, label: "", count: 0 });
+    return [...picked, ...list.filter((v) => !selected.includes(v.value))];
+  }, [read, settled, selected.join("\n"), field]);
 
   const needle = search.trim().toLowerCase();
   const local = !async && needle ? values.filter((v) => `${v.value} ${label(v)}`.toLowerCase().includes(needle)) : values;
   const searchable = async || (field !== "status" && values.length > SEARCH_FROM);
+  const waiting = read.state === "loading" || (async && read.state === "ok" && !settled);
 
   const set = (value: string, on: boolean) => onChange(toggleValue(q.conds, field, value, on));
   const only = (value: string) => onChange(onlyValue(q.conds, field, value));
@@ -191,30 +203,47 @@ function Facet({
               <input
                 type="search"
                 aria-label={`Search ${LABELS[field]}`}
-                placeholder={async ? `Search ${LABELS[field].toLowerCase()}…` : "Search"}
+                placeholder="Search"
                 value={search}
                 spellCheck={false}
                 autoComplete="off"
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  // onSearchInputEscape (lib/keyboard): Escape clears a typed search first.
+                  if (e.key === "Escape" && search) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSearch("");
+                  }
+                }}
               />
+              {async && fetching ? (
+                <span className="exf-search__busy" role="status" aria-label="Searching">
+                  <Icon name="loader" />
+                </span>
+              ) : null}
             </div>
           ) : null}
-          {read.state === "loading" ? (
-            <ul className="exf-list" aria-busy="true" aria-label={`${LABELS[field]} values`}>
-              {[0, 1, 2, 3].map((i) => (
-                <li key={i} className="exf-item exf-item--skeleton">
-                  <span className="exl-bone" />
-                  <span className="exl-bone exf-bone-count" />
-                </li>
-              ))}
-            </ul>
-          ) : read.state === "error" ? (
+          {read.state === "error" ? (
             <p className="exf-note">
               Couldn’t load the counts.{" "}
               <button type="button" className="exf-link" onClick={retry}>
                 Retry
               </button>
             </p>
+          ) : async && waiting && local.length === 0 ? (
+            <div className="exf-box exf-box--busy" aria-busy="true" aria-label={`Loading ${LABELS[field]} values`}>
+              <Icon name="loader" />
+            </div>
+          ) : waiting && !async ? (
+            <ul className="exf-list" aria-busy="true" aria-label={`${LABELS[field]} values`}>
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="exf-item exf-item--skeleton">
+                  <span className="exl-bone exf-bone-check" />
+                  <span className="exl-bone" />
+                </li>
+              ))}
+            </ul>
           ) : field === "status" ? (
             <StatusList values={local} selected={selected} onSet={set} onOnly={only} labelId={`${id}-h`} />
           ) : local.length === 0 ? (
@@ -229,15 +258,69 @@ function Facet({
               )}
             </div>
           ) : (
-            <ul className="exf-list" aria-label={`${LABELS[field]} values`} style={{ maxHeight: LIST_MAX }}>
+            <ul className={`exf-list${async ? " exf-list--async" : ""}`} aria-label={`${LABELS[field]} values`} style={{ maxHeight: LIST_MAX }}>
               {local.map((v) => (
-                <ValueRow key={v.value} label={label(v)} value={v.value} count={v.count} checked={selected.includes(v.value)} onSet={set} onOnly={only} mono={field === "path" || field === "method"} />
+                <ValueRow
+                  key={v.value}
+                  label={label(v)}
+                  value={v.value}
+                  count={v.count}
+                  checked={selected.includes(v.value)}
+                  onSet={set}
+                  onOnly={only}
+                  mono={field === "method"}
+                  body={field === "path" ? <PathText path={v.value} /> : undefined}
+                />
               ))}
             </ul>
           )}
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** A path cut at the end, as Supabase's pathname option (UnifiedLogs.fields.tsx:121-126): clipping
+ *  from the left put the hover "Only" over the tail too, cutting both ends. The full path is the row's title. */
+function PathText({ path }: { path: string }) {
+  return (
+    <span className="exf-path">
+      <bdi>{path}</bdi>
+    </span>
+  );
+}
+
+/**
+ * Supabase's Level facet (UnifiedLogs.fields.tsx:51-72) on our status classes: the level's name
+ * (Supabase's short words, so the 112px block never clips; the row's title and aria name keep
+ * "4xx Client error") at left, then a 10px square swatch in the level's colour and the class (2xx) in a 112px block,
+ * the count at the far right. success → 2xx, info → 3xx, warning → 4xx, error → 5xx
+ * (DataTable.utils.ts:59-89; UnifiedLogs.utils.ts:175-184).
+ */
+const LEVEL_NAMES: Record<string, string> = { "1xx": "Info", "2xx": "Success", "3xx": "Redirect", "4xx": "Warning", "5xx": "Error" };
+
+function LevelBody({ cls }: { cls: string }) {
+  return (
+    <span className="exf-level">
+      <span className="exf-level__name">{LEVEL_NAMES[cls] ?? cls}</span>
+      <span className="exf-level__tag">
+        <span className={`exf-swatch exf-swatch--${cls}`} aria-hidden="true" />
+        <span className="exf-level__cls">{cls}</span>
+      </span>
+    </span>
+  );
+}
+
+/** A code under its class: Supabase's Status option (UnifiedLogs.fields.tsx:80-97), the code in
+ *  foreground and its reason phrase small and lighter, after the class's level dot (LogLevelDot). */
+function CodeBody({ code }: { code: string }) {
+  const phrase = /^\d{3}$/.test(code) ? reasonPhrase(Number(code)) : "";
+  return (
+    <span className="exf-code">
+      <span className={`exf-dot exf-swatch--${termClass(code)}`} aria-hidden="true" />
+      <span className="exf-code__num">{code}</span>
+      {phrase ? <span className="exf-code__phrase">{phrase}</span> : null}
+    </span>
   );
 }
 
@@ -276,14 +359,14 @@ function StatusList({
         return (
           <li key={cls} className="exf-group">
             <ValueRow
-              label={`${cls} ${classWords(cls)}`}
+              label={`${cls} ${classWords(cls)}`.trim()}
               value={cls}
               count={sum}
               checked={selected.includes(cls)}
               onSet={onSet}
               onOnly={onOnly}
-              mono
               tag="div"
+              body={<LevelBody cls={cls} />}
               trail={
                 codes.length + extra.length ? (
                   <button
@@ -309,8 +392,8 @@ function StatusList({
                     checked={selected.includes(v.value)}
                     onSet={onSet}
                     onOnly={onOnly}
-                    mono
                     nested
+                    body={<CodeBody code={v.value} />}
                   />
                 ))}
               </ul>
@@ -332,6 +415,7 @@ function ValueRow({
   mono,
   trail,
   nested,
+  body,
   tag: Tag = "li",
 }: {
   tag?: "li" | "div";
@@ -346,6 +430,8 @@ function ValueRow({
   trail?: ReactNode;
   /** A status code under its class: Supabase's nested option row, hung off a tree line. */
   nested?: boolean;
+  /** What the label shows in place of the plain text (the field's `component` in Supabase). */
+  body?: ReactNode;
 }) {
   const id = useId();
   return (
@@ -355,7 +441,7 @@ function ValueRow({
         <Icon name="check" />
       </span>
       <label htmlFor={id} className={`exf-label${mono ? " is-mono" : ""}`} title={label}>
-        <span className="exf-label__text">{label}</span>
+        {body ?? <span className="exf-label__text">{label}</span>}
       </label>
       {trail}
       <span className="exf-count" title={`${count.toLocaleString("en-US")} requests`}>
