@@ -553,11 +553,6 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
           </Field>
         </dl>
       </Block>
-      {!sampled && query.length ? (
-        <Block title="Query parameters" meta={[String(query.length)]}>
-          <KvTable pairs={query} label="Query parameters" />
-        </Block>
-      ) : null}
       {attrs.length ? (
         <Block title="Attributes" meta={[String(attrs.length)]}>
           <KvTable pairs={attrs} label="Request attributes" />
@@ -566,7 +561,7 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
       {sampled ? (
         <Notice>{SAMPLED_OUT}</Notice>
       ) : (
-        <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} first="headers" />
+        <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} first="headers" query={query} />
       )}
     </div>
   );
@@ -623,33 +618,43 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 }
 
 /**
- * Headers and Body as nested tabs (Postman's response view): the tab row's right says what the
- * open one holds (the body's size and type) and has its Copy (headers as JSON). Request opens on
- * Headers, Response on Body. ←/→ switch.
+ * Headers (Query parameters) and Body as nested tabs, Postman's way: the tab row holds only the
+ * tabs and the open one's Copy (headers and parameters as JSON); the body says its size and type
+ * on its own first line. Request opens on Headers, Response on Body. ←/→ switch.
  */
-function HeadersBodyTabs({ what, headersText, body, size, first }: { what: "request" | "response"; headersText: string; body: string; size: number | undefined; first: "headers" | "body" }) {
+function HeadersBodyTabs({
+  what,
+  headersText,
+  body,
+  size,
+  first,
+  query = [],
+}: {
+  what: "request" | "response";
+  headersText: string;
+  body: string;
+  size: number | undefined;
+  first: "headers" | "body";
+  /** The request's query parameters, a tab of their own when there are any. */
+  query?: [string, string][];
+}) {
+  type Sub = "headers" | "query" | "body";
   const headers = parseHeaders(headersText);
-  const [sub, setSub] = useState<"headers" | "body">(first);
+  const [sub, setSub] = useState<Sub>(first);
   const id = useId();
-  const tabs: { slug: "headers" | "body"; label: string; n?: number }[] =
-    first === "body"
-      ? [
-          { slug: "body", label: "Body" },
-          { slug: "headers", label: "Headers", n: headers?.length },
-        ]
-      : [
-          { slug: "headers", label: "Headers", n: headers?.length },
-          { slug: "body", label: "Body" },
-        ];
-  const type = contentTypeOf(headersText);
-  const meta = [size ? formatBytes(size) : null, type || null].filter(Boolean).join(" · ");
+  const headersTab = { slug: "headers" as Sub, label: "Headers", n: headers?.length };
+  const queryTab = query.length ? [{ slug: "query" as Sub, label: "Query parameters", n: query.length }] : [];
+  const bodyTab = { slug: "body" as Sub, label: "Body" };
+  const tabs: { slug: Sub; label: string; n?: number }[] = first === "body" ? [bodyTab, headersTab, ...queryTab] : [headersTab, ...queryTab, bodyTab];
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+    const k = tabs.findIndex((x) => x.slug === sub);
+    const n = tabs.length;
+    const j = e.key === "ArrowRight" ? (k + 1) % n : e.key === "ArrowLeft" ? (k - 1 + n) % n : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : -1;
+    if (j < 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const next = e.key === "Home" ? tabs[0].slug : e.key === "End" ? tabs[1].slug : sub === "headers" ? "body" : "headers";
-    setSub(next);
-    document.getElementById(`${id}-${next}`)?.focus();
+    setSub(tabs[j].slug);
+    document.getElementById(`${id}-${tabs[j].slug}`)?.focus();
   };
   return (
     <section className="rd-block exd-subsec" aria-label={`${what === "request" ? "Request" : "Response"} headers and body`}>
@@ -673,10 +678,9 @@ function HeadersBodyTabs({ what, headersText, body, size, first }: { what: "requ
         </div>
         <span className="exd-subbar__end">
           {sub === "body" ? (
-            <>
-              {meta ? <span className="exd-subbar__meta">{meta}</span> : null}
-              {body ? <SectionCopy text={() => body} what={`the ${what} body`} /> : null}
-            </>
+            body ? <SectionCopy text={() => body} what={`the ${what} body`} /> : null
+          ) : sub === "query" ? (
+            <SectionCopy text={() => headersJson(query)} what="the query parameters as JSON" />
           ) : headers ? (
             <SectionCopy text={() => headersJson(headers)} what={`the ${what} headers as JSON`} />
           ) : null}
@@ -689,6 +693,8 @@ function HeadersBodyTabs({ what, headersText, body, size, first }: { what: "requ
           ) : (
             <Empty>The {what} headers were not captured.</Empty>
           )
+        ) : sub === "query" ? (
+          <KvTable pairs={query} label="Query parameters" />
         ) : (
           <BodyBlock text={body} size={size} headers={headersText} what={what} bare />
         )}
@@ -962,7 +968,7 @@ function BodyBlock({ text, size, headers, what, bare = false }: { text: string; 
           </pre>
         ) : (
           <>
-            <p className="rd-sublabel">Form fields · {body.fields.length}</p>
+            {bare ? null : <p className="rd-sublabel">Form fields · {body.fields.length}</p>}
             <KvTable pairs={body.fields} label="Form fields" />
           </>
         )
@@ -975,11 +981,18 @@ function BodyBlock({ text, size, headers, what, bare = false }: { text: string; 
       )}
     </>
   );
-  // Bare (the Request tab's Body): the tab row already says the size and type and holds Copy.
+  // Bare (inside the Headers | Body tabs): Copy is on the tab row; the body's size, type (and
+  // field count) are one quiet line over it, the Fields / Raw switch at that line's end.
   if (bare) {
+    const info = [...meta.filter(Boolean), body.kind === "form" ? `${body.fields.length} ${body.fields.length === 1 ? "field" : "fields"}` : null].filter(Boolean).join(" · ");
     return (
       <div className="rd-bare">
-        {body.kind === "form" ? <div className="rd-bare__bar">{actions}</div> : null}
+        {info || body.kind === "form" ? (
+          <div className="rd-bare__bar">
+            <span className="rd-bare__meta">{info}</span>
+            {body.kind === "form" ? actions : null}
+          </div>
+        ) : null}
         {content}
       </div>
     );
