@@ -72,16 +72,31 @@
 .exp-menu li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px; border-radius: 4px; font: 400 12px/16px var(--font-sans); color: var(--ink); cursor: pointer; }
 .exp-menu li.is-active { background: var(--surface-2); }
 .exp-menu__detail { font: 400 11px/1 var(--font-mono); color: var(--ink-muted); }
-.exp-edit { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
-.exp-edit__field { margin: 0; font: 500 13px/18px var(--font-sans); color: var(--ink); }
-.exp-edit__ops { display: flex; flex-wrap: wrap; gap: 4px; }
-.exp-edit__op { height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--ink); font: 500 12px/1 var(--font-mono); cursor: pointer; }
-.exp-edit__op[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
-.exp-edit__op:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+/* Keyboard filter bar (pill-bar.tsx), after Supabase's FilterBar: a highlighted pill takes a ring
+   (Backspace/←/→), the draft pill holds the field and operator being built, the list rows are 28px
+   with the value's count on the right, and a footer names the keys. */
+.exp-pill.is-hl { border-color: var(--accent-ink); box-shadow: inset 0 0 0 1px var(--accent-ink); }
+.exp-pill.is-draft { border-style: dashed; background: none; }
+.exp-pill__seg { display: inline-flex; align-items: center; height: 100%; border: 0; background: none; font: inherit; font-size: 12px; cursor: pointer; }
+.exp-pill__seg:hover:not(:disabled) { color: var(--ink); }
+.exp-pill__seg:disabled { cursor: default; }
+.exp-pill.is-draft .exp-pill__op:last-child { padding-right: 8px; }
+.exp-pill.is-draft .exp-pill__field:last-child { padding-right: 8px; }
+.exp-input.is-mono { font-family: var(--font-mono); }
+.exp-menu { max-width: 360px; }
+.exp-menu li[role="option"] { min-height: 28px; box-sizing: border-box; padding: 0 8px; }
+.exp-menu__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exp-menu__text.is-mono { font-family: var(--font-mono); }
+.exp-menu__count { flex: none; font: 400 11px/1 var(--font-mono); color: var(--ink-muted); }
+.exp-menu .exp-menu__head { padding: 6px 8px 4px; font: 500 11px/16px var(--font-sans); color: var(--ink-muted); cursor: default; }
+.exp-menu .exp-menu__note { padding: 6px 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); cursor: default; white-space: normal; }
+.exp-menu .exp-menu__note.is-error { color: var(--error); }
+.exp-menu .exp-menu__keys { position: sticky; bottom: -4px; justify-content: flex-start; gap: 12px; margin: 4px -4px -4px; padding: 6px 12px; border-top: 1px solid var(--border); border-radius: 0; background: var(--surface-1); font: 400 11px/16px var(--font-sans); color: var(--ink-muted); cursor: default; }
+.exp-menu__keys kbd { display: inline-grid; place-items: center; min-width: 16px; height: 16px; margin-right: 2px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font: 400 10px/1 var(--font-sans); }
 
 /* The Time Range facet's button (DataTableFilterTimerange: LogsDatePicker's trigger, `block h-8`,
    a 12px ClockIcon): full width, 32px, centred, bordered, rounded. */
-.ext-trigger { display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font: 400 12px/16px var(--font-sans); cursor: pointer; transition: background-color .2s cubic-bezier(0.22, 1, 0.36, 1); }
+.ext-trigger { display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; width: 100%; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font: 400 12px/16px var(--font-sans); cursor: pointer; transition: background-color .2s cubic-bezier(0.22, 1, 0.36, 1); }
 .ext-trigger:hover, .ext-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--ink) 4%, var(--surface-2)); }
 .ext-trigger:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .ext-trigger .cp-ic { width: 14px; height: 14px; flex: none; stroke-width: 2; color: var(--ink-muted); }
@@ -219,8 +234,6 @@
 .exd-close { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-muted); cursor: pointer; }
 .exd-close:hover { background: var(--surface-2); color: var(--ink); }
 .exd-close svg, .exd-nav svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.exd-said { margin: 0; padding: 0 16px 4px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
-.exd-said:empty { display: none; }
 .exd-outside { margin: 0 16px 8px; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/16px var(--font-sans); }
 /* The footer (ServiceFlowPanel.tsx:167): `border-t py-1.5 pl-4 pr-3 text-xs text-foreground-lighter`. */
 .exd-foot { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 6px 16px; border-top: 1px solid var(--border); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
@@ -254,7 +267,7 @@
 .exl-row { display: grid; align-items: center; box-sizing: border-box; }
 .exl-row--head { height: 36px; box-shadow: inset 0 -1px 0 var(--border); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
 .exl-body { position: relative; }
-.exl-body > .exl-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font: 400 12px/16px var(--font-mono); }
+.exl-body > .exl-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; font: 400 12px/16px var(--font-mono); }
 .exl-body > .exl-row.is-openable { cursor: pointer; }
 .exl-body > .exl-row:hover { background: var(--surface-2); }
 .exl-body > .exl-row:focus { outline: none; }
@@ -624,8 +637,6 @@ span.rd-j-tog { cursor: default; }
 .exd-badge--5xx { background: var(--error-soft); color: var(--error); }
 .exd-method { flex: none; font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
 .exd-path { font: 400 12px/18px var(--font-mono); }
-.exd-said { margin: 0; padding: 0 var(--space-4); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); min-height: 0; }
-.exd-said:empty { display: none; }
 .exd-outside { margin: var(--space-2) var(--space-4) 0; padding: 6px var(--space-3); border-radius: 6px; background: var(--warn-soft); font: 400 12px/18px var(--font-sans); }
 .exd-error { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--error); border-radius: 4px; background: var(--error-tint); }
 .exd-error p { margin: 0; }
@@ -680,15 +691,28 @@ span.rd-j-tog { cursor: default; }
 .exd-card__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 .exd-consumer > .rd-h { margin-top: var(--space-4); }
 .exd-mini td code { font: 400 12px/18px var(--font-mono); }
-.exd-sel__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-4); }
-.exd-sel__hint { padding: 0 var(--space-4); white-space: normal; }
+/* Selection panel: its totals as a two-column fact list, then the selected rows. */
+.exd-sel__body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: grid; align-content: start; gap: 16px; }
+.exd-sel__stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px 24px; margin: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.exd-sel__stats dt { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exd-sel__stats dd { margin: 2px 0 0; font: 400 12px/18px var(--font-mono); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exd-sel__mix { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.exd-sel__mix b { font-weight: 500; color: var(--ink); }
+.exd-sel__list { margin: 0; padding: 0; list-style: none; }
+.exd-sel__list button { display: grid; grid-template-columns: auto 36px 48px minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; height: 30px; padding: 0 8px; border: 0; border-radius: 4px; background: none; color: var(--ink); font: 400 12px/16px var(--font-mono); text-align: left; cursor: pointer; }
+.exd-sel__list button:hover:not(:disabled) { background: var(--surface-2); }
+.exd-sel__list button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.exd-sel__list button:disabled { cursor: default; }
+.exd-sel__t { color: var(--ink-muted); white-space: nowrap; }
+.exd-sel__m { color: var(--ink-muted); }
+.exd-sel__p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exd-sel__more { padding: 6px 8px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exd-act .cp-ic { width: 14px; height: 14px; }
 /* The shortcut list. */
 .exk { border-collapse: collapse; margin: 6px; font: 400 12px/18px var(--font-sans); color: var(--ink); }
 .exk th { padding: 3px 12px 3px 4px; text-align: left; white-space: nowrap; font-weight: 400; }
 .exk td { padding: 3px 4px; color: var(--ink-muted); }
 .exk kbd { padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font: 400 11px/16px var(--font-mono); }
-.exe-set { display: flex; gap: var(--space-3); margin: 0; padding: 0; border: 0; }
-.exe-set legend { padding: 0; margin-bottom: 4px; font: 500 12px/16px var(--font-sans); }
 
 
 /* Shift / ⌘ / Ctrl held: no native text selection on the rows, so modifier clicks select rows
@@ -808,3 +832,32 @@ span.rd-j-tog { cursor: default; }
   .exd-step__track { display: none; }
   .exd-actions .exd-act { display: none; }
 }
+
+/* Toolbar tooltips (tip.tsx), after Supabase's ShortcutTooltip: label then key pills, 4px below. */
+.ex-tipw { display: inline-flex; }
+.ex-tip { position: fixed; z-index: 96; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/16px var(--font-sans); color: var(--ink); white-space: nowrap; pointer-events: none; animation: ex-tip-in .12s ease-out; }
+.ex-tip__keys { display: inline-flex; align-items: center; gap: 4px; }
+.ex-tip kbd { display: inline-grid; place-items: center; box-sizing: border-box; min-width: 16px; height: 16px; padding: 0 3px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font: 400 11px/1 var(--font-sans); color: var(--ink-muted); }
+.ex-tip__then { font-size: 11px; color: var(--ink-muted); }
+@keyframes ex-tip-in { from { opacity: 0; transform: translateY(-1px); } }
+@media (prefers-reduced-motion: reduce) { .ex-tip { animation: none; } }
+
+/* Export (export-dialog.tsx), after Supabase's DownloadLogsButton: a w-44 menu of two items
+   (DropdownMenuItem: px-2 py-1.5 text-xs, rounded, 14px icon, gap 8px), then the options step. */
+.exe-pop { padding: 4px; border-radius: 8px; }
+.exe-menu { display: grid; gap: 1px; }
+.exe-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 4px; background: none; color: color-mix(in srgb, var(--ink) 80%, transparent); font: 400 12px/16px var(--font-sans); text-align: left; white-space: nowrap; cursor: pointer; }
+.exe-item:hover, .exe-item:focus-visible { outline: none; background: var(--surface-2); color: var(--ink); }
+.exe-item .cp-ic { width: 14px; height: 14px; flex: none; stroke-width: 2; color: var(--ink-muted); }
+.exe-form { display: grid; gap: 12px; padding: 8px; }
+.exe-head { display: grid; gap: 2px; }
+.exe-title { margin: 0; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.exe-field { display: grid; gap: 6px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.exe-field .ex-input { height: 28px; font-size: 12px; border-radius: var(--radius-sm); }
+.exe-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Copy buttons that answer in place (copy-action.tsx): a check and "Copied", no text line below. */
+.ex-copy { gap: 6px; }
+.ex-copy.is-copied .cp-ic { color: var(--ok); }
+.ex-copy.is-failed { color: var(--error); }
+.ah-btn--ghost.ex-copy .cp-ic { width: 14px; height: 14px; flex: none; stroke-width: 2; }

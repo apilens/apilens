@@ -151,7 +151,7 @@ button.ah-btn { cursor: pointer; }
 .cp-brand .cp-sbtn { border-radius: 7px; }
 
 /* Org menu: portalled to <body>, fixed to the viewport, above the sidebar, top bar and dialogs' scrim. */
-.org-pop { position: fixed; z-index: 70; }
+.org-pop { position: fixed; z-index: 90; } /* above the request drawer (80), with the date picker */
 
 /* Expanded sidebar: the wordmark is centred in the logo row. */
 .cp-side:not(.is-collapsed) .cp-brand { justify-content: flex-start; padding: 0 18px; }

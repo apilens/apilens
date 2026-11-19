@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider attribute="data-theme" themes={["dark", "light"]} defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>
-        {process.env.NODE_ENV === "development" && <Agentation appName="APILens" />}
+        {process.env.NODE_ENV === "development" && <Agentation appName="APILens" endpoint="http://localhost:4747" />}
       </body>
     </html>
   );

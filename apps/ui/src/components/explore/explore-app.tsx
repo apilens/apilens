@@ -3,8 +3,8 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { copyText } from "@/lib/clipboard";
-import { rowKey } from "@/lib/explore";
+import { shownPath } from "@/lib/first-data";
+import { formatBytes, latencyTone, rowKey, stampText, statusClass } from "@/lib/explore";
 import { type ColumnId, type ColumnPrefs, DEFAULT_PREFS, autoHidden, isPrefs, readPrefs } from "@/lib/explore-columns";
 import { exportFileName, neighborId, rangeKeys, toCsv, toJson, windowAround } from "@/lib/explore-detail";
 import {
@@ -25,10 +25,12 @@ import { logPoll } from "@/lib/explore";
 import { timelinePoll } from "@/lib/explore-timeline";
 import type { NamedApp, RequestRow, RequestTimeline } from "@/lib/identity";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { formatLatency } from "@/lib/traffic";
 import { Icon } from "../icons";
 import { ObIcon } from "../onboarding/ob";
 import { AppNamesProvider } from "./app-names";
 import { ColumnsMenu } from "./columns-menu";
+import { CopyAction } from "./copy-action";
 import { download, ExportMenu } from "./export-dialog";
 import { filterActions } from "./field-actions";
 import { FieldMenu } from "./field-menu";
@@ -37,6 +39,7 @@ import { LogTable } from "./log-table";
 import { PillBar } from "./pill-bar";
 import { RequestDrawer, RequestPanel } from "./request-panel";
 import { Shortcuts } from "./shortcuts";
+import { Tip } from "./tip";
 import { FACETS_ACTIONS_ID, FACETS_SLOT_ID } from "./slots";
 import { StatusChart } from "./status-chart";
 import { useStored } from "./use-stored";
@@ -81,12 +84,11 @@ const dataUrl = (project: string, q: ExploreQuery) => exploreUrl(project, { ...q
  * (range or window, conditions) lives here and in the URL: a change shows at once, and the URL
  * follows 250ms later (replace, so typing does not fill the history), which reads the rows again
  * on the server while the chart and table fade. Live (on by default) reads newer rows every 10 s;
- * picking a range pauses it. Keyboard: Shift+F the filter bar, F then C clears filters, ⌘J Live,
- * ⌘U resets the columns.
+ * picking a range pauses it. Keyboard: Shift+F or / the filter bar, F then C clears filters, ⇧R
+ * refreshes, ⇧E exports, ⌘J Live, ⌘U resets the columns.
  */
 export function ExploreApp({
   project,
-  environments,
   apps,
   query,
   rows: initialRows,
@@ -96,7 +98,6 @@ export function ExploreApp({
   notice,
 }: {
   project: string;
-  environments: readonly string[];
   apps: NamedApp[] | null;
   query: ExploreQuery;
   rows: RequestRow[] | null;
@@ -132,6 +133,7 @@ export function ExploreApp({
   const facetSlot = useSlot(FACETS_SLOT_ID);
   const [shortcuts, setShortcuts] = useState(false);
   const toolsEnd = useRef<HTMLDivElement>(null);
+  const exportBtn = useRef<HTMLButtonElement>(null);
   const [facetsHidden, setFacetsHidden] = useStored<boolean>("apilens.explore.facets.hidden", false, (v): v is boolean => typeof v === "boolean");
   const actionSlot = useSlot(FACETS_ACTIONS_ID);
   const [storedPrefs, setPrefs] = useStored<ColumnPrefs>("apilens.explore.columns", DEFAULT_PREFS, isPrefs);
@@ -292,11 +294,14 @@ export function ExploreApp({
 
   // Multi-select (#1053): Shift-click and Shift+↑/↓ extend from the anchor, ⌘/Ctrl-click toggles.
   const keys = rows?.map(rowKey) ?? [];
+  /** The moving end of the selection (the anchor is the fixed one), for Shift+↑/↓ outside the table. */
+  const selEnd = useRef<string | null>(null);
   const onRow = (r: RequestRow, how: { shift: boolean; toggle: boolean }) => {
     const k = rowKey(r, keys.indexOf(r.id ?? ""));
     if (how.shift) {
       // Without an anchor (nothing clicked yet, or the selection was just cleared) the range starts here.
       if (!anchor.current) anchor.current = k;
+      selEnd.current = k;
       setSelected(new Set(rangeKeys(keys, anchor.current, k)));
       return;
     }
@@ -318,6 +323,7 @@ export function ExploreApp({
     // A fresh selection starts at the focused row, not at an anchor left from an earlier one.
     const a = selected.size && anchor.current ? anchor.current : rowKey(from, 0);
     anchor.current = a;
+    selEnd.current = rowKey(to, 0);
     setSelected(new Set(rangeKeys(keys, a, rowKey(to, 0))));
   };
   const onSelect = (r: RequestRow, on: boolean) => {
@@ -333,6 +339,7 @@ export function ExploreApp({
   /** Empties the selection and forgets its anchor, so the next Shift-extend starts afresh. */
   const clearSelection = () => {
     anchor.current = null;
+    selEnd.current = null;
     setSelected(new Set());
   };
   const selectedRows = (rows ?? []).filter((r, i) => selected.has(rowKey(r, i)));
@@ -385,6 +392,23 @@ export function ExploreApp({
         else if (selected.size) clearSelection();
         return;
       }
+      // Shift+↑/↓ outside the table (the selection drawer, the page) extend the selection from its
+      // moving end, or from the open request, as they do inside the table.
+      if (e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp") && !(e.target as HTMLElement).closest?.(".exl-grid") && keys.length) {
+        const openKey = qRef.current.id ? keys.find((k, i) => rows?.[i]?.id === qRef.current.id) : undefined;
+        const end = (selected.size ? selEnd.current : null) ?? openKey ?? anchor.current;
+        const at = end ? keys.indexOf(end) : -1;
+        if (at < 0) return;
+        e.preventDefault();
+        const ni = Math.max(0, Math.min(keys.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)));
+        const next = keys[ni];
+        const a = selected.size && anchor.current ? anchor.current : keys[at];
+        anchor.current = a;
+        selEnd.current = next;
+        setSelected(new Set(rangeKeys(keys, a, next)));
+        document.querySelector<HTMLElement>(`.exl-grid [data-index="${ni}"]`)?.scrollIntoView({ block: "nearest" });
+        return;
+      }
       // With a request open, ↑/↓ and k/j walk the rows (the table moves its own focus the same way),
       // unless a control used the key (the drawer's section nav: React and this listener share
       // `document`, so its stopPropagation cannot stop this one).
@@ -398,9 +422,19 @@ export function ExploreApp({
         setShortcuts((o) => !o);
         return;
       }
-      if (e.key === "F" && e.shiftKey) {
+      if ((e.key === "F" && e.shiftKey) || e.key === "/") {
         e.preventDefault();
         filterInput.current?.focus();
+        return;
+      }
+      if (e.key === "R" && e.shiftKey) {
+        e.preventDefault();
+        if (!pending) reload();
+        return;
+      }
+      if (e.key === "E" && e.shiftKey) {
+        e.preventDefault();
+        exportBtn.current?.click();
         return;
       }
       if (e.key === "f" && !e.shiftKey) {
@@ -454,31 +488,42 @@ export function ExploreApp({
               </button>
             </div>
             <div className="exr-filter">
-              <PillBar query={q} conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} apps={apps} environments={environments} />
+              <PillBar project={project} query={q} conds={q.conds} onChange={setConds} onRange={setRange} inputRef={filterInput} />
             </div>
             <div className="exr-tools__end" ref={toolsEnd}>
-              <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon" aria-label="Refresh logs" title="Refresh logs" disabled={pending} onClick={reload}>
-                {pending ? (
-                  <span className="ex-tbtn__spin">
-                    <Icon name="loader" />
-                  </span>
-                ) : (
-                  <Icon name="refresh" />
-                )}
-              </button>
+              <Tip label="Refresh logs" keys={["⇧", "R"]}>
+                <button
+                  type="button"
+                  className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn ex-tbtn--icon"
+                  aria-label="Refresh logs"
+                  aria-keyshortcuts="Shift+R"
+                  disabled={pending}
+                  onClick={reload}
+                >
+                  {pending ? (
+                    <span className="ex-tbtn__spin">
+                      <Icon name="loader" />
+                    </span>
+                  ) : (
+                    <Icon name="refresh" />
+                  )}
+                </button>
+              </Tip>
               <ColumnsMenu prefs={prefs} auto={auto} onPrefs={setPrefs} />
-              <ExportMenu project={project} query={q} rangeLabel={rangeText(q, tz)} />
+              <ExportMenu project={project} query={q} rangeLabel={rangeText(q, tz)} triggerRef={exportBtn} />
               <Shortcuts open={shortcuts} onClose={() => setShortcuts(false)} anchor={toolsEnd} />
-              <button
-                type="button"
-                className={`ah-btn ah-btn--sm ex-tbtn exr-live${liveOn ? " ah-btn--primary is-on" : " ah-btn--secondary"}`}
-                aria-pressed={liveOn}
-                title={`${liveOn ? "Pause live mode" : "Start live mode"} (⌘J)`}
-                onClick={toggleLive}
-              >
-                <Icon name={liveOn ? "circlePause" : "circlePlay"} />
-                Live
-              </button>
+              <Tip label={liveOn ? "Pause live mode" : "Start live mode"} keys={["⌘", "J"]}>
+                <button
+                  type="button"
+                  className={`ah-btn ah-btn--sm ex-tbtn exr-live${liveOn ? " ah-btn--primary is-on" : " ah-btn--secondary"}`}
+                  aria-pressed={liveOn}
+                  aria-keyshortcuts="Meta+J"
+                  onClick={toggleLive}
+                >
+                  <Icon name={liveOn ? "circlePause" : "circlePlay"} />
+                  Live
+                </button>
+              </Tip>
             </div>
           </div>
           {pollFailed && rows !== null && rows.length > 0 ? (
@@ -544,6 +589,10 @@ export function ExploreApp({
           <SelectionPanel
             rows={selectedRows}
             onClear={clearSelection}
+            onOpen={(r) => {
+              clearSelection();
+              if (r.id) openRequest(r.id);
+            }}
             fileName={(ext) => exportFileName(project, isCustom(q) ? rangeText(q, tz) : q.range, Date.now(), ext)}
           />
         </RequestDrawer>
@@ -576,35 +625,121 @@ export function ExploreApp({
 }
 
 
-/** Two or more rows selected: how many, Copy as JSON, Export selected and Clear selection. */
-function SelectionPanel({ rows, onClear, fileName }: { rows: RequestRow[]; onClear: () => void; fileName: (ext: "csv" | "json") => string }) {
-  const [said, setSaid] = useState<string | null>(null);
-  // Written inside the click (lib/clipboard), as Safari asks.
-  const copy = () =>
-    copyText(toJson(rows)).then((ok) => setSaid(ok ? `Copied ${rows.length} requests as JSON.` : "Couldn’t copy. Your browser blocked the clipboard."));
+/** The selected rows listed in the panel; more are counted, not listed. */
+const SELECTION_LIST = 50;
+
+/**
+ * Two or more rows selected: what they add up to (time span, status split, methods, latency,
+ * bytes, distinct paths), the rows themselves (a click opens one), then Copy as JSON, Export and
+ * Clear. Shift+↑/↓ keep extending the selection while the panel has focus.
+ */
+function SelectionPanel({
+  rows,
+  onClear,
+  onOpen,
+  fileName,
+}: {
+  rows: RequestRow[];
+  onClear: () => void;
+  onOpen: (r: RequestRow) => void;
+  fileName: (ext: "csv" | "json") => string;
+}) {
+  const tz = useTimeZone();
+  const times = rows.map((r) => Date.parse(r.timestamp)).filter((t) => !Number.isNaN(t));
+  const first = Math.min(...times);
+  const last = Math.max(...times);
+  const classes = (["2xx", "3xx", "4xx", "5xx"] as const).map((c) => [c, rows.filter((r) => statusClass(r.status_code) === c).length] as const).filter(([, n]) => n);
+  const methods = [...rows.reduce((m, r) => m.set(r.method.toUpperCase(), (m.get(r.method.toUpperCase()) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]);
+  const lat = rows.map((r) => r.response_time_ms).sort((a, b) => a - b);
+  const median = lat[Math.floor((lat.length - 1) / 2)] ?? 0;
+  const slowest = lat[lat.length - 1] ?? 0;
+  const sent = rows.reduce((n, r) => n + (r.request_size ?? 0), 0);
+  const received = rows.reduce((n, r) => n + (r.response_size ?? 0), 0);
+  const paths = new Set(rows.map((r) => r.path)).size;
+
   return (
     <section className="exd exd-sel" aria-label="Selected requests">
       <header className="exd-head">
         <h2 className="exd-title">{rows.length} requests selected</h2>
+        <div className="exd-actions">
+          <CopyAction className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" icon="copy" label="Copy" ariaLabel={`Copy ${rows.length} requests as JSON`} text={() => toJson(rows)} />
+          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" onClick={() => download(toCsv(rows), fileName("csv"), "text/csv")}>
+            <Icon name="download" />
+            CSV
+          </button>
+          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm ex-tbtn exd-act" onClick={() => download(toJson(rows), fileName("json"), "application/json")}>
+            <Icon name="download" />
+            JSON
+          </button>
+          <button type="button" className="exd-close" aria-label="Clear selection (Esc)" title="Clear selection (Esc)" onClick={onClear}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
       </header>
-      <p className="exd-said" role="status">
-        {said}
-      </p>
-      <div className="exd-sel__actions">
-        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={copy}>
-          Copy as JSON
-        </button>
-        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => download(toCsv(rows), fileName("csv"), "text/csv")}>
-          Export CSV
-        </button>
-        <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => download(toJson(rows), fileName("json"), "application/json")}>
-          Export JSON
-        </button>
-        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onClear}>
-          Clear selection
-        </button>
+      <div className="exd-sel__body">
+        <dl className="exd-sel__stats">
+          <div>
+            <dt>Time span</dt>
+            <dd>{times.length ? `${stampText(first, tz)} – ${stampText(last, tz)}` : "–"}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd className="exd-sel__mix">
+              {classes.map(([c, n]) => (
+                <span key={c} className={`exl-status exl-status--${c}`}>
+                  {c} <b>{n}</b>
+                </span>
+              ))}
+            </dd>
+          </div>
+          <div>
+            <dt>Methods</dt>
+            <dd className="exd-sel__mix">
+              {methods.map(([m, n]) => (
+                <span key={m}>
+                  {m} <b>{n}</b>
+                </span>
+              ))}
+            </dd>
+          </div>
+          <div>
+            <dt>Latency</dt>
+            <dd>
+              median {formatLatency(median)} · slowest <span className={`exl-lat--${latencyTone(slowest)}`}>{formatLatency(slowest)}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Sent · received</dt>
+            <dd>
+              {formatBytes(sent)} · {formatBytes(received)}
+            </dd>
+          </div>
+          <div>
+            <dt>Paths</dt>
+            <dd>{paths}</dd>
+          </div>
+        </dl>
+        <ul className="exd-sel__list" aria-label="Selected requests">
+          {rows.slice(0, SELECTION_LIST).map((r, i) => (
+            <li key={rowKey(r, i)}>
+              <button type="button" onClick={() => onOpen(r)} disabled={!r.id} title={r.id ? "Open this request" : undefined}>
+                <span className="exd-sel__t">{stampText(Date.parse(r.timestamp), tz)}</span>
+                <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{r.status_code}</span>
+                <span className="exd-sel__m">{r.method.toUpperCase()}</span>
+                <span className="exd-sel__p">
+                  <bdi>{shownPath(r)}</bdi>
+                </span>
+              </button>
+            </li>
+          ))}
+          {rows.length > SELECTION_LIST ? <li className="exd-sel__more">and {rows.length - SELECTION_LIST} more</li> : null}
+        </ul>
       </div>
-      <p className="exd-keys exd-sel__hint">Shift-click or Shift ↑ ↓ to extend, ⌘ or Ctrl-click to add one, Esc to clear.</p>
+      <footer className="exd-foot">
+        <span className="exd-keys">Shift ↑ ↓ or Shift-click to extend · ⌘-click to add one · Esc to clear</span>
+      </footer>
     </section>
   );
 }

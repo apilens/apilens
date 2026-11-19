@@ -16,7 +16,6 @@ import "./explore.css";
  */
 export function ExploreView(props: {
   project: string;
-  environments: readonly string[];
   apps: NamedApp[] | null;
   query: ExploreQuery;
   rows: RequestRow[] | null;

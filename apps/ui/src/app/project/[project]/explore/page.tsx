@@ -60,7 +60,6 @@ export default async function ExplorePage({ params, searchParams }: { params: Pr
     <AppShell context={context} project={project} view="explore" menu={<ExploreMenu />}>
       <ExploreView
         project={project}
-        environments={found.project.environments ?? []}
         apps={apps}
         query={q}
         rows={rows}
