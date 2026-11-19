@@ -110,3 +110,33 @@ func TestWarnEmail(t *testing.T) {
 		})
 	}
 }
+
+func TestWarnDevEmailCode(t *testing.T) {
+	const code = "211226"
+	for _, tc := range []struct {
+		name   string
+		code   string
+		target []string
+		want   bool
+	}{
+		{"set all", code, []string{TargetAll}, true},
+		{"set identity", code, []string{TargetIdentity}, true},
+		{"set edge only", code, []string{TargetEdge}, false},
+		{"unset", "", []string{TargetAll}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			cfg := &config.Config{Target: tc.target, Identity: config.IdentityConfig{DevEmailCode: tc.code}}
+			a := New(cfg, slog.New(slog.NewTextHandler(&buf, nil)))
+			a.warnDevEmailCode()
+			out := buf.String()
+			got := strings.Count(out, "level=WARN") == 1 && strings.Contains(out, "fixed dev sign-in code is enabled")
+			if got != tc.want {
+				t.Fatalf("warned = %v, want %v (log: %q)", got, tc.want, out)
+			}
+			if strings.Contains(out, code) {
+				t.Fatalf("log leaks the code: %q", out)
+			}
+		})
+	}
+}

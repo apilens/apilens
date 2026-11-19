@@ -552,7 +552,8 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | `identity.access_token_ttl` | `15m` |
 | `identity.refresh_token_ttl` / `refresh_token_ttl_short` | `720h` / `24h` |
 | `identity.email_code_ttl` / `email_code_max_attempts` | `15m` / `5` |
-| `identity.dev_email_code` | empty. Six digits that every sign-in email uses instead of a random code, for local development. Refused unless `public_ui_url` is on localhost |
+| `identity.dev_email_code` (`APILENS_IDENTITY__DEV_EMAIL_CODE`) | empty. **DEV ONLY.** Six digits that every sign-in email uses instead of a random code, so testers need no inbox. Issued through the normal path (stored hashed, 15 min expiry, single use, attempt and rate limits, email still sent). Refused at startup unless `public_ui_url` is on localhost or `identity.non_production` is true; a WARN is logged at startup (never the code) |
+| `identity.non_production` (`APILENS_IDENTITY__NON_PRODUCTION`) | `false`. Declares a shared dev or test deployment non-production; required for `dev_email_code` off localhost. Never set it in production |
 | `identity.pre_auth_ttl` | `5m` |
 | `identity.recovery_delay` | `24h` |
 | `identity.sensitive_action_max_age` | `10m` |

@@ -233,9 +233,15 @@ type IdentityConfig struct {
 	EmailCodeTTL         time.Duration `koanf:"email_code_ttl"`
 	EmailCodeMaxAttempts int           `koanf:"email_code_max_attempts"`
 	// DevEmailCode, when set, is the code every sign-in email carries instead
-	// of a random one, so local sign-ins need no inbox. Six digits. Refused
-	// unless public_ui_url is on localhost: never set it anywhere real.
+	// of a random one, so dev sign-ins need no inbox. DEV ONLY. Six digits.
+	// Refused unless the deployment is explicitly non-production: public_ui_url
+	// on localhost, or NonProduction set. Never set it anywhere real.
 	DevEmailCode string `koanf:"dev_email_code"`
+	// NonProduction declares this deployment a dev or test environment (a
+	// shared dev server, say). It is what allows DevEmailCode when
+	// public_ui_url is not on localhost. Default false; never set it in
+	// production.
+	NonProduction bool `koanf:"non_production"`
 	// PreAuthTTL bounds the window between the first factor and MFA.
 	PreAuthTTL time.Duration `koanf:"pre_auth_ttl"`
 	// RecoveryDelay is the cooling-off period between requesting account
@@ -515,6 +521,8 @@ func Defaults() map[string]any {
 		"identity.refresh_token_ttl_short": "24h",
 		"identity.email_code_ttl":          "15m",
 		"identity.email_code_max_attempts": 5,
+		"identity.dev_email_code":          "",
+		"identity.non_production":          false,
 		"identity.pre_auth_ttl":            "5m",
 		"identity.recovery_delay":          "24h",
 		"identity.key_encryption_key":      "",
@@ -785,8 +793,8 @@ func (c *Config) validateIdentity() []error {
 		if !devEmailCodeRE.MatchString(id.DevEmailCode) {
 			errs = append(errs, errors.New("identity.dev_email_code: want 6 digits"))
 		}
-		if !isLocalURL(id.PublicUIURL) {
-			errs = append(errs, fmt.Errorf("identity.dev_email_code is only allowed when identity.public_ui_url is on localhost, not %q", id.PublicUIURL))
+		if !isLocalURL(id.PublicUIURL) && !id.NonProduction {
+			errs = append(errs, fmt.Errorf("identity.dev_email_code is DEV ONLY: it is only allowed when identity.public_ui_url is on localhost (not %q) or the deployment is declared non-production with APILENS_IDENTITY__NON_PRODUCTION=true", id.PublicUIURL))
 		}
 	}
 	for _, o := range id.WebAuthn.Origins {

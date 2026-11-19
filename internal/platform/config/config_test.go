@@ -348,16 +348,54 @@ func TestIdentityDevEmailCode(t *testing.T) {
 		}
 	}
 
-	for _, tc := range []struct{ ui, code, want string }{
-		{"https://app.example.com", "211226", "only allowed when identity.public_ui_url is on localhost"},
-		{"http://localhost.example.com", "211226", "only allowed when identity.public_ui_url is on localhost"},
-		{"http://localhost:3000", "12345", "want 6 digits"},
-		{"http://localhost:3000", "abcdef", "want 6 digits"},
+	if cfg.Identity.NonProduction {
+		t.Fatal("non_production should default to false")
+	}
+
+	// A shared dev server off localhost: allowed only when the deployment is
+	// explicitly declared non-production.
+	cfg, err = Load("", []string{kekEnv, "APILENS_IDENTITY__PUBLIC_UI_URL=http://172.16.12.186:3300",
+		"APILENS_IDENTITY__DEV_EMAIL_CODE=211226", "APILENS_IDENTITY__NON_PRODUCTION=true"}, nil)
+	if err != nil {
+		t.Fatalf("non-production dev server: %v", err)
+	}
+	if cfg.Identity.DevEmailCode != "211226" || !cfg.Identity.NonProduction {
+		t.Fatalf("dev_email_code = %q, non_production = %v", cfg.Identity.DevEmailCode, cfg.Identity.NonProduction)
+	}
+
+	const prodErr = "only allowed when identity.public_ui_url is on localhost"
+	for _, tc := range []struct {
+		ui, code, nonProd, want string
+	}{
+		// Production (not localhost, not declared non-production) is refused.
+		{"https://app.example.com", "211226", "", prodErr},
+		{"https://app.example.com", "211226", "false", prodErr},
+		{"http://localhost.example.com", "211226", "", prodErr},
+		{"http://172.16.12.186:3300", "211226", "", prodErr},
+		// The value must be exactly six digits, wherever it runs.
+		{"http://localhost:3000", "12345", "", "want 6 digits"},
+		{"http://localhost:3000", "1234567", "", "want 6 digits"},
+		{"http://localhost:3000", "abcdef", "", "want 6 digits"},
+		{"http://localhost:3000", "211 226", "", "want 6 digits"},
+		{"http://localhost:3000", "２１１２２６", "", "want 6 digits"},
+		{"https://dev.example.com", "21122", "true", "want 6 digits"},
 	} {
-		_, err := Load("", []string{kekEnv, "APILENS_IDENTITY__PUBLIC_UI_URL=" + tc.ui, "APILENS_IDENTITY__DEV_EMAIL_CODE=" + tc.code}, nil)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("ui=%s code=%s: err = %v, want %q", tc.ui, tc.code, err, tc.want)
+		env := []string{kekEnv, "APILENS_IDENTITY__PUBLIC_UI_URL=" + tc.ui, "APILENS_IDENTITY__DEV_EMAIL_CODE=" + tc.code}
+		if tc.nonProd != "" {
+			env = append(env, "APILENS_IDENTITY__NON_PRODUCTION="+tc.nonProd)
 		}
+		_, err := Load("", env, nil)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("ui=%s code=%s non_production=%s: err = %v, want %q", tc.ui, tc.code, tc.nonProd, err, tc.want)
+		}
+		if err != nil && strings.Contains(err.Error(), tc.code) {
+			t.Errorf("error leaks the code: %v", err)
+		}
+	}
+
+	// non_production alone changes nothing and is accepted.
+	if _, err := Load("", []string{kekEnv, "APILENS_IDENTITY__PUBLIC_UI_URL=https://app.example.com", "APILENS_IDENTITY__NON_PRODUCTION=true"}, nil); err != nil {
+		t.Fatalf("non_production without a code: %v", err)
 	}
 }
 

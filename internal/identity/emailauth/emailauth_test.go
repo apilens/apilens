@@ -275,6 +275,52 @@ func TestFixedCode(t *testing.T) {
 	}
 }
 
+// TestFixedCodeKeepsTheRules checks that the fixed dev code goes through the
+// normal checks: a wrong code fails, a used code is single use, expiry
+// applies, and MaxAttempts wrong guesses lock it out until a new email.
+func TestFixedCodeKeepsTheRules(t *testing.T) {
+	ctx := context.Background()
+	c := &clock{t: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)}
+	s := New(&fakeStore{now: c.now}, Options{Now: c.now, FixedCode: "211226"})
+
+	mustIssue(t, s)
+	if _, err := s.VerifyCode(ctx, email, "123456"); !errors.Is(err, ErrInvalidCode) {
+		t.Fatalf("wrong code: err = %v, want ErrInvalidCode", err)
+	}
+	if _, err := s.VerifyCode(ctx, email, "211226"); err != nil {
+		t.Fatalf("fixed code after one wrong guess: %v", err)
+	}
+	if _, err := s.VerifyCode(ctx, email, "211226"); !errors.Is(err, ErrInvalidCode) {
+		t.Fatalf("reused code: err = %v, want ErrInvalidCode", err)
+	}
+	if _, err := s.VerifyCode(ctx, "other@example.com", "211226"); !errors.Is(err, ErrInvalidCode) {
+		t.Fatalf("address with no email: err = %v, want ErrInvalidCode", err)
+	}
+
+	mustIssue(t, s)
+	c.t = c.t.Add(TTL)
+	if _, err := s.VerifyCode(ctx, email, "211226"); !errors.Is(err, ErrCodeExpired) {
+		t.Fatalf("expired: err = %v, want ErrCodeExpired", err)
+	}
+
+	mustIssue(t, s)
+	for i := range MaxAttempts - 1 {
+		if _, err := s.VerifyCode(ctx, email, "000000"); !errors.Is(err, ErrInvalidCode) {
+			t.Fatalf("wrong guess %d: err = %v, want ErrInvalidCode", i+1, err)
+		}
+	}
+	if _, err := s.VerifyCode(ctx, email, "000000"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("last wrong guess: err = %v, want ErrTooManyAttempts", err)
+	}
+	if _, err := s.VerifyCode(ctx, email, "211226"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("fixed code after lockout: err = %v, want ErrTooManyAttempts", err)
+	}
+	mustIssue(t, s)
+	if _, err := s.VerifyCode(ctx, email, "211226"); err != nil {
+		t.Fatalf("fixed code after a new email: %v", err)
+	}
+}
+
 func TestVerifyCode(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

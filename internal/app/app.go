@@ -203,6 +203,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 	a.warnEmail()
+	a.warnDevEmailCode()
 	return a.mgr.Run(ctx, a.cfg.Target)
 }
 
@@ -216,6 +217,17 @@ func (a *App) warnEmail() {
 		return
 	}
 	a.logger.Warn("email provider is log: sign-in codes and invitations are written to the log, not delivered; set APILENS_EMAIL__PROVIDER=smtp (with APILENS_EMAIL__HOST and APILENS_EMAIL__FROM) to send them")
+}
+
+// warnDevEmailCode flags, once at startup, that the identity role issues the
+// fixed dev sign-in code (identity.dev_email_code) instead of random ones.
+// The code itself is never logged.
+func (a *App) warnDevEmailCode() {
+	if a.cfg.Identity.DevEmailCode == "" || !a.cfg.IdentityEnabled() {
+		return
+	}
+	a.logger.Warn("DEV ONLY: fixed dev sign-in code is enabled (identity.dev_email_code); every sign-in email carries the same code instead of a random one. Never enable this in production",
+		"public_ui_url", a.cfg.Identity.PublicUIURL, "non_production", a.cfg.Identity.NonProduction)
 }
 
 func (a *App) initTelemetry(ctx context.Context) (modules.Service, error) {
