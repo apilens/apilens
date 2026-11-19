@@ -2,7 +2,27 @@
 
 import { type FormEvent, type KeyboardEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { METHODS } from "@/lib/explore-filters";
-import { type Cond, type ExploreQuery, FIELDS, type FieldKey, OP_LABEL, type Op, condWords, dedupe, fieldDef, makeCond, parseDuration, typedCond, typedTime, valueText } from "@/lib/explore-query";
+import {
+  type Cond,
+  type ExploreQuery,
+  FIELDS,
+  type FieldKey,
+  type Level,
+  OP_LABEL,
+  type Op,
+  condWords,
+  dedupe,
+  fieldDef,
+  levelCodes,
+  makeCond,
+  parseDuration,
+  termLevel,
+  tickedLevels,
+  typedCond,
+  typedTime,
+  untickLevel,
+  valueText,
+} from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
 import { PopMenu } from "../pop-menu";
 import { useAppNames } from "./app-names";
@@ -96,10 +116,27 @@ export function PillBar({
   }
   const at = Math.min(active, Math.max(0, options.length - 1));
 
+  // Level and Status are one hierarchy (explore-query.ts): a ticked level's codes are shown in its
+  // pill (`Level = Warning › 404, 429`), not as pills of their own, and its × takes them along.
+  const levels = tickedLevels(conds);
+  const merged = (c: Cond) => c.field === "status" && c.op === "eq" && c.value.split(",").every((t) => {
+    const l = termLevel(t);
+    return l !== null && levels.includes(l);
+  });
+  const shown = conds.map((c, i) => ({ c, i })).filter(({ c }) => !merged(c));
+  const removeAt = (i: number) => {
+    const c = conds[i];
+    onChange(c.field === "level" && c.op === "eq" ? untickLevel(conds, c.value as Level) : conds.filter((_, j) => j !== i));
+  };
+  const pillValue = (c: Cond) => {
+    const codes = c.field === "level" && c.op === "eq" ? levelCodes(conds, c.value as Level) : [];
+    return codes.length ? `${valueText(c, names)} › ${codes.join(", ")}` : valueText(c, names);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && text === "" && conds.length) {
+    if (e.key === "Backspace" && text === "" && shown.length) {
       e.preventDefault();
-      onChange(conds.slice(0, -1));
+      removeAt(shown[shown.length - 1].i);
       return;
     }
     if (e.key === "Escape") {
@@ -134,16 +171,17 @@ export function PillBar({
       {conds.length || rangeIsSet(query) ? (
         <ul className="exp-pills" aria-label="Active filters">
           <TimeRangePill query={query} onRange={onRange} />
-          {conds.map((c, i) => {
-            const words = condWords(c, names);
+          {shown.map(({ c, i }) => {
+            const value = pillValue(c);
+            const words = c.field === "level" && value !== valueText(c, names) ? `Level is ${value}` : condWords(c, names);
             return (
               <li key={`${c.field}:${c.op}:${c.value}`} className={`exp-pill${c.op === "neq" || c.op === "ncontains" ? " is-not" : ""}`}>
                 <button type="button" className="exp-pill__body" aria-label={`Edit filter: ${words}`} title={words} onClick={() => startEdit(c.field, i)}>
                   <span className="exp-pill__field">{fieldDef(c.field).label}</span>
                   <span className="exp-pill__op">{OP_LABEL[c.op]}</span>
-                  <span className={`exp-pill__value${fieldDef(c.field).mono ? " is-mono" : ""}`}>{valueText(c, names)}</span>
+                  <span className={`exp-pill__value${fieldDef(c.field).mono ? " is-mono" : ""}`}>{value}</span>
                 </button>
-                <button type="button" className="exp-pill__x" aria-label={`Remove filter: ${words}`} onClick={() => onChange(conds.filter((_, j) => j !== i))}>
+                <button type="button" className="exp-pill__x" aria-label={`Remove filter: ${words}`} onClick={() => removeAt(i)}>
                   <svg viewBox="0 0 16 16" aria-hidden="true">
                     <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
                   </svg>

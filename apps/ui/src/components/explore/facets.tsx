@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type Cond,
   type ExploreQuery,
@@ -13,11 +13,15 @@ import {
   clearField,
   compactCount,
   levelOf,
+  levelState,
   onlyValue,
   routeSearch,
   statusHit,
+  statusInLevels,
   statusTermHit,
   ticked,
+  toggleLevel,
+  toggleStatus,
   toggleValue,
 } from "@/lib/explore-query";
 import { reasonPhrase, statusText } from "@/lib/http-status";
@@ -185,12 +189,14 @@ function Facet({
 
   // Ticked values come first (useUnifiedLogsPathnameOptions.ts:62-73); one the counts no longer
   // list stays, at 0, so it can be unticked.
-  const statusConds = q.conds.filter((c) => c.field === "status");
+  // Level and Status are one hierarchy (explore-query.ts): Level counts whole levels (only status
+  // exclusions apply), Status lists only the codes inside the ticked levels.
+  const statusConds = q.conds.filter((c) => c.field === "status" && c.op === "neq");
   const levelConds = q.conds.filter((c) => c.field === "level");
   const values: Values = useMemo(() => {
     let list = read.state === "ok" && settled ? read.values : [];
     if (field === "level") return levelValues(list, statusConds);
-    if (field === "status") list = list.filter((v) => !/^\d{3}$/.test(v.value) || statusHit(Number(v.value), levelConds));
+    if (field === "status") list = list.filter((v) => !/^\d{3}$/.test(v.value) || statusInLevels(Number(v.value), levelConds));
     // A ticked term the counts don't list (a class or range from an older link) counts its codes.
     const sum = (s: string) => list.reduce((n, v) => n + (field === "status" && /^\d{3}$/.test(v.value) && statusTermHit(Number(v.value), s) ? v.count : 0), 0);
     const picked = selected.map((s) => list.find((v) => v.value === s) ?? { value: s, label: "", count: sum(s) });
@@ -202,8 +208,11 @@ function Facet({
   const searchable = async || (field !== "level" && values.length > SEARCH_FROM);
   const waiting = read.state === "loading" || (async && read.state === "ok" && !settled);
 
-  const set = (value: string, on: boolean) => onChange(toggleValue(q.conds, field, value, on));
-  const only = (value: string) => onChange(onlyValue(q.conds, field, value));
+  const set = (value: string, on: boolean) =>
+    onChange(field === "level" ? toggleLevel(q.conds, value as Level) : field === "status" ? toggleStatus(q.conds, value, on) : toggleValue(q.conds, field, value, on));
+  // "Only" of a level or a code replaces both fields: just that level, or just that code.
+  const only = (value: string) => onChange(field === "level" || field === "status" ? onlyValue(clearField(q.conds, field === "level" ? "status" : "level"), field, value) : onlyValue(q.conds, field, value));
+  const isOn = (value: string) => (field === "level" ? levelState(q.conds, value as Level) !== "off" : selected.includes(value));
 
   return (
     <section className={`exf-facet${open ? " is-open" : ""}`} aria-labelledby={`${id}-h`}>
@@ -289,7 +298,8 @@ function Facet({
                   label={label(v)}
                   value={v.value}
                   count={v.count}
-                  checked={selected.includes(v.value)}
+                  checked={isOn(v.value)}
+                  partial={field === "level" && levelState(q.conds, v.value as Level) === "partial"}
                   onSet={set}
                   onOnly={only}
                   mono={field === "method"}
@@ -316,7 +326,8 @@ function PathText({ path }: { path: string }) {
 
 /**
  * The Level facet's rows: Supabase's three levels (DataTable.constants.ts LEVELS), each the sum of
- * the status codes it covers that pass the status conditions. Always all three, at 0 when empty.
+ * the status codes it covers that pass the status exclusions (`statusConds`, the `≠` ones: ticked
+ * codes refine a level, they do not shrink its count). Always all three, at 0 when empty.
  */
 function levelValues(list: Values, statusConds: Cond[]): Values {
   const sum: Record<Level, number> = { success: 0, warning: 0, error: 0 };
@@ -364,11 +375,14 @@ function ValueRow({
   onOnly,
   mono,
   body,
+  partial = false,
 }: {
   label: string;
   value: string;
   count: number;
   checked: boolean;
+  /** Some of it ticked (a level with only some of its codes): the checkbox shows a dash. */
+  partial?: boolean;
   onSet: (value: string, on: boolean) => void;
   onOnly: (value: string) => void;
   mono?: boolean;
@@ -376,11 +390,15 @@ function ValueRow({
   body?: ReactNode;
 }) {
   const id = useId();
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = partial;
+  }, [partial]);
   return (
-    <li className={`exf-item${checked ? " is-checked" : ""}`}>
+    <li className={`exf-item${checked ? " is-checked" : ""}${partial ? " is-partial" : ""}`}>
       <span className="exf-check">
-        <input id={id} type="checkbox" checked={checked} onChange={(e) => onSet(value, e.target.checked)} />
-        <Icon name="check" />
+        <input ref={box} id={id} type="checkbox" checked={checked} onChange={(e) => onSet(value, e.target.checked)} />
+        {partial ? <span className="exf-dash" aria-hidden="true" /> : <Icon name="check" />}
       </span>
       <label htmlFor={id} className={`exf-label${mono ? " is-mono" : ""}`} title={label}>
         {body ?? <span className="exf-label__text">{label}</span>}

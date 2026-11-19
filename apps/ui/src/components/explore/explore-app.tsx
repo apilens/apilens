@@ -19,6 +19,7 @@ import {
   rangeText,
   routeSearch,
   shownClasses,
+  withCodeLevels,
 } from "@/lib/explore-query";
 import { logPoll } from "@/lib/explore";
 import { timelinePoll } from "@/lib/explore-timeline";
@@ -202,7 +203,9 @@ export function ExploreApp({
     [project],
   );
 
-  const setConds = useCallback((conds: Cond[]) => update({ ...q, conds }), [q, update]);
+  // A ticked status code brings its level along while levels are ticked (the Level/Status rule,
+  // explore-query.ts), whichever control added it.
+  const setConds = useCallback((conds: Cond[]) => update({ ...q, conds: withCodeLevels(conds) }), [q, update]);
   const setRange = useCallback(
     (r: { range: ExploreRange; from?: string; to?: string }) => {
       // Picking a range or a window pauses Live (Supabase exits live on a date pick).
