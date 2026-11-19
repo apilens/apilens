@@ -8,6 +8,7 @@ import { shownPath } from "@/lib/first-data";
 import { reasonPhrase, statusText } from "@/lib/http-status";
 import type { RequestDetail, RequestDetailRead, RequestRow, TraceLog, TraceSpan } from "@/lib/identity";
 import {
+  type Body,
   DETAIL_LOAD_FAILED,
   DETAIL_NOT_FOUND,
   DRAWER_TABS,
@@ -532,6 +533,7 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
           <Field label="Time" copy={r.timestamp} actions={timeActions}>
             <code>{formatExact(r.timestamp, tz)}</code>
           </Field>
+          <Field label="Body">{r.request_size || contentTypeOf(r.request_headers) ? <code>{[r.request_size ? formatBytes(r.request_size) : null, contentTypeOf(r.request_headers) || null].filter(Boolean).join(" · ")}</code> : null}</Field>
           <Field label="Client IP" copy={r.ip_address} actions={fa("ip", r.ip_address ?? "")}>
             {r.ip_address ? <code>{r.ip_address}</code> : null}
           </Field>
@@ -568,9 +570,9 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
 }
 
 /**
- * The Response tab (#1061, redesigned in b5), Postman's way: the status code, latency, size and
- * type on one line, a failure's Error, validation errors and exception (#988), then Body |
- * Headers (HeadersBodyTabs, Body first). The body is not repeated inside the Error block.
+ * The Response tab (#1061, redesigned in b5), shaped as the Request tab: an Overview (status,
+ * latency, body size and type), a failure's Error, validation errors and exception (#988), then
+ * Body | Headers (HeadersBodyTabs, Body first). The body is not repeated inside the Error block.
  */
 function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
   const r = data.request;
@@ -583,12 +585,17 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 
   return (
     <div className="rd-blocks">
-      <p className="rd-status" aria-label="Response status">
-        <span className={`exd-badge exd-badge--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
-        <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
-        <span>{formatBytes(r.response_size)}</span>
-        {contentTypeOf(r.response_headers) ? <span>{contentTypeOf(r.response_headers)}</span> : null}
-      </p>
+      <Block title="Overview">
+        <dl className="exd-dl">
+          <Field label="Status" copy={String(r.status_code)} actions={filterActions(api, "status", String(r.status_code))}>
+            <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
+          </Field>
+          <Field label="Latency" copy={String(r.response_time_ms)}>
+            <span className={`exl-lat--${latencyTone(r.response_time_ms)}`}>{formatLatency(r.response_time_ms)}</span>
+          </Field>
+          <Field label="Body">{r.response_size || contentTypeOf(r.response_headers) ? <code>{[r.response_size ? formatBytes(r.response_size) : null, contentTypeOf(r.response_headers) || null].filter(Boolean).join(" · ")}</code> : null}</Field>
+        </dl>
+      </Block>
       {summary ? (
         <Block title="Error" tone="error">
           <div className="exd-error">
@@ -619,8 +626,9 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 
 /**
  * Headers (Query parameters) and Body as nested tabs, Postman's way: the tab row holds only the
- * tabs and the open one's Copy (headers and parameters as JSON); the body says its size and type
- * on its own first line. Request opens on Headers, Response on Body. ←/→ switch.
+ * tabs, then at its end the body's view switch (Pretty / Fields / Events, or Raw) and the open
+ * tab's Copy (headers and parameters as JSON). The body's size and type are in the Overview.
+ * Request opens on Headers, Response on Body. ←/→ switch.
  */
 function HeadersBodyTabs({
   what,
@@ -640,6 +648,9 @@ function HeadersBodyTabs({
 }) {
   type Sub = "headers" | "query" | "body";
   const headers = parseHeaders(headersText);
+  const parsed = useMemo(() => parseBody(body, contentTypeOf(headersText)), [body, headersText]);
+  const view = bodyViewName(parsed.kind);
+  const [raw, setRaw] = useState(false);
   const [sub, setSub] = useState<Sub>(first);
   const id = useId();
   const headersTab = { slug: "headers" as Sub, label: "Headers", n: headers?.length };
@@ -678,7 +689,19 @@ function HeadersBodyTabs({
         </div>
         <span className="exd-subbar__end">
           {sub === "body" ? (
-            body ? <SectionCopy text={() => body} what={`the ${what} body`} /> : null
+            <>
+              {view ? (
+                <span className="rd-seg" role="group" aria-label={`Show the ${what} body as`}>
+                  <button type="button" aria-pressed={!raw} onClick={() => setRaw(false)}>
+                    {view}
+                  </button>
+                  <button type="button" aria-pressed={raw} onClick={() => setRaw(true)}>
+                    Raw
+                  </button>
+                </span>
+              ) : null}
+              {body ? <SectionCopy text={() => body} what={`the ${what} body`} /> : null}
+            </>
           ) : sub === "query" ? (
             <SectionCopy text={() => headersJson(query)} what="the query parameters as JSON" />
           ) : headers ? (
@@ -696,7 +719,7 @@ function HeadersBodyTabs({
         ) : sub === "query" ? (
           <KvTable pairs={query} label="Query parameters" />
         ) : (
-          <BodyBlock text={body} size={size} headers={headersText} what={what} bare />
+          <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
         )}
       </div>
     </section>
@@ -918,89 +941,35 @@ function RawTab({ data }: { data: RequestDetailRead }) {
 
 // ---------------------------------------------------------------- bodies
 
+/** How a body can be shown besides as stored ("Raw"): its parsed view's name, or null for plain text. */
+const bodyViewName = (kind: Body["kind"]) => (kind === "json" ? "Pretty" : kind === "form" ? "Fields" : kind === "events" ? "Events" : null);
+
 /**
- * A body as its own block, `Body · 260 B · application/x-www-form-urlencoded`: form bodies as a
- * Form fields table (Raw shows the text as sent), JSON as the collapsible viewer, server-sent
- * events as their list, anything else as mono text. "No request body" when there was none.
- * `bare` drops the block's heading and Copy, for a place that shows them itself.
+ * A body, read by its type: JSON as the collapsible viewer, a form's fields, an event stream
+ * summed up (EventStream), anything else as mono text; `raw` shows it as stored instead. Its size,
+ * type and Copy live elsewhere (the Overview, the tab row). "No request body" when there was none.
  */
-function BodyBlock({ text, size, headers, what, bare = false }: { text: string; size: number | undefined; headers: string; what: "request" | "response"; bare?: boolean }) {
-  const type = contentTypeOf(headers);
-  const body = useMemo(() => parseBody(text, type), [text, type]);
-  const [raw, setRaw] = useState(false);
+function BodyView({ text, body, size, what, raw }: { text: string; body: Body; size: number | undefined; what: "request" | "response"; raw: boolean }) {
   const stored = text ? new Blob([text]).size : 0;
-  const meta = [size ? formatBytes(size) : null, type || null];
+  if (body.kind === "empty") return <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>;
   // The SDK keeps bodies up to its capture limit: say when less was stored than was sent, for
   // bodies that may be cut (a JSON or form body that parses is whole; sizes differ by encoding).
-  const cut = size !== undefined && text && stored < size && (body.kind === "text" || body.kind === "events") ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
-  if (body.kind === "empty") {
-    const none = <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>;
-    return bare ? none : (
-      <Block title="Body" meta={meta}>
-        {none}
-      </Block>
-    );
-  }
-  const actions = (
-    <>
-      {body.kind === "form" ? (
-        <span className="rd-seg" role="group" aria-label="Show the body as">
-          <button type="button" aria-pressed={!raw} onClick={() => setRaw(false)}>
-            Fields
-          </button>
-          <button type="button" aria-pressed={raw} onClick={() => setRaw(true)}>
-            Raw
-          </button>
-        </span>
-      ) : null}
-      {bare ? null : <SectionCopy text={() => text} what={`the ${what} body`} />}
-    </>
-  );
-  const content = (
-    <>
+  const cut = size !== undefined && stored < size && (body.kind === "text" || body.kind === "events") ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
+  return (
+    <div className="rd-bare">
       {cut}
-      {body.kind === "json" ? (
+      {raw || body.kind === "text" ? (
+        <pre className="rd-pre">
+          <Marked text={text} />
+        </pre>
+      ) : body.kind === "json" ? (
         <JsonView value={body.value} />
       ) : body.kind === "form" ? (
-        raw ? (
-          <pre className="rd-pre">
-            <Marked text={text} />
-          </pre>
-        ) : (
-          <>
-            {bare ? null : <p className="rd-sublabel">Form fields · {body.fields.length}</p>}
-            <KvTable pairs={body.fields} label="Form fields" />
-          </>
-        )
-      ) : body.kind === "events" ? (
-        <EventStream events={body.events} />
+        <KvTable pairs={body.fields} label="Form fields" />
       ) : (
-        <pre className="rd-pre">
-          <Marked text={body.text} />
-        </pre>
+        <EventStream events={body.events} />
       )}
-    </>
-  );
-  // Bare (inside the Headers | Body tabs): Copy is on the tab row; the body's size, type (and
-  // field count) are one quiet line over it, the Fields / Raw switch at that line's end.
-  if (bare) {
-    const info = [...meta.filter(Boolean), body.kind === "form" ? `${body.fields.length} ${body.fields.length === 1 ? "field" : "fields"}` : null].filter(Boolean).join(" · ");
-    return (
-      <div className="rd-bare">
-        {info || body.kind === "form" ? (
-          <div className="rd-bare__bar">
-            <span className="rd-bare__meta">{info}</span>
-            {body.kind === "form" ? actions : null}
-          </div>
-        ) : null}
-        {content}
-      </div>
-    );
-  }
-  return (
-    <Block title="Body" meta={meta} actions={actions}>
-      {content}
-    </Block>
+    </div>
   );
 }
 

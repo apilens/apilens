@@ -878,12 +878,7 @@ span.rd-j-tog { cursor: default; }
 .exd-subbar__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); }
 .exd-subbar .rd-copy { opacity: 1; }
 .rd-bare { display: grid; gap: 8px; }
-.rd-bare__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; }
-.rd-bare__meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--font-mono); color: var(--ink-muted); }
 
-/* The Response tab's first line: the status code as a badge, then latency, size and type. */
-.rd-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
-.rd-status .exd-badge { font-size: 12px; }
 
 /* Event streams (EventStream): type filters, correlated ids, the streamed output, folded events. */
 .rd-stream { display: grid; gap: 12px; min-width: 0; }
