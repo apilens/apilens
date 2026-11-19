@@ -16,7 +16,6 @@ import {
   type JsonLine,
   MARKER_TITLE,
   allContainers,
-  type StreamEvent,
   contentTypeOf,
   curlCommand,
   defaultExpanded,
@@ -25,7 +24,6 @@ import {
   jsonLines,
   markerSegments,
   moveTab,
-  streamSummary,
   offsetMs,
   parseBody,
   parseHeaders,
@@ -644,7 +642,7 @@ function HeadersBodyTabs({
   /** The request's query parameters, a tab of their own when there are any. */
   query?: [string, string][];
 }) {
-  type Sub = "headers" | "query" | "body" | "events";
+  type Sub = "headers" | "query" | "body";
   const [sub, setSub] = useState<Sub>(first);
   const headers = parseHeaders(headersText);
   const parsed = useMemo(() => parseBody(body, contentTypeOf(headersText)), [body, headersText]);
@@ -659,15 +657,12 @@ function HeadersBodyTabs({
       else next.delete(sub);
       return next;
     });
-  // A stream gets its own Events tab; its Body is the response it streamed.
-  const stream = parsed.kind === "events" ? parsed.events : null;
-  const view = sub === "events" ? null : sub === "body" ? (stream ? "Response" : bodyViewName(parsed.kind)) : sub === "headers" ? (headers ? "Table" : null) : "Table";
+  const view = sub === "body" ? bodyViewName(parsed.kind) : sub === "headers" ? (headers ? "Table" : null) : "Table";
   const id = useId();
   const headersTab = { slug: "headers" as Sub, label: "Headers", n: headers?.length };
   const queryTab = query.length ? [{ slug: "query" as Sub, label: "Query parameters", n: query.length }] : [];
   const bodyTab = { slug: "body" as Sub, label: "Body" };
-  const eventsTab = stream ? [{ slug: "events" as Sub, label: "Events", n: stream.length }] : [];
-  const tabs: { slug: Sub; label: string; n?: number }[] = first === "body" ? [bodyTab, ...eventsTab, headersTab, ...queryTab] : [headersTab, ...queryTab, bodyTab, ...eventsTab];
+  const tabs: { slug: Sub; label: string; n?: number }[] = first === "body" ? [bodyTab, headersTab, ...queryTab] : [headersTab, ...queryTab, bodyTab];
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const k = tabs.findIndex((x) => x.slug === sub);
     const n = tabs.length;
@@ -724,8 +719,6 @@ function HeadersBodyTabs({
           )
         ) : sub === "query" ? (
           raw ? <RawText text={headersJson(query)} what="the query parameters as JSON" /> : <KvTable pairs={query} label="Query parameters" />
-        ) : sub === "events" && stream ? (
-          <StreamEvents events={stream} />
         ) : (
           <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
         )}
@@ -960,11 +953,11 @@ function RawText({ text, what }: { text: string; what: string }) {
 }
 
 /** How a body can be shown besides as stored ("Raw"): its parsed view's name, or null for plain text. */
-const bodyViewName = (kind: Body["kind"]) => (kind === "json" ? "Pretty" : kind === "form" ? "Fields" : kind === "events" ? "Events" : null);
+const bodyViewName = (kind: Body["kind"]) => (kind === "json" ? "Pretty" : kind === "form" ? "Fields" : null);
 
 /**
- * A body, read by its type: JSON as the collapsible viewer, a form's fields, an event stream
- * summed up (EventStream), anything else as mono text; `raw` shows it as stored instead. Its size,
+ * A body, read by its type: JSON as the collapsible viewer, a form's fields, anything else (an
+ * event stream too) as stored text; `raw` shows a JSON or form body as stored instead. Its size,
  * type and Copy live elsewhere (the Overview, the tab row). "No request body" when there was none.
  */
 function BodyView({ text, body, size, what, raw }: { text: string; body: Body; size: number | undefined; what: "request" | "response"; raw: boolean }) {
@@ -972,7 +965,7 @@ function BodyView({ text, body, size, what, raw }: { text: string; body: Body; s
   if (body.kind === "empty") return <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>;
   // The SDK keeps bodies up to its capture limit: say when less was stored than was sent, for
   // bodies that may be cut (a JSON or form body that parses is whole; sizes differ by encoding).
-  const cut = size !== undefined && stored < size && (body.kind === "text" || body.kind === "events") ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
+  const cut = size !== undefined && stored < size && body.kind === "text" ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
   return (
     <div className="rd-bare">
       {cut}
@@ -980,153 +973,9 @@ function BodyView({ text, body, size, what, raw }: { text: string; body: Body; s
         <RawText text={text} what={`the ${what} body`} />
       ) : body.kind === "json" ? (
         <JsonView value={body.value} />
-      ) : body.kind === "form" ? (
-        <KvTable pairs={body.fields} label="Form fields" />
       ) : (
-        <StreamResponse events={body.events} />
+        <KvTable pairs={body.fields} label="Form fields" />
       )}
-    </div>
-  );
-}
-
-/** A stream event's one-line preview: its data as sent, whitespace collapsed. */
-function eventPreview(e: StreamEvent): string {
-  return e.text.replace(/\s+/g, " ").slice(0, 200);
-}
-
-/** The disclosure arrow of an expandable row; CSS turns it down while the row is open. */
-function Chevron() {
-  return (
-    <svg className="rd-chev" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M6 3.5 10.5 8 6 12.5" />
-    </svg>
-  );
-}
-
-/** Which rows of a list are open, with Expand all / Collapse all. */
-function useOpenRows(count: number) {
-  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
-  const toggle = useCallback(
-    (i: number) =>
-      setOpen((cur) => {
-        const next = new Set(cur);
-        if (next.has(i)) next.delete(i);
-        else next.add(i);
-        return next;
-      }),
-    [],
-  );
-  const all = useCallback(() => setOpen(new Set(Array.from({ length: count }, (_, i) => i))), [count]);
-  const none = useCallback(() => setOpen(new Set()), []);
-  return { open, toggle, all, none };
-}
-
-/** The bar over an expandable list: what clicking a row does, and Expand all / Collapse all. */
-function ListBar({ hint, anyOpen, onAll, onNone }: { hint: string; anyOpen: boolean; onAll: () => void; onNone: () => void }) {
-  return (
-    <div className="rd-listbar">
-      <span className="rd-listbar__hint">{hint}</span>
-      <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onAll}>
-        Expand all
-      </button>
-      <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onNone} disabled={!anyOpen}>
-        Collapse all
-      </button>
-    </div>
-  );
-}
-
-/**
- * A stream's Body: its response, read from the SSE standard alone. That is the last event whose
- * data is JSON (a closing marker such as `[DONE]` is not), shown as the JSON viewer; a stream
- * with no JSON shows its last event's data as text. Nothing inside the data is assumed.
- */
-function StreamResponse({ events }: { events: StreamEvent[] }) {
-  const { final } = useMemo(() => streamSummary(events), [events]);
-  if (!final) return <Empty>The stream sent no events.</Empty>;
-  return final.json ? <JsonView value={final.data} /> : <RawText text={events[final.index].text} what="the last event's data" />;
-}
-
-/**
- * A stream's Events tab: the events in the order they were sent, each its number, the `event:`
- * name and `id:` when the server sent them, and its data on one line; clicking opens the data
- * (JSON as the viewer). Consecutive events the server named alike fold into one row.
- */
-function StreamEvents({ events }: { events: StreamEvent[] }) {
-  const { groups } = useMemo(() => streamSummary(events), [events]);
-  const { open, toggle, none } = useOpenRows(events.length);
-  const [openGroups, setOpenGroups] = useState<Set<number>>(new Set());
-  const id = useId();
-  const toggleGroup = (g: number) =>
-    setOpenGroups((s) => {
-      const next = new Set(s);
-      if (next.has(g)) next.delete(g);
-      else next.add(g);
-      return next;
-    });
-
-  const row = (e: StreamEvent, i: number) => {
-    const isOpen = open.has(i);
-    return (
-      <li key={i} className={isOpen ? "is-open" : undefined}>
-        <button type="button" className="rd-events__row" aria-expanded={isOpen} aria-controls={`${id}-${i}`} onClick={() => toggle(i)}>
-          <Chevron />
-          <span className="rd-events__n">{i + 1}</span>
-          {e.named ? <code className="rd-events__name">{e.event}</code> : null}
-          {e.id ? <span className="rd-events__id">id {e.id}</span> : null}
-          <span className="rd-events__preview">{eventPreview(e)}</span>
-          {e.partial ? <span className="rd-events__cut">cut at the capture limit</span> : null}
-        </button>
-        {isOpen ? (
-          <div className="rd-events__data" id={`${id}-${i}`}>
-            {e.data !== null && typeof e.data === "object" ? (
-              <JsonView value={e.data} />
-            ) : (
-              <pre className="rd-pre">
-                <Marked text={e.text} />
-              </pre>
-            )}
-          </div>
-        ) : null}
-      </li>
-    );
-  };
-
-  return (
-    <div className="rd-stream__events">
-      {open.size || openGroups.size ? (
-        <div className="rd-stream__bar">
-          <button
-            type="button"
-            className="ah-btn ah-btn--ghost ah-btn--sm"
-            onClick={() => {
-              none();
-              setOpenGroups(new Set());
-            }}
-          >
-            Collapse all
-          </button>
-        </div>
-      ) : null}
-      <ol className="rd-events">
-        {groups.map((g, k) =>
-          g.from === g.to ? (
-            row(events[g.from], g.from)
-          ) : (
-            <li key={`g${k}`} className={`rd-events__group${openGroups.has(k) ? " is-open" : ""}`}>
-              <button type="button" className="rd-events__row" aria-expanded={openGroups.has(k)} onClick={() => toggleGroup(k)}>
-                <Chevron />
-                <span className="rd-events__n">
-                  {g.from + 1}–{g.to + 1}
-                </span>
-                <code className="rd-events__name">{g.name}</code>
-                <span className="rd-events__times">× {g.to - g.from + 1}</span>
-              </button>
-              {openGroups.has(k) ? <ol className="rd-events rd-events--nested">{events.slice(g.from, g.to + 1).map((e, n) => row(e, g.from + n))}</ol> : null}
-            </li>
-          ),
-        )}
-      </ol>
     </div>
   );
 }

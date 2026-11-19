@@ -10,11 +10,9 @@ import {
   levelTone,
   markerSegments,
   moveTab,
-  streamSummary,
   offsetMs,
   contentTypeOf,
   parseBody,
-  parseEventStream,
   parseHeaders,
   requestDetailPath,
   shellQuote,
@@ -94,17 +92,9 @@ describe("parseBody", () => {
     expect(parseBody("message=hi")).toEqual({ kind: "text", text: "message=hi" });
   });
 
-  it("reads an event stream as its events, the last one partial when the body was cut", () => {
-    const stream = 'event: RunStarted\ndata: {"run_id":"r1"}\n\n: keep-alive\n\ndata: plain\n\nevent: RunContent\ndata: {"content":"Hel';
-    expect(parseBody(stream, "text/event-stream")).toEqual({
-      kind: "events",
-      events: [
-        { event: "RunStarted", named: true, id: "", data: { run_id: "r1" }, text: '{"run_id":"r1"}', partial: false },
-        { event: "message", named: false, id: "", data: "plain", text: "plain", partial: false },
-        { event: "RunContent", named: true, id: "", data: '{"content":"Hel', text: '{"content":"Hel', partial: true },
-      ],
-    });
-    expect(parseEventStream('event: a\nid: 7\ndata: 1\ndata: 2\n\n')).toEqual([{ event: "a", named: true, id: "7", data: "1\n2", text: "1\n2", partial: false }]);
+  it("keeps an event stream as text, as it was sent", () => {
+    const stream = 'event: RunStarted\ndata: {"run_id":"r1"}\n\ndata: plain\n\n';
+    expect(parseBody(stream, "text/event-stream")).toEqual({ kind: "text", text: stream });
   });
 });
 
@@ -302,29 +292,5 @@ describe("detailRead", () => {
     expect(detailRead(401, { ok: false, code: "session_expired", next: "/auth/refresh" })).toEqual({ kind: "expired", next: "/auth/refresh" });
     expect(detailRead(503, null)).toEqual({ kind: "error", code: "unavailable" });
     expect(detailRead(200, { ok: true })).toEqual({ kind: "error", code: "network_error" });
-  });
-});
-
-describe("streamSummary", () => {
-  const ev = (data: unknown, event = "", id = "") => ({ event: event || "message", named: event !== "", id, data, text: typeof data === "string" ? data : JSON.stringify(data), partial: false });
-
-  it("folds runs of one sent event name; unnamed events never fold", () => {
-    const s = streamSummary([ev({ a: 1 }, "start"), ev({ d: "x" }, "delta"), ev({ d: "y" }, "delta"), ev({ n: 1 }), ev({ n: 2 }), ev({ ok: true }, "end")]);
-    expect(s.groups.map((g) => [g.name, g.from, g.to])).toEqual([
-      ["start", 0, 0],
-      ["delta", 1, 2],
-      ["message", 3, 3],
-      ["message", 4, 4],
-      ["end", 5, 5],
-    ]);
-  });
-
-  it("takes the last JSON event as the response, whatever its fields", () => {
-    expect(streamSummary([ev({ step: 1 }), ev({ result: { rows: 3 } }, "done")]).final).toEqual({ index: 1, data: { result: { rows: 3 } }, json: true });
-    // A closing marker that is not JSON (OpenAI's [DONE]) is passed over.
-    expect(streamSummary([ev({ choices: [] }), ev("[DONE]")]).final).toEqual({ index: 0, data: { choices: [] }, json: true });
-    // No JSON at all: the last event, as text.
-    expect(streamSummary([ev("tick"), ev("tock")]).final).toEqual({ index: 1, data: "tock", json: false });
-    expect(streamSummary([]).final).toBeNull();
   });
 });
