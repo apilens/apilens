@@ -34,10 +34,12 @@ import {
 import { EXCEPTION_LOGGER, type ExceptionBlock, type StackFrame, exceptionLog, frameLocation, parseException } from "@/lib/stack-trace";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { endpointHref, formatLatency } from "@/lib/traffic";
+import { isEventStream, parseEventStream } from "@/lib/event-stream";
 import { projectHref } from "@/lib/routes";
 import { ObIcon } from "../onboarding/ob";
 import { useAppName } from "./app-names";
 import { CopyAction } from "./copy-action";
+import { SseEvents } from "./sse-view";
 import { type FilterApi, filterActions } from "./field-actions";
 import { type FieldAction, FieldMenu } from "./field-menu";
 import { Tip } from "./tip";
@@ -639,6 +641,8 @@ function HeadersBodyTabs({
   const [sub, setSub] = useState<Sub>(first);
   const headers = parseHeaders(headersText);
   const parsed = useMemo(() => parseBody(body, contentTypeOf(headersText)), [body, headersText]);
+  // A text/event-stream response also reads as its events (the Events view, its default).
+  const sse = useMemo(() => (what === "response" && body && isEventStream(contentTypeOf(headersText)) ? parseEventStream(body) : null), [what, body, headersText]);
   // Each tab can be read as stored ("Raw", with its Copy): the body as text, headers and
   // parameters as JSON; the switch says what the other view is.
   const [rawTabs, setRawTabs] = useState<Set<Sub>>(new Set());
@@ -651,7 +655,7 @@ function HeadersBodyTabs({
       return next;
     });
   // The view switch only where there is something to switch.
-  const view = sampled ? null : sub === "body" ? bodyViewName(parsed.kind) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
+  const view = sampled ? null : sub === "body" ? (sse ? "Events" : bodyViewName(parsed.kind)) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
   const id = useId();
   // Every tab is always there, with its count (0 too), so nothing appears or vanishes per request.
   const headersTab = { slug: "headers" as Sub, label: "Headers", n: sampled ? 0 : (headers?.length ?? 0) };
@@ -723,7 +727,11 @@ function HeadersBodyTabs({
             <KvTable pairs={query} label="Query parameters" />
           )
         ) : (
-          <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
+          sse && !raw ? (
+            <SseEvents parse={sse} renderJson={(v) => <JsonView value={v} />} />
+          ) : (
+            <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
+          )
         )}
       </div>
     </section>
