@@ -77,16 +77,15 @@ describe("parseEventStream", () => {
     expect(parseEventStream("data: one\n").eventCount).toBe(0);
   });
 
-  it("marks [DONE], parses JSON payloads and leaves broken JSON as text", () => {
+  it("parses JSON payloads and leaves everything else, [DONE] included, as text", () => {
     const e = events('data: {"a":1}\n\ndata: [1,2]\n\ndata: {"a":\n\ndata: [DONE]\n\ndata: plain\n\n');
     expect(e[0].json).toEqual({ a: 1 });
     expect(e[1].json).toEqual([1, 2]);
     expect(e[2].json).toBeUndefined();
     expect(e[2].data).toBe('{"a":');
-    expect(e[3].sentinel).toBe(true);
-    expect(e[3].json).toBeUndefined();
+    // No convention is special: [DONE] is an ordinary event with that data.
+    expect(e[3]).toEqual({ kind: "event", index: 4, type: "message", data: "[DONE]" });
     expect(e[4].json).toBeUndefined();
-    expect(e[4].sentinel).toBeUndefined();
   });
 
   it("stops at the event limit and says it was truncated", () => {

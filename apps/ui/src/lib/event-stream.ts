@@ -19,8 +19,6 @@ export type SseItem =
       retry?: number;
       /** The data parsed as JSON, when it is an object or array that parses. */
       json?: unknown;
-      /** The data is `[DONE]`, OpenAI's end-of-stream marker. */
-      sentinel?: boolean;
     }
   | { kind: "comment"; text: string };
 
@@ -96,7 +94,6 @@ export function parseEventStream(body: string): SseParse {
             // Not JSON after all (or cut): shown as text.
           }
         }
-        if (t === "[DONE]") event.sentinel = true;
         items.push(event);
       }
       type = "";

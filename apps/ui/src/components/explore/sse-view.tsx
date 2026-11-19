@@ -10,14 +10,15 @@ const WINDOW = 200;
 type SseEvent = Extract<SseItem, { kind: "event" }>;
 
 /**
- * A `text/event-stream` body as its events (the body's Events view; Raw shows it as sent). A head
- * line counts events and comments and says when the stream was cut or ended mid-event; then one
- * row per item in the order sent: an event's number, its id and its data on one line, opening to the data (JSON in
- * the JSON viewer, else as sent) with Copy and its retry. Comments are muted lines, `[DONE]` an
- * end-of-stream marker. Only the SSE fields are read, never the data: when the stream sends
- * `event:` types, rows show them (the default `message` muted) and chips filter by them; a
- * data-only stream shows none. ↑/↓ move between rows, Enter opens one. Past WINDOW rows the list renders
- * WINDOW at a time, adding more as its end scrolls into view.
+ * A `text/event-stream` body as its events (the body's Events view; Raw shows it as sent), read
+ * from the SSE standard alone: no vendor or convention is special, and the data is never looked
+ * into. A head line counts events and comments and says when the stream was cut or ended
+ * mid-event; then one row per item in the order sent: an event's number, its id and its data on
+ * one line, opening to the data (JSON in the JSON viewer, else as sent) with Copy and its retry.
+ * When the stream sends `event:` types, rows show them (the default `message` muted) and chips
+ * filter by them; a data-only stream shows none. Comments are muted lines. ↑/↓ move between
+ * rows, Enter opens one. Past WINDOW rows the list renders WINDOW at a time, adding more as its
+ * end scrolls into view.
  */
 export function SseEvents({ parse, renderJson }: { parse: SseParse; renderJson: (value: unknown) => ReactNode }) {
   const [type, setType] = useState<string | null>(null);
@@ -125,15 +126,6 @@ function CommentRow({ text }: { text: string }) {
 const preview = (data: string) => data.replace(/\s+/g, " ").trim();
 
 function EventRow({ e, typed, open, onToggle, renderJson }: { e: SseEvent; typed: boolean; open: boolean; onToggle: () => void; renderJson: (value: unknown) => ReactNode }) {
-  if (e.sentinel) {
-    return (
-      <li className="sse-row sse-row--end">
-        <span className="sse-n">#{e.index}</span>
-        <code className="sse-data">{e.data}</code>
-        <span className="sse-endnote">end of stream</span>
-      </li>
-    );
-  }
   return (
     <li className={`sse-row${open ? " is-open" : ""}`}>
       <button type="button" className="sse-row__btn" data-sse-row aria-expanded={open} onClick={onToggle}>
