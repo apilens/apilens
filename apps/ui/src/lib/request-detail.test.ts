@@ -267,11 +267,11 @@ describe("small readers", () => {
   });
 
   it("moves between tabs with arrows, Home and End", () => {
-    expect(moveTab("ArrowRight", "request")).toBe("response");
-    expect(moveTab("ArrowRight", "response")).toBe("timeline");
-    expect(moveTab("ArrowLeft", "request")).toBe("raw");
+    expect(moveTab("ArrowRight", "overview")).toBe("timeline");
+    expect(moveTab("ArrowRight", "timeline")).toBe("consumer");
+    expect(moveTab("ArrowLeft", "overview")).toBe("raw");
     expect(moveTab("End", "timeline")).toBe("raw");
-    expect(moveTab("Home", "raw")).toBe("request");
+    expect(moveTab("Home", "raw")).toBe("overview");
     expect(moveTab("Enter", "raw")).toBeNull();
   });
 

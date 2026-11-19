@@ -5,10 +5,9 @@
 import type { RequestDetail, RequestDetailRead, TraceLog, TraceSpan } from "./identity";
 import { zoneLabel, zonedParts } from "./time-zone";
 
-/** The drawer's tabs, in order. */
+/** The drawer's tabs, in order. Overview holds the request and the response as nested sections. */
 export const DRAWER_TABS = [
-  { slug: "request", label: "Request" },
-  { slug: "response", label: "Response" },
+  { slug: "overview", label: "Overview" },
   { slug: "timeline", label: "Timeline" },
   { slug: "consumer", label: "Consumer" },
   { slug: "raw", label: "Raw" },
