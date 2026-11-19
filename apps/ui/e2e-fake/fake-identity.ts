@@ -195,7 +195,7 @@
 //   POST /__fake/timeline-down {project, down}     test hook: only the timeline answers 503 for `project`
 //   GET  /api/v1/requests/facets?project=&field=   Explore's facet counts (#1052): the seeded rows in the
 //                                                  window under every `filter=` condition but the field's,
-//                                                  counted per value; `/__fake/facets-down` makes them 503
+//                                                  counted per value, `limit` from `offset` with `has_more`; `/__fake/facets-down` makes them 503
 //   (requests, timeline and facets all honour `filter=field:op:value` conditions, #1052)
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
@@ -2382,11 +2382,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const cur = counts.get(value) ?? { label, count: 0 };
       counts.set(value, { label: cur.label || label, count: cur.count + 1 });
     }
-    const values = [...counts.entries()]
+    const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);
+    const all = [...counts.entries()]
       .map(([value, v]) => ({ value, label: v.label, count: v.count }))
-      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-      .slice(0, limit);
-    return send(res, 200, { field, values });
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+    const values = all.slice(offset, offset + limit);
+    return send(res, 200, { field, values, has_more: all.length > offset + limit });
   }
   // The Explore timeline (#587), as `GET /requests/timeline` answers it: the seeded rows inside the
   // window (the range ending now, narrowed by from/to) counted per bucket by status class. The

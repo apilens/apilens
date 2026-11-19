@@ -1240,6 +1240,8 @@ export type RequestFacetField = "status" | "method" | "app" | "env" | "path" | "
 export interface RequestFacets {
   field: RequestFacetField;
   values: { value: string; label: string; count: number }[] | null;
+  /** Whether values follow this page (read them with `offset`). */
+  has_more?: boolean;
 }
 
 /** One bucket of `GET /requests/timeline` (#587), oldest first. */
@@ -2717,7 +2719,7 @@ export function createClient(config: ClientConfig) {
     requestTimeline: (projectSlug: string, q: { range?: QueryRange; bucket?: "minute" | "hour" | "day" } & RequestWindow & RequestLogFilters & RequestConditions, o: Authed) =>
       request<RequestTimeline>("GET", "/requests/timeline", { ...o, query: { project: projectSlug, ...q } }),
     /** `GET /requests/facets` (#1052): requests per value of `field` under the other conditions. */
-    requestFacets: (projectSlug: string, q: { range?: QueryRange; field: RequestFacetField; search?: string; limit?: number } & RequestWindow & RequestConditions, o: Authed) =>
+    requestFacets: (projectSlug: string, q: { range?: QueryRange; field: RequestFacetField; search?: string; limit?: number; offset?: number } & RequestWindow & RequestConditions, o: Authed) =>
       request<RequestFacets>("GET", "/requests/facets", { ...o, query: { project: projectSlug, ...q } }),
     /** `GET /requests/slowest` (#1001): the range's requests with the longest response time, slowest first. */
     slowestRequests: (projectSlug: string, q: TrafficQuery & { limit?: number }, o: Authed) =>
