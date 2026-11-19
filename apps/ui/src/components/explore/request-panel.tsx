@@ -626,8 +626,8 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 
 /**
  * Headers (Query parameters) and Body as nested tabs, Postman's way: the tab row holds only the
- * tabs, then at its end the body's view switch (Pretty / Fields / Events, or Raw) and the open
- * tab's Copy (headers and parameters as JSON). The body's size and type are in the Overview.
+ * tabs, then at its end the body's view switch (Pretty / Fields / Events, or Raw) and a Copy
+ * named for the open tab: Copy headers, Copy params (both as JSON) or Copy body. The body's size and type are in the Overview.
  * Request opens on Headers, Response on Body. ←/→ switch.
  */
 function HeadersBodyTabs({
@@ -700,12 +700,12 @@ function HeadersBodyTabs({
                   </button>
                 </span>
               ) : null}
-              {body ? <SectionCopy text={() => body} what={`the ${what} body`} /> : null}
+              {body ? <SectionCopy text={() => body} what={`the ${what} body`} label="Copy body" /> : null}
             </>
           ) : sub === "query" ? (
-            <SectionCopy text={() => headersJson(query)} what="the query parameters as JSON" />
+            <SectionCopy text={() => headersJson(query)} what="the query parameters as JSON" label="Copy params" />
           ) : headers ? (
-            <SectionCopy text={() => headersJson(headers)} what={`the ${what} headers as JSON`} />
+            <SectionCopy text={() => headersJson(headers)} what={`the ${what} headers as JSON`} label="Copy headers" />
           ) : null}
         </span>
       </div>
@@ -727,8 +727,8 @@ function HeadersBodyTabs({
 }
 
 /** The drawer's one Copy for a whole section (Raw's): "⧉ Copy", then "✓ Copied" in place. */
-function SectionCopy({ text, what, disabled }: { text: () => string; what: string; disabled?: boolean }) {
-  return <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm rd-copybtn" icon="copy" label="Copy" ariaLabel={`Copy ${what}`} text={text} disabled={disabled} />;
+function SectionCopy({ text, what, label = "Copy", disabled }: { text: () => string; what: string; label?: string; disabled?: boolean }) {
+  return <CopyAction className="ah-btn ah-btn--ghost ah-btn--sm rd-copybtn" icon="copy" label={label} ariaLabel={`Copy ${what}`} text={text} disabled={disabled} />;
 }
 
 /** The start of the response body in the Error block, with Show more. */
@@ -931,8 +931,10 @@ function RawTab({ data }: { data: RequestDetailRead }) {
   return (
     <section className="rd-section" aria-label="Raw request">
       <div className="rd-exc__bar">
-        <h3 className="rd-h">The stored request</h3>
-        <SectionCopy text={() => text} what="the stored request" />
+        <p className="rd-rawlabel">
+          Everything recorded for this request, as JSON <span className="rd-block__meta">{formatBytes(new Blob([text]).size)}</span>
+        </p>
+        <SectionCopy text={() => text} what="the request as JSON" label="Copy JSON" />
       </div>
       <JsonView value={data.request} />
     </section>
@@ -1123,7 +1125,7 @@ function EventStream({ events }: { events: StreamEvent[] }) {
             <span>
               Streamed output <span className="rd-block__meta">{sum.chunks} chunks</span>
             </span>
-            <SectionCopy text={() => sum.output} what="the streamed output" />
+            <SectionCopy text={() => sum.output} what="the streamed output" label="Copy output" />
           </header>
           <pre className="rd-pre">{shownOutput}</pre>
           {sum.output.length > OUTPUT_PREVIEW ? (
@@ -1471,7 +1473,7 @@ function LogDetail({ log: l }: { log: TraceLog }) {
       <div className="rd-exc__bar">
         <h3 className="rd-h rd-h--sub">Payload</h3>
         {payload ? (
-          <SectionCopy text={() => payload} what="the payload" />
+          <SectionCopy text={() => payload} what="the payload" label="Copy payload" />
         ) : null}
       </div>
       {payload ? (
