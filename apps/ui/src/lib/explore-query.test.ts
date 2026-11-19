@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  apiConds,
   apiQuery,
   apiWindow,
   bucketFor,
@@ -11,6 +12,7 @@ import {
   hasLegacy,
   isoToZonedInput,
   legacyConds,
+  levelOf,
   makeCond,
   onlyValue,
   parseCond,
@@ -19,6 +21,7 @@ import {
   rangeText,
   routeSearch,
   shownClasses,
+  statusHit,
   ticked,
   toggleValue,
   typedCond,
@@ -198,6 +201,41 @@ describe("facets and pills", () => {
     expect([...shownClasses([c("status:eq:200"), c("status:eq:500-503")])]).toEqual(["2xx", "5xx"]);
     expect([...shownClasses([c("status:neq:5xx")])]).toEqual(["2xx", "4xx"]);
     expect([...shownClasses([c("status:neq:500")])]).toEqual(["2xx", "4xx", "5xx"]);
+  });
+
+  it("reads level conditions, Supabase's three levels", () => {
+    expect(parseCond("level:eq:Warning")).toEqual({ field: "level", op: "eq", value: "warning" });
+    expect(parseCond("level:eq:info")).toBeNull();
+    expect(parseCond("level:contains:err")).toBeNull();
+    expect(typedCond("level:error")).toEqual(c("level:eq:error"));
+    expect([levelOf(101), levelOf(204), levelOf(301), levelOf(404), levelOf(503)]).toEqual(["success", "success", "success", "warning", "error"]);
+  });
+
+  it("sends a level to the API as status exclusions, ANDed with status conditions", () => {
+    expect(apiConds([c("level:eq:warning")]).map(condString)).toEqual(["status:neq:1xx,2xx,3xx", "status:neq:5xx"]);
+    expect(apiConds([c("level:eq:success"), c("level:eq:error"), c("method:eq:GET")]).map(condString)).toEqual(["method:eq:GET", "status:neq:4xx"]);
+    expect(apiConds([c("level:eq:success"), c("level:eq:warning"), c("level:eq:error")])).toEqual([]);
+    expect(apiConds([c("level:neq:error"), c("status:eq:200")]).map(condString)).toEqual(["status:eq:200", "status:neq:5xx"]);
+    expect(apiQuery({ range: "1h", conds: [c("level:eq:error")] }, 0).filter).toEqual(["status:neq:1xx,2xx,3xx", "status:neq:4xx"]);
+    // The URL keeps the level, as the page reads it back.
+    expect(routeSearch({ range: "1h", conds: [c("level:eq:error")] })).toBe("?filter=level%3Aeq%3Aerror");
+    // Older status links are untouched.
+    expect(apiConds([c("status:eq:4xx")]).map(condString)).toEqual(["status:eq:4xx"]);
+  });
+
+  it("matches a code against status and level conditions", () => {
+    expect(statusHit(404, [])).toBe(true);
+    expect(statusHit(404, [c("level:eq:warning")])).toBe(true);
+    expect(statusHit(200, [c("level:eq:warning")])).toBe(false);
+    expect(statusHit(302, [c("level:eq:success")])).toBe(true);
+    expect(statusHit(503, [c("status:eq:500-502")])).toBe(false);
+    expect(statusHit(404, [c("status:eq:5xx"), c("status:eq:404")])).toBe(true);
+    expect(statusHit(404, [c("status:eq:4xx"), c("status:neq:404")])).toBe(false);
+  });
+
+  it("drops chart layers a level leaves out", () => {
+    expect([...shownClasses([c("level:eq:error")])]).toEqual(["5xx"]);
+    expect([...shownClasses([c("level:neq:success")])]).toEqual(["4xx", "5xx"]);
   });
 
   it("formats counts compactly", () => {

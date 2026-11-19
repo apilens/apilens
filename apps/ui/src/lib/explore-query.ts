@@ -10,6 +10,7 @@ import { zoneLabel, zonedParts, zoned } from "./time-zone";
 
 export type FieldKey =
   | "path"
+  | "level"
   | "status"
   | "method"
   | "app"
@@ -52,6 +53,7 @@ const NUM_OPS: readonly Op[] = ["gt", "lt", "between"];
 /** Every field the filter bar offers, in its menu's order. */
 export const FIELDS: readonly FieldDef[] = [
   { key: "path", label: "Path", ops: TEXT_OPS, mono: true, placeholder: "/orders/{id}" },
+  { key: "level", label: "Level", ops: EQ_OPS, placeholder: "success, warning or error", hint: "success: under 400; warning: 4xx; error: 5xx." },
   { key: "status", label: "Status", ops: EQ_OPS, mono: true, placeholder: "404, 4xx or 500-503", hint: "A code (404), a class (4xx) or a range (500-503)." },
   { key: "method", label: "Method", ops: EQ_OPS, mono: true, placeholder: "GET" },
   { key: "app", label: "App", ops: EQ_OPS },
@@ -107,6 +109,10 @@ export function normalizeValue(field: FieldKey, op: Op, raw: string): string | n
     case "status": {
       const s = normalizeStatus(v);
       return s ? s : null;
+    }
+    case "level": {
+      const l = v.toLowerCase();
+      return (LEVELS as readonly string[]).includes(l) ? l : null;
     }
     case "method":
       return METHOD_RE.test(v) ? v.toUpperCase() : null;
@@ -358,7 +364,7 @@ export function bucketFor(q: Pick<ExploreQuery, "range" | "from" | "to">, now: n
 
 /** The API query of `q` at `now`: its window and its conditions as `filter` values. */
 export function apiQuery(q: Pick<ExploreQuery, "range" | "from" | "to" | "conds">, now: number): { range: QueryRange; from?: string; to?: string; filter: string[] } {
-  return { ...apiWindow(q, now), filter: q.conds.map(condString) };
+  return { ...apiWindow(q, now), filter: apiConds(q.conds).map(condString) };
 }
 
 /** The search string a Route Handler is called with: the page state (no `?id=`) plus `extra`. */
@@ -413,11 +419,65 @@ export function condWords(c: Cond, names?: Parameters<typeof valueText>[1]): str
   return `${fieldDef(c.field).label} ${OP_WORDS[c.op]} ${valueText(c, names)}`;
 }
 
+// Levels ----------------------------------------------------------------------------------------
+
+/**
+ * Supabase Unified Logs' levels (DataTable.constants.ts LEVELS). An HTTP row's level is its status:
+ * 5xx error, 4xx warning, anything else success (UnifiedLogs.queries.ts LEVEL_EXPR: `>= 500` error,
+ * `BETWEEN 400 AND 499` warning, `ELSE 'success'`), so success is every code under 400.
+ */
+export const LEVELS = ["success", "warning", "error"] as const;
+export type Level = (typeof LEVELS)[number];
+/** The status classes a level covers, as a status condition value. */
+const LEVEL_STATUS: Record<Level, string> = { success: "1xx,2xx,3xx", warning: "4xx", error: "5xx" };
+/** The class a level's facet row names (UnifiedLogs.utils.ts getLevelLabel). */
+export const LEVEL_CLASS: Record<Level, string> = { success: "2xx", warning: "4xx", error: "5xx" };
+
+/** A status code's level. */
+export const levelOf = (code: number): Level => (code >= 500 ? "error" : code >= 400 ? "warning" : "success");
+
+/**
+ * The conditions as the API takes them. The API has no level: a level condition becomes status
+ * exclusions (`level = warning` excludes 1xx–3xx and 5xx), so it ANDs with any status condition
+ * as Supabase's two fields do, rather than joining a status `=` group as an alternative.
+ */
+export function apiConds(conds: readonly Cond[]): Cond[] {
+  const eq = conds.filter((c) => c.field === "level" && c.op === "eq").map((c) => c.value as Level);
+  const neq = conds.filter((c) => c.field === "level" && c.op === "neq").map((c) => c.value as Level);
+  const out = conds.filter((c) => c.field !== "level");
+  if (!eq.length && !neq.length) return out;
+  const dropped = LEVELS.filter((l) => (eq.length && !eq.includes(l)) || neq.includes(l));
+  return dedupe([...out, ...dropped.map((l): Cond => ({ field: "status", op: "neq", value: LEVEL_STATUS[l] }))]);
+}
+
+/** Whether a status code matches one status term: a code (404), a class (4xx) or a range (500-503). */
+export function statusTermHit(code: number, term: string): boolean {
+  const t = term.trim().toLowerCase();
+  if (/^[1-5]xx$/.test(t)) return Math.floor(code / 100) === Number(t[0]);
+  const [lo, hi] = t.split("-").map(Number);
+  return hi === undefined ? code === lo : code >= lo && code <= hi;
+}
+
+/** Whether a status code passes the status (and level) conditions: any `=` term, no `≠` term. */
+export function statusHit(code: number, conds: readonly Cond[]): boolean {
+  const own = apiConds(conds).filter((c) => c.field === "status");
+  const eq = own.filter((c) => c.op === "eq").flatMap((c) => c.value.split(","));
+  const neq = own.filter((c) => c.op === "neq").flatMap((c) => c.value.split(","));
+  return (!eq.length || eq.some((t) => statusTermHit(code, t))) && !neq.some((t) => statusTermHit(code, t));
+}
+
 // Facets ----------------------------------------------------------------------------------------
 
 /** The fields the facet sidebar lists, in its order. */
 export const FACET_FIELDS = ["status", "app", "env", "method", "path", "consumer", "consumer_group"] as const;
 export type FacetField = (typeof FACET_FIELDS)[number];
+/**
+ * The facet sidebar, in its order: Level first, then Status, as Supabase Unified Logs lists them
+ * (UnifiedLogs.fields.tsx: Level, Status, Method, Pathname). Level has no counts of its own in the
+ * API: its rows sum the Status counts.
+ */
+export const PANEL_FIELDS = ["level", "status", "app", "env", "method", "path", "consumer", "consumer_group"] as const;
+export type PanelField = (typeof PANEL_FIELDS)[number];
 
 /** The values of `field` ticked in the facets: its `=` conditions. */
 export const ticked = (conds: readonly Cond[], field: FieldKey): string[] => conds.filter((c) => c.field === field && c.op === "eq").map((c) => c.value);
@@ -450,7 +510,8 @@ export function termClass(term: string): string {
  * The status classes the chart draws: all of them, unless status conditions leave some out. A
  * class stays when an `=` condition overlaps it (or there is none) and no `≠` excludes it whole.
  */
-export function shownClasses(conds: readonly Cond[]): Set<"2xx" | "4xx" | "5xx"> {
+export function shownClasses(all: readonly Cond[]): Set<"2xx" | "4xx" | "5xx"> {
+  const conds = apiConds(all);
   const eq = conds.filter((c) => c.field === "status" && c.op === "eq").flatMap((c) => c.value.split(","));
   const neq = conds.filter((c) => c.field === "status" && c.op === "neq").flatMap((c) => c.value.split(","));
   const out = new Set<"2xx" | "4xx" | "5xx">();
