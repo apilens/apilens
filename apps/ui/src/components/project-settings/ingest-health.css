@@ -28,8 +28,8 @@
 .ih-legend { display: flex; gap: var(--space-4); margin: 0; padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .ih-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .ih-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
-.ih-fill-acc { fill: var(--accent); background: var(--accent); }
-.ih-fill-rej { fill: var(--warn); background: var(--warn); }
+.ih-fill-acc { fill: var(--chart-accent); background: var(--chart-accent); }
+.ih-fill-rej { fill: var(--chart-warn); background: var(--chart-warn); }
 .ih-plot { width: 100%; }
 .ih-plot svg { display: block; width: 100%; height: 120px; overflow: visible; }
 .ih-base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }

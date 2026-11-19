@@ -5,8 +5,8 @@
 .er-tabs a:hover, .er-dtabs a:hover { color: var(--ink); }
 .er-tabs a:focus-visible, .er-dtabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 
-.er-c-4xx { fill: var(--warn); background: var(--warn); }
-.er-c-5xx { fill: var(--error); background: var(--error); }
+.er-c-4xx { fill: var(--chart-warn); background: var(--chart-warn); }
+.er-c-5xx { fill: var(--chart-error); background: var(--chart-error); }
 
 /* Bar charts with the shared hover (components/charts): the plot box is the hover target. */
 .er-bars { cursor: crosshair; }

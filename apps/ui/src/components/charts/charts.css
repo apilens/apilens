@@ -17,8 +17,8 @@
 
 /* SVG marks: the line chart crosshair and the hovered point. */
 .ct-cross { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
-.ct-dot { fill: var(--surface-1); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.ct-dot-html { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border: 2px solid var(--accent); border-radius: 50%; background: var(--surface-1); pointer-events: none; }
+.ct-dot { fill: var(--surface-1); stroke: var(--chart-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ct-dot-html { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border: 2px solid var(--chart-accent); border-radius: 50%; background: var(--surface-1); pointer-events: none; }
 .ct-bar-hover { fill: color-mix(in srgb, var(--ink) 8%, transparent); }
 
 .ct-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

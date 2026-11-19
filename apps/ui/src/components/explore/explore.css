@@ -106,8 +106,8 @@
 .exc-plot:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 4px; }
 .exc-plot svg { display: block; width: 100%; height: 60px; overflow: visible; }
 .exc-ok { fill: color-mix(in srgb, var(--ink-muted) 40%, transparent); }
-.exc-4xx { fill: var(--warn); }
-.exc-5xx { fill: var(--error); }
+.exc-4xx { fill: var(--chart-warn); }
+.exc-5xx { fill: var(--chart-error); }
 .exc-cursor { fill: color-mix(in srgb, var(--surface-2) 50%, transparent); }
 .exc-sel { fill: color-mix(in srgb, var(--ink) 20%, transparent); stroke: color-mix(in srgb, var(--ink) 50%, transparent); stroke-width: 1; }
 .exc-focus { fill: none; stroke: var(--accent-ink); stroke-width: 1.5; }
@@ -123,8 +123,8 @@
 .exc-tip__n { flex: 1; text-align: right; font: 500 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
 .exc-swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
 .exc-swatch--2xx { background: color-mix(in srgb, var(--ink-muted) 40%, transparent); }
-.exc-swatch--4xx { background: var(--warn); }
-.exc-swatch--5xx { background: var(--error); }
+.exc-swatch--4xx { background: var(--chart-warn); }
+.exc-swatch--5xx { background: var(--chart-error); }
 /* ChartHighlightActions (ChartHighlightActions.tsx:102-145; dropdown-menu.tsx:70, 105, 167, 179):
    `min-w-32 rounded-md p-1 flex flex-col gap-1`, a centred `font-mono text-xs` range label with a
    10px arrow, a hairline, and the 12px search icon item `px-2 py-1.5 text-xs gap-1.5`. */
@@ -234,8 +234,8 @@
 .exl-cell--method { color: var(--ink-muted); }
 .exl-cell--path { display: flex; align-items: center; gap: 6px; }
 .exl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
-.exl-dot--4xx { background: var(--warn); }
-.exl-dot--5xx { background: var(--error); }
+.exl-dot--4xx { background: var(--chart-warn); }
+.exl-dot--5xx { background: var(--chart-error); }
 .exl-faint { color: var(--ink-muted); }
 .exl-status--4xx { color: var(--warn); }
 .exl-status--5xx { color: var(--error); }
