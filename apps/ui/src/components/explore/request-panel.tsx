@@ -935,7 +935,7 @@ function RawTab({ data }: { data: RequestDetailRead }) {
   const text = useMemo(() => JSON.stringify(data.request, null, 2), [data.request]);
   return (
     <section className="rd-section" aria-label="Raw request">
-      <JsonView value={data.request} copy={{ text: () => text, what: "the request as JSON" }} />
+      <JsonView value={data.request} copy={{ text: () => text, what: "the request as JSON" }} fill />
     </section>
   );
 }
@@ -1193,7 +1193,7 @@ function EventStream({ events }: { events: StreamEvent[] }) {
  * A JSON tree: containers open and close, and only the lines in view are in the DOM, so a large
  * body scrolls and toggles without jank.
  */
-function JsonView({ value, copy }: { value: unknown; copy?: { text: () => string; what: string } }) {
+function JsonView({ value, copy, fill = false }: { value: unknown; copy?: { text: () => string; what: string }; fill?: boolean }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => defaultExpanded(value));
   const lines = useMemo(() => jsonLines(value, expanded), [value, expanded]);
   const scroller = useRef<HTMLDivElement>(null);
@@ -1237,15 +1237,15 @@ function JsonView({ value, copy }: { value: unknown; copy?: { text: () => string
   return (
     <div className="rd-json">
       <div className="rd-json__bar">
-        {copy ? <SectionCopy text={copy.text} what={copy.what} /> : null}
         <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => setExpanded(allContainers(value))}>
           Expand all
         </button>
         <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => setExpanded(new Set([""]))}>
           Collapse all
         </button>
+        {copy ? <SectionCopy text={copy.text} what={copy.what} /> : null}
       </div>
-      <div className="rd-json__scroll" ref={scroller} onScroll={onScroll} style={{ height: Math.min(lines.length * LINE_HEIGHT + 8, 480) }}>
+      <div className={`rd-json__scroll${fill ? " is-fill" : ""}`} ref={scroller} onScroll={onScroll} style={{ height: fill ? `min(${lines.length * LINE_HEIGHT + 8}px, calc(100dvh - 190px))` : Math.min(lines.length * LINE_HEIGHT + 8, 480) }}>
         <div className="rd-json__spacer" style={{ height: lines.length * LINE_HEIGHT }}>
           {shown}
         </div>

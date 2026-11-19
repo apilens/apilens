@@ -904,6 +904,7 @@ span.rd-j-tog { cursor: default; }
 .rd-copybtn:hover { color: var(--ink); }
 .rd-copybtn .cp-ic { width: 13px; height: 13px; flex: none; stroke-width: 2; }
 
-/* Raw (RawText): text as stored in the JSON viewer's box; Copy sits first in its top bar. */
-.rd-json__bar .rd-copybtn { margin-right: auto; }
+/* Raw (RawText): text as stored in the JSON viewer's box; Copy at the right end of its top bar. */
 .rd-raw__pre { margin: 0; max-height: 480px; overflow: auto; padding: 10px 12px; font: 400 12px/20px var(--font-mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The Raw tab's JSON fills the section: down to the drawer's footer, not the 480px cap. */
+.rd-json__scroll.is-fill { max-height: calc(100dvh - 190px); }
