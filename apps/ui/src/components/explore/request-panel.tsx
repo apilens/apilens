@@ -626,8 +626,8 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
 
 /**
  * Headers (Query parameters) and Body as nested tabs, Postman's way: the tab row holds only the
- * tabs, then at its end the body's view switch (Pretty / Fields / Events, or Raw) and a Copy
- * named for the open tab: Copy headers, Copy params (both as JSON) or Copy body. The body's size and type are in the Overview.
+ * tabs, then at its end the open tab's view switch: Table / Pretty / Fields / Events, or Raw (the
+ * headers and parameters as JSON, the body as stored). Copy is only in Raw, in its box's top bar. The body's size and type are in the Overview.
  * Request opens on Headers, Response on Body. ←/→ switch.
  */
 function HeadersBodyTabs({
@@ -647,11 +647,21 @@ function HeadersBodyTabs({
   query?: [string, string][];
 }) {
   type Sub = "headers" | "query" | "body";
+  const [sub, setSub] = useState<Sub>(first);
   const headers = parseHeaders(headersText);
   const parsed = useMemo(() => parseBody(body, contentTypeOf(headersText)), [body, headersText]);
-  const view = bodyViewName(parsed.kind);
-  const [raw, setRaw] = useState(false);
-  const [sub, setSub] = useState<Sub>(first);
+  // Each tab can be read as stored ("Raw", with its Copy): the body as text, headers and
+  // parameters as JSON; the switch says what the other view is.
+  const [rawTabs, setRawTabs] = useState<Set<Sub>>(new Set());
+  const raw = rawTabs.has(sub);
+  const setRaw = (on: boolean) =>
+    setRawTabs((m) => {
+      const next = new Set(m);
+      if (on) next.add(sub);
+      else next.delete(sub);
+      return next;
+    });
+  const view = sub === "body" ? bodyViewName(parsed.kind) : sub === "headers" ? (headers ? "Table" : null) : "Table";
   const id = useId();
   const headersTab = { slug: "headers" as Sub, label: "Headers", n: headers?.length };
   const queryTab = query.length ? [{ slug: "query" as Sub, label: "Query parameters", n: query.length }] : [];
@@ -688,36 +698,31 @@ function HeadersBodyTabs({
           ))}
         </div>
         <span className="exd-subbar__end">
-          {sub === "body" ? (
-            <>
-              {view ? (
-                <span className="rd-seg" role="group" aria-label={`Show the ${what} body as`}>
-                  <button type="button" aria-pressed={!raw} onClick={() => setRaw(false)}>
-                    {view}
-                  </button>
-                  <button type="button" aria-pressed={raw} onClick={() => setRaw(true)}>
-                    Raw
-                  </button>
-                </span>
-              ) : null}
-              {body ? <SectionCopy text={() => body} what={`the ${what} body`} label="Copy body" /> : null}
-            </>
-          ) : sub === "query" ? (
-            <SectionCopy text={() => headersJson(query)} what="the query parameters as JSON" label="Copy params" />
-          ) : headers ? (
-            <SectionCopy text={() => headersJson(headers)} what={`the ${what} headers as JSON`} label="Copy headers" />
+          {view ? (
+            <span className="rd-seg" role="group" aria-label={`Show the ${sub === "query" ? "query parameters" : `${what} ${sub}`} as`}>
+              <button type="button" aria-pressed={!raw} onClick={() => setRaw(false)}>
+                {view}
+              </button>
+              <button type="button" aria-pressed={raw} onClick={() => setRaw(true)}>
+                Raw
+              </button>
+            </span>
           ) : null}
         </span>
       </div>
       <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${sub}`}>
         {sub === "headers" ? (
           headers ? (
-            <KvTable pairs={headers} label={what === "request" ? "Request headers" : "Response headers"} />
+            raw ? (
+              <RawText text={headersJson(headers)} what={`the ${what} headers as JSON`} />
+            ) : (
+              <KvTable pairs={headers} label={what === "request" ? "Request headers" : "Response headers"} />
+            )
           ) : (
             <Empty>The {what} headers were not captured.</Empty>
           )
         ) : sub === "query" ? (
-          <KvTable pairs={query} label="Query parameters" />
+          raw ? <RawText text={headersJson(query)} what="the query parameters as JSON" /> : <KvTable pairs={query} label="Query parameters" />
         ) : (
           <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
         )}
@@ -930,18 +935,26 @@ function RawTab({ data }: { data: RequestDetailRead }) {
   const text = useMemo(() => JSON.stringify(data.request, null, 2), [data.request]);
   return (
     <section className="rd-section" aria-label="Raw request">
-      <div className="rd-exc__bar">
-        <p className="rd-rawlabel">
-          Everything recorded for this request, as JSON <span className="rd-block__meta">{formatBytes(new Blob([text]).size)}</span>
-        </p>
-        <SectionCopy text={() => text} what="the request as JSON" label="Copy JSON" />
-      </div>
-      <JsonView value={data.request} />
+      <JsonView value={data.request} copy={{ text: () => text, what: "the request as JSON" }} />
     </section>
   );
 }
 
 // ---------------------------------------------------------------- bodies
+
+/** Text as stored, in the same box as the JSON viewer: its top bar holds Copy. */
+function RawText({ text, what }: { text: string; what: string }) {
+  return (
+    <div className="rd-json rd-raw">
+      <div className="rd-json__bar">
+        <SectionCopy text={() => text} what={what} />
+      </div>
+      <pre className="rd-raw__pre">
+        <Marked text={text} />
+      </pre>
+    </div>
+  );
+}
 
 /** How a body can be shown besides as stored ("Raw"): its parsed view's name, or null for plain text. */
 const bodyViewName = (kind: Body["kind"]) => (kind === "json" ? "Pretty" : kind === "form" ? "Fields" : kind === "events" ? "Events" : null);
@@ -961,9 +974,7 @@ function BodyView({ text, body, size, what, raw }: { text: string; body: Body; s
     <div className="rd-bare">
       {cut}
       {raw || body.kind === "text" ? (
-        <pre className="rd-pre">
-          <Marked text={text} />
-        </pre>
+        <RawText text={text} what={`the ${what} body`} />
       ) : body.kind === "json" ? (
         <JsonView value={body.value} />
       ) : body.kind === "form" ? (
@@ -1182,7 +1193,7 @@ function EventStream({ events }: { events: StreamEvent[] }) {
  * A JSON tree: containers open and close, and only the lines in view are in the DOM, so a large
  * body scrolls and toggles without jank.
  */
-function JsonView({ value }: { value: unknown }) {
+function JsonView({ value, copy }: { value: unknown; copy?: { text: () => string; what: string } }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => defaultExpanded(value));
   const lines = useMemo(() => jsonLines(value, expanded), [value, expanded]);
   const scroller = useRef<HTMLDivElement>(null);
@@ -1226,6 +1237,7 @@ function JsonView({ value }: { value: unknown }) {
   return (
     <div className="rd-json">
       <div className="rd-json__bar">
+        {copy ? <SectionCopy text={copy.text} what={copy.what} /> : null}
         <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => setExpanded(allContainers(value))}>
           Expand all
         </button>
