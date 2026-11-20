@@ -30,6 +30,8 @@ type CaptureService interface {
 	Get(ctx context.Context, app capture.App) (capture.Stored, error)
 	Put(ctx context.Context, actor uuid.UUID, app capture.App, pol capture.Policy) (capture.Stored, error)
 	Metadata(ctx context.Context, app capture.App) ([]capture.Metadata, error)
+	// Limit is the largest max_payload_bytes a policy may set.
+	Limit() int
 }
 
 // ProjectAuthorizer checks a permission on a project named by slug;
@@ -49,8 +51,11 @@ type CapturePolicy struct {
 	CaptureHeaders      bool       `json:"capture_headers" doc:"Whether request and response headers are captured."`
 	CaptureRequestBody  bool       `json:"capture_request_body" doc:"Whether request bodies are captured."`
 	CaptureResponseBody bool       `json:"capture_response_body" doc:"Whether response bodies are captured."`
-	MaxPayloadBytes     *int       `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means no cap beyond the SDK's own."`
-	UpdatedAt           *time.Time `json:"updated_at" required:"true" nullable:"true" doc:"When the policy was last saved; null if it never was (the app captures everything)."`
+	MaxPayloadBytes     *int       `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means the server default (default_max_payload_bytes). The SDK's own cap applies too: the smaller one wins."`
+	// Read-only: what the server allows, so a form can offer it.
+	DefaultMaxPayloadBytes int `json:"default_max_payload_bytes" doc:"The body cap of an app whose policy sets none (64 KiB)." example:"65536"`
+	MaxPayloadBytesLimit   int `json:"max_payload_bytes_limit" doc:"The largest max_payload_bytes this server accepts (ingest.max_payload_bytes_limit, 1 MiB by default)." example:"1048576"`
+	UpdatedAt         *time.Time `json:"updated_at" required:"true" nullable:"true" doc:"When the policy was last saved; null if it never was (the app captures everything)."`
 	UpdatedBy           *string    `json:"updated_by" required:"true" nullable:"true" format:"uuid" doc:"The user who last saved the policy; null if it never was saved or that user is gone."`
 }
 
@@ -97,7 +102,7 @@ type PutCapturePolicyInput struct {
 		CaptureHeaders      bool    `json:"capture_headers" doc:"Whether request and response headers are captured."`
 		CaptureRequestBody  bool    `json:"capture_request_body" doc:"Whether request bodies are captured."`
 		CaptureResponseBody bool    `json:"capture_response_body" doc:"Whether response bodies are captured."`
-		MaxPayloadBytes     *int    `json:"max_payload_bytes,omitempty" minimum:"1" maximum:"1048576" nullable:"true" doc:"Cap on each captured body in bytes (1 to 1048576); omitted or null means no cap beyond the SDK's own."`
+		MaxPayloadBytes     *int    `json:"max_payload_bytes,omitempty" minimum:"1" nullable:"true" doc:"Cap on each captured body in bytes, from 1 to the server's max_payload_bytes_limit (1048576 by default); a larger value answers validation_failed. Omitted or null means the server default (64 KiB)."`
 	}
 }
 
@@ -119,7 +124,7 @@ func NewCapturePolicies(svc CaptureService, guard ProjectAuthorizer, logger *slo
 func (c *CapturePolicies) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	tags := []string{server.TagProjects}
-	how := "An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). " +
+	how := "An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, bodies cut at the default 64 KiB). " +
 		"SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). " +
 		"An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart."
 
@@ -204,8 +209,10 @@ func (c *CapturePolicies) problem(ctx context.Context, op string, err error) err
 	}
 }
 
-func toCapturePolicy(s capture.Stored) CapturePolicy {
+func toCapturePolicy(s capture.Stored, limit int) CapturePolicy {
 	out := CapturePolicy{
+		DefaultMaxPayloadBytes: capture.DefaultMaxPayloadBytes,
+		MaxPayloadBytesLimit:   limit,
 		AppID:               s.App.ID.String(),
 		App:                 s.App.Slug,
 		Project:             s.App.ProjectSlug,
@@ -240,7 +247,7 @@ func (c *CapturePolicies) get(ctx context.Context, in *CaptureAppInput) (*Captur
 	if err != nil {
 		return nil, c.problem(ctx, "get capture policy", err)
 	}
-	return &CapturePolicyOutput{Body: toCapturePolicy(s)}, nil
+	return &CapturePolicyOutput{Body: toCapturePolicy(s, c.svc.Limit())}, nil
 }
 
 func (c *CapturePolicies) put(ctx context.Context, in *PutCapturePolicyInput) (*CapturePolicyOutput, error) {
@@ -264,7 +271,7 @@ func (c *CapturePolicies) put(ctx context.Context, in *PutCapturePolicyInput) (*
 	if err != nil {
 		return nil, c.problem(ctx, "put capture policy", err)
 	}
-	return &CapturePolicyOutput{Body: toCapturePolicy(s)}, nil
+	return &CapturePolicyOutput{Body: toCapturePolicy(s, c.svc.Limit())}, nil
 }
 
 func (c *CapturePolicies) metadata(ctx context.Context, in *CaptureAppInput) (*AppReportsOutput, error) {

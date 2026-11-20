@@ -1918,17 +1918,33 @@
             "description": "Whether response bodies are captured.",
             "type": "boolean"
           },
+          "default_max_payload_bytes": {
+            "description": "The body cap of an app whose policy sets none (64 KiB).",
+            "examples": [
+              65536
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
           "enabled": {
             "description": "Whether the app's SDKs capture at all; false tells them to stop sending records.",
             "type": "boolean"
           },
           "max_payload_bytes": {
-            "description": "Cap on each captured body in bytes; null means no cap beyond the SDK's own.",
+            "description": "Cap on each captured body in bytes; null means the server default (default_max_payload_bytes). The SDK's own cap applies too: the smaller one wins.",
             "format": "int64",
             "type": [
               "integer",
               "null"
             ]
+          },
+          "max_payload_bytes_limit": {
+            "description": "The largest max_payload_bytes this server accepts (ingest.max_payload_bytes_limit, 1 MiB by default).",
+            "examples": [
+              1048576
+            ],
+            "format": "int64",
+            "type": "integer"
           },
           "project": {
             "description": "The slug of the app's project.",
@@ -1968,6 +1984,8 @@
           "capture_request_body",
           "capture_response_body",
           "max_payload_bytes",
+          "default_max_payload_bytes",
+          "max_payload_bytes_limit",
           "updated_at",
           "updated_by"
         ],
@@ -6571,7 +6589,7 @@
             "type": "boolean"
           },
           "max_payload_bytes": {
-            "description": "Cap on each captured body in bytes; null means no cap beyond the SDK's own.",
+            "description": "Cap on each captured body in bytes; the SDK applies the smaller of this and its own cap. Null means the policy sets none: the SDK keeps its own cap, and ingest still stores at most the server default (64 KiB) of each body.",
             "format": "int64",
             "type": [
               "integer",
@@ -9415,9 +9433,8 @@
             "type": "boolean"
           },
           "max_payload_bytes": {
-            "description": "Cap on each captured body in bytes (1 to 1048576); omitted or null means no cap beyond the SDK's own.",
+            "description": "Cap on each captured body in bytes, from 1 to the server's max_payload_bytes_limit (1048576 by default); a larger value answers validation_failed. Omitted or null means the server default (64 KiB).",
             "format": "int64",
-            "maximum": 1048576,
             "minimum": 1,
             "type": [
               "integer",
@@ -13147,7 +13164,7 @@
     },
     "/api/v1/apps/{id}/capture-policy": {
       "get": {
-        "description": "Returns the remote capture policy of the app. Needs `view` on its project (any member, including viewers). An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
+        "description": "Returns the remote capture policy of the app. Needs `view` on its project (any member, including viewers). An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, bodies cut at the default 64 KiB). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
         "operationId": "get-capture-policy",
         "parameters": [
           {
@@ -13237,7 +13254,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the remote capture policy of the app. Needs `manage_capture` on its project (project admins, organization owners and admins; 403 `forbidden` for other members). A `sample_rate` with more than 4 decimal places answers `invalid_request`. Audited as `capture_policy.updated`. An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
+        "description": "Replaces the remote capture policy of the app. Needs `manage_capture` on its project (project admins, organization owners and admins; 403 `forbidden` for other members). A `sample_rate` with more than 4 decimal places answers `invalid_request`. Audited as `capture_policy.updated`. An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, bodies cut at the default 64 KiB). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
         "operationId": "put-capture-policy",
         "parameters": [
           {

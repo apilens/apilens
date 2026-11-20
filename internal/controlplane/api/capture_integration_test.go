@@ -51,7 +51,8 @@ func TestCapturePolicy(t *testing.T) {
 	got := decode[CapturePolicy](t, resp)
 	if got.AppID != appID.String() || got.App != "shop" || got.Project != "shop" || !got.Enabled || got.SampleRate != 1 ||
 		!got.CaptureHeaders || !got.CaptureRequestBody || !got.CaptureResponseBody ||
-		got.MaxPayloadBytes != nil || got.UpdatedAt != nil || got.UpdatedBy != nil {
+		got.MaxPayloadBytes != nil || got.UpdatedAt != nil || got.UpdatedBy != nil ||
+		got.DefaultMaxPayloadBytes != capture.DefaultMaxPayloadBytes || got.MaxPayloadBytesLimit != capture.DefaultMaxPayloadBytesLimit {
 		t.Fatalf("default = %+v", got)
 	}
 
@@ -136,6 +137,12 @@ func TestCapturePolicy(t *testing.T) {
 	}); resp.Code != http.StatusUnprocessableEntity {
 		t.Errorf("sample_rate 1.5: %d %s", resp.Code, resp.Body)
 	}
+	// Above the server's ceiling (1 MiB by default): refused by the service,
+	// not by a fixed schema maximum, so operators can raise it.
+	expectProblem(t, "over the limit", f.api.Put(path, as(users["owner"]), map[string]any{
+		"enabled": true, "sample_rate": 1, "capture_headers": true, "capture_request_body": true, "capture_response_body": true,
+		"max_payload_bytes": capture.DefaultMaxPayloadBytesLimit + 1,
+	}), http.StatusBadRequest, "invalid_request")
 	if resp := f.api.Put(path, as(users["owner"]), map[string]any{"enabled": true}); resp.Code != http.StatusUnprocessableEntity {
 		t.Errorf("partial body: %d %s", resp.Code, resp.Body)
 	}

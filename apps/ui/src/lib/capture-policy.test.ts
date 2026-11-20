@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POLICY,
+  capPresets,
   captureError,
   capturePath,
   checkDraft,
@@ -8,11 +9,14 @@ import {
   draftOf,
   effectiveRows,
   formatCap,
+  formatSize,
   isAppId,
+  payloadBounds,
   percentText,
   policyValues,
   runtimeLine,
   samePolicy,
+  sdkCapsBelow,
 } from "./capture-policy";
 import type { CapturePolicy } from "./identity";
 
@@ -61,16 +65,28 @@ describe("draft round trip", () => {
     }
     expect(checkDraft({ ...d, cap: "1048576" }).ok).toBe(true);
   });
+
+  it("checks the cap against the server's limit", () => {
+    const d = draftOf(DEFAULT_POLICY);
+    expect(checkDraft({ ...d, cap: "4194304" }, 4_194_304).ok).toBe(true);
+    const r = checkDraft({ ...d, cap: "4194305" }, 4_194_304);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.cap).toMatch(/4 MiB/);
+  });
 });
 
 describe("checkPolicy", () => {
+  it("leaves the upper bound to the API, which knows the operator's limit", () => {
+    expect(checkPolicy({ ...DEFAULT_POLICY, max_payload_bytes: 4_194_304 }).ok).toBe(true);
+  });
+
   it("accepts what the form sends", () => {
     expect(checkPolicy({ ...DEFAULT_POLICY, sample_rate: 0.5, max_payload_bytes: 10 })).toEqual({ ok: true, policy: { ...DEFAULT_POLICY, sample_rate: 0.5, max_payload_bytes: 10 } });
     expect(checkPolicy({ ...DEFAULT_POLICY, max_payload_bytes: undefined })).toMatchObject({ ok: true, policy: { max_payload_bytes: null } });
   });
 
   it("refuses anything else", () => {
-    for (const bad of [null, "x", { ...DEFAULT_POLICY, enabled: "yes" }, { ...DEFAULT_POLICY, sample_rate: 1.5 }, { ...DEFAULT_POLICY, sample_rate: 0.12345 }, { ...DEFAULT_POLICY, max_payload_bytes: 0 }, { ...DEFAULT_POLICY, max_payload_bytes: 2_000_000 }]) {
+    for (const bad of [null, "x", { ...DEFAULT_POLICY, enabled: "yes" }, { ...DEFAULT_POLICY, sample_rate: 1.5 }, { ...DEFAULT_POLICY, sample_rate: 0.12345 }, { ...DEFAULT_POLICY, max_payload_bytes: 0 }, { ...DEFAULT_POLICY, max_payload_bytes: 2.5 }, { ...DEFAULT_POLICY, max_payload_bytes: 3_000_000_000 }]) {
       expect(checkPolicy(bad).ok).toBe(false);
     }
   });
@@ -85,7 +101,11 @@ describe("samePolicy and policyValues", () => {
 
 describe("formatting", () => {
   it("formats rates and caps", () => {
-    expect(formatCap(null)).toBe("No cap");
+    expect(formatCap(null)).toBe("Default (64 KiB)");
+    expect(formatCap(null, 32768)).toBe("Default (32 KiB)");
+    expect(formatSize(65536)).toBe("64 KiB");
+    expect(formatSize(1048576)).toBe("1 MiB");
+    expect(formatSize(1000)).toBe("1,000 bytes");
     expect(formatCap(65536)).toBe("65,536 bytes (64 KiB)");
     expect(formatCap(1048576)).toBe("1,048,576 bytes (1 MiB)");
     expect(formatCap(1000)).toBe("1,000 bytes");
@@ -113,7 +133,13 @@ describe("effectiveRows", () => {
     ]);
   });
 
-  it("follows the policy for settings the SDK did not report, and the SDK's cap when the policy has none", () => {
+  it("treats a policy without a cap as the server default", () => {
+    const row = effectiveRows(DEFAULT_POLICY, { max_payload_bytes: 1048576 }).find((r) => r.label === "Body size cap");
+    expect(row).toMatchObject({ policy: "Default (64 KiB)", sdk: "1,048,576 bytes (1 MiB)", effective: "65,536 bytes (64 KiB)", narrowedBySdk: false });
+    expect(effectiveRows(DEFAULT_POLICY, {}).find((r) => r.label === "Body size cap")).toMatchObject({ effective: "65,536 bytes (64 KiB)" });
+  });
+
+  it("follows the policy for settings the SDK did not report, and the SDK's cap when it is smaller", () => {
     const rows = effectiveRows(DEFAULT_POLICY, { max_payload_bytes: "4096", sample_rate: "lots" });
     expect(rows.find((r) => r.label === "Sample rate")).toMatchObject({ sdk: null, effective: "100.0%" });
     expect(rows.find((r) => r.label === "Headers")).toMatchObject({ sdk: null, effective: "On" });
@@ -122,6 +148,30 @@ describe("effectiveRows", () => {
 
   it("is off everywhere when the policy turns capture off", () => {
     expect(effectiveRows({ ...DEFAULT_POLICY, enabled: false }, {})[0]).toMatchObject({ policy: "Off", effective: "Off" });
+  });
+});
+
+describe("payload bounds, presets and SDK caps", () => {
+  it("reads the server's default and limit, with fallbacks for older servers", () => {
+    expect(payloadBounds(null)).toEqual({ fallback: 65536, limit: 1048576 });
+    expect(payloadBounds(stored())).toEqual({ fallback: 65536, limit: 1048576 });
+    expect(payloadBounds(stored({ default_max_payload_bytes: 32768, max_payload_bytes_limit: 4194304 }))).toEqual({ fallback: 32768, limit: 4194304 });
+  });
+
+  it("offers presets up to the limit, plus the limit when it is larger than 1 MiB", () => {
+    expect(capPresets(1048576)).toEqual([16384, 65536, 262144, 1048576]);
+    expect(capPresets(131072)).toEqual([16384, 65536]);
+    expect(capPresets(4194304)).toEqual([16384, 65536, 262144, 1048576, 4194304]);
+  });
+
+  it("lists the environments whose SDK caps bodies below the chosen cap", () => {
+    const reports = [
+      { environment: "production", config: { max_payload_bytes: 65536 } },
+      { environment: "staging", config: { max_payload_bytes: 2097152 } },
+      { environment: "dev", config: {} },
+    ];
+    expect(sdkCapsBelow(reports, 1048576, 65536)).toEqual([{ environment: "production", sdkCap: 65536 }]);
+    expect(sdkCapsBelow(reports, null, 65536)).toEqual([]);
   });
 });
 

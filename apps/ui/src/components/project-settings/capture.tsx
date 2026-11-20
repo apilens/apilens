@@ -7,15 +7,18 @@ import {
   APPLIES_WITHIN,
   DEFAULT_POLICY,
   type FieldErrors,
-  MAX_PAYLOAD_LIMIT,
   type PolicyDraft,
+  capPresets,
   capturePath,
   checkDraft,
   draftOf,
   effectiveRows,
+  formatSize,
+  payloadBounds,
   policyValues,
   runtimeLine,
   samePolicy,
+  sdkCapsBelow,
 } from "@/lib/capture-policy";
 import type { AppEnvironmentReport, CapturePolicy, NamedApp, PutCapturePolicyRequest } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
@@ -88,9 +91,9 @@ export function CaptureSettings({ project, projectName, userId, load }: { projec
               </div>
             </section>
           ) : (
-            <PolicyCard project={project} app={app} saved={saved} manage={manage} userId={userId} onSaved={setSaved} />
+            <PolicyCard project={project} app={app} saved={saved} manage={manage} userId={userId} reports={load.reports ?? []} onSaved={setSaved} />
           )}
-          <ReportsCard reports={load.reports} policy={saved ? policyValues(saved) : null} />
+          <ReportsCard reports={load.reports} policy={saved ? policyValues(saved) : null} fallback={payloadBounds(saved).fallback} />
         </>
       )}
     </div>
@@ -130,10 +133,12 @@ interface PolicyCardProps {
   saved: CapturePolicy;
   manage: boolean;
   userId: string;
+  /** What the SDKs reported, to warn when their own cap is below the chosen one. */
+  reports: AppEnvironmentReport[];
   onSaved: (policy: CapturePolicy) => void;
 }
 
-function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCardProps) {
+function PolicyCard({ project, app, saved, manage, userId, reports, onSaved }: PolicyCardProps) {
   const tz = useTimeZone();
   const [draft, setDraft] = useState<PolicyDraft>(() => draftOf(policyValues(saved)));
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -141,7 +146,8 @@ function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCard
   const [confirming, setConfirming] = useState(false);
   const [pending, start] = useTransition();
 
-  const checked = checkDraft(draft);
+  const { fallback, limit } = payloadBounds(saved);
+  const checked = checkDraft(draft, limit);
   const dirty = !checked.ok || !samePolicy(checked.policy, policyValues(saved));
   const off = !draft.enabled;
 
@@ -260,14 +266,33 @@ function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCard
 
           <div className="ob-f">
             <label className="ob-l" htmlFor="cps-cap">
-              Body size cap<small>bytes · empty for no cap beyond the SDK’s own</small>
+              Body size cap<small>per request or response body · empty for the default</small>
             </label>
+            <div className="cps-presets" role="group" aria-label="Body size cap presets">
+              {capPresets(limit).map((bytes) => {
+                const on = draft.cap.trim() === "" ? bytes === fallback : Number(draft.cap.trim()) === bytes;
+                return (
+                  <button
+                    key={bytes}
+                    type="button"
+                    className="cps-preset"
+                    aria-pressed={on}
+                    disabled={!manage || pending}
+                    onClick={() => edit({ cap: bytes === fallback ? "" : String(bytes) })}
+                  >
+                    {formatSize(bytes)}
+                    {bytes === fallback ? <span className="cps-preset__note">default</span> : null}
+                  </button>
+                );
+              })}
+            </div>
             <div className={`ob-in cps-num${errors.cap ? " bad" : ""}${manage ? "" : " ro"}`}>
               <input
                 id="cps-cap"
                 inputMode="numeric"
                 autoComplete="off"
-                placeholder="No cap"
+                aria-label="Custom body size cap in bytes"
+                placeholder={`${fallback.toLocaleString("en-US")} (default)`}
                 value={draft.cap}
                 disabled={!manage || pending}
                 aria-invalid={errors.cap !== undefined}
@@ -284,9 +309,17 @@ function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCard
               </p>
             ) : (
               <p id="cps-cap-help" className="os-help">
-                Longer bodies are truncated. At most {MAX_PAYLOAD_LIMIT.toLocaleString("en-US")} bytes (1 MiB).
+                Bodies longer than this are cut. Default {formatSize(fallback)}; at most {formatSize(limit)}.
               </p>
             )}
+            {sdkCapsBelow(reports, checked.ok ? checked.policy.max_payload_bytes : null, fallback).map(({ environment, sdkCap }) => (
+              <p key={environment} className="cps-sdk-cap" role="note">
+                <ObIcon name="info" />
+                <span>
+                  Your SDK in <b>{environment}</b> caps bodies at {formatSize(sdkCap)} — set <code>APILENS_MAX_PAYLOAD_BYTES</code> (or <code>max_payload_bytes</code>) to capture more.
+                </span>
+              </p>
+            ))}
           </div>
         </div>
 
@@ -373,7 +406,7 @@ function DisableConfirm({ appName, pending, onCancel, onConfirm }: { appName: st
 }
 
 /** Per environment: the SDK's runtime, and each setting as the policy, the SDK and what applies. */
-function ReportsCard({ reports, policy }: { reports: AppEnvironmentReport[] | null; policy: PutCapturePolicyRequest | null }) {
+function ReportsCard({ reports, policy, fallback }: { reports: AppEnvironmentReport[] | null; policy: PutCapturePolicyRequest | null; fallback: number }) {
   return (
     <section className="os-card" aria-labelledby="cps-sdk">
       <div className="os-card__head">
@@ -388,16 +421,16 @@ function ReportsCard({ reports, policy }: { reports: AppEnvironmentReport[] | nu
         ) : reports.length === 0 ? (
           <p className="cps-empty">No SDK has reported its config yet. SDKs report it once each time the app starts.</p>
         ) : (
-          reports.map((r) => <EnvironmentReport key={r.environment} report={r} policy={policy ?? DEFAULT_POLICY} />)
+          reports.map((r) => <EnvironmentReport key={r.environment} report={r} policy={policy ?? DEFAULT_POLICY} fallback={fallback} />)
         )}
       </div>
     </section>
   );
 }
 
-function EnvironmentReport({ report, policy }: { report: AppEnvironmentReport; policy: PutCapturePolicyRequest }) {
+function EnvironmentReport({ report, policy, fallback }: { report: AppEnvironmentReport; policy: PutCapturePolicyRequest; fallback: number }) {
   const tz = useTimeZone();
-  const rows = effectiveRows(policy, report.config ?? {});
+  const rows = effectiveRows(policy, report.config ?? {}, fallback);
   const runtime = runtimeLine(report);
   const titleId = `cps-env-${report.environment}`;
   return (

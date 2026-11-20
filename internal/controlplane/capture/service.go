@@ -49,12 +49,28 @@ type Auditor interface {
 type Service struct {
 	pool  *pgxpool.Pool
 	audit Auditor
+	limit int
 }
 
 // NewService returns a Service over pool, auditing changes with auditor.
+// Policies may set a body cap up to DefaultMaxPayloadBytesLimit; WithLimit
+// changes that.
 func NewService(pool *pgxpool.Pool, auditor Auditor) *Service {
-	return &Service{pool: pool, audit: auditor}
+	return &Service{pool: pool, audit: auditor, limit: DefaultMaxPayloadBytesLimit}
 }
+
+// WithLimit sets the largest max_payload_bytes a policy may set (the
+// operator's ingest.max_payload_bytes_limit). A non-positive n keeps the
+// default.
+func (s *Service) WithLimit(n int) *Service {
+	if n > 0 {
+		s.limit = n
+	}
+	return s
+}
+
+// Limit is the largest max_payload_bytes a policy may set.
+func (s *Service) Limit() int { return s.limit }
 
 // App returns the active app with the id, or ErrUnknownApp.
 func (s *Service) App(ctx context.Context, id uuid.UUID) (App, error) {
@@ -82,7 +98,7 @@ func (s *Service) Get(ctx context.Context, app App) (Stored, error) {
 // capture_policy.updated in the same transaction. Edges serve the change on
 // heartbeat within one resolver cache TTL.
 func (s *Service) Put(ctx context.Context, actor uuid.UUID, app App, pol Policy) (Stored, error) {
-	if err := pol.Validate(); err != nil {
+	if err := pol.Validate(s.limit); err != nil {
 		return Stored{}, err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -98,7 +114,7 @@ func (s *Service) Put(ctx context.Context, actor uuid.UUID, app App, pol Policy)
 	}
 	var maxBytes *int32
 	if pol.MaxPayloadBytes != nil {
-		v := int32(*pol.MaxPayloadBytes) //nolint:gosec // Validate bounds it to MaxPayloadBytesLimit.
+		v := int32(*pol.MaxPayloadBytes) //nolint:gosec // Validate bounds it to s.limit; config bounds that to ingest.max_body_bytes.
 		maxBytes = &v
 	}
 	prev, err := q.GetCapturePolicy(ctx, app.ID)

@@ -66,6 +66,7 @@
         "APILENS_PROJECT__DELETION_GRACE": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$|^0$", "description": "project.deletion_grace: restore window of a deleted project (Go duration; 0s = none)." },
         "APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT": { "type": "integer", "minimum": 0, "description": "access.max_direct_members_per_project: people added to one project directly; 0 = no limit." },
         "APILENS_INGEST__MAX_KEYS_PER_PROJECT": { "type": "integer", "minimum": 0, "description": "ingest.max_keys_per_project: active API keys per project; 0 = no limit." },
+        "APILENS_INGEST__MAX_PAYLOAD_BYTES_LIMIT": { "type": "integer", "minimum": 65536, "description": "ingest.max_payload_bytes_limit: largest body cap a capture policy may set, in bytes (at most ingest.max_body_bytes)." },
         "APILENS_INGEST__RECORD_KEY_IP": { "type": "boolean", "description": "ingest.record_key_ip: record the client IP of an API key's last ingest request." },
         "APILENS_RETENTION__REQUESTS": { "type": "integer", "minimum": 1, "maximum": 3650, "description": "retention.requests: days requests are kept." },
         "APILENS_RETENTION__LOGS": { "type": "integer", "minimum": 1, "maximum": 3650, "description": "retention.logs: days logs are kept." },

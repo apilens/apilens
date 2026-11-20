@@ -1836,8 +1836,12 @@ export interface CapturePolicy {
   capture_headers: boolean;
   capture_request_body: boolean;
   capture_response_body: boolean;
-  /** Bytes; null means no cap beyond the SDK's own. */
+  /** Bytes; null means the server default (`default_max_payload_bytes`). The SDK's own cap applies too. */
   max_payload_bytes: number | null;
+  /** Read-only: the body cap of a policy without one (64 KiB). Absent from older servers. */
+  default_max_payload_bytes?: number;
+  /** Read-only: the largest `max_payload_bytes` the server accepts (operator-set, 1 MiB by default). Absent from older servers. */
+  max_payload_bytes_limit?: number;
   /** Null when the policy was never saved (the app captures everything). */
   updated_at: string | null;
   updated_by: string | null;

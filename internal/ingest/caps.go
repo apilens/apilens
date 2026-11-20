@@ -15,7 +15,7 @@ import (
 const (
 	// defaultMaxPayloadBytes caps request_payload and response_payload of an
 	// app whose capture policy sets no max_payload_bytes.
-	defaultMaxPayloadBytes = 64 << 10
+	defaultMaxPayloadBytes = capture.DefaultMaxPayloadBytes
 	// maxHeaderBytes caps request_headers and response_headers.
 	maxHeaderBytes = 8 << 10
 	// truncatedMarker ends every value the edge cut.
@@ -60,7 +60,18 @@ func (e *Edge) payloadCap(ctx context.Context, appID uuid.UUID) int {
 	if p.MaxPayloadBytes == nil || *p.MaxPayloadBytes <= 0 {
 		return defaultMaxPayloadBytes
 	}
-	return *p.MaxPayloadBytes
+	// The operator may have lowered ingest.max_payload_bytes_limit after the
+	// policy was saved: the ceiling wins.
+	return min(*p.MaxPayloadBytes, e.payloadLimit())
+}
+
+// payloadLimit is the largest cap a policy may raise a body to
+// (ingest.max_payload_bytes_limit; the default when unset).
+func (e *Edge) payloadLimit() int {
+	if e.cfg.MaxPayloadBytesLimit <= 0 {
+		return capture.DefaultMaxPayloadBytesLimit
+	}
+	return int(e.cfg.MaxPayloadBytesLimit)
 }
 
 // capRequests truncates the payloads and headers of every record in place
