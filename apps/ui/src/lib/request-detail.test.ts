@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { TraceSpan } from "./identity";
 import {
   allContainers,
+  bodyCut,
   curlCommand,
   defaultExpanded,
   detailRead,
   formatExact,
+  formatPartialJson,
   jsonLines,
+  nestedJson,
+  nestedPath,
+  utf8Bytes,
   levelTone,
   markerSegments,
   moveTab,
@@ -292,5 +297,108 @@ describe("detailRead", () => {
     expect(detailRead(401, { ok: false, code: "session_expired", next: "/auth/refresh" })).toEqual({ kind: "expired", next: "/auth/refresh" });
     expect(detailRead(503, null)).toEqual({ kind: "error", code: "unavailable" });
     expect(detailRead(200, { ok: true })).toEqual({ kind: "error", code: "network_error" });
+  });
+});
+
+describe("utf8Bytes", () => {
+  it("counts UTF-8 bytes like an encoder", () => {
+    for (const s of ["", "abc", "é", "€", "😀", "a😀é€z"]) expect(utf8Bytes(s)).toBe(new TextEncoder().encode(s).length);
+  });
+});
+
+describe("bodyCut", () => {
+  const json = '{"items":[{"id":1},{"id":2}],"next":"abc"}';
+  const cutJson = '[{"run_id":"7a48","payload":"{\\"Timestamp\\":1794932055323,\\"rum.view.er';
+
+  it("reads the edge's truncated marker, with or without a known size", () => {
+    expect(bodyCut('{"a":"xyz…[truncated]', undefined, "")).toEqual({ shownBytes: utf8Bytes('{"a":"xyz…[truncated]'), totalBytes: null });
+    expect(bodyCut("abc...[truncated]", 5000, "")).toEqual({ shownBytes: 17, totalBytes: 5000 });
+  });
+
+  it("reads a body the SDK cut without a marker from the record's size", () => {
+    expect(bodyCut(cutJson, 2_896_545, '{"content-type":"application/json"}')).toEqual({ shownBytes: utf8Bytes(cutJson), totalBytes: 2_896_545 });
+  });
+
+  it("falls back to the stored content-length header", () => {
+    expect(bodyCut(cutJson, undefined, '{"content-length":"2896545"}')?.totalBytes).toBe(2_896_545);
+    expect(bodyCut(cutJson, 0, "Content-Length: 9000")?.totalBytes).toBe(9000);
+  });
+
+  it("ignores sizes of a compressed body", () => {
+    expect(bodyCut(cutJson, 2_896_545, '{"content-encoding":"gzip"}')).toBeNull();
+    expect(bodyCut(cutJson, 2_896_545, '{"Content-Encoding":"br"}')).toBeNull();
+  });
+
+  it("ignores a tiny difference, a body that parses whole, a masked body and an empty one", () => {
+    const text = "x".repeat(1000);
+    expect(bodyCut(text, 1005, "")).toBeNull();
+    expect(bodyCut(json, 5000, "")).toBeNull();
+    expect(bodyCut("[masked]", 5000, "")).toBeNull();
+    expect(bodyCut("", 5000, "")).toBeNull();
+    expect(bodyCut(text, 900, "")).toBeNull();
+    expect(bodyCut(text, undefined, "")).toBeNull();
+  });
+
+  it("flags plain text stored short", () => {
+    expect(bodyCut("x".repeat(1000), 5000, "")).toEqual({ shownBytes: 1000, totalBytes: 5000 });
+  });
+});
+
+describe("formatPartialJson", () => {
+  it("formats whole JSON like JSON.stringify(…, 2)", () => {
+    const v = { a: [1, 2, { b: "c", d: null }], e: {}, f: [], g: "x:y,{z}" };
+    expect(formatPartialJson(JSON.stringify(v))).toBe(JSON.stringify(v, null, 2));
+  });
+
+  it("formats as far as the text goes when it is cut mid-string", () => {
+    expect(formatPartialJson('[{"id":1,"name":"Ada Lov')).toBe('[\n  {\n    "id": 1,\n    "name": "Ada Lov');
+  });
+
+  it("formats as far as the text goes when it is cut mid-key", () => {
+    expect(formatPartialJson('{"a":{"b":true,"cu')).toBe('{\n  "a": {\n    "b": true,\n    "cu');
+  });
+
+  it("keeps escaped quotes and backslashes inside strings", () => {
+    const v = { s: 'he said "hi", {ok}', p: "C:\\dir\\", n: '{"x":[1,2]}' };
+    expect(formatPartialJson(JSON.stringify(v))).toBe(JSON.stringify(v, null, 2));
+  });
+
+  it("keeps empty containers on one line and handles deep nesting", () => {
+    expect(formatPartialJson('{ "a" : { } , "b" : [ ] }')).toBe('{\n  "a": {},\n  "b": []\n}');
+    const deep = "[".repeat(200) + "]".repeat(199);
+    const out = formatPartialJson(deep);
+    expect(out.split("\n").length).toBeGreaterThan(100);
+  });
+
+  it("never throws on text that is not JSON", () => {
+    for (const s of ["}}]],,::", "plain text, with: punctuation", '"unterminated', "\\", ""]) expect(() => formatPartialJson(s)).not.toThrow();
+  });
+
+  it("formats a 1 MB body quickly", () => {
+    const big = JSON.stringify(Array.from({ length: 20000 }, (_, i) => ({ id: i, name: `item ${i}`, tags: ["a", "b"] })));
+    const t = performance.now();
+    formatPartialJson(big.slice(0, 1_000_000));
+    expect(performance.now() - t).toBeLessThan(1000);
+  });
+});
+
+describe("nested JSON in strings", () => {
+  it("parses a string that holds an object or array, and nothing else", () => {
+    expect(nestedJson('{"a":1}')).toEqual({ a: 1 });
+    expect(nestedJson(" [1,2]")).toEqual([1, 2]);
+    expect(nestedJson('"x"')).toBeUndefined();
+    expect(nestedJson("{not json")).toBeUndefined();
+    expect(nestedJson("42")).toBeUndefined();
+  });
+
+  it("marks such strings nestable, and shows them as a tree when asked", () => {
+    const v = { payload: '{"x":[1,2]}', name: "plain" };
+    const closed = jsonLines(v, new Set([""]));
+    expect(closed.find((l) => l.key === "payload")).toMatchObject({ kind: "string", nestable: true });
+    expect(closed.find((l) => l.key === "name")?.nestable).toBe(false);
+    const open = jsonLines(v, new Set(["", nestedPath("/payload")]), new Set(["/payload"]));
+    const first = open.find((l) => l.key === "payload");
+    expect(first).toMatchObject({ kind: "open", fromString: "/payload", depth: 1 });
+    expect(open.find((l) => l.key === "x")).toMatchObject({ kind: "collapsed", size: 2, depth: 2 });
   });
 });

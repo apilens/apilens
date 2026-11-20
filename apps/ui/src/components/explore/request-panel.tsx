@@ -10,6 +10,7 @@ import { reasonPhrase, statusText } from "@/lib/http-status";
 import type { RequestDetail, RequestDetailRead, RequestRow, TraceLog, TraceSpan } from "@/lib/identity";
 import {
   type Body,
+  type BodyCut,
   DETAIL_LOAD_FAILED,
   DETAIL_NOT_FOUND,
   DRAWER_TABS,
@@ -17,14 +18,18 @@ import {
   type JsonLine,
   MARKER_TITLE,
   allContainers,
+  bodyCut,
   contentTypeOf,
   curlCommand,
   defaultExpanded,
   detailRead,
   formatExact,
+  formatPartialJson,
   jsonLines,
+  looksLikeJson,
   markerSegments,
   moveTab,
+  nestedPath,
   offsetMs,
   parseBody,
   parseHeaders,
@@ -37,7 +42,8 @@ import { endpointHref, formatLatency } from "@/lib/traffic";
 import { isEventStream, parseEventStream } from "@/lib/event-stream";
 import { projectHref } from "@/lib/routes";
 import { ObIcon } from "../onboarding/ob";
-import { useAppName } from "./app-names";
+import { capturePath } from "@/lib/capture-policy";
+import { useAppName, useAppSlug } from "./app-names";
 import { CopyAction } from "./copy-action";
 import { SseEvents } from "./sse-view";
 import { type FilterApi, filterActions } from "./field-actions";
@@ -262,7 +268,7 @@ export function RequestPanel({
           ) : tab === "request" ? (
             <RequestTab key={id} data={load.data} project={project} api={api} />
           ) : tab === "response" ? (
-            <ResponseTab key={id} data={load.data} api={api} />
+            <ResponseTab key={id} data={load.data} project={project} api={api} />
           ) : tab === "timeline" ? (
             <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
           ) : (
@@ -500,6 +506,7 @@ function Empty({ children }: { children: ReactNode }) {
  */
 function RequestTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
+  const appSlug = useAppSlug(r.app_id);
   const fa = (field: Parameters<typeof filterActions>[1], value: string) => (value ? filterActions(api, field, value) : []);
   const minute = sameWindow(r.timestamp, "minute");
   const hour = sameWindow(r.timestamp, "hour");
@@ -556,7 +563,7 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
           <KvTable pairs={attrs} label="Request attributes" />
         </Block>
       ) : null}
-      <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} first="headers" query={query} sampled={sampled} />
+      <HeadersBodyTabs what="request" headersText={r.request_headers} body={r.request_body} size={r.request_size} captureHref={appSlug ? capturePath(project, appSlug) : null} first="headers" query={query} sampled={sampled} />
     </div>
   );
 }
@@ -566,8 +573,9 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
  * latency, body size and type), a failure's Error, validation errors and exception (#988), then
  * Body | Headers (HeadersBodyTabs, Body first). The body is not repeated inside the Error block.
  */
-function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi }) {
+function ResponseTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
+  const appSlug = useAppSlug(r.app_id);
   const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
   const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
   const summary = errorSummary(r, excInfo);
@@ -607,7 +615,7 @@ function ResponseTab({ data, api }: { data: RequestDetailRead; api: FilterApi })
           <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
         </Block>
       ) : null}
-      <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} first="body" sampled={isSampledOut(r)} />
+      <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} captureHref={appSlug ? capturePath(project, appSlug) : null} first="body" sampled={isSampledOut(r)} />
     </div>
   );
 }
@@ -623,6 +631,7 @@ function HeadersBodyTabs({
   headersText,
   body,
   size,
+  captureHref,
   first,
   query,
   sampled = false,
@@ -631,6 +640,8 @@ function HeadersBodyTabs({
   headersText: string;
   body: string;
   size: number | undefined;
+  /** The app's capture settings, where the body size cap is set; null when the app is unknown. */
+  captureHref: string | null;
   first: "headers" | "body";
   /** The request's query parameters: a tab of their own on Request, shown (with 0) even when empty. */
   query?: [string, string][];
@@ -643,6 +654,10 @@ function HeadersBodyTabs({
   const parsed = useMemo(() => parseBody(body, contentTypeOf(headersText)), [body, headersText]);
   // A text/event-stream response also reads as its events (the Events view, its default).
   const sse = useMemo(() => (what === "response" && body && isEventStream(contentTypeOf(headersText)) ? parseEventStream(body) : null), [what, body, headersText]);
+  // Only the start of the body was stored (the capture cap); a cut JSON body still reads as Pretty,
+  // formatted as far as it goes.
+  const cut = useMemo(() => bodyCut(body, size, headersText), [body, size, headersText]);
+  const partial = !sse && parsed.kind === "text" && cut !== null && looksLikeJson(body);
   // Each tab can be read as stored ("Raw", with its Copy): the body as text, headers and
   // parameters as JSON; the switch says what the other view is.
   const [rawTabs, setRawTabs] = useState<Set<Sub>>(new Set());
@@ -655,7 +670,7 @@ function HeadersBodyTabs({
       return next;
     });
   // The view switch only where there is something to switch.
-  const view = sampled ? null : sub === "body" ? (sse ? "Events" : bodyViewName(parsed.kind)) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
+  const view = sampled ? null : sub === "body" ? (sse ? "Events" : partial ? "Pretty" : bodyViewName(parsed.kind)) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
   const id = useId();
   // Every tab is always there, with its count (0 too), so nothing appears or vanishes per request.
   const headersTab = { slug: "headers" as Sub, label: "Headers", n: sampled ? 0 : (headers?.length ?? 0) };
@@ -727,11 +742,14 @@ function HeadersBodyTabs({
             <KvTable pairs={query} label="Query parameters" />
           )
         ) : (
-          sse && !raw ? (
-            <SseEvents parse={sse} renderJson={(v) => <JsonView value={v} />} />
-          ) : (
-            <BodyView text={body} body={parsed} size={size} what={what} raw={raw} />
-          )
+          <div className="rd-bare">
+            {cut ? <CutNotice cut={cut} what={what} captureHref={captureHref} /> : null}
+            {sse && !raw ? (
+              <SseEvents parse={sse} renderJson={(v) => <JsonView value={v} />} />
+            ) : (
+              <BodyView text={body} body={parsed} size={size} what={what} raw={raw} partial={partial} />
+            )}
+          </div>
         )}
       </div>
     </section>
@@ -1026,16 +1044,13 @@ const bodyViewName = (kind: Body["kind"]) => (kind === "json" ? "Pretty" : kind 
  * event stream too) as stored text; `raw` shows a JSON or form body as stored instead. Its size,
  * type and Copy live elsewhere (the Overview, the tab row). "No request body" when there was none.
  */
-function BodyView({ text, body, size, what, raw }: { text: string; body: Body; size: number | undefined; what: "request" | "response"; raw: boolean }) {
-  const stored = text ? new Blob([text]).size : 0;
+function BodyView({ text, body, size, what, raw, partial }: { text: string; body: Body; size: number | undefined; what: "request" | "response"; raw: boolean; partial: boolean }) {
   if (body.kind === "empty") return <Empty>{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</Empty>;
-  // The SDK keeps bodies up to its capture limit: say when less was stored than was sent, for
-  // bodies that may be cut (a JSON or form body that parses is whole; sizes differ by encoding).
-  const cut = size !== undefined && stored < size && body.kind === "text" ? <p className="rd-note">Stored {formatBytes(stored)} of the {formatBytes(size)} sent.</p> : null;
   return (
     <div className="rd-bare">
-      {cut}
-      {raw || body.kind === "text" ? (
+      {partial && !raw ? (
+        <PartialJson text={text} what={what} />
+      ) : raw || body.kind === "text" ? (
         <RawText text={text} what={`the ${what} body`} />
       ) : body.kind === "json" ? (
         <JsonView value={body.value} />
@@ -1047,12 +1062,52 @@ function BodyView({ text, body, size, what, raw }: { text: string; body: Body; s
 }
 
 /**
+ * Says a body is only its start: "Showing the first 66 KB of 2.9 MB", with a link to the app's
+ * capture settings (where the body size cap is set) when the app is known.
+ */
+function CutNotice({ cut, what, captureHref }: { cut: BodyCut; what: "request" | "response"; captureHref: string | null }) {
+  return (
+    <p className="rd-cut" role="note">
+      <ObIcon name="info" />
+      <span>
+        Showing the first {formatBytes(cut.shownBytes)}
+        {cut.totalBytes !== null ? ` of ${formatBytes(cut.totalBytes)}` : ""} of this {what} body. The rest wasn’t captured (body size cap).
+        {captureHref ? (
+          <>
+            {" "}
+            <a href={captureHref}>Capture settings</a>
+          </>
+        ) : null}
+      </span>
+    </p>
+  );
+}
+
+/** A cut JSON body, re-indented as far as it goes, ending at a "cut here" line. Copy copies it as stored. */
+function PartialJson({ text, what }: { text: string; what: "request" | "response" }) {
+  const pretty = useMemo(() => formatPartialJson(text), [text]);
+  return (
+    <div className="rd-json rd-raw">
+      <div className="rd-json__bar">
+        <SectionCopy text={() => text} what={`the ${what} body as stored`} />
+      </div>
+      <pre className="rd-raw__pre">
+        <Marked text={pretty} />
+        <span className="rd-cut__end">{"\n"}— cut here: the rest was not captured —</span>
+      </pre>
+    </div>
+  );
+}
+
+/**
  * A JSON tree: containers open and close, and only the lines in view are in the DOM, so a large
- * body scrolls and toggles without jank.
+ * body scrolls and toggles without jank. A string that holds JSON can open as its own tree.
  */
 function JsonView({ value, copy, fill = false }: { value: unknown; copy?: { text: () => string; what: string }; fill?: boolean }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => defaultExpanded(value));
-  const lines = useMemo(() => jsonLines(value, expanded), [value, expanded]);
+  // Strings shown as their JSON tree.
+  const [nested, setNested] = useState<Set<string>>(() => new Set());
+  const lines = useMemo(() => jsonLines(value, expanded, nested), [value, expanded, nested]);
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -1085,11 +1140,22 @@ function JsonView({ value, copy, fill = false }: { value: unknown; copy?: { text
     });
   }, []);
 
+  // Shows a string as its JSON tree (opened one level), or as the string again.
+  const toggleNested = useCallback((path: string) => {
+    setNested((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    setExpanded((prev) => new Set(prev).add(nestedPath(path)));
+  }, []);
+
   const height = viewport > 0 ? viewport : Math.min(lines.length * LINE_HEIGHT + 8, 480);
   const start = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - LINE_OVERSCAN);
   const end = Math.min(lines.length, Math.ceil((scrollTop + height) / LINE_HEIGHT) + LINE_OVERSCAN);
   const shown = [];
-  for (let i = start; i < end; i++) shown.push(<Line key={lines[i].path} line={lines[i]} index={i} onToggle={toggle} />);
+  for (let i = start; i < end; i++) shown.push(<Line key={lines[i].path} line={lines[i]} index={i} onToggle={toggle} onNested={toggleNested} />);
 
   return (
     <div className="rd-json">
@@ -1111,9 +1177,25 @@ function JsonView({ value, copy, fill = false }: { value: unknown; copy?: { text
   );
 }
 
-function Line({ line: l, index, onToggle }: { line: JsonLine; index: number; onToggle: (path: string) => void }) {
+function Line({ line: l, index, onToggle, onNested }: { line: JsonLine; index: number; onToggle: (path: string) => void; onNested: (path: string) => void }) {
   const toggles = l.kind === "open" || (l.kind === "collapsed" && (l.size ?? 0) > 0);
   const key = l.key === undefined ? null : typeof l.key === "number" ? <span className="rd-j-idx">{l.key}: </span> : <span className="rd-j-key">{JSON.stringify(l.key)}: </span>;
+  const name = l.key === undefined ? "value" : String(l.key);
+  // A string that holds JSON: show it as its tree, or (on the tree's first line) as text again.
+  const nestedPath = l.fromString ?? (l.nestable ? l.path : null);
+  const nestedToggle =
+    nestedPath !== null ? (
+      <button
+        type="button"
+        className={`rd-j-nest${l.fromString !== undefined ? " is-on" : ""}`}
+        aria-expanded={l.fromString !== undefined}
+        aria-label={l.fromString !== undefined ? `Show ${name} as text` : `Show ${name} as JSON`}
+        title={l.fromString !== undefined ? "This string holds JSON. Show it as text" : "This string holds JSON. Show it as a tree"}
+        onClick={() => onNested(nestedPath)}
+      >
+        {l.fromString !== undefined ? "text" : "JSON"}
+      </button>
+    ) : null;
   return (
     <div
       className="rd-j-line"
@@ -1142,6 +1224,7 @@ function Line({ line: l, index, onToggle }: { line: JsonLine; index: number; onT
         <span className={`rd-j-${l.kind === "open" || l.kind === "close" ? "punc" : l.kind}`}>{l.text}</span>
       )}
       {l.comma ? <span className="rd-j-punc">,</span> : null}
+      {nestedToggle}
     </div>
   );
 }
