@@ -141,6 +141,127 @@ export function parseBody(text: string, contentType = ""): Body {
   return { kind: "text", text };
 }
 
+// ---------------------------------------------------------------- cut bodies
+
+/** A body stored shorter than it was sent: `shownBytes` kept of `totalBytes` (null when unknown). */
+export interface BodyCut {
+  shownBytes: number;
+  totalBytes: number | null;
+}
+
+const TRUNCATED_END = /(?:\.\.\.|…)\[truncated\]\s*$/;
+const COMPRESSED = /\b(?:gzip|x-gzip|br|deflate|zstd|compress)\b/i;
+
+/** UTF-8 length of `text`, without encoding it. */
+export function utf8Bytes(text: string): number {
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
+
+/**
+ * Whether a stored body is only the start of what was sent, and how much of it: it ends with the
+ * edge's `…[truncated]` marker, or (the SDK cut it, without a marker) fewer bytes were stored than
+ * the record's `size` (else the stored `content-length` header) says were sent. Sizes are not
+ * compared for a compressed body (they count encoded bytes), for a body that still parses whole
+ * (redaction shortens bodies too) or a masked one, nor when they differ by under 1%. Null when whole.
+ */
+export function bodyCut(text: string, size: number | undefined, headersText: string): BodyCut | null {
+  if (!text) return null;
+  const shownBytes = utf8Bytes(text);
+  const headers = parseHeaders(headersText) ?? [];
+  const header = (name: string) => headers.find(([k]) => k.toLowerCase() === name)?.[1] ?? "";
+  const length = Number.parseInt(header("content-length"), 10);
+  const sent = size && size > 0 ? size : Number.isFinite(length) && length > 0 ? length : null;
+  const total = sent !== null && !COMPRESSED.test(header("content-encoding")) ? sent : null;
+  if (TRUNCATED_END.test(text)) return { shownBytes, totalBytes: total !== null && total > shownBytes ? total : null };
+  if (total === null || total <= shownBytes || (total - shownBytes) / total < 0.01) return null;
+  if (text.trim() === "[masked]") return null;
+  if (looksLikeJson(text)) {
+    try {
+      JSON.parse(text);
+      return null;
+    } catch {
+      // Not whole JSON any more: cut.
+    }
+  }
+  return { shownBytes, totalBytes: total };
+}
+
+/** True when `text` starts like a JSON object or array. */
+export const looksLikeJson = (text: string) => /^\s*[[{]/.test(text);
+
+const isSpace = (c: string | undefined) => c === " " || c === "\n" || c === "\r" || c === "\t";
+
+/**
+ * Re-indents JSON text that may stop anywhere (a body cut at the capture limit), as far as it
+ * goes: a line per member, `indent` spaces per level, `": "` after keys, `{}` and `[]` kept on one
+ * line, strings (escapes included) copied as they are. One pass, linear, never throws; whitespace
+ * outside strings is replaced by this layout, everything else is copied through.
+ */
+export function formatPartialJson(text: string, indent = 2): string {
+  const out: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let run = 0;
+  const newline = (d: number) => `\n${" ".repeat(Math.max(0, d) * indent)}`;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c !== "{" && c !== "[" && c !== "}" && c !== "]" && c !== "," && c !== ":" && !isSpace(c)) continue;
+    // Flush the plain run (strings, numbers, literals) before this structural character.
+    out.push(text.slice(run, i));
+    run = i + 1;
+    if (c === "{" || c === "[") {
+      let j = i + 1;
+      while (isSpace(text[j])) j++;
+      if (text[j] === (c === "{" ? "}" : "]")) {
+        out.push(c === "{" ? "{}" : "[]");
+        i = j;
+        run = j + 1;
+        continue;
+      }
+      depth++;
+      out.push(c, newline(depth));
+    } else if (c === "}" || c === "]") {
+      depth = Math.max(0, depth - 1);
+      out.push(newline(depth), c);
+    } else if (c === ",") out.push(",", newline(depth));
+    else if (c === ":") out.push(": ");
+  }
+  out.push(text.slice(run));
+  return out.join("");
+}
+
+/** A string value that holds a JSON object or array (at most 256 KB), parsed; undefined otherwise. */
+export function nestedJson(raw: string): object | undefined {
+  if (raw.length > 256 * 1024 || !looksLikeJson(raw)) return undefined;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v !== null && typeof v === "object" ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------- JSON lines
 
 /** One line of the JSON viewer. Containers are one line when collapsed, an open and a close line when expanded. */
@@ -158,12 +279,22 @@ export interface JsonLine {
   /** Children of a container (keys or items). */
   size?: number;
   comma: boolean;
+  /** A string that holds JSON, which can be shown as its tree. */
+  nestable?: boolean;
+  /** The first line of a string shown as its JSON tree: the string's path, to show it as text again. */
+  fromString?: string;
 }
 
 const childPath = (path: string, key: string | number) => `${path}/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
 
-/** The lines of `value` with the containers in `expanded` open. */
-export function jsonLines(value: unknown, expanded: ReadonlySet<string>): JsonLine[] {
+/** Where the tree of a string that holds JSON lives, when `nested` shows it as one. */
+export const nestedPath = (path: string) => `${path}#json`;
+
+/**
+ * The lines of `value` with the containers in `expanded` open; a string whose path is in `nested`
+ * and that holds JSON shows as its tree (rooted at `nestedPath`).
+ */
+export function jsonLines(value: unknown, expanded: ReadonlySet<string>, nested: ReadonlySet<string> = new Set()): JsonLine[] {
   const out: JsonLine[] = [];
   const walk = (v: unknown, path: string, depth: number, key: string | number | undefined, comma: boolean) => {
     if (v !== null && typeof v === "object") {
@@ -183,7 +314,16 @@ export function jsonLines(value: unknown, expanded: ReadonlySet<string>): JsonLi
       out.push({ path: `${path}#close`, depth, kind: "close", text: c, comma });
       return;
     }
-    if (typeof v === "string") out.push({ path, depth, key, kind: "string", text: JSON.stringify(v), raw: v, comma });
+    if (typeof v === "string") {
+      const inner = nestedJson(v);
+      if (inner !== undefined && nested.has(path)) {
+        const first = out.length;
+        walk(inner, nestedPath(path), depth, key, comma);
+        out[first] = { ...out[first], fromString: path };
+        return;
+      }
+      out.push({ path, depth, key, kind: "string", text: JSON.stringify(v), raw: v, comma, nestable: inner !== undefined });
+    }
     else if (typeof v === "number") out.push({ path, depth, key, kind: "number", text: String(v), comma });
     else if (typeof v === "boolean") out.push({ path, depth, key, kind: "boolean", text: String(v), comma });
     else out.push({ path, depth, key, kind: "null", text: "null", comma });
