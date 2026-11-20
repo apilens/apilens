@@ -21,12 +21,16 @@ func TestValidate(t *testing.T) {
 		Default(),
 		{SampleRate: 0},
 		{Enabled: true, SampleRate: 0.1234, MaxPayloadBytes: intp(1)},
-		{Enabled: true, SampleRate: 0.5, MaxPayloadBytes: intp(MaxPayloadBytesLimit)},
+		{Enabled: true, SampleRate: 0.5, MaxPayloadBytes: intp(DefaultMaxPayloadBytesLimit)},
 	}
 	for _, p := range ok {
-		if err := p.Validate(); err != nil {
+		if err := p.Validate(DefaultMaxPayloadBytesLimit); err != nil {
 			t.Errorf("Validate(%+v) = %v", p, err)
 		}
+	}
+	// An operator may raise the ceiling: 4 MiB passes a 4 MiB limit.
+	if err := (Policy{SampleRate: 1, MaxPayloadBytes: intp(4 << 20)}).Validate(4 << 20); err != nil {
+		t.Errorf("Validate(4 MiB, limit 4 MiB) = %v", err)
 	}
 	bad := []struct {
 		field string
@@ -37,10 +41,10 @@ func TestValidate(t *testing.T) {
 		{"sample_rate", Policy{SampleRate: math.NaN()}},
 		{"sample_rate", Policy{SampleRate: 0.12345}},
 		{"max_payload_bytes", Policy{SampleRate: 1, MaxPayloadBytes: intp(0)}},
-		{"max_payload_bytes", Policy{SampleRate: 1, MaxPayloadBytes: intp(MaxPayloadBytesLimit + 1)}},
+		{"max_payload_bytes", Policy{SampleRate: 1, MaxPayloadBytes: intp(DefaultMaxPayloadBytesLimit + 1)}},
 	}
 	for _, c := range bad {
-		err := c.p.Validate()
+		err := c.p.Validate(DefaultMaxPayloadBytesLimit)
 		var inv *InvalidError
 		if !errors.As(err, &inv) || inv.Field != c.field || !errors.Is(err, ErrInvalid) {
 			t.Errorf("Validate(%+v) = %v, want %s error", c.p, err, c.field)

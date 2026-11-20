@@ -61,6 +61,7 @@ helm install apilens oci://ghcr.io/apilens/charts/apilens --version <x.y.z>
 | `config` | log, sink settings | Extra `APILENS_*` env vars (`__` = nesting); these override chart-managed keys |
 | `config.APILENS_IDENTITY__SENSITIVE_ACTION_MAX_AGE` / `APILENS_PROJECT__DELETION_GRACE` | `10m` / `168h` | Sign-in age allowed for sensitive actions; restore window of a deleted project |
 | `config.APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT` / `APILENS_INGEST__MAX_KEYS_PER_PROJECT` | `500` / `50` | People added to a project directly; active API keys per project (`0` = no limit) |
+| `config.APILENS_INGEST__MAX_PAYLOAD_BYTES_LIMIT` | `1048576` | Largest body cap an app's capture policy may set (64 KiB up to `ingest.max_body_bytes`) |
 | `config.APILENS_INGEST__RECORD_KEY_IP` | `true` | Record the client IP of an API key's last ingest request |
 | `config.APILENS_AUDIT__RETENTION` | `400` | Days audit events are kept (at least 30, or 0 = forever) |
 | `config.APILENS_RETENTION__*` | requests `90`, logs `90`, spans `90`, rollups_1m `30`, rollups_1h `400` | Telemetry retention in days, applied to the ClickHouse TTLs by the migrations Job; shortening one needs `apilens migrate -confirm-retention-change` once. See `deploy/README.md` |

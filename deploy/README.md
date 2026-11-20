@@ -108,6 +108,7 @@ Limits and windows for project access, API keys, project deletion, the audit log
 | `APILENS_PROJECT__DELETION_GRACE` | `project.deletion_grace` | `168h` (7 days) | How long a deleted project can be restored before the purge job removes its data. `0s` purges at the next run |
 | `APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT` | `access.max_direct_members_per_project` | `500` | People who can be added to one project directly (`member_limit_reached`). `0` = no limit |
 | `APILENS_INGEST__MAX_KEYS_PER_PROJECT` | `ingest.max_keys_per_project` | `50` | Active API keys per project (`key_limit_reached`). `0` = no limit |
+| `APILENS_INGEST__MAX_PAYLOAD_BYTES_LIMIT` | `ingest.max_payload_bytes_limit` | `1048576` (1 MiB) | Largest body cap an app's capture policy may set; ingest stores at most this much of each request or response body. From `65536` (64 KiB, the default cap) up to `ingest.max_body_bytes` |
 | `APILENS_INGEST__RECORD_KEY_IP` | `ingest.record_key_ip` | `true` | Record the client IP of each API key's last ingest request (personal data, for access reviews). `false` stops recording and clears it on next use |
 | `APILENS_AUDIT__RETENTION` | `audit.retention` | `400` | Days audit events are kept. At least `30`, or `0` to keep them forever |
 | `APILENS_RETENTION__REQUESTS` | `retention.requests` | `90` | Days requests are kept (1 to 3650) |

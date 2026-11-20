@@ -16,8 +16,43 @@ export function capturePath(project: string, app?: string): string {
   return app ? `${base}?app=${encodeURIComponent(app)}` : base;
 }
 
-/** Largest body cap the API accepts (`maximum` of `max_payload_bytes`): 1 MiB. */
-export const MAX_PAYLOAD_LIMIT = 1_048_576;
+/** The body cap of an app whose policy sets none, when the API does not say (`default_max_payload_bytes`). */
+export const DEFAULT_PAYLOAD_BYTES = 65_536;
+/** The largest cap a policy may set, when the API does not say (`max_payload_bytes_limit`, operator-set). */
+export const FALLBACK_PAYLOAD_LIMIT = 1_048_576;
+
+/** The server's default body cap and the largest one it accepts, read from a loaded policy. */
+export function payloadBounds(p: Pick<CapturePolicy, "default_max_payload_bytes" | "max_payload_bytes_limit"> | null | undefined): { fallback: number; limit: number } {
+  const fallback = p?.default_max_payload_bytes && p.default_max_payload_bytes > 0 ? p.default_max_payload_bytes : DEFAULT_PAYLOAD_BYTES;
+  const limit = p?.max_payload_bytes_limit && p.max_payload_bytes_limit > 0 ? p.max_payload_bytes_limit : FALLBACK_PAYLOAD_LIMIT;
+  return { fallback, limit };
+}
+
+const PRESETS = [16_384, 65_536, 262_144, 1_048_576];
+
+/** The cap presets the form offers: 16 KiB, 64 KiB, 256 KiB and 1 MiB up to `limit`, plus `limit` itself when larger. */
+export function capPresets(limit: number): number[] {
+  const out = PRESETS.filter((b) => b <= limit);
+  return limit > PRESETS[PRESETS.length - 1] ? [...out, limit] : out;
+}
+
+/** `64 KiB`, `1 MiB`, `1,000 bytes`: the short form of a cap. */
+export function formatSize(bytes: number): string {
+  if (bytes >= 1_048_576 && bytes % 1_048_576 === 0) return `${bytes / 1_048_576} MiB`;
+  if (bytes >= 1024 && bytes % 1024 === 0) return `${bytes / 1024} KiB`;
+  return `${bytes.toLocaleString("en-US")} bytes`;
+}
+
+/** Environments whose SDK reported a body cap below `cap` (null: the default `fallback`). */
+export function sdkCapsBelow(reports: readonly { environment: string; config?: Record<string, unknown> | null }[], cap: number | null, fallback: number): { environment: string; sdkCap: number }[] {
+  const wanted = cap ?? fallback;
+  const out: { environment: string; sdkCap: number }[] = [];
+  for (const r of reports) {
+    const raw = num(r.config ?? {}, "max_payload_bytes");
+    if (raw !== null && raw > 0 && Math.floor(raw) < wanted) out.push({ environment: r.environment, sdkCap: Math.floor(raw) });
+  }
+  return out;
+}
 
 /** How long until SDKs apply a saved policy: the edge's app cache TTL (`ingest.app_cache_ttl`). */
 export const APPLIES_WITHIN = "60 s";
@@ -62,12 +97,15 @@ export function percentText(rate: number): string {
 }
 
 const PERCENT = /^\d{1,3}(\.\d{1,2})?$/;
-const BYTES = /^\d{1,7}$/;
+const BYTES = /^\d{1,10}$/;
+
+/** Largest value the column holds (Postgres integer). */
+const INT32_MAX = 2_147_483_647;
 
 export type FieldErrors = Partial<Record<"percent" | "cap", string>>;
 
-/** The policy as the API wants it, or why each field cannot be saved. */
-export function checkDraft(d: PolicyDraft): { ok: true; policy: PutCapturePolicyRequest } | { ok: false; errors: FieldErrors } {
+/** The policy as the API wants it, or why each field cannot be saved. `limit` is the largest cap the server accepts. */
+export function checkDraft(d: PolicyDraft, limit: number = FALLBACK_PAYLOAD_LIMIT): { ok: true; policy: PutCapturePolicyRequest } | { ok: false; errors: FieldErrors } {
   const errors: FieldErrors = {};
   const percent = d.percent.trim();
   let rate = 0;
@@ -77,7 +115,7 @@ export function checkDraft(d: PolicyDraft): { ok: true; policy: PutCapturePolicy
   let cap: number | null = null;
   if (capText) {
     cap = BYTES.test(capText) ? Number(capText) : Number.NaN;
-    if (!Number.isInteger(cap) || cap < 1 || cap > MAX_PAYLOAD_LIMIT) errors.cap = `Enter a size from 1 to ${MAX_PAYLOAD_LIMIT.toLocaleString("en-US")} bytes, or leave it empty.`;
+    if (!Number.isInteger(cap) || cap < 1 || cap > limit) errors.cap = `Enter a size from 1 to ${limit.toLocaleString("en-US")} bytes (${formatSize(limit)}), or leave it empty for the default.`;
   }
   if (errors.percent || errors.cap) return { ok: false, errors };
   return {
@@ -100,8 +138,9 @@ export function checkPolicy(value: unknown): { ok: true; policy: PutCapturePolic
   if (flags.some((f) => typeof v[f] !== "boolean")) return { ok: false, error: captureError("invalid_request") };
   const rate = v.sample_rate;
   if (typeof rate !== "number" || !(rate >= 0 && rate <= 1) || Math.round(rate * 10_000) / 10_000 !== rate) return { ok: false, error: captureError("invalid_request") };
+  // The upper bound is the operator's (ingest.max_payload_bytes_limit): the API checks it.
   const cap = v.max_payload_bytes ?? null;
-  if (cap !== null && (typeof cap !== "number" || !Number.isInteger(cap) || cap < 1 || cap > MAX_PAYLOAD_LIMIT)) return { ok: false, error: captureError("invalid_request") };
+  if (cap !== null && (typeof cap !== "number" || !Number.isInteger(cap) || cap < 1 || cap > INT32_MAX)) return { ok: false, error: captureError("invalid_request") };
   return {
     ok: true,
     policy: {
@@ -139,9 +178,9 @@ export function samePolicy(a: PutCapturePolicyRequest, b: PutCapturePolicyReques
   );
 }
 
-/** `65,536 bytes (64 KiB)`; `No cap` for null. */
-export function formatCap(bytes: number | null): string {
-  if (bytes === null) return "No cap";
+/** `65,536 bytes (64 KiB)`; `Default (64 KiB)` for null, the server's default `fallback`. */
+export function formatCap(bytes: number | null, fallback: number = DEFAULT_PAYLOAD_BYTES): string {
+  if (bytes === null) return `Default (${formatSize(fallback)})`;
   const exact = `${bytes.toLocaleString("en-US")} bytes`;
   if (bytes >= 1024 && bytes % 1024 === 0) {
     const kib = bytes / 1024;
@@ -177,9 +216,10 @@ function num(config: Record<string, unknown>, key: string): number | null {
 /**
  * Each setting of `policy` next to the SDK's reported `config` and the narrower of the two, which
  * is what the SDK applies: a flag is on only when both are on, the sample rate is the lower one,
- * the body cap the smaller one. A setting the SDK did not report follows the policy.
+ * the body cap the smaller one. A setting the SDK did not report follows the policy. A policy
+ * without a cap means the server default `fallback`, which ingest enforces whatever the SDK sends.
  */
-export function effectiveRows(policy: PutCapturePolicyRequest, config: Record<string, unknown>): EffectiveRow[] {
+export function effectiveRows(policy: PutCapturePolicyRequest, config: Record<string, unknown>, fallback: number = DEFAULT_PAYLOAD_BYTES): EffectiveRow[] {
   const flagRow = (label: string, on: boolean, key: string): EffectiveRow => {
     const sdk = flag(config, key);
     return { label, policy: yesNo(on), sdk: sdk === null ? null : yesNo(sdk), effective: yesNo(on && sdk !== false), narrowedBySdk: on && sdk === false };
@@ -189,14 +229,15 @@ export function effectiveRows(policy: PutCapturePolicyRequest, config: Record<st
   const rate = sdkRate === null ? policy.sample_rate : Math.min(policy.sample_rate, sdkRate);
   const rawCap = num(config, "max_payload_bytes");
   const sdkCap = rawCap !== null && rawCap > 0 ? Math.floor(rawCap) : null;
-  const cap = sdkCap === null ? policy.max_payload_bytes : policy.max_payload_bytes === null ? sdkCap : Math.min(policy.max_payload_bytes, sdkCap);
+  const policyCap = policy.max_payload_bytes ?? fallback;
+  const cap = sdkCap === null ? policyCap : Math.min(policyCap, sdkCap);
   return [
     flagRow("Capture", policy.enabled, "enabled"),
     { label: "Sample rate", policy: formatPercent(policy.sample_rate), sdk: sdkRate === null ? null : formatPercent(sdkRate), effective: formatPercent(rate), narrowedBySdk: sdkRate !== null && sdkRate < policy.sample_rate },
     flagRow("Headers", policy.capture_headers, "capture_headers"),
     flagRow("Request bodies", policy.capture_request_body, "capture_request_body"),
     flagRow("Response bodies", policy.capture_response_body, "capture_response_body"),
-    { label: "Body size cap", policy: formatCap(policy.max_payload_bytes), sdk: sdkCap === null ? null : formatCap(sdkCap), effective: formatCap(cap), narrowedBySdk: sdkCap !== null && cap === sdkCap && cap !== policy.max_payload_bytes },
+    { label: "Body size cap", policy: formatCap(policy.max_payload_bytes, fallback), sdk: sdkCap === null ? null : formatCap(sdkCap), effective: formatCap(cap), narrowedBySdk: sdkCap !== null && sdkCap < policyCap },
   ];
 }
 

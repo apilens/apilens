@@ -87,7 +87,7 @@ type HeartbeatPolicy struct {
 	CaptureHeaders      bool    `json:"capture_headers" doc:"Whether request and response headers are captured."`
 	CaptureRequestBody  bool    `json:"capture_request_body" doc:"Whether request bodies are captured."`
 	CaptureResponseBody bool    `json:"capture_response_body" doc:"Whether response bodies are captured."`
-	MaxPayloadBytes     *int    `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means no cap beyond the SDK's own."`
+	MaxPayloadBytes     *int    `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; the SDK applies the smaller of this and its own cap. Null means the policy sets none: the SDK keeps its own cap, and ingest still stores at most the server default (64 KiB) of each body."`
 }
 
 // HeartbeatAccepted is the response of POST /v1/heartbeat.

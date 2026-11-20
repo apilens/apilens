@@ -29,3 +29,16 @@
   .cps-app, .cps-num { max-width: none; }
   .cps-table th[scope="row"] { display: block; padding: 0 0 var(--space-1); border-bottom: 0; }
 }
+
+/* Body size cap presets: segmented chips above the custom value. */
+.cps-presets { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-2); }
+.cps-preset { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); color: var(--ink); font: 450 13px/1 var(--font-sans); font-variant-numeric: tabular-nums; cursor: pointer; }
+.cps-preset:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
+.cps-preset[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.cps-preset:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.cps-preset:disabled { color: var(--ink-muted); cursor: not-allowed; }
+.cps-preset__note { font: 400 12px/1 var(--font-sans); color: var(--ink-muted); }
+.cps-sdk-cap { display: flex; gap: var(--space-2); align-items: flex-start; margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.cps-sdk-cap svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.cps-sdk-cap b { font-weight: 500; color: var(--ink); }
+.cps-sdk-cap code { font: 400 12px/1 var(--font-mono); color: var(--ink); }

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/mail"
 	"net/netip"
@@ -122,7 +123,11 @@ func (v ValkeyConfig) Enabled() bool { return len(v.Addr) > 0 }
 
 // IngestConfig configures the edge role.
 type IngestConfig struct {
-	MaxBodyBytes         int64         `koanf:"max_body_bytes"`
+	MaxBodyBytes int64 `koanf:"max_body_bytes"`
+	// MaxPayloadBytesLimit is the largest body cap (max_payload_bytes) an
+	// app's capture policy may set; ingest stores at most this much of each
+	// request or response body. Between 64 KiB and max_body_bytes.
+	MaxPayloadBytesLimit int64         `koanf:"max_payload_bytes_limit"`
 	MaxRecordsPerRequest int           `koanf:"max_records_per_request"`
 	KeyCacheSize         int           `koanf:"key_cache_size"`
 	KeyCacheTTL          time.Duration `koanf:"key_cache_ttl"`
@@ -491,6 +496,7 @@ func Defaults() map[string]any {
 		"clickhouse.cluster":               "",
 		"valkey.addr":                      []string{},
 		"ingest.max_body_bytes":            int64(16 << 20),
+		"ingest.max_payload_bytes_limit":   int64(1 << 20),
 		"ingest.max_records_per_request":   1000,
 		"ingest.key_cache_size":            100_000,
 		"ingest.key_cache_ttl":             "60s",
@@ -641,6 +647,10 @@ func Load(filePath string, environ []string, overrides map[string]any) (*Config,
 }
 
 // identifierRE bounds names that end up in DDL (CREATE DATABASE).
+// minPayloadBytesLimit is the smallest ingest.max_payload_bytes_limit: the
+// default body cap (64 KiB) must fit under it.
+const minPayloadBytesLimit = 64 << 10
+
 var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 var listKeys = map[string]bool{
@@ -697,6 +707,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ingest.MaxBodyBytes <= 0 || c.Ingest.MaxRecordsPerRequest <= 0 {
 		errs = append(errs, errors.New("ingest.max_body_bytes and ingest.max_records_per_request must be > 0"))
+	}
+	if l := c.Ingest.MaxPayloadBytesLimit; l < minPayloadBytesLimit || (c.Ingest.MaxBodyBytes > 0 && l > c.Ingest.MaxBodyBytes) || l > math.MaxInt32 {
+		errs = append(errs, fmt.Errorf("ingest.max_payload_bytes_limit must be between %d (64 KiB) and ingest.max_body_bytes (%d)", minPayloadBytesLimit, c.Ingest.MaxBodyBytes))
 	}
 	if c.Ingest.MaxAppsPerProject < 0 || c.Ingest.MaxNewAppsPerHour < 0 {
 		errs = append(errs, errors.New("ingest.max_apps_per_project and ingest.max_new_apps_per_hour must be >= 0 (0 disables)"))

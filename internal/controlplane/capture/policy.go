@@ -11,8 +11,14 @@ import (
 	"math"
 )
 
-// MaxPayloadBytesLimit is the largest max_payload_bytes a policy may set.
-const MaxPayloadBytesLimit = 1 << 20
+const (
+	// DefaultMaxPayloadBytes caps each captured body of an app whose policy
+	// sets no max_payload_bytes: ingest stores at most this much per body.
+	DefaultMaxPayloadBytes = 64 << 10
+	// DefaultMaxPayloadBytesLimit is the largest max_payload_bytes a policy
+	// may set unless the operator changes ingest.max_payload_bytes_limit.
+	DefaultMaxPayloadBytesLimit = 1 << 20
+)
 
 // Policy is the capture policy of one app.
 type Policy struct {
@@ -23,8 +29,8 @@ type Policy struct {
 	CaptureHeaders      bool
 	CaptureRequestBody  bool
 	CaptureResponseBody bool
-	// MaxPayloadBytes caps each captured body; nil means no cap beyond the
-	// SDK's own.
+	// MaxPayloadBytes caps each captured body; nil means the server default,
+	// DefaultMaxPayloadBytes.
 	MaxPayloadBytes *int
 }
 
@@ -48,7 +54,9 @@ func (e *InvalidError) Error() string { return fmt.Sprintf("%s: %s", e.Field, e.
 func (e *InvalidError) Unwrap() error { return ErrInvalid }
 
 // Validate reports the first field outside its range as an *InvalidError.
-func (p Policy) Validate() error {
+// limit is the largest max_payload_bytes allowed (the operator's
+// ingest.max_payload_bytes_limit).
+func (p Policy) Validate(limit int) error {
 	if math.IsNaN(p.SampleRate) || p.SampleRate < 0 || p.SampleRate > 1 {
 		return &InvalidError{Field: "sample_rate", Reason: "must be between 0 and 1"}
 	}
@@ -56,8 +64,8 @@ func (p Policy) Validate() error {
 	if r := math.Round(p.SampleRate*1e4) / 1e4; math.Abs(r-p.SampleRate) > 1e-12 {
 		return &InvalidError{Field: "sample_rate", Reason: "at most 4 decimal places"}
 	}
-	if p.MaxPayloadBytes != nil && (*p.MaxPayloadBytes < 1 || *p.MaxPayloadBytes > MaxPayloadBytesLimit) {
-		return &InvalidError{Field: "max_payload_bytes", Reason: fmt.Sprintf("must be between 1 and %d", MaxPayloadBytesLimit)}
+	if p.MaxPayloadBytes != nil && (*p.MaxPayloadBytes < 1 || *p.MaxPayloadBytes > limit) {
+		return &InvalidError{Field: "max_payload_bytes", Reason: fmt.Sprintf("must be between 1 and %d", limit)}
 	}
 	return nil
 }

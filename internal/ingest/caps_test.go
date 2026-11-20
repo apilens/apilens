@@ -152,6 +152,26 @@ func TestCapsUseAppPolicy(t *testing.T) {
 	}
 }
 
+// A policy saved above a ceiling the operator lowered later is held to the
+// ceiling (ingest.max_payload_bytes_limit).
+func TestCapsClampToOperatorLimit(t *testing.T) {
+	saved := 1 << 20
+	src := &fakeCapture{byApp: map[uuid.UUID]capture.Policy{testApp: {Enabled: true, SampleRate: 1, MaxPayloadBytes: &saved}}}
+	sink := &fakeSink{}
+	cfg := config.IngestConfig{MaxBodyBytes: 16 << 20, MaxRecordsPerRequest: 1000, MaxPayloadBytesLimit: 128 << 10}
+	e := New(fakeVerifier{}, fakeApps{}, sink, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry()).WithCapture(src)
+	e.now = func() time.Time { return fixedNow }
+	mux := http.NewServeMux()
+	e.Register(mux)
+	big := strings.Repeat("d", 300<<10)
+	if rec := post(t, mux, "/v1/requests", requestsBody(t, map[string]any{"response_payload": big}), nil); rec.Code != http.StatusOK {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	if got := sink.requests[0].ResponsePayload; got != big[:128<<10]+truncatedMarker {
+		t.Errorf("len %d, want the operator's 128 KiB ceiling", len(got))
+	}
+}
+
 // Without a stored cap, or with the policy store down, the default applies
 // and the batch is still accepted.
 func TestCapsFallBackToDefault(t *testing.T) {
