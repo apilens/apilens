@@ -342,3 +342,39 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 /* Drill-down counts read as plain numbers; the underline comes on hover or focus. */
 .tr .tr-drill { text-decoration: none; }
 .tr .tr-drill:hover, .tr .tr-drill:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- Density pass (Linear-like): less height, one left edge, lighter marks --------------------
+   Gaps 16 (under the toolbar) and 24 (between sections); the panel 16px in; tabs 66px with an
+   18px value; a 160px plot whose value labels sit on their gridlines inside it, so the bars, the
+   tab text and the table share one left edge; table rows 32px. */
+.tr { --tr-sec: 24px; --tr-head: 8px; }
+.tr-tools { margin-bottom: 16px; }
+.tr-panel { border-radius: 10px; }
+.tr-mtabs { gap: 16px; padding: 4px 16px 0; }
+.tr-mtabs__tabs { gap: 4px; }
+.tr-mtab { gap: 0; padding: 10px 12px 12px; margin: 0; }
+.tr-mtab:first-child { margin-left: -12px; }
+.tr-mtab[aria-current="page"]::after { left: 12px; right: 12px; bottom: 4px; }
+.tr-mtab__value { font-size: 18px; line-height: 24px; letter-spacing: -0.01em; }
+.tr-mtab__sub { font-size: 11px; }
+.tr-mtabs__facts { gap: 24px; padding: 10px 0 12px; }
+.tr-mtabs__facts dt { font-size: 12px; }
+.tr-mtabs__facts dd { font-size: 14px; line-height: 24px; }
+.tr-panel__chart { padding: 4px 16px 12px; }
+.tr-panel__chart .tr-legend { gap: 12px; margin-bottom: 4px; font-size: 11px; justify-content: flex-end; }
+.tr-panel .tr-chart { --tr-gutter: 0px; }
+.tr-panel .tr-plot svg { height: 160px; }
+.tr-panel .tr-yplot { display: block; position: relative; }
+.tr-panel .tr-axis-y { position: absolute; inset: 0 auto auto 0; z-index: 1; width: 100%; height: 160px; pointer-events: none; }
+.tr-panel .tr-axis-y span { right: auto; left: 0; transform: translateY(calc(-100% - 2px)); font-size: 10px; }
+.tr-panel .tr-axis-y span:last-child { display: none; }
+.tr-panel .tr-axis-x__zone { display: none; }
+.tr-panel .tr-fill-ok { fill: color-mix(in srgb, var(--chart-neutral) 72%, transparent); }
+
+.tr-sec__head { margin-bottom: 8px; min-height: 28px; }
+.tr .tr-table th { padding: 6px 12px; font-size: 12px; }
+.tr .tr-table td { height: 32px; padding: 4px 12px; }
+.tr .tr-table td.tr-num { font-size: 12px; }
+.tr .tr-table .tr-ep__link code { font-size: 12px; }
+.tr-panel .tr-axis-x--inset { grid-template-columns: minmax(0, 1fr); }
+.tr-panel .tr-axis-y span { padding: 0 4px; margin-left: -4px; border-radius: 3px; background: color-mix(in srgb, var(--surface-1) 85%, transparent); }
