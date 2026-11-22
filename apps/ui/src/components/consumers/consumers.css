@@ -75,3 +75,8 @@
 /* Pills keep their width (the long placeholder must not squeeze "Time range" onto two lines). */
 .cs .tr-fbar .exp-pill { flex: none; }
 .cs .tr-fbar .exp-pill__field, .cs .tr-fbar .exp-pill__value { white-space: nowrap; }
+/* The hover card's keys, and the hovered bar a touch brighter. */
+.cs-sw-new { background: var(--chart-accent); }
+.cs-sw-returning { background: var(--chart-muted, color-mix(in srgb, var(--ink) 28%, transparent)); }
+.cs-bar.is-hover { filter: brightness(1.35); }
+.cs-chart .ct-tip { z-index: 6; }

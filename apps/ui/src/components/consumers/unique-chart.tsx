@@ -5,7 +5,9 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } fr
 import { type ConsumersQuery, consumersHref } from "@/lib/consumers";
 import { exploreHrefFor } from "@/lib/explore";
 import { chartPeriod, chartTick, chartTooltipLabel, windowText } from "@/lib/explore-timeline";
+import { formatCount } from "@/lib/consumers";
 import { useTimeZone } from "@/lib/time-zone-context";
+import { ChartAnnounce, ChartTooltip } from "../charts/chart-tooltip";
 
 type Point = { ts: string; consumers: number; new: number; returning: number };
 
@@ -25,6 +27,9 @@ export function UniqueChart({ project, query: q, points, bucketSeconds }: { proj
   const menu = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<{ a: number; b: number; done: boolean } | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
+  // The bucket under the pointer (or keyboard focus), and the plot's width, for the hover card.
+  const [hover, setHover] = useState<number | null>(null);
+  const [width, setWidth] = useState(0);
 
   // A click outside the plot and its menu, or Escape, lets the selection go.
   useEffect(() => {
@@ -62,7 +67,10 @@ export function UniqueChart({ project, query: q, points, bucketSeconds }: { proj
     setSel({ a: i, b: i, done: false });
   };
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (sel && !sel.done) setSel({ ...sel, b: indexAt(e.clientX) });
+    const i = indexAt(e.clientX);
+    if (sel && !sel.done) setSel({ ...sel, b: i });
+    setHover(i);
+    setWidth(plot.current?.getBoundingClientRect().width ?? 0);
   };
   const onUp = (e: PointerEvent<HTMLDivElement>) => {
     if (!sel || sel.done) return;
@@ -78,10 +86,13 @@ export function UniqueChart({ project, query: q, points, bucketSeconds }: { proj
     }
     const next = Math.max(0, Math.min(points.length - 1, (focus ?? points.length - 1) + (e.key === "ArrowRight" ? 1 : -1)));
     setFocus(next);
+    setWidth(plot.current?.getBoundingClientRect().width ?? 0);
     if (e.shiftKey) setSel((s) => ({ a: s && !s.done ? s.a : (focus ?? next), b: next, done: false }));
     else setSel(null);
   };
 
+  // The card follows the pointer, else the keyboard's bucket.
+  const shown = hover ?? focus;
   const lo = sel ? Math.min(sel.a, sel.b) : 0;
   const hi = sel ? Math.max(sel.a, sel.b) : 0;
   const picked = sel?.done ? { from: iso(at[lo]), to: iso(at[hi] + step) } : null;
@@ -98,18 +109,41 @@ export function UniqueChart({ project, query: q, points, bucketSeconds }: { proj
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
+        onPointerLeave={() => setHover(null)}
+        onBlur={() => setFocus(null)}
         onKeyDown={onKey}
       >
         {points.map((p, i) => {
-          const label = `${chartTooltipLabel(at[i], period, tz)}: ${p.consumers} ${p.consumers === 1 ? "user" : "users"} (${p.new} new, ${p.returning} returning). Click or drag to filter this page to a window.`;
           return (
-            <span key={p.ts} className={`cs-bar${focus === i ? " is-focus" : ""}`} title={sel ? undefined : label} style={{ height: `${(p.consumers / top) * 100}%` }}>
+            <span key={p.ts} className={`cs-bar${focus === i ? " is-focus" : ""}${shown === i ? " is-hover" : ""}`} style={{ height: `${(p.consumers / top) * 100}%` }}>
               <span className="cs-bar__new" style={{ height: `${p.consumers ? (p.new / p.consumers) * 100 : 0}%` }} />
             </span>
           );
         })}
         {sel ? <span className="cs-sel" aria-hidden="true" style={{ left: `${(lo / points.length) * 100}%`, width: `${((hi - lo + 1) / points.length) * 100}%` }} /> : null}
+        {/* The hover card (Explore's and Traffic's): the bucket's time, its users, new and returning. */}
+        {shown !== null && !sel?.done && width > 0 ? (
+          <ChartTooltip
+            x={((shown + 0.5) / points.length) * width}
+            boxWidth={width}
+            title={chartTooltipLabel(at[shown], period, tz)}
+            rows={[
+              { label: "Users", value: formatCount(points[shown].consumers) },
+              { label: "New", value: formatCount(points[shown].new), swatch: "cs-sw-new" },
+              { label: "Returning", value: formatCount(points[shown].returning), swatch: "cs-sw-returning" },
+            ]}
+            placement="inside"
+            hint="Click or drag to filter this page to a window"
+          />
+        ) : null}
       </div>
+      <ChartAnnounce
+        text={
+          shown !== null
+            ? `${chartTooltipLabel(at[shown], period, tz)}: ${points[shown].consumers} users, ${points[shown].new} new, ${points[shown].returning} returning`
+            : ""
+        }
+      />
       {picked ? (
         <div
           ref={menu}
