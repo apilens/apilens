@@ -12,7 +12,7 @@ import {
   stackBars,
 } from "./consumers";
 
-const DEFAULTS = { range: "24h", env: "", app: "", method: "", path: "", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
+const DEFAULTS = { range: "24h", env: "", app: "", method: "", path: "", groupLike: "", pathLike: "", status: "", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
 
 describe("parseConsumersQuery", () => {
   it("defaults everything", () => {
@@ -26,6 +26,9 @@ describe("parseConsumersQuery", () => {
       app: "",
       method: "",
       path: "",
+      groupLike: "",
+      pathLike: "",
+      status: "",
       group: "Acme Corp",
       consumer: "usr_1f3a9c",
       tab: "errors",
@@ -142,5 +145,16 @@ describe("environment", () => {
   it("writes it with the other filters", () => {
     expect(consumersHref("shop", { range: "24h", env: "production", group: "Partners" })).toBe("/project/shop/consumers?range=24h&env=production&group=Partners");
     expect(groupHref("shop", "Partners", "24h", "staging")).toBe("/project/shop/consumers?range=24h&env=staging&group=Partners");
+  });
+});
+
+describe("contains and status", () => {
+  it("reads and writes group_contains, path_contains and status", () => {
+    const q = parseConsumersQuery({ group_contains: " part ", path_contains: "orders", status: "4XX,500" });
+    expect(q).toMatchObject({ groupLike: "part", pathLike: "orders", status: "4xx,500" });
+    expect(parseConsumersQuery({ status: "4xxx" }).status).toBe("");
+    expect(consumersHref("shop", { range: "24h", groupLike: "part", pathLike: "orders", status: "4xx,500" })).toBe(
+      "/project/shop/consumers?range=24h&path_contains=orders&status=4xx%2C500&group_contains=part",
+    );
   });
 });

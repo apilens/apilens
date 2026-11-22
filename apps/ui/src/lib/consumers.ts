@@ -24,7 +24,7 @@ const CONSUMER_SORTS: readonly ConsumerSort[] = ["requests", "errors", "last_see
 const MAX_ENV = 64;
 
 /**
- * The page's state, all of it in the URL: `?range=&env=&app=&method=&path=&group=&q=&sort=&consumer=&tab=`
+ * The page's state, all of it in the URL: `?range=&env=&app=&method=&path=&path_contains=&status=&group=&group_contains=&q=&sort=&consumer=&tab=`
  * (plus `page`/`per`). `consumer` opens that user's drawer over the list, which keeps its own filters.
  */
 export interface ConsumersQuery {
@@ -35,6 +35,11 @@ export interface ConsumersQuery {
   app: string;
   method: string;
   path: string;
+  /** "Contains" on the group and the route template (case-insensitive); "" for none. */
+  groupLike: string;
+  pathLike: string;
+  /** Status classes and codes, comma-separated (`4xx,500`); "" for all. */
+  status: string;
   /** An SDK consumer group the consumers list is narrowed to, or null. */
   group: string | null;
   /** The consumer whose detail is open, or null. */
@@ -67,6 +72,15 @@ export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
     app: parseAppParam(params.app),
     method: /^[A-Za-z]{1,16}$/.test(method) ? method.toUpperCase() : "",
     path: path.startsWith("/") && path.length <= 1024 ? path : "",
+    groupLike: text(first(params.group_contains)) ?? "",
+    pathLike: (() => {
+      const v = (first(params.path_contains) ?? "").trim();
+      return v.length <= 1024 ? v : "";
+    })(),
+    status: (() => {
+      const v = (first(params.status) ?? "").trim().toLowerCase();
+      return /^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$/.test(v) && v.length <= 256 ? v : "";
+    })(),
     group: text(first(params.group)),
     consumer: (() => {
       const c = first(params.consumer);
@@ -91,7 +105,10 @@ export function consumersHref(project: string, q: Partial<ConsumersQuery>): stri
   if (q.app) p.set("app", q.app);
   if (q.method) p.set("method", q.method);
   if (q.path) p.set("path", q.path);
+  if (q.pathLike) p.set("path_contains", q.pathLike);
+  if (q.status) p.set("status", q.status);
   if (q.group) p.set("group", q.group);
+  if (q.groupLike) p.set("group_contains", q.groupLike);
   if (q.q) p.set("q", q.q);
   if (q.sort && q.sort !== "requests") p.set("sort", q.sort);
   if (q.consumer) {

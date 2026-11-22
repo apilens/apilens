@@ -267,6 +267,30 @@ func TestConsumers(t *testing.T) {
 		t.Fatalf("group Partners (not in the last hour) = %+v", list)
 	}
 
+	// The Consumers filter bar: a status filter, and "contains" on the group and the route.
+	for _, tc := range []struct {
+		query string
+		id    string
+		reqs  uint64
+	}{
+		{"status=5xx", "old", 1},            // old's 500
+		{"status=4xx", "fresh", 1},          // fresh's 404
+		{"status=404,500", "fresh", 1},      // both users (one request each), tied, so by id
+		{"group_contains=intern", "old", 3}, // the three requests tagged Internal
+		{"path_contains=LOG", "old", 1},     // POST /login, ignoring case
+	} {
+		list = consumersList{}
+		if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&"+tc.query, &list); code != http.StatusOK {
+			t.Fatalf("%s: %d", tc.query, code)
+		}
+		if len(list.Consumers) == 0 || list.Consumers[0].ConsumerID != tc.id || list.Consumers[0].Requests != tc.reqs {
+			t.Fatalf("%s: %+v", tc.query, list.Consumers)
+		}
+	}
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&status=4xxx", nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad status: %d, want 422", code)
+	}
+
 	// Route filter (the Traffic page's Consumers card): only old called POST /login.
 	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&method=post&path=/login", &list); code != http.StatusOK {
 		t.Fatalf("list by route: %d", code)

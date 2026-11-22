@@ -50,10 +50,15 @@ type consumersInput struct {
 	App    string `query:"app" format:"uuid" doc:"Only requests of this app; empty means every app of the project. An app of another project matches nothing."`
 	Method string `query:"method" maxLength:"16" pattern:"^[A-Za-z]*$" doc:"Only requests with this HTTP method; empty means every method. Matched upper case."`
 	Path   string `query:"path" maxLength:"1024" doc:"Only requests to this route template (/orders/{id}); empty means every route."`
-	Search string `query:"search" maxLength:"256" doc:"Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points."`
-	Sort   string `query:"sort" enum:"requests,errors,last_seen" default:"requests" doc:"Order of consumers, largest or latest first: requests, errors (4xx and 5xx) or last_seen (last request in the range)."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most consumers to list."`
-	Offset int    `query:"offset" minimum:"0" maximum:"100000" default:"0" doc:"Consumers to skip, for paging. Past the end answers an empty page with the real total."`
+	// The Consumers page's filter bar: a status filter as the traffic reads take, and "contains"
+	// on the group and the route.
+	Status        string `query:"status" maxLength:"256" pattern:"^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$" example:"4xx,500" doc:"Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status."`
+	GroupContains string `query:"group_contains" maxLength:"256" doc:"Only requests whose consumer group contains this text, ignoring case; empty means every group."`
+	PathContains  string `query:"path_contains" maxLength:"1024" doc:"Only requests to route templates containing this text, ignoring case; empty means every route."`
+	Search        string `query:"search" maxLength:"256" doc:"Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points."`
+	Sort          string `query:"sort" enum:"requests,errors,last_seen" default:"requests" doc:"Order of consumers, largest or latest first: requests, errors (4xx and 5xx) or last_seen (last request in the range)."`
+	Limit         int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most consumers to list."`
+	Offset        int    `query:"offset" minimum:"0" maximum:"100000" default:"0" doc:"Consumers to skip, for paging. Past the end answers an empty page with the real total."`
 }
 
 type consumerRow struct {
@@ -182,7 +187,15 @@ func (s *Service) consumers(ctx context.Context, in *consumersInput) (*consumers
 	if where, args, err = withApp(where, args, in.App); err != nil {
 		return nil, err
 	}
-	where, args = withRoute(where, args, RouteInput{Method: in.Method, Path: in.Path})
+	where, args = withRoute(where, args, RouteInput{Method: in.Method, Path: in.Path, Status: in.Status})
+	if in.GroupContains != "" {
+		where += " AND positionCaseInsensitiveUTF8(consumer_group, ?) > 0"
+		args = append(args, in.GroupContains)
+	}
+	if in.PathContains != "" {
+		where += " AND positionCaseInsensitiveUTF8(path, ?) > 0"
+		args = append(args, in.PathContains)
+	}
 	having, hargs := "", []any{}
 	if in.Search != "" {
 		having, hargs = consumerSearch, []any{in.Search, in.Search}

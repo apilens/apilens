@@ -26,7 +26,7 @@ export function ConsumersToolbar({
 }: {
   project: string;
   query: ConsumersQuery;
-  values: Record<"env" | "group" | "app" | "method" | "path", BarOption[]>;
+  values: Record<"env" | "group" | "app" | "method" | "path" | "status", BarOption[]>;
   users: { id: string; label: string; group: string }[];
 }) {
   const router = useRouter();

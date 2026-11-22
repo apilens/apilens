@@ -48,6 +48,8 @@ export interface ConsumersData {
   apps: NamedApp[];
   methods: FacetOption[];
   paths: FacetOption[];
+  /** Requests per status code (the sidebar's Level and Status, the bar's Status). */
+  statuses: FacetOption[];
   detail?: DetailState;
   sdks: ConsumerSdk[] | null;
 }
@@ -89,6 +91,12 @@ export function ConsumersView({
           app: data.apps.map((a) => ({ value: a.id.toLowerCase(), label: a.name })),
           method: data.methods,
           path: data.paths,
+          status: [
+            { value: "2xx,3xx", label: "2xx–3xx (success)" },
+            { value: "4xx", label: "4xx (warning)" },
+            { value: "5xx", label: "5xx (error)" },
+            ...data.statuses.map((c) => ({ value: c.value, label: c.value, count: c.count })),
+          ],
         }}
       />
       {list === null ? (

@@ -59,12 +59,20 @@ async function load(project: string, q: ConsumersQuery, page: PageState, next: s
   const api = identity();
   const env = q.env ? { env: q.env } : {};
   // Every filter in the bar narrows the list (the consumers read takes them all).
-  const scope = { ...env, ...(q.app ? { app: q.app } : {}), ...(q.method ? { method: q.method } : {}), ...(q.path ? { path: q.path } : {}) };
+  const scope = {
+    ...env,
+    ...(q.app ? { app: q.app } : {}),
+    ...(q.method ? { method: q.method } : {}),
+    ...(q.path ? { path: q.path } : {}),
+    ...(q.pathLike ? { path_contains: q.pathLike } : {}),
+    ...(q.status ? { status: q.status } : {}),
+    ...(q.groupLike ? { group_contains: q.groupLike } : {}),
+  };
   // The filter bar's Method and Endpoint values: requests per method and route in the range and
   // environment (request facets).
-  const facet = (field: "method" | "path", limit: number) =>
+  const facet = (field: "method" | "path" | "status", limit: number) =>
     read(next, (o) => api.requestFacets(project, { range: q.range, field, limit, ...(q.env ? { filter: [`env:eq:${q.env}`] } : {}) }, o));
-  const [list, anonymous, groupFacet, apps, methods, paths, detail] = await Promise.all([
+  const [list, anonymous, groupFacet, apps, methods, paths, statuses, detail] = await Promise.all([
     readPage<ConsumersList>(
       page,
       MAX_LIST_OFFSET,
@@ -85,11 +93,13 @@ async function load(project: string, q: ConsumersQuery, page: PageState, next: s
     read(next, (o) => api.projectApps(project, o)),
     facet("method", 12),
     facet("path", 50),
+    // The sidebar's Level and Status sections, and the bar's Status values: requests per code.
+    facet("status", 30),
     q.consumer ? read(next, (o) => api.getConsumer(project, q.consumer as string, { range: q.range, ...env, limit: DRAWER_ROWS }, o)) : Promise.resolve(null),
   ]);
   const ok = <T,>(v: T | null | 404): T | null => (v === null || v === 404 ? null : v);
   const l = ok(list);
-  const filtered = Boolean(q.q || q.group || q.app || q.method || q.path);
+  const filtered = Boolean(q.q || q.group || q.app || q.method || q.path || q.pathLike || q.groupLike || q.status);
   const nobody = l !== null && l.summary.consumers === 0 && l.total === 0 && !filtered;
   const values = (f: { values: { value: string; label: string; count: number }[] | null } | null) =>
     (f?.values ?? []).map((v) => ({ value: v.value, label: v.label || v.value, count: v.count }));
@@ -100,6 +110,7 @@ async function load(project: string, q: ConsumersQuery, page: PageState, next: s
     apps: ok(apps)?.apps ?? [],
     methods: values(ok(methods)).map((m) => ({ ...m, value: m.value.toUpperCase(), label: m.value.toUpperCase() })),
     paths: values(ok(paths)),
+    statuses: values(ok(statuses)).filter((v) => /^\d{3}$/.test(v.value)),
     detail: !q.consumer ? undefined : detail === 404 ? { kind: "missing" } : detail === null ? { kind: "error" } : { kind: "ok", consumer: detail },
     sdks: nobody ? await loadSdks(project, next) : null,
   };
@@ -153,7 +164,7 @@ export default async function ConsumersPage({ params, searchParams }: { params: 
       context={context}
       project={project}
       view="consumers"
-      menu={<ConsumersMenu project={project} query={q} environments={found.project.environments ?? []} groups={data.groupFacet} />}
+      menu={<ConsumersMenu project={project} query={q} environments={found.project.environments ?? []} groups={data.groupFacet} statuses={data.statuses} />}
     >
       <ConsumersView project={project} query={q} params={sp} data={data} now={Date.now()} environments={found.project.environments ?? []} />
     </AppShell>

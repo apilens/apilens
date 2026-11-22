@@ -17008,6 +17008,43 @@
             }
           },
           {
+            "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status.",
+              "examples": [
+                "4xx,500"
+              ],
+              "maxLength": 256,
+              "pattern": "^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests whose consumer group contains this text, ignoring case; empty means every group.",
+            "explode": false,
+            "in": "query",
+            "name": "group_contains",
+            "schema": {
+              "description": "Only requests whose consumer group contains this text, ignoring case; empty means every group.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests to route templates containing this text, ignoring case; empty means every route.",
+            "explode": false,
+            "in": "query",
+            "name": "path_contains",
+            "schema": {
+              "description": "Only requests to route templates containing this text, ignoring case; empty means every route.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
             "description": "Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points.",
             "explode": false,
             "in": "query",

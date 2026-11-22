@@ -3,27 +3,39 @@
 import { useRouter } from "next/navigation";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { type ConsumersQuery, consumersHref } from "@/lib/consumers";
+import { codeOn, levelState, statusText, toggleCode, toggleLevel } from "@/lib/traffic-status";
 import { Tip } from "../explore/tip";
 
 /** The fields the consumers list can be narrowed by (all of them the consumers read takes). */
-type Field = "env" | "group" | "app" | "method" | "path" | "q";
+type Field = "env" | "group" | "app" | "method" | "path" | "q" | "status";
 const FIELDS: { key: Field; label: string; op: string; mono?: boolean }[] = [
   { key: "q", label: "Username", op: "contains", mono: true },
   { key: "group", label: "Group", op: "=" },
+  { key: "status", label: "Status", op: "=", mono: true },
   { key: "env", label: "Environment", op: "=" },
   { key: "app", label: "App", op: "=" },
   { key: "method", label: "Method", op: "=", mono: true },
   { key: "path", label: "Endpoint", op: "=", mono: true },
 ];
+/** A pill: a field's exact value, or the "contains" text of Group and Endpoint. */
+type Pill = Field | "groupLike" | "pathLike";
+const PILLS: { key: Pill; field: Field; label: string; op: string; mono?: boolean }[] = [
+  ...FIELDS.map((f) => ({ ...f, field: f.key })),
+  { key: "groupLike", field: "group", label: "Group", op: "contains" },
+  { key: "pathLike", field: "path", label: "Endpoint", op: "contains", mono: true },
+];
+/** The fields whose typed text can be applied as "contains". */
+const CONTAINS: Partial<Record<Field, Pill>> = { group: "groupLike", path: "pathLike" };
 
 export type BarOption = { value: string; label: string; count?: number; detail?: string };
 type Row = { key: string; text: string; detail?: string; mono?: boolean; head?: boolean; run: () => void };
 
 /**
  * The Consumers filter bar, Traffic's and Explore's in look and keys. Focus it and the fields show
- * (Username, Group, Environment, App, Method, Endpoint); pick one and all its values show with
- * their counts (every group, every environment…), narrowed as you type; Enter or a click applies
- * it as a pill (`Group = Partners`). Typing before picking a field suggests across them: the
+ * (Username, Group, Status, Environment, App, Method, Endpoint); pick one and all its values show
+ * with their counts (every group, every status…), narrowed as you type; Enter or a click applies
+ * it as a pill (`Group = Partners`). Group and Endpoint also take what was typed as "contains"
+ * (`Endpoint contains orders`); Status ticks levels and codes into one list, as the sidebar does. Typing before picking a field suggests across them: the
  * fields that match, "Username contains …", the matching usernames (which open their drawer) and
  * groups. A pill's body changes it, its × removes it; Backspace in the empty box selects the last
  * pill, again removes it; ← → move between pills; Esc steps back. `/` focuses it from anywhere.
@@ -50,9 +62,21 @@ export function ConsumersFilterBar({
   const [field, setField] = useState<Field | null>(null);
   const [hl, setHl] = useState<number | null>(null);
 
-  const current: Record<Field, string> = { env: q.env, group: q.group ?? "", app: q.app, method: q.method, path: q.path, q: q.q };
-  const label = (f: Field, v: string) => (f === "q" ? v : (values[f].find((o) => o.value === v)?.label ?? v));
-  const pills = FIELDS.filter((f) => current[f.key]);
+  const current: Record<Pill, string> = {
+    env: q.env,
+    group: q.group ?? "",
+    app: q.app,
+    method: q.method,
+    path: q.path,
+    q: q.q,
+    status: q.status,
+    groupLike: q.groupLike,
+    pathLike: q.pathLike,
+  };
+  const label = (f: Pill, v: string) =>
+    f === "q" || f === "groupLike" || f === "pathLike" ? v : f === "status" ? statusText(v) : (values[f].find((o) => o.value === v)?.label ?? v);
+  const pills = PILLS.filter((f) => current[f.key]);
+  const codes = values.status.map((o) => o.value).filter((v) => /^\d{3}$/.test(v));
 
   const go = (patch: Partial<ConsumersQuery>) => {
     setText("");
@@ -61,7 +85,22 @@ export function ConsumersFilterBar({
     setHl(null);
     router.push(consumersHref(project, { ...q, consumer: null, ...patch }), { scroll: false });
   };
-  const set = (f: Field, v: string) => go(f === "group" ? { group: v || null } : ({ [f]: v } as Partial<ConsumersQuery>));
+  // An exact group or route replaces its "contains" and the other way round.
+  const set = (f: Pill, v: string) =>
+    go(
+      f === "group"
+        ? { group: v || null, groupLike: "" }
+        : f === "groupLike"
+          ? { groupLike: v, group: null }
+          : f === "path"
+            ? { path: v, pathLike: "" }
+            : f === "pathLike"
+              ? { pathLike: v, path: "" }
+              : ({ [f]: v } as Partial<ConsumersQuery>),
+    );
+  // Status ticks like the sidebar: a level folds in its classes, a code toggles.
+  const toggleStatus = (v: string) => go({ status: v.includes("xx") ? toggleLevel(q.status, v.split(",")) : toggleCode(q.status, v, codes) });
+  const statusOn = (v: string) => (v.includes("xx") ? levelState(q.status, v.split(",")) === "on" : codeOn(q.status, v));
 
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -78,7 +117,7 @@ export function ConsumersFilterBar({
 
   function pick(f: Field) {
     setField(f);
-    setText(f === "q" ? q.q : "");
+    setText(f === "q" ? q.q : f === "group" ? q.groupLike : f === "path" ? q.pathLike : "");
     setActive(0);
     setMenu(true);
     setHl(null);
@@ -105,13 +144,22 @@ export function ConsumersFilterBar({
     values[f]
       .filter((o) => !t || o.label.toLowerCase().includes(t) || o.value.toLowerCase().includes(t))
       .slice(0, limit)
-      .map((o) => ({
-        key: `${f}-${o.value}`,
-        text: o.label,
-        detail: `${current[f] === o.value ? "✓ " : ""}${o.detail ?? (o.count !== undefined ? o.count.toLocaleString("en-US") : "")}` || undefined,
-        mono: FIELDS.find((x) => x.key === f)?.mono,
-        run: () => set(f, o.value),
-      }));
+      .map((o) => {
+        const on = f === "status" ? statusOn(o.value) : current[f] === o.value;
+        return {
+          key: `${f}-${o.value}`,
+          text: o.label,
+          detail: `${on ? "✓ " : ""}${o.detail ?? (o.count !== undefined ? o.count.toLocaleString("en-US") : "")}` || undefined,
+          mono: FIELDS.find((x) => x.key === f)?.mono,
+          run: () => (f === "status" ? toggleStatus(o.value) : set(f, o.value)),
+        };
+      });
+  // Group and Endpoint: what was typed, applied as "contains", before the exact values.
+  const containsRow = (f: Field): Row[] => {
+    const pill = CONTAINS[f];
+    const def = FIELDS.find((x) => x.key === f);
+    return pill && typed && def ? [{ key: `${f}-like`, text: `${def.label} contains “${typed}”`, detail: "apply", run: () => set(pill, typed) }] : [];
+  };
 
   const rows: Row[] = field
     ? field === "q"
@@ -120,7 +168,7 @@ export function ConsumersFilterBar({
           ...(users.length ? [{ key: "h-u", text: "Usernames", head: true, run: () => {} }] : []),
           ...userRows(20),
         ]
-      : valueRows(field)
+      : [...containsRow(field), ...valueRows(field)]
     : [
         ...FIELDS.filter((f) => !t || f.label.toLowerCase().includes(t)).map((f) => ({
           key: f.key,
@@ -150,7 +198,7 @@ export function ConsumersFilterBar({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      if (!field && empty && hl !== null) return pick(pills[hl].key);
+      if (!field && empty && hl !== null) return pick(pills[hl].field);
       if (at >= 0) rows[at].run();
       return;
     }
@@ -196,7 +244,7 @@ export function ConsumersFilterBar({
             return (
               <li key={f.key} className={`exp-pill${hl === n ? " is-hl" : ""}`}>
                 <Tip label={`Change: ${words}`}>
-                  <button type="button" className="exp-pill__body" aria-label={`Change filter: ${words}`} onClick={() => pick(f.key)}>
+                  <button type="button" className="exp-pill__body" aria-label={`Change filter: ${words}`} onClick={() => pick(f.field)}>
                     <span className="exp-pill__field">{f.label}</span>
                     <span className="exp-pill__op">{f.op}</span>
                     <span className={`exp-pill__value${f.mono ? " is-mono" : ""}`}>{label(f.key, current[f.key])}</span>
@@ -300,7 +348,7 @@ export function ConsumersFilterBar({
       </div>
       {pills.length ? (
         <Tip label="Clear all filters">
-          <button type="button" className="exp-clear" onClick={() => go({ env: "", group: null, app: "", method: "", path: "", q: "" })}>
+          <button type="button" className="exp-clear" onClick={() => go({ env: "", group: null, groupLike: "", app: "", method: "", path: "", pathLike: "", status: "", q: "" })}>
             Clear
           </button>
         </Tip>

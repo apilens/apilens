@@ -5,13 +5,17 @@ import type { ConsumerGroupTraffic } from "@/lib/identity";
 import { Icon } from "../icons";
 import { SidePanel } from "../shell/side-panel";
 import { Item } from "../traffic/facet-item";
+import { STATUS_LEVELS, codeOn, levelState, toggleCode, toggleLevel } from "@/lib/traffic-status";
+import { SearchableList } from "../traffic/searchable-list";
 import { ConsumersTimeRange } from "./time-range";
 import "../explore/explore.css";
 import "../traffic/traffic.css";
 
 /**
- * The Consumers sidebar, Explore's and Traffic's facet panel: Time Range, Environment and Group
- * (the groups the SDK reported, with their users). One value per section; picking one narrows the
+ * The Consumers sidebar, Explore's and Traffic's facet panel: Time Range, Level (success 2xx–3xx,
+ * warning 4xx, error 5xx) at the top, Environment, Group (the groups the SDK reported, with their
+ * users), and Status (the codes, searchable) last. Level and Status tick like Traffic's (any mix,
+ * partial levels); the others take one value. One value per section; picking one narrows the
  * page to it, again lets it go, its hover Only keeps it alone. Values are in-app links that keep
  * the scroll, so a second pick needs no scrolling back. Reset clears the filters.
  */
@@ -20,14 +24,19 @@ export function ConsumersMenu({
   query: q,
   environments,
   groups,
+  statuses,
 }: {
   project: string;
   query: ConsumersQuery;
   environments: readonly string[];
   groups: ConsumerGroupTraffic[] | null;
+  /** Requests per status code under the range and environment. */
+  statuses: { value: string; count: number }[];
 }) {
   const href = (patch: Partial<ConsumersQuery>) => consumersHref(project, { ...q, consumer: null, ...patch });
-  const any = Boolean(q.env || q.group || q.q || q.app || q.method || q.path);
+  const any = Boolean(q.env || q.group || q.q || q.app || q.method || q.path || q.pathLike || q.groupLike || q.status);
+  const codes = statuses.map((c) => c.value);
+  const levelCount = (classes: readonly string[]) => statuses.filter((c) => classes.some((k) => k[0] === c.value[0])).reduce((n, c) => n + c.count, 0);
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
   const groupRows = groups ?? [];
   const listedGroups = q.group && !groupRows.some((g) => g.group === q.group) ? [{ group: q.group, consumers: 0 }, ...groupRows] : groupRows;
@@ -36,7 +45,7 @@ export function ConsumersMenu({
       title="Consumers"
       actions={
         any ? (
-          <Link className="exf-reset" href={href({ env: "", group: null, q: "", app: "", method: "", path: "" })} scroll={false} prefetch={false}>
+          <Link className="exf-reset" href={href({ env: "", group: null, q: "", app: "", method: "", path: "", pathLike: "", groupLike: "", status: "" })} scroll={false} prefetch={false}>
             Reset
           </Link>
         ) : null
@@ -45,6 +54,30 @@ export function ConsumersMenu({
       <div className="exf" role="region" aria-label="Filters">
         <div className="exf-scroll">
           <ConsumersTimeRange project={project} query={q} />
+          <Section title="Level">
+            <ul className="exf-list tr-flist">
+              {STATUS_LEVELS.map((l) => (
+                <Item
+                  key={l.key}
+                  on={levelState(q.status, l.classes) === "on"}
+                  partial={levelState(q.status, l.classes) === "partial"}
+                  href={href({ status: toggleLevel(q.status, l.classes) })}
+                  only={href({ status: l.classes.join(",") })}
+                  label={l.label}
+                  count={levelCount(l.classes)}
+                  body={
+                    <span className="exf-level">
+                      <span className="exf-level__name">{l.label}</span>
+                      <span className="exf-level__tag">
+                        <span className={`exf-swatch exf-swatch--${l.key}`} aria-hidden="true" />
+                        <span className="exf-level__cls">{l.cls}</span>
+                      </span>
+                    </span>
+                  }
+                />
+              ))}
+            </ul>
+          </Section>
           {envs.length ? (
             <Section title="Environment">
               <ul className="exf-list tr-flist">
@@ -73,6 +106,24 @@ export function ConsumersMenu({
                   />
                 ))}
               </ul>
+            )}
+          </Section>
+          <Section title="Status">
+            {statuses.length === 0 ? (
+              <p className="tr-fnote">No requests in this range.</p>
+            ) : (
+              <SearchableList
+                label="Status"
+                codes
+                rows={statuses.map((c) => ({
+                  value: c.value,
+                  label: c.value,
+                  count: c.count,
+                  on: codeOn(q.status, c.value),
+                  href: href({ status: toggleCode(q.status, c.value, codes) }),
+                  only: href({ status: c.value }),
+                }))}
+              />
             )}
           </Section>
         </div>

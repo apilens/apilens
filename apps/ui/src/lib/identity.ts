@@ -2799,7 +2799,21 @@ export function createClient(config: ClientConfig) {
       request<Incidents>("GET", `/projects/${seg(projectSlug)}/incidents`, { ...o, query: q }),
     listConsumers: (
       projectSlug: string,
-      q: { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; group?: string; search?: string; sort?: ConsumerSortKey; limit?: number; offset?: number },
+      q: {
+        range?: QueryRange;
+        env?: string;
+        app?: string;
+        method?: string;
+        path?: string;
+        path_contains?: string;
+        status?: string;
+        group?: string;
+        group_contains?: string;
+        search?: string;
+        sort?: ConsumerSortKey;
+        limit?: number;
+        offset?: number;
+      },
       o: Authed,
     ) => request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
     getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange; env?: string; limit?: number; offset?: number }, o: Authed) =>
