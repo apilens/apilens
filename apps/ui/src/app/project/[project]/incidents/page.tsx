@@ -1,48 +1,10 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { IncidentsView } from "@/components/alerts/incidents";
-import { SetupReminder } from "@/components/onboarding/setup-reminder";
-import { getContext } from "@/lib/auth/server";
-import { incidentsHref, incidentsRange } from "@/lib/alerts";
-import { LATER_PARAM, LATER_VALUE } from "@/lib/install";
-import { findProject } from "@/lib/scope";
-import { resolveTimeZone } from "@/lib/time-zone";
-import { appNames, load, loadApps } from "./load";
+import { ComingSoonPage } from "@/components/coming-soon/coming-soon";
 
 export const metadata: Metadata = { title: "Incidents" };
 
-type SearchParams = Record<string, string | string[] | undefined>;
-
-// Incidents (#610), the project's home view: the incidents feed of the alerts API (#609).
-export default async function IncidentsPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
+// Incidents: not open yet; the section shows a Coming soon note.
+export default async function IncidentsPage({ params }: { params: Promise<{ project: string }> }) {
   const { project } = await params;
-  const sp = await searchParams;
-  const range = incidentsRange(sp.range);
-  const next = incidentsHref(project, range);
-  const context = await getContext(next);
-  const found = findProject(context, project);
-  if (!found) notFound();
-  const [feed, { apps }, channels, rules] = await Promise.all([
-    load(next, (api, o) => api.incidents(project, { range }, o)),
-    loadApps(project, next),
-    load(next, (api, o) => api.listChannels(project, o)),
-    load(next, (api, o) => api.listAlertRules(project, o)),
-  ]);
-  return (
-    <IncidentsView
-      project={project}
-      projectName={found.project.name}
-      range={range}
-      incidents={feed ? (feed.incidents ?? []) : null}
-      apps={appNames(apps)}
-      now={Date.now()}
-      tz={resolveTimeZone(context.user.preferences)}
-      params={sp}
-      // With no channel, nobody is notified: the page says so (#978). Unknown when a read failed.
-      channels={channels ? (channels.channels ?? []).length : null}
-      silent={(rules?.rules ?? []).filter((r) => !(r.channel_ids ?? []).length).map((r) => r.id)}
-      // "I'll do this later" on the onboarding install step (#333) opens the project here with a reminder.
-      notice={sp[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
-    />
-  );
+  return <ComingSoonPage project={project} view="incidents" title="Incidents" blurb="Alert rules on your error rate, latency and traffic, and the incidents they open, with who was affected and when it recovered." />;
 }

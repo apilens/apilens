@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useId, useState, useTransition } from "react";
-import { createChannel, deleteChannel, testChannel, updateChannel } from "@/app/project/[project]/incidents/actions";
+import { createChannel, deleteChannel, testChannel, updateChannel } from "@/app/project/[project]/settings/channel-actions";
 import {
   CHANNELS_LOAD_FAILED,
   CHANNEL_TYPES,

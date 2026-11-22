@@ -1,4 +1,4 @@
-import { deployHref, formatDeployTime, shortCommit } from "@/lib/changes";
+import { formatDeployTime, shortCommit } from "@/lib/changes";
 import {
   APPS_LOAD_FAILED,
   APPS_RANGE,
@@ -318,9 +318,8 @@ function Deploys({ project, deploys, tz }: { project: string; deploys: DeployCha
         {deploys.map((d) => (
           <tr key={d.id} className="tr-row">
             <td className="tr-ep" data-label="Release">
-              <a className="tr-ep__link" href={deployHref(project, d.id)}>
-                <code>{d.release || shortCommit(d.commit) || "Unnamed deploy"}</code>
-              </a>
+              {/* No deploy page yet (Deploys is coming soon): the release as text. */}
+              <code>{d.release || shortCommit(d.commit) || "Unnamed deploy"}</code>
             </td>
             <td data-label="Environment">{d.environment || "–"}</td>
             <td data-label="Deployed">{formatDeployTime(d.deployed_at, tz)}</td>

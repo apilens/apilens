@@ -1,0 +1,10 @@
+/* A section that isn't open yet: one quiet card, centred in the content pane. Tokens only. */
+.page.cs-soon { display: grid; place-items: center; min-height: calc(100dvh - 48px); box-sizing: border-box; }
+.cs-soon__card { max-width: 460px; padding: 28px 28px 24px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); text-align: center; }
+.cs-soon__tag { display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: 11px; background: var(--accent-soft); color: var(--accent-ink); font: 500 12px/16px var(--font-sans); }
+.cs-soon__card h1 { margin: 14px 0 8px; font: 600 20px/28px var(--font-sans); color: var(--ink); }
+.cs-soon__card p { margin: 0; font: 400 14px/22px var(--font-sans); color: var(--ink-soft); }
+.cs-soon__card p + p { margin-top: 12px; }
+.cs-soon__meanwhile { font-size: 13px !important; color: var(--ink-muted) !important; }
+.cs-soon__card a { color: var(--accent-ink); text-decoration: none; }
+.cs-soon__card a:hover { text-decoration: underline; text-underline-offset: 3px; }
