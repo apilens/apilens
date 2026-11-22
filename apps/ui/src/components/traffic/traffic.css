@@ -571,3 +571,8 @@ td.tr-num .tr-cell { justify-content: flex-end; }
 /* Numeric headers leave the ⋯ menu's 24px, so they line up with the numbers under them. */
 .tr .tr-table th.tr-num { padding-right: 32px; }
 .tr .tr-table th.tr-num:last-child { padding-right: 40px; }
+/* The row is one big link (to the endpoint page), so a click just off the 22×20 dots used to open
+   it. An invisible hit area the row's height and 6px either side makes a near-miss open the menu
+   instead; the button looks the same. */
+.tr-row .exa-btn { position: relative; }
+.tr-row .exa-btn::before { content: ""; position: absolute; inset: -5px -6px; }
