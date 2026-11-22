@@ -157,7 +157,7 @@ describe("filterChips / withoutChip", () => {
       "App 7b1f0c2e",
       "Method POST",
       "Status 4xx, 500-503",
-      "Path /orders/{id}",
+      "Endpoint /orders/{id}",
       "URL contains “?expand=items&x=1”",
       "Payload contains “card declined”",
       "Consumer c_acme",

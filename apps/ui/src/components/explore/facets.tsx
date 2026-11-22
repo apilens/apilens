@@ -44,7 +44,7 @@ const LABELS: Record<PanelField, string> = {
   app: "App",
   env: "Environment",
   method: "Method",
-  path: "Path",
+  path: "Endpoint",
   consumer: "Consumer",
   consumer_group: "Consumer group",
 };
@@ -196,7 +196,7 @@ function useFacetValues(project: string, q: ExploreQuery, panel: PanelField, sea
 /**
  * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): first the Time Range
  * (the only place the range is set, time-range.tsx), then Level (success,
- * warning, error), Status (the codes), App, Environment, Method, Path, Consumer and Consumer group, each a list of values with a checkbox
+ * warning, error), Status (the codes), App, Environment, Method, Endpoint (the path), Consumer and Consumer group, each a list of values with a checkbox
  * and the server's count (compact mono, 1.2k). Hovering a value swaps its count for "Only", which
  * keeps just that value. Ticking adds an `=` condition, so the facets and the filter bar's pills
  * are one filter set. Path and Consumer search the API as you type. Each facet has its own Reset;

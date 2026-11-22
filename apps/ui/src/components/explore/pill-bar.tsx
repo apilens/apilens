@@ -113,7 +113,7 @@ function useValueOptions(project: string, q: ExploreQuery, field: FieldKey | nul
  * (packages/ui-patterns/src/FilterBar): type to find a field, Enter, pick the operator, Enter,
  * then type or pick a value (the busiest ones, with counts) and Enter adds the pill. One field
  * operator is skipped. Typed shortcuts still work in one go (`status:500`, `method != GET`,
- * `latency > 500`, `time:2h`); other text is a Path `contains`.
+ * `latency > 500`, `time:2h`); other text is an Endpoint (path) `contains`.
  *
  * In the empty input: Backspace highlights the last pill and a second Backspace removes it; ← and
  * → move the highlight; Enter edits the highlighted pill; Esc clears it. Esc closes the list,
@@ -225,7 +225,7 @@ export function PillBar({
       options.push({ key: "time", text: `Time range: ${d?.words ?? t}`, run: () => (onRange(time), reset()) });
     } else if (typed) {
       const freeform = typed.field === "path" && typed.op === "contains" && !/^path\b/i.test(t);
-      options.push({ key: "typed", text: freeform ? `Path contains “${typed.value}”` : condWords(typed, names), run: () => (onChange(dedupe([...conds, typed])), reset()) });
+      options.push({ key: "typed", text: freeform ? `Endpoint contains “${typed.value}”` : condWords(typed, names), run: () => (onChange(dedupe([...conds, typed])), reset()) });
     }
     const lower = t.toLowerCase();
     if (!t || "time range".includes(lower) || "date".startsWith(lower)) options.push({ key: "time-range", text: "Time range", detail: "time:2h", run: () => goto(null, "time:") });
@@ -233,7 +233,7 @@ export function PillBar({
       if (t && !f.label.toLowerCase().includes(lower) && !f.key.includes(lower)) continue;
       options.push({ key: f.key, text: f.label, detail: f.ops.map((o) => OP_LABEL[o]).join(" "), run: () => pickField(f.key) });
     }
-    // Fields whose name starts with the text go before a Path search, so "sta" Enter picks Status;
+    // Fields whose name starts with the text go before an Endpoint search, so "sta" Enter picks Status;
     // a whole typed condition (`status:500`) stays first.
     if (t && !(typed && !(typed.field === "path" && typed.op === "contains" && !/^path\b/i.test(t)))) {
       const starts = (o: Option) => FIELDS.some((f) => f.key === o.key && (f.label.toLowerCase().startsWith(lower) || f.key.startsWith(lower)));
@@ -356,7 +356,7 @@ export function PillBar({
 
   const def = draft ? fieldDef(draft.field) : null;
   const placeholder =
-    stage === "op" ? "Operator: = ≠ contains…" : stage === "value" && def ? (draft?.op === "between" ? "100-500" : (def.placeholder ?? "Value")) : conds.length ? "Add filter…" : "Filter by Time range, Level, Status, Path…";
+    stage === "op" ? "Operator: = ≠ contains…" : stage === "value" && def ? (draft?.op === "between" ? "100-500" : (def.placeholder ?? "Value")) : conds.length ? "Add filter…" : "Filter by Time range, Level, Status, Endpoint…";
   const status =
     stage === "value" && (remote.state === "loading" || remote.state === "error") && !(options.length > (t ? 1 : 0))
       ? remote.state === "loading"

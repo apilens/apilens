@@ -19,7 +19,7 @@ export const COLUMNS: readonly ColumnDef[] = [
   { id: "time", label: "Time", width: "150px" },
   { id: "status", label: "Status", width: "70px" },
   { id: "method", label: "Method", width: "64px" },
-  { id: "path", label: "Path", width: "minmax(250px, 1fr)" },
+  { id: "path", label: "Endpoint", width: "minmax(250px, 1fr)" },
   { id: "app", label: "App", width: "140px" },
   { id: "env", label: "Env", width: "100px" },
   { id: "latency", label: "Latency", width: "80px", align: "end" },

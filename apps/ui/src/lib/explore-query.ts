@@ -52,7 +52,7 @@ const NUM_OPS: readonly Op[] = ["gt", "lt", "between"];
 
 /** Every field the filter bar offers, in its menu's order. */
 export const FIELDS: readonly FieldDef[] = [
-  { key: "path", label: "Path", ops: TEXT_OPS, mono: true, placeholder: "/orders/{id}" },
+  { key: "path", label: "Endpoint", ops: TEXT_OPS, mono: true, placeholder: "/orders/{id}" },
   { key: "level", label: "Level", ops: EQ_OPS, placeholder: "success, warning or error", hint: "success: under 400; warning: 4xx; error: 5xx." },
   { key: "status", label: "Status", ops: EQ_OPS, mono: true, placeholder: "404, 4xx or 500-503", hint: "A code (404), a class (4xx) or a range (500-503)." },
   { key: "method", label: "Method", ops: EQ_OPS, mono: true, placeholder: "GET" },

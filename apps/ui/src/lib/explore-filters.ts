@@ -214,7 +214,7 @@ export function filterChips(
   if (f.app !== "") text("app", `App ${appName?.(f.app) ?? f.app.slice(0, 8)}`);
   text("method", `Method ${f.method}`);
   text("status", `Status ${f.status.split(",").join(", ")}`);
-  text("path", `Path ${f.path}`);
+  text("path", `Endpoint ${f.path}`);
   text("url_contains", `URL contains “${f.url_contains}”`);
   text("payload_contains", `Payload contains “${f.payload_contains}”`);
   text("consumer_id", `Consumer ${consumers.find((c) => c.id === f.consumer_id)?.name.trim() || f.consumer_id}`);
