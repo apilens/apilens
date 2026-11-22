@@ -26,16 +26,31 @@ const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
 
 describe("parseTrafficQuery", () => {
   it("defaults to the last 24 hours in all environments", () => {
-    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "" });
+    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "" });
   });
 
   it("reads a known range and an environment", () => {
-    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "" });
-    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "" });
+    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "" });
+    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "" });
   });
 
   it("falls back on an unknown range or an environment name the API would refuse", () => {
-    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "" });
+    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "" });
+  });
+
+  it("reads the filter bar's method (upper case) and route template, refusing what the API would", () => {
+    const q = parseTrafficQuery({ range: "24h", method: "post", path: "/orders/{id}" });
+    expect([q.method, q.path]).toEqual(["POST", "/orders/{id}"]);
+    const bad = parseTrafficQuery({ method: "GET; DROP", path: "orders" });
+    expect([bad.method, bad.path]).toEqual(["", ""]);
+    expect(parseTrafficQuery({ path: `/${"x".repeat(1024)}` }).path).toBe("");
+  });
+
+  it("puts the method and route in the page URL, never in an endpoint link", () => {
+    const href = trafficHref("shop", { range: "24h", env: "", app: "", method: "POST", path: "/orders/{id}" });
+    expect(new URL(href, "http://x").searchParams.get("method")).toBe("POST");
+    expect(new URL(href, "http://x").searchParams.get("path")).toBe("/orders/{id}");
+    expect(endpointHref("shop", { method: "POST", path: "/charge" }, { range: "24h", method: "POST", path: "/charge" })).not.toContain("method=");
   });
 });
 

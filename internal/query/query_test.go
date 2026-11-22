@@ -106,6 +106,21 @@ func TestWithAppNarrowsTheTenantFilter(t *testing.T) {
 	}
 }
 
+func TestWithRouteNarrowsToMethodAndPath(t *testing.T) {
+	where, args := tenantFilter(uuid.New(), "")
+	got, gotArgs := withRoute(where, args, RouteInput{})
+	if got != where || len(gotArgs) != len(args) {
+		t.Fatalf("no route: %q %v", got, gotArgs)
+	}
+	got, gotArgs = withRoute(where, args, RouteInput{Method: "post", Path: "/orders/{id}"})
+	if got != where+" AND method = ? AND path = ?" || gotArgs[len(gotArgs)-2] != "POST" || gotArgs[len(gotArgs)-1] != "/orders/{id}" {
+		t.Fatalf("route: %q %v", got, gotArgs)
+	}
+	if len(args) != 1 {
+		t.Fatalf("the caller's args must not change: %v", args)
+	}
+}
+
 type stubVerifier struct {
 	scopes []string
 	err    error

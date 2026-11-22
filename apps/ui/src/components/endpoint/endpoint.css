@@ -133,3 +133,8 @@
   .tr-table td.ep-rowmenu__cell { position: absolute; top: var(--space-2); right: var(--space-2); width: auto; padding: 0; }
   .tr-table tr.tr-row:has(.ep-rowmenu__cell) td.tr-ep { padding-right: 40px; }
 }
+/* The row's ⋯ options: a small dots button, shown on the row's hover or focus (always on touch). */
+.ep-rowmenu { width: 24px; height: 24px; border-radius: 6px; }
+.ep-rowmenu svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
+tr:not(:hover):not(:focus-within) .ep-rowmenu:not(.is-open) { opacity: 0; }
+@media (hover: none) { tr .ep-rowmenu { opacity: 1 !important; } }

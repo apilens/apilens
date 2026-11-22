@@ -59,13 +59,18 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
   const q = parseTrafficQuery(sp);
 
   // `?app=` (#976) narrows every read to one app; without it they count all apps.
-  const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
+  const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}), ...(q.method ? { method: q.method } : {}), ...(q.path ? { path: q.path } : {}) };
   // The breakdown cards' top consumers and status codes: the request facets under the same scope
   // (environment and app as conditions), so they add up with the tiles.
-  const filter = [...(q.env && q.env !== "all" ? [`env:eq:${q.env}`] : []), ...(q.app ? [`app:eq:${q.app.toLowerCase()}`] : [])];
-  const facet = (field: "consumer" | "status", limit: number) =>
+  const filter = [
+    ...(q.env && q.env !== "all" ? [`env:eq:${q.env}`] : []),
+    ...(q.app ? [`app:eq:${q.app.toLowerCase()}`] : []),
+    ...(q.method ? [`method:eq:${q.method}`] : []),
+    ...(q.path ? [`path:eq:${q.path}`] : []),
+  ];
+  const facet = (field: "consumer" | "status" | "method" | "app", limit: number) =>
     read<RequestFacets>(next, (o) => identity().requestFacets(project, { range: q.range, field, limit, ...(filter.length ? { filter } : {}) }, o));
-  const [summary, series, endpoints, apps, envs, consumers, statuses] = await Promise.all([
+  const [summary, series, endpoints, apps, envs, consumers, statuses, methods, appCounts] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
@@ -74,8 +79,10 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     read<ProjectApps>(next, (o) => identity().projectApps(project, o)),
     // The picker follows Project settings › Environments (#816): their order, hidden ones left out.
     read<EnvironmentsList>(next, (o) => identity().listEnvironments(project, o)),
-    facet("consumer", 5),
+    facet("consumer", 6),
     facet("status", 50),
+    facet("method", 12),
+    facet("app", 12),
   ]);
 
   return (
@@ -94,6 +101,8 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
         apps={apps?.apps ?? null}
         consumers={consumers === null ? null : (consumers.values ?? [])}
         statuses={statuses === null ? null : (statuses.values ?? [])}
+        methods={methods === null ? null : (methods.values ?? [])}
+        appCounts={appCounts === null ? null : (appCounts.values ?? [])}
         // Links and forms keep the URL form of the scope (`env=all` stays all environments).
         params={urlParams}
       />

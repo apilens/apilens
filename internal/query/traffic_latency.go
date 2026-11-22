@@ -56,6 +56,7 @@ func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*traff
 	if err != nil {
 		return nil, err
 	}
+	tenant, targs = withRoute(tenant, targs, in.RouteInput)
 	scope, sargs := rules.withoutExcluded(tenant, targs)
 	where, args := scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), w.from, w.to)
 	rawWhere, rawArgs := scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), w.from, w.to)

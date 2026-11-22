@@ -24,7 +24,14 @@ export interface TrafficState {
   range: QueryRange;
   env: string;
   app: string;
+  /** The filter bar's method (upper case) and route template; "" or absent means all. */
+  method?: string;
+  path?: string;
 }
+
+/** Longest route template a filter carries, as the API takes. */
+const MAX_PATH = 1024;
+const METHOD_RE = /^[A-Za-z]{1,16}$/;
 
 type SearchParams = Record<string, string | string[] | undefined>;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
@@ -37,6 +44,11 @@ export function parseTrafficQuery(params: SearchParams): TrafficState {
     range: TRAFFIC_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
     env: env.length <= MAX_ENV ? env : "",
     app: parseAppParam(params.app),
+    method: METHOD_RE.test(first(params.method) ?? "") ? (first(params.method) ?? "").toUpperCase() : "",
+    path: (() => {
+      const v = (first(params.path) ?? "").trim();
+      return v.startsWith("/") && v.length <= MAX_PATH ? v : "";
+    })(),
   };
 }
 
@@ -73,7 +85,12 @@ function scopeParams(q: Partial<TrafficState>): string {
 
 /** The page URL for `q`, leaving defaults out; a range and env always go in, a URL without them reads the smart defaults (#993). */
 export function trafficHref(project: string, q: Partial<TrafficState>): string {
-  return `${projectHref(project, "traffic")}${scopeParams(q)}`;
+  const s = scopeParams(q);
+  const p = new URLSearchParams(s.slice(1));
+  if (q.method) p.set("method", q.method);
+  if (q.path) p.set("path", q.path);
+  const all = p.toString();
+  return `${projectHref(project, "traffic")}${all ? `?${all}` : ""}`;
 }
 
 /**

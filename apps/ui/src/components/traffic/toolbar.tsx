@@ -4,19 +4,34 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { RANGE_LABEL } from "@/lib/consumers";
 import type { NamedApp } from "@/lib/identity";
-import { LIVE_INTERVAL_MS, TRAFFIC_RANGES, type TrafficState, appName, appOptions, trafficHref } from "@/lib/traffic";
+import { LIVE_INTERVAL_MS, TRAFFIC_RANGES, type TrafficState, trafficHref } from "@/lib/traffic";
 import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
 import { Tip } from "../explore/tip";
+import { TrafficFilterBar } from "./filter-bar";
 import "../explore/explore.css";
 
 /**
  * Traffic's toolbar, built from Explore's (same 48px full-width row, pills, 26px buttons and
- * tooltips), so the two pages read as one product: the page's name, then its scope as pills
- * (time range, environment and, with several apps, the app), each opening a menu of links; at the
- * end Refresh (⇧R) and Live (⌘J), which reads the page again every 30 s while the tab is visible.
+ * tooltips), so the two pages read as one product: the page's name, the time range pill, then
+ * the filter bar (environment, app, method, endpoint; TrafficFilterBar); at the end Refresh (⇧R)
+ * and Live (⌘J), which reads the page again every 30 s while the tab is visible.
  */
-export function TrafficToolbar({ project, query: q, environments, apps }: { project: string; query: TrafficState; environments: readonly string[]; apps: NamedApp[] | null }) {
+export function TrafficToolbar({
+  project,
+  query: q,
+  environments,
+  apps,
+  methods,
+  paths,
+}: {
+  project: string;
+  query: TrafficState;
+  environments: readonly string[];
+  apps: NamedApp[] | null;
+  methods: { value: string; label: string; count?: number }[];
+  paths: { value: string; label: string; count?: number }[];
+}) {
   const router = useRouter();
   const [live, setLive] = useState(true);
   const [pending, startTransition] = useTransition();
@@ -60,21 +75,7 @@ export function TrafficToolbar({ project, query: q, environments, apps }: { proj
           value={`Last ${RANGE_LABEL[q.range]}`}
           options={TRAFFIC_RANGES.map((r) => ({ key: r, label: `Last ${RANGE_LABEL[r]}`, href: trafficHref(project, { ...q, range: r }), on: r === q.range }))}
         />
-        <ScopePill
-          label="Environment"
-          value={q.env || "All"}
-          options={[
-            { key: "", label: "All environments", href: trafficHref(project, { ...q, env: "" }), on: !q.env },
-            ...envs.map((env) => ({ key: env, label: env, href: trafficHref(project, { ...q, env }), on: env === q.env })),
-          ]}
-        />
-        {apps && (apps.length > 1 || q.app) ? (
-          <ScopePill
-            label="App"
-            value={q.app ? appName(apps, q.app) : "All"}
-            options={appOptions(apps, q.app).map((o) => ({ key: o.value, label: o.label, href: trafficHref(project, { ...q, app: o.value }), on: o.value === q.app }))}
-          />
-        ) : null}
+        <TrafficFilterBar project={project} query={q} environments={envs} apps={apps} methods={methods} paths={paths} />
       </div>
       <div className="tr-tools__end">
         <Tip label="Refresh" keys={["⇧", "R"]}>

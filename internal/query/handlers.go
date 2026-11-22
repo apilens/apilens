@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -39,6 +40,28 @@ type RangeInput struct {
 type appRangeInput struct {
 	RangeInput
 	App string `query:"app" format:"uuid" doc:"App id; empty means every app of the project. An app of another project matches nothing."`
+	RouteInput
+}
+
+// RouteInput narrows the traffic reads to one method and/or one route template
+// (the Traffic page's filter bar). It is exported so Huma reads its fields.
+type RouteInput struct {
+	Method string `query:"method" maxLength:"16" pattern:"^[A-Za-z]*$" doc:"HTTP method; empty means every method. Matched upper case."`
+	Path   string `query:"path" maxLength:"1024" doc:"Route template, as the endpoints list names it (/orders/{id}); empty means every route."`
+}
+
+// withRoute narrows a filter to the method and route template in, when given.
+func withRoute(where string, args []any, in RouteInput) (string, []any) {
+	out := append([]any{}, args...)
+	if in.Method != "" {
+		where += " AND method = ?"
+		out = append(out, strings.ToUpper(in.Method))
+	}
+	if in.Path != "" {
+		where += " AND path = ?"
+		out = append(out, in.Path)
+	}
+	return where, out
 }
 
 // withApp narrows a tenant filter to the app in, when one is given.
@@ -319,6 +342,7 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	if sc.tenant, sc.targs, err = withApp(sc.tenant, sc.targs, in.App); err != nil {
 		return nil, err
 	}
+	sc.tenant, sc.targs = withRoute(sc.tenant, sc.targs, in.RouteInput)
 	sc.where, sc.args = sc.rules.withoutExcluded(sc.tenant, sc.targs)
 	if sc.thresholds, err = s.apdexThresholds(ctx, p.ProjectID); err != nil {
 		return nil, err
@@ -390,6 +414,7 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 	if err != nil {
 		return nil, err
 	}
+	tenant, targs = withRoute(tenant, targs, in.RouteInput)
 	where, args := rules.withoutExcluded(tenant, targs)
 	seconds := int(w.bucket.Seconds())
 	qctx, cancel := queryCtx(ctx)
@@ -444,6 +469,7 @@ type endpointsInput struct {
 	RangeInput
 	App   string `query:"app" format:"uuid" doc:"App id; empty means every app of the project. An app of another project matches nothing."`
 	Limit int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most endpoints to list, by requests."`
+	RouteInput
 }
 
 type endpoint struct {
@@ -487,6 +513,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
+	tenant, targs = withRoute(tenant, targs, in.RouteInput)
 	where, args := rules.withoutExcluded(tenant, targs)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
@@ -541,6 +568,16 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 			return nil, err
 		}
 		out.Body.Endpoints = withDiscovered(out.Body.Endpoints, routes, rules, in.App, in.Limit)
+		// A method or route filter keeps only the declared routes it matches too.
+		if in.Method != "" || in.Path != "" {
+			kept := out.Body.Endpoints[:0]
+			for _, e := range out.Body.Endpoints {
+				if (in.Method == "" || strings.EqualFold(e.Method, in.Method)) && (in.Path == "" || e.Path == in.Path) {
+					kept = append(kept, e)
+				}
+			}
+			out.Body.Endpoints = kept
+		}
 	}
 	return out, nil
 }

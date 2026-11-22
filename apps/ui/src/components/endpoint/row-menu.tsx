@@ -8,6 +8,7 @@ import type { EndpointSettings, NamedApp, PutEndpointSettingsRequest } from "@/l
 import { useCan } from "@/lib/permissions";
 import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
+import { Tip } from "../explore/tip";
 import "./endpoint.css";
 
 type Scope = { project: string; apps: NamedApp[]; announce: (text: string) => void };
@@ -33,7 +34,7 @@ export function EndpointRowMenus({ project, apps, children }: { project: string;
 }
 
 /**
- * The settings menu on one endpoint row (#600): mark 404 as expected, set the response time
+ * The options menu on one endpoint row (#600), a ⋯ shown on the row's hover or focus: mark 404 as expected, set the response time
  * threshold (in a small form in place of the menu) and exclude the endpoint from metrics, for one
  * app of the project. It reads the endpoint's settings when it opens and saves each change at once
  * through the endpoint page's Server Action. Holders of `capture.manage` change them; everyone else
@@ -129,18 +130,15 @@ export function EndpointRowMenu({ method, path, appId: rowApp }: { method: strin
 
   return (
     <>
-      <button
-        ref={trigger}
-        type="button"
-        className={`ep-rowmenu${open ? " is-open" : ""}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Settings for ${ep}`}
-        title="Endpoint settings"
-        onClick={toggle}
-      >
-        <Icon name="settings" />
-      </button>
+      <Tip label="Endpoint options: expected 404, response time threshold, exclude from metrics">
+        <button ref={trigger} type="button" className={`ep-rowmenu${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Options for ${ep}`} onClick={toggle}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="3.5" cy="8" r="1.25" />
+            <circle cx="8" cy="8" r="1.25" />
+            <circle cx="12.5" cy="8" r="1.25" />
+          </svg>
+        </button>
+      </Tip>
       <PopMenu open={open} onClose={close} triggerRef={trigger} label={view === "threshold" ? `Response time threshold for ${ep}` : `Settings for ${ep}`} align="end" role={view === "threshold" ? "dialog" : "menu"} id={ids.menu}>
         {view === "threshold" && settings ? (
           <form className="ep-rowmenu__form" onSubmit={onThreshold} noValidate>

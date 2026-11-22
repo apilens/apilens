@@ -1343,6 +1343,9 @@ export interface TrafficQuery {
   env?: string;
   /** An app's id: the reads of that app only (#591, #974); absent means every app. */
   app?: string;
+  /** The Traffic filter bar's method and route template; absent means all. */
+  method?: string;
+  path?: string;
 }
 
 /** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
@@ -2531,9 +2534,9 @@ export interface AppSettings {
  * {@link CallOptions} last; authenticated ones require `accessToken`.
  */
 /** The traffic reads' `range` and `env` query parameters; an empty environment is left out (all). */
-function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string } {
-  const { range, env, app } = typeof q === "string" ? { range: q, env: undefined, app: undefined } : q;
-  return { ...(range ? { range } : {}), ...(env ? { env } : {}), ...(app ? { app } : {}) };
+function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string } {
+  const { range, env, app, method, path } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
+  return { ...(range ? { range } : {}), ...(env ? { env } : {}), ...(app ? { app } : {}), ...(method ? { method } : {}), ...(path ? { path } : {}) };
 }
 
 /** The endpoint reads' query parameters; empty values and the `all` status are left out. */

@@ -4,7 +4,6 @@ import { bucketHrefs, exploreHrefFor } from "@/lib/explore";
 import { formatPercent, ratio } from "@/lib/format";
 import type { ReactNode } from "react";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
-import { reasonPhrase } from "@/lib/http-status";
 import { formatSpan } from "@/lib/alerts";
 import {
   ENDPOINTS_LIMIT,
@@ -50,9 +49,10 @@ type FacetValue = { value: string; label: string; count: number };
 /** Time spent in words: as a latency under a minute, else `52 min`, `1 h 43 min`. */
 const spentText = (ms: number) => (ms >= 60_000 ? formatSpan(ms / 1000) : formatLatency(ms));
 
-/** The chart the page shows (`?chart=`): requests by status (the default) or response time. */
-type ChartKind = "requests" | "latency";
-const readChart = (params: SearchParams): ChartKind => (params.chart === "latency" ? "latency" : "requests");
+/** The chart the page shows (`?chart=`): requests by status (the default), errors only, or response time. */
+type ChartKind = "requests" | "errors" | "latency";
+const readChart = (params: SearchParams): ChartKind => (params.chart === "latency" ? "latency" : params.chart === "errors" ? "errors" : "requests");
+const CHART_TITLE: Record<ChartKind, string> = { requests: "Requests over time", errors: "Errors over time", latency: "Response time" };
 
 /**
  * `/project/<project>/traffic` (#592): how the API is doing, summary first. One header row (the
@@ -75,6 +75,8 @@ export function TrafficView({
   apps = null,
   consumers = null,
   statuses = null,
+  methods = null,
+  appCounts = null,
   params = {},
 }: {
   project: string;
@@ -89,6 +91,9 @@ export function TrafficView({
   /** The busiest consumers and the status codes under the page's scope (request facets). */
   consumers?: FacetValue[] | null;
   statuses?: FacetValue[] | null;
+  /** Requests per method and per app under the page's scope (request facets), for the mix. */
+  methods?: FacetValue[] | null;
+  appCounts?: FacetValue[] | null;
   /** The page's search params as read, for the endpoints table's `?page=&per=` and `?chart=`. */
   params?: SearchParams;
 }) {
@@ -111,7 +116,14 @@ export function TrafficView({
   const total = summary?.requests ?? 0;
   return (
     <div className="page tr">
-      <TrafficToolbar project={project} query={q} environments={environments} apps={apps} />
+      <TrafficToolbar
+        project={project}
+        query={q}
+        environments={environments}
+        apps={apps}
+        methods={filterOptions(methods, endpoints, "method")}
+        paths={filterOptions(null, endpoints, "path")}
+      />
 
       {summary === null ? (
         <ErrorState text={TRAFFIC_LOAD_FAILED} href={trafficHref(project, q)} />
@@ -122,15 +134,18 @@ export function TrafficView({
         </div>
       ) : (
         <>
-          <Tiles summary={summary} points={points ?? []} range={q.range} />
+          <Tiles summary={summary} points={points ?? []} range={q.range} chart={chart} chartHref={chartHref} />
 
           <section className="tr-sec" aria-labelledby="tr-over-time">
             <div className="tr-sec__head">
-              <h2 id="tr-over-time">{chart === "latency" ? "Response time" : "Requests over time"}</h2>
+              <h2 id="tr-over-time">{CHART_TITLE[chart]}</h2>
               <span className="tr-sec__meta">{scope}</span>
               <nav className="tr-switch" aria-label="Chart">
                 <a href={chartHref("requests")} aria-current={chart === "requests" ? "page" : undefined}>
                   Requests
+                </a>
+                <a href={chartHref("errors")} aria-current={chart === "errors" ? "page" : undefined}>
+                  Errors
                 </a>
                 <a href={chartHref("latency")} aria-current={chart === "latency" ? "page" : undefined}>
                   Response time
@@ -145,75 +160,24 @@ export function TrafficView({
               <StatusChart
                 label="Requests by status"
                 summary={`${formatCount(summary.requests)} requests in ${scope}: ${formatCount(summary.client_errors)} 4xx and ${formatCount(summary.server_errors)} 5xx.`}
-                rows={statusRows(points)}
+                rows={chart === "errors" ? statusRows(points).map((r) => ({ ...r, successful: 0 })) : statusRows(points)}
                 range={q.range}
                 hrefs={bucketHrefs(project, q, points)}
               />
             )}
           </section>
 
-          <section className="tr-cards" aria-label="Breakdown">
-            <TopCard
-              title="Top endpoints"
-              total={total}
-              rows={
-                endpoints === null
-                  ? null
-                  : [...active]
-                      .sort((a, b) => b.requests - a.requests)
-                      .slice(0, 5)
-                      .map((ep) => ({
-                        key: `${ep.app_id} ${ep.method} ${ep.path}`,
-                        label: (
-                          <>
-                            <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
-                          </>
-                        ),
-                        text: `${ep.method.toUpperCase()} ${ep.path}`,
-                        count: ep.requests,
-                        href: endpointHref(project, ep, { ...q, app: ep.app_id || q.app }),
-                      }))
-              }
-              empty="No endpoints with requests."
-            />
-            <TopCard
-              title="Top consumers"
-              total={total}
-              rows={
-                consumers === null
-                  ? null
-                  : consumers.slice(0, 5).map((c) => ({ key: c.value, label: c.label || c.value, text: c.label || c.value, count: c.count, href: explore({ consumer_id: c.value }) }))
-              }
-              empty="No identified consumers."
-            />
-            <TopCard
-              title="Status codes"
-              total={total}
-              rows={
-                statuses === null
-                  ? null
-                  : [...statuses]
-                      .sort((a, b) => b.count - a.count)
-                      .slice(0, 5)
-                      .map((st) => {
-                        const code = Number(st.value);
-                        return {
-                          key: st.value,
-                          label: (
-                            <>
-                              <code className={`tr-code tr-code--${code >= 500 ? "5xx" : code >= 400 ? "4xx" : "ok"}`}>{st.value}</code> <span className="tr-muted">{reasonPhrase(code)}</span>
-                            </>
-                          ),
-                          text: `${st.value} ${reasonPhrase(code)}`,
-                          count: st.count,
-                          tone: code >= 500 ? "5xx" : code >= 400 ? "4xx" : undefined,
-                          href: explore({ status: st.value }),
-                        };
-                      })
-              }
-              empty="No responses."
-            />
-          </section>
+          <TrafficMix
+            statuses={statuses}
+            methods={methods}
+            consumers={consumers}
+            apps={apps && apps.length > 1 && !q.app ? appCounts : null}
+            appLabel={(id) => (apps ? appName(apps, id) : id)}
+            statusHref={(cls) => explore({ status: cls })}
+            consumerHref={(id) => explore({ consumer_id: id })}
+            methodHref={(m) => trafficHref(project, { ...q, method: m })}
+            appHref={(id) => trafficHref(project, { ...q, app: id })}
+          />
 
           <section className="tr-sec tr-sec--table" aria-labelledby="tr-endpoints">
             <div className="tr-sec__head">
@@ -249,56 +213,6 @@ export function TrafficView({
         </>
       )}
     </div>
-  );
-}
-
-/**
- * A breakdown card: its title, then its top five, each a name, the count and a thin bar of its
- * size against the list's largest (the title says its share of the page's requests); a row opens
- * its requests (or its endpoint). Fixed at five rows,
- * so the three cards line up.
- */
-function TopCard({
-  title,
-  total,
-  rows,
-  empty,
-}: {
-  title: string;
-  total: number;
-  rows: { key: string; label: ReactNode; text: string; count: number; href: string; tone?: "4xx" | "5xx" }[] | null;
-  empty: string;
-}) {
-  return (
-    <section className="tr-top" aria-label={title}>
-      <h2 className="tr-top__title">{title}</h2>
-      {rows === null ? (
-        <p className="tr-empty">Couldn’t load this just now.</p>
-      ) : rows.length === 0 ? (
-        <p className="tr-empty">{empty}</p>
-      ) : (
-        <ol className="tr-top__list">
-          {rows.map((r) => {
-            // The bar is the row's size against the list's largest (as top-N lists draw it); the
-            // title gives its share of all the page's requests.
-            const max = Math.max(...rows.map((x) => x.count), 1);
-            const share = total > 0 ? Math.min(1, r.count / total) : 0;
-            const bar = r.count / max;
-            return (
-              <li key={r.key}>
-                <a className="tr-top__row" href={r.href} title={`${r.text}: ${formatCount(r.count)} (${formatPercent(share)})`}>
-                  <span className="tr-top__name">{r.label}</span>
-                  <span className="tr-top__n">{formatCount(r.count)}</span>
-                  <span className={`tr-top__bar${r.tone ? ` is-${r.tone}` : ""}`} aria-hidden="true">
-                    <span style={{ width: `${Math.max(bar * 100, 1)}%` }} />
-                  </span>
-                </a>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </section>
   );
 }
 
@@ -362,75 +276,213 @@ function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: st
 
 
 /**
- * The KPI strip: one frame of five cells split by hairlines, each its label, its value, a line
- * under it and how it compares with the previous period: requests, throughput (the last full
- * minute), error rate (4xx and 5xx apart), p95 and Apdex. Sparklines where the series has one.
+ * The KPI strip: one frame of five compact cells split by hairlines, each its label with its
+ * change against the previous period, its value, one line under it and, where the series has
+ * one, a sparkline. Requests, Error rate and p95 are links that switch the chart to their series
+ * (the current one is marked); Throughput and Apdex read on their own.
  */
-function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points: TrafficPoint[]; range: QueryRange }) {
+function Tiles({
+  summary: s,
+  points,
+  range,
+  chart,
+  chartHref,
+}: {
+  summary: TrafficSummary;
+  points: TrafficPoint[];
+  range: QueryRange;
+  chart: ChartKind;
+  chartHref: (c: ChartKind) => string;
+}) {
   const errors = s.client_errors + s.server_errors;
   const rating = apdexRating(s.apdex);
   const p = s.previous;
+  const cell = (key: string, label: string, compareTo: ReactNode, value: string, sub: ReactNode, spark: ReactNode, to?: ChartKind) => {
+    const body = (
+      <>
+        <span className="tr-kpi__top">
+          <span className="tr-kpi__label">{label}</span>
+          {compareTo}
+        </span>
+        <span className="tr-kpi__value">
+          <LiveNumber text={value} />
+        </span>
+        <span className="tr-kpi__sub">{sub}</span>
+        {spark}
+      </>
+    );
+    return (
+      <div key={key} className={`tr-kpi${to && chart === to ? " is-on" : ""}`}>
+        {to ? (
+          <a className="tr-kpi__link" href={chartHref(to)} aria-current={chart === to ? "true" : undefined} aria-label={`${label} ${value}: show on the chart`}>
+            {body}
+          </a>
+        ) : (
+          <div className="tr-kpi__link">{body}</div>
+        )}
+      </div>
+    );
+  };
   return (
-    <dl className="tr-tiles">
-      <div>
-        <dt>Requests</dt>
-        <dd>
-          <span className="tr-tile__value">
-            <LiveNumber text={formatCount(s.requests)} />
-          </span>
-          <CompareLine comparison={compare(s.requests, p?.requests, { kind: "relative", better: "neither", range })} />
-          <Sparkline values={points.map((x) => x.requests)} hover={{ label: "Requests", range, points: points.map((x) => ({ ts: x.ts, text: formatCount(x.requests) })) }} />
-        </dd>
+    <div className="tr-kpis" role="group" aria-label="Summary">
+      {cell(
+        "req",
+        "Requests",
+        <CompareLine comparison={compare(s.requests, p?.requests, { kind: "relative", better: "neither", range })} />,
+        formatCount(s.requests),
+        <>{formatPerMinute(s.requests_per_minute)}/min average</>,
+        <Sparkline values={points.map((x) => x.requests)} hover={{ label: "Requests", range, points: points.map((x) => ({ ts: x.ts, text: formatCount(x.requests) })) }} />,
+        "requests",
+      )}
+      {cell("tput", "Throughput", null, `${formatCount(s.current_per_minute ?? 0)}/min`, <>in the last full minute</>, null)}
+      {cell(
+        "err",
+        "Error rate",
+        <CompareLine comparison={p ? compare(ratio(errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range }) : null} />,
+        formatPercent(ratio(errors, s.requests)),
+        <>
+          <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
+        </>,
+        <Sparkline
+          values={points.map((x) => (x.requests > 0 ? (x.client_errors + x.server_errors) / x.requests : 0))}
+          hover={{ label: "Error rate", range, points: points.map((x) => ({ ts: x.ts, text: formatPercent(ratio(x.client_errors + x.server_errors, x.requests)) })) }}
+        />,
+        "errors",
+      )}
+      {cell(
+        "p95",
+        "p95 response time",
+        <CompareLine comparison={compare(s.p95_ms, p?.p95_ms, { kind: "relative", better: "down", range })} />,
+        formatLatency(s.p95_ms),
+        <>
+          p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
+        </>,
+        <Sparkline values={points.map((x) => x.p95_ms)} hover={{ label: "p95", range, points: points.map((x) => ({ ts: x.ts, text: formatLatency(x.p95_ms) })) }} />,
+        "latency",
+      )}
+      {cell("apdex", "Apdex", <CompareLine comparison={compare(s.apdex, p?.apdex, { kind: "score", better: "up", range })} />, formatApdex(s.apdex), <>{rating ?? "No requests to score"}</>, null)}
+    </div>
+  );
+}
+
+/**
+ * The filter bar's suggestions for a field: the facet's counts when there are any, else the
+ * values in the endpoints list (requests summed), busiest first.
+ */
+function filterOptions(facet: FacetValue[] | null, endpoints: EndpointTraffic[] | null, key: "method" | "path"): { value: string; label: string; count?: number }[] {
+  if (facet?.length) return facet.map((f) => ({ value: f.value.toUpperCase(), label: f.value.toUpperCase(), count: f.count }));
+  const m = new Map<string, number>();
+  for (const ep of endpoints ?? []) {
+    const v = key === "method" ? ep.method.toUpperCase() : ep.path;
+    m.set(v, (m.get(v) ?? 0) + ep.requests);
+  }
+  return [...m].sort((a, b) => b[1] - a[1]).map(([value, count]) => ({ value, label: value, count }));
+}
+
+type MixPart = { key: string; label: string; count: number; href?: string; tone?: "ok" | "3xx" | "4xx" | "5xx" | "other" };
+
+/** Status codes summed into classes, in class order. */
+function statusClasses(statuses: FacetValue[]): MixPart[] {
+  const sum: Record<string, number> = {};
+  for (const s of statuses) {
+    const c = `${String(s.value)[0]}xx`;
+    sum[c] = (sum[c] ?? 0) + s.count;
+  }
+  return ["2xx", "3xx", "4xx", "5xx"].filter((c) => sum[c]).map((c) => ({ key: c, label: c, count: sum[c], tone: c === "2xx" ? "ok" : (c as MixPart["tone"]) }));
+}
+
+/** The top `n` parts and the rest of `total` as "Other". */
+function topWithOther(parts: MixPart[], total: number, n: number): MixPart[] {
+  const sorted = [...parts].sort((a, b) => b.count - a.count);
+  const top = sorted.slice(0, n);
+  const rest = total - top.reduce((x, p) => x + p.count, 0);
+  return rest > 0 ? [...top, { key: "__other", label: "Other", count: rest, tone: "other" }] : top;
+}
+
+/**
+ * Traffic mix: what the page's requests are made of, one thin 100% bar per dimension (status
+ * class, method, consumer, and app when the page spans several), each segment its share; the
+ * legend under a bar names the parts with their share. A part opens its requests in Explore
+ * (status, consumer) or narrows the page to it (method, app). Neutral shades except status, whose
+ * colours mean something.
+ */
+function TrafficMix({
+  statuses,
+  methods,
+  consumers,
+  apps,
+  appLabel,
+  statusHref,
+  consumerHref,
+  methodHref,
+  appHref,
+}: {
+  statuses: FacetValue[] | null;
+  methods: FacetValue[] | null;
+  consumers: FacetValue[] | null;
+  apps: FacetValue[] | null;
+  appLabel: (id: string) => string;
+  statusHref: (cls: string) => string;
+  consumerHref: (id: string) => string;
+  methodHref: (m: string) => string;
+  appHref: (id: string) => string;
+}) {
+  // Every row shares one total: the requests the status facet counted (all codes).
+  const total = (statuses ?? []).reduce((n, s) => n + s.count, 0);
+  if (!statuses || total === 0) return null;
+  const rows: { key: string; label: string; parts: MixPart[]; note?: string }[] = [
+    { key: "status", label: "Status", parts: statusClasses(statuses).map((p) => ({ ...p, href: statusHref(p.key) })) },
+    ...(methods?.length
+      ? [{ key: "method", label: "Method", parts: topWithOther(methods.map((m) => ({ key: m.value, label: m.value.toUpperCase(), count: m.count, href: methodHref(m.value.toUpperCase()) })), total, 5) }]
+      : []),
+    ...(consumers
+      ? [
+          {
+            key: "consumer",
+            label: "Consumer",
+            parts: topWithOther(
+              consumers.map((c) => ({ key: c.value, label: c.label || c.value, count: c.count, href: consumerHref(c.value) })),
+              total,
+              5,
+            ).map((p) => (p.key === "__other" ? { ...p, label: "Anonymous or other" } : p)),
+          },
+        ]
+      : []),
+    ...(apps?.length ? [{ key: "app", label: "App", parts: topWithOther(apps.map((a) => ({ key: a.value, label: appLabel(a.value), count: a.count, href: appHref(a.value) })), total, 5) }] : []),
+  ];
+  return (
+    <section className="tr-sec" aria-labelledby="tr-mix">
+      <div className="tr-sec__head">
+        <h2 id="tr-mix">Traffic mix</h2>
+        <span className="tr-sec__meta">share of {formatCount(total)} requests</span>
       </div>
-      <div>
-        <dt>Throughput</dt>
-        <dd>
-          <span className="tr-tile__value">
-            <LiveNumber text={`${formatCount(s.current_per_minute ?? 0)}/min`} />
-          </span>
-          <span className="tr-tile__sub">now · average {formatPerMinute(s.requests_per_minute)}/min</span>
-        </dd>
+      <div className="tr-mix">
+        {rows.map((row) => (
+          <div key={row.key} className="tr-mix__row">
+            <span className="tr-mix__label">{row.label}</span>
+            <div className="tr-mix__body">
+              <div className="tr-mix__bar" role="img" aria-label={`${row.label}: ${row.parts.map((p) => `${p.label} ${formatPercent(p.count / total)}`).join(", ")}`}>
+                {row.parts.map((p, i) => (
+                  <span key={p.key} className={`tr-mix__seg tr-mix__seg--${p.tone ?? `n${Math.min(i, 4)}`}`} style={{ flexGrow: p.count }} title={`${p.label}: ${formatCount(p.count)} (${formatPercent(p.count / total)})`} />
+                ))}
+              </div>
+              <ul className="tr-mix__legend">
+                {row.parts.map((p, i) => {
+                  const inner = (
+                    <>
+                      <span className={`tr-mix__sw tr-mix__seg--${p.tone ?? `n${Math.min(i, 4)}`}`} aria-hidden="true" />
+                      <span className="tr-mix__name">{p.label}</span>
+                      <span className="tr-mix__pct">{formatPercent(p.count / total)}</span>
+                    </>
+                  );
+                  return <li key={p.key}>{p.href ? <a href={p.href}>{inner}</a> : <span>{inner}</span>}</li>;
+                })}
+              </ul>
+            </div>
+          </div>
+        ))}
       </div>
-      <div>
-        <dt>Error rate</dt>
-        <dd>
-          <span className="tr-tile__value">
-            <LiveNumber text={formatPercent(ratio(errors, s.requests))} />
-          </span>
-          <span className="tr-tile__sub">
-            <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
-          </span>
-          <CompareLine comparison={p ? compare(ratio(errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range }) : null} />
-          <Sparkline
-            values={points.map((x) => (x.requests > 0 ? (x.client_errors + x.server_errors) / x.requests : 0))}
-            hover={{ label: "Error rate", range, points: points.map((x) => ({ ts: x.ts, text: formatPercent(ratio(x.client_errors + x.server_errors, x.requests)) })) }}
-          />
-        </dd>
-      </div>
-      <div>
-        <dt>p95 response time</dt>
-        <dd>
-          <span className="tr-tile__value">
-            <LiveNumber text={formatLatency(s.p95_ms)} />
-          </span>
-          <span className="tr-tile__sub">
-            p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
-          </span>
-          <CompareLine comparison={compare(s.p95_ms, p?.p95_ms, { kind: "relative", better: "down", range })} />
-          <Sparkline values={points.map((x) => x.p95_ms)} hover={{ label: "p95", range, points: points.map((x) => ({ ts: x.ts, text: formatLatency(x.p95_ms) })) }} />
-        </dd>
-      </div>
-      <div>
-        <dt>Apdex</dt>
-        <dd>
-          <span className="tr-tile__value">
-            <LiveNumber text={formatApdex(s.apdex)} />
-          </span>
-          <span className="tr-tile__sub">{rating ?? "No requests to score"}</span>
-          <CompareLine comparison={compare(s.apdex, p?.apdex, { kind: "score", better: "up", range })} />
-        </dd>
-      </div>
-    </dl>
+    </section>
   );
 }
 
