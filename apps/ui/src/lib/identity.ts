@@ -2802,14 +2802,14 @@ export function createClient(config: ClientConfig) {
       q: { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; group?: string; search?: string; sort?: ConsumerSortKey; limit?: number; offset?: number },
       o: Authed,
     ) => request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
-    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange; limit?: number; offset?: number }, o: Authed) =>
+    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange; env?: string; limit?: number; offset?: number }, o: Authed) =>
       request<ConsumerDetail>("GET", `/consumers/${seg(consumerId)}`, { ...o, query: { project: projectSlug, ...q } }),
     listConsumerGroupTraffic: (
       projectSlug: string,
-      q: { range?: QueryRange; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
+      q: { range?: QueryRange; env?: string; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
       o: Authed,
     ) => request<ConsumerGroupsTraffic>("GET", "/consumer-groups", { ...o, query: { project: projectSlug, ...q } }),
-    listAnonymousCallers: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+    listAnonymousCallers: (projectSlug: string, q: { range?: QueryRange; env?: string; limit?: number }, o: Authed) =>
       request<AnonymousCallers>("GET", "/anonymous-callers", { ...o, query: { project: projectSlug, ...q } }),
 
     projectApps: (projectSlug: string, o: Authed) =>

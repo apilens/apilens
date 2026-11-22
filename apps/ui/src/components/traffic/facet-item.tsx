@@ -17,10 +17,13 @@ export function Item({
   mono = false,
   body,
   partial = false,
+  unit = "requests",
 }: {
   on: boolean;
   /** Some of what the row stands for is in (a level with only some of its codes): Explore's dash. */
   partial?: boolean;
+  /** What the count counts, for its tooltip. */
+  unit?: string;
   href: string;
   /** Keeps this value alone (Explore's hover Only). */
   only: string;
@@ -40,7 +43,7 @@ export function Item({
         {body ?? <span className="exf-label__text">{label}</span>}
       </Link>
       {count !== undefined ? (
-        <span className="exf-count" title={`${count.toLocaleString("en-US")} requests`}>
+        <span className="exf-count" title={`${count.toLocaleString("en-US")} ${unit}`}>
           {compactCount(count)}
         </span>
       ) : null}

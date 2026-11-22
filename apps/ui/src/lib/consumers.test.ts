@@ -12,7 +12,7 @@ import {
   stackBars,
 } from "./consumers";
 
-const DEFAULTS = { range: "24h", by: "consumers", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
+const DEFAULTS = { range: "24h", env: "", by: "consumers", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
 
 describe("parseConsumersQuery", () => {
   it("defaults everything", () => {
@@ -22,6 +22,7 @@ describe("parseConsumersQuery", () => {
   it("reads known values and drops the rest", () => {
     expect(parseConsumersQuery({ range: "7d", group: " Acme Corp ", consumer: "usr_1f3a9c", tab: "errors", q: " priya ", sort: "last_seen" })).toEqual({
       range: "7d",
+      env: "",
       by: "consumers",
       group: "Acme Corp",
       consumer: "usr_1f3a9c",
@@ -42,7 +43,7 @@ describe("parseConsumersQuery", () => {
 describe("consumersHref", () => {
   it("leaves defaults out but always carries the range (#993) and encodes the consumer", () => {
     expect(consumersHref("shop", {})).toBe("/project/shop/consumers");
-    expect(consumersHref("shop", DEFAULTS as never)).toBe("/project/shop/consumers?range=24h");
+    expect(consumersHref("shop", DEFAULTS as never)).toBe("/project/shop/consumers?range=24h&env=all");
     expect(consumersHref("shop", { range: "7d", consumer: "acme/eu 1", tab: "errors" })).toBe("/project/shop/consumers?range=7d&consumer=acme%2Feu+1&tab=errors");
     expect(consumersHref("shop", { group: "Acme Corp", q: "priya", sort: "errors" })).toBe("/project/shop/consumers?group=Acme+Corp&q=priya&sort=errors");
     expect(groupHref("shop", "Umbrella Health", "1h")).toBe("/project/shop/consumers?range=1h&group=Umbrella+Health");
@@ -52,7 +53,8 @@ describe("consumersHref", () => {
     expect(consumersHref("shop", { by: "groups", group: "Initech", sort: "consumers" })).toBe("/project/shop/consumers?by=groups&sort=consumers");
     expect(consumersHref("shop", { sort: "consumers" })).toBe("/project/shop/consumers");
     expect(consumersHref("shop", { tab: "errors" })).toBe("/project/shop/consumers");
-    expect(consumersHref("shop", { consumer: "u1", q: "x", group: "G", sort: "errors" })).toBe("/project/shop/consumers?consumer=u1");
+    // The drawer (consumer) opens over the list, which keeps its filters under it.
+    expect(consumersHref("shop", { consumer: "u1", q: "x", group: "G", sort: "errors" })).toBe("/project/shop/consumers?group=G&q=x&sort=errors&consumer=u1");
     expect(consumersHref("shop", { page: 3 } as never)).toBe("/project/shop/consumers");
   });
 });
@@ -122,5 +124,19 @@ describe("sparklinePoints", () => {
     expect(sparklinePoints([0, 5, 10], 100, 22)).toBe("0,21 50,11 100,1");
     expect(sparklinePoints([0, 0], 10, 10)).toBe("0,9 10,9");
     expect(sparklinePoints([], 10, 10)).toBe("");
+  });
+});
+
+describe("environment and the Anonymous tab", () => {
+  it("reads an environment (all for none) and the anonymous view", () => {
+    expect(parseConsumersQuery({ env: " production " }).env).toBe("production");
+    expect(parseConsumersQuery({ env: "all" }).env).toBe("");
+    expect(parseConsumersQuery({ env: "x".repeat(65) }).env).toBe("");
+    expect(parseConsumersQuery({ by: "anonymous", group: "G" })).toMatchObject({ by: "anonymous", group: null });
+  });
+  it("writes them, and the anonymous view drops search and sort", () => {
+    expect(consumersHref("shop", { range: "24h", env: "production", group: "Partners" })).toBe("/project/shop/consumers?range=24h&env=production&group=Partners");
+    expect(consumersHref("shop", { by: "anonymous", q: "x", sort: "errors" })).toBe("/project/shop/consumers?by=anonymous");
+    expect(groupHref("shop", "Partners", "24h", "staging")).toBe("/project/shop/consumers?range=24h&env=staging&group=Partners");
   });
 });

@@ -6,6 +6,7 @@
 import type { QueryRange, StatusSplit } from "./identity";
 import { zoneLabel, zoned } from "./time-zone";
 import { projectHref } from "./routes";
+import { envParam } from "./scope-defaults";
 
 export const CONSUMER_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -14,16 +15,24 @@ export const RANGE_LABEL: Record<QueryRange, string> = { "1h": "1 hour", "6h": "
 /** Longest consumer id, group name and search the API takes. */
 export const MAX_TEXT = 256;
 
-export type ConsumersBy = "consumers" | "groups";
+export type ConsumersBy = "consumers" | "groups" | "anonymous";
 export type DetailTab = "requests" | "errors";
 export type ConsumerSort = "requests" | "errors" | "last_seen";
 export type GroupSort = ConsumerSort | "consumers";
 const CONSUMER_SORTS: readonly ConsumerSort[] = ["requests", "errors", "last_seen"];
 const GROUP_SORTS: readonly GroupSort[] = ["requests", "errors", "consumers", "last_seen"];
 
-/** The page's state, all of it in the URL: `?range=&by=&group=&consumer=&tab=&q=&sort=` (plus `page`/`per`). */
+/** The longest environment name the API takes. */
+const MAX_ENV = 64;
+
+/**
+ * The page's state, all of it in the URL: `?range=&env=&by=&group=&consumer=&tab=&q=&sort=` (plus
+ * `page`/`per`). `consumer` opens that user's drawer over the list, which keeps its own filters.
+ */
 export interface ConsumersQuery {
   range: QueryRange;
+  /** An environment the reads are narrowed to; "" for all. */
+  env: string;
   by: ConsumersBy;
   /** An SDK consumer group the consumers list is narrowed to, or null. */
   group: string | null;
@@ -47,13 +56,16 @@ const text = (v: string | undefined) => {
 /** Reads the page state from search params; anything unknown falls back to the default. */
 export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
   const range = first(params.range);
-  const by: ConsumersBy = first(params.by) === "groups" ? "groups" : "consumers";
+  const byParam = first(params.by);
+  const by: ConsumersBy = byParam === "groups" || byParam === "anonymous" ? byParam : "consumers";
+  const env = (first(params.env) ?? "").trim();
   const sort = first(params.sort);
   const sorts: readonly string[] = by === "groups" ? GROUP_SORTS : CONSUMER_SORTS;
   return {
     range: CONSUMER_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
+    env: env.length <= MAX_ENV && env !== "all" ? env : "",
     by,
-    group: by === "groups" ? null : text(first(params.group)),
+    group: by === "consumers" ? text(first(params.group)) : null,
     consumer: (() => {
       const c = first(params.consumer);
       return c && c.length <= MAX_TEXT ? c : null;
@@ -66,26 +78,28 @@ export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
 
 /**
  * The page URL for `q`, leaving defaults out (a range always goes in, #993). It never carries `page`: every link built here (a
- * range, view, filter, search, sort or tab change) starts again at page 1.
+ * range, view, filter, search, sort or tab change) starts again at page 1. An open consumer
+ * (`consumer`, the drawer) keeps the list's own state under it.
  */
 export function consumersHref(project: string, q: Partial<ConsumersQuery>): string {
   const p = new URLSearchParams();
   if (q.range) p.set("range", q.range);
+  // As Traffic: an env given is always written, "" as `all`, so All environments isn't read as the default (#993).
+  if (q.env !== undefined) p.set("env", envParam(q.env));
+  if (q.by === "groups" || q.by === "anonymous") p.set("by", q.by);
+  if (q.group && (q.by ?? "consumers") === "consumers") p.set("group", q.group);
+  if (q.q && q.by !== "anonymous") p.set("q", q.q);
+  if (q.sort && q.sort !== "requests" && q.by !== "anonymous" && (q.by === "groups" || q.sort !== "consumers")) p.set("sort", q.sort);
   if (q.consumer) {
     p.set("consumer", q.consumer);
     if (q.tab === "errors") p.set("tab", "errors");
-  } else {
-    if (q.by === "groups") p.set("by", "groups");
-    if (q.group && q.by !== "groups") p.set("group", q.group);
-    if (q.q) p.set("q", q.q);
-    if (q.sort && q.sort !== "requests" && (q.by === "groups" || q.sort !== "consumers")) p.set("sort", q.sort);
   }
   const s = p.toString();
   return `${projectHref(project, "consumers")}${s ? `?${s}` : ""}`;
 }
 
 /** The view of one SDK group: its consumers, in the range. */
-export const groupHref = (project: string, group: string, range: QueryRange) => consumersHref(project, { range, group });
+export const groupHref = (project: string, group: string, range: QueryRange, env?: string) => consumersHref(project, { range, env, group });
 
 /** What a consumer is called: its reported name, else its id. */
 export const consumerLabel = (c: { consumer_id: string; consumer_name: string }) => c.consumer_name.trim() || c.consumer_id;

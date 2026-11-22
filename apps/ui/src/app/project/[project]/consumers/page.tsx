@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { type AnonymousData, type ConsumersData, ConsumersView, type DetailState } from "@/components/consumers/consumers";
+import { type ConsumersData, ConsumersView } from "@/components/consumers/consumers";
+import { ConsumersMenu } from "@/components/consumers/menu";
 import { getContext, getSession } from "@/lib/auth/server";
 import { pickConsumerSdks } from "@/lib/consumer-setup";
-import { CONSUMER_RANGES, type ConsumersQuery, DEFAULT_RANGE, consumersHref, errorsOf, parseConsumersQuery } from "@/lib/consumers";
+import { CONSUMER_RANGES, type ConsumersQuery, DEFAULT_RANGE, consumersHref, parseConsumersQuery } from "@/lib/consumers";
 import {
   type CallOptions,
-  type ConsumerDetail,
   type ConsumerGroupsTraffic,
   type ConsumerSortKey,
   type ConsumersList,
@@ -55,72 +55,78 @@ async function readPage<T>(
   return fetch(Math.min(maxOffset, pageOffset({ page: last, per: page.per })));
 }
 
-/** The largest offsets the API takes: the consumer detail's latest requests, and the lists. */
-const MAX_DETAIL_OFFSET = 10_000;
+/** The largest offset the lists take. */
 const MAX_LIST_OFFSET = 100_000;
 
 async function load(project: string, q: ConsumersQuery, page: PageState, next: string): Promise<ConsumersData> {
   const api = identity();
-  if (q.consumer) {
-    const id = q.consumer;
-    const detail = await readPage<ConsumerDetail>(
-      page,
-      MAX_DETAIL_OFFSET,
-      (offset) => read(next, (o) => api.getConsumer(project, id, { range: q.range, limit: page.per, offset }, o)),
-      (d) =>
-        q.tab === "errors" ? { rows: (d.recent_errors ?? []).length, total: errorsOf(d.summary) } : { rows: (d.recent_requests ?? []).length, total: d.summary.requests },
-    );
-    const state: DetailState = detail === 404 ? { kind: "missing" } : detail === null ? { kind: "error" } : { kind: "ok", consumer: detail };
-    return { view: "detail", detail: state };
-  }
-  if (q.by === "groups") {
-    const groups = await readPage<ConsumerGroupsTraffic>(
-      page,
-      MAX_LIST_OFFSET,
-      (offset) =>
-        read(next, (o) => api.listConsumerGroupTraffic(project, { range: q.range, sort: q.sort as GroupSortKey, limit: page.per, offset, ...(q.q ? { search: q.q } : {}) }, o)),
-      (g) => ({ rows: (g.groups ?? []).length, total: g.total }),
-    );
-    return { view: "groups", groups: groups === 404 ? null : groups };
-  }
+  const env = q.env ? { env: q.env } : {};
   const sort: ConsumerSortKey = q.sort === "consumers" ? "requests" : q.sort;
-  const list = await readPage<ConsumersList>(
-    page,
-    MAX_LIST_OFFSET,
-    (offset) =>
-      read(next, (o) =>
-        api.listConsumers(project, { range: q.range, sort, limit: page.per, offset, ...(q.group ? { group: q.group } : {}), ...(q.q ? { search: q.q } : {}) }, o),
-      ),
-    (l) => ({ rows: (l.consumers ?? []).length, total: l.total }),
-  );
-  if (list === null || list === 404) return { view: "consumers", list: null };
-  const nobody = list.summary.consumers === 0 && list.total === 0 && !q.q && !q.group;
-  if (!nobody) return { view: "consumers", list };
-  return { view: "consumers", list, anonymous: await loadAnonymous(project, q, next) };
+  // The list feeds the chart and the stats on every tab; its rows are the Consumers tab's table.
+  const consumersTab = q.by === "consumers";
+  const [list, groups, anonymous, groupFacet, detail] = await Promise.all([
+    consumersTab
+      ? readPage<ConsumersList>(
+          page,
+          MAX_LIST_OFFSET,
+          (offset) =>
+            read(next, (o) =>
+              api.listConsumers(project, { range: q.range, ...env, sort, limit: page.per, offset, ...(q.group ? { group: q.group } : {}), ...(q.q ? { search: q.q } : {}) }, o),
+            ),
+          (l) => ({ rows: (l.consumers ?? []).length, total: l.total }),
+        )
+      : read(next, (o) => api.listConsumers(project, { range: q.range, ...env, limit: 1 }, o)),
+    q.by === "groups"
+      ? readPage<ConsumerGroupsTraffic>(
+          page,
+          MAX_LIST_OFFSET,
+          (offset) =>
+            read(next, (o) => api.listConsumerGroupTraffic(project, { range: q.range, ...env, sort: q.sort as GroupSortKey, limit: page.per, offset, ...(q.q ? { search: q.q } : {}) }, o)),
+          (g) => ({ rows: (g.groups ?? []).length, total: g.total }),
+        )
+      : Promise.resolve(null),
+    // The Anonymous tab's callers, and the stats' anonymous requests on every tab.
+    read(next, (o) => api.listAnonymousCallers(project, { range: q.range, ...env, limit: q.by === "anonymous" ? ANONYMOUS_CALLERS : 1 }, o)),
+    // The sidebar's Group section: the groups with their users, most users first.
+    read(next, (o) => api.listConsumerGroupTraffic(project, { range: q.range, ...env, sort: "consumers", limit: GROUP_FACETS }, o)),
+    q.consumer ? read(next, (o) => api.getConsumer(project, q.consumer as string, { range: q.range, ...env, limit: DRAWER_ROWS }, o)) : Promise.resolve(null),
+  ]);
+  const ok = <T,>(v: T | null | 404): T | null => (v === null || v === 404 ? null : v);
+  const l = ok(list);
+  const nobody = l !== null && l.summary.consumers === 0 && l.total === 0 && !q.q && !q.group;
+  return {
+    list: l,
+    groups: ok(groups),
+    anonymous: ok(anonymous),
+    groupFacet: ok(groupFacet)?.groups ?? null,
+    detail: !q.consumer ? undefined : detail === 404 ? { kind: "missing" } : detail === null ? { kind: "error" } : { kind: "ok", consumer: detail },
+    sdks: nobody ? await loadSdks(project, next) : null,
+  };
 }
+
+/** The most groups the sidebar lists, and recent requests and errors the drawer shows. */
+const GROUP_FACETS = 20;
+const DRAWER_ROWS = 5;
 
 /** The most anonymous callers the empty state lists. */
 const ANONYMOUS_CALLERS = 10;
 
 /**
- * No user identified in the range (#989): the requests without a consumer and their top callers,
- * and the SDKs the project's apps run (from what each app's SDK reported), which pick the snippet
- * tabs. An app whose report cannot be read is skipped.
+ * No user identified in the range (#989): the SDKs the project's apps run (from what each app's SDK
+ * reported), which pick the identify snippet's tabs. An app whose report cannot be read is skipped.
  */
-async function loadAnonymous(project: string, q: ConsumersQuery, next: string): Promise<AnonymousData> {
+async function loadSdks(project: string, next: string) {
   const api = identity();
-  const [callers, apps] = await Promise.all([
-    read(next, (o) => api.listAnonymousCallers(project, { range: q.range, limit: ANONYMOUS_CALLERS }, o)),
-    read(next, (o) => api.projectApps(project, o)),
-  ]);
+  const apps = await read(next, (o) => api.projectApps(project, o));
   const listed = apps === null || apps === 404 ? [] : (apps.apps ?? []);
   const reports = await Promise.all(listed.map((app) => read(next, (o) => api.appReports(app.id, o))));
   const frameworks = reports.flatMap((r) => (r === null || r === 404 ? [] : (r.environments ?? []).map((e) => e.framework)));
-  return { callers: callers === 404 ? null : callers, sdks: pickConsumerSdks(frameworks) };
+  return pickConsumerSdks(frameworks);
 }
 
-// Consumers (#596): the users of the API, new vs returning, the paged users table with sparklines
-// (or the SDK groups roll-up), and one user's requests, errors and top endpoints.
+// Consumers (#596): the users of the API, Traffic's frame (sidebar, filter bar, pinned chart, stats
+// strip): new vs returning over time, then Consumers (one row per username, its group beside it),
+// Groups and Anonymous tabs; a username opens its drawer (requests, errors, top endpoints).
 export default async function ConsumersPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
   const raw = await searchParams;
@@ -130,6 +136,7 @@ export default async function ConsumersPage({ params, searchParams }: { params: 
   if (!found) notFound();
   // No range in the URL (#993): the range that covers the project's first data.
   const { params: sp } = await withScopeDefaults(raw, {
+    environments: found.project.environments ?? [],
     firstAt: async () => {
       const s = await read(next, (o) => identity().ingestStatus(project, o));
       return s === null || s === 404 ? null : s.first_at;
@@ -143,8 +150,13 @@ export default async function ConsumersPage({ params, searchParams }: { params: 
   const data = await load(project, q, page, next);
 
   return (
-    <AppShell context={context} project={project} view="consumers">
-      <ConsumersView project={project} projectName={found.project.name} query={q} params={sp} data={data} now={Date.now()} />
+    <AppShell
+      context={context}
+      project={project}
+      view="consumers"
+      menu={<ConsumersMenu project={project} query={q} environments={found.project.environments ?? []} groups={data.groupFacet} />}
+    >
+      <ConsumersView project={project} query={q} params={sp} data={data} now={Date.now()} />
     </AppShell>
   );
 }
