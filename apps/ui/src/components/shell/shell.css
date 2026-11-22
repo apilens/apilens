@@ -229,3 +229,13 @@
   .rl-panel, .rl-lb, .shell-rail, .shell-side { transition: none; }
   .sp--enter { animation: none; }
 }
+
+/* The app is a fixed frame, as Supabase's dashboard: while the shell is on screen the document
+   never moves. Safari rubber-bands the whole page on a trackpad, even when nothing overflows,
+   pulling the top bar and toolbar off the top edge; the document is locked, and the frame's own
+   scroll areas (the main pane, the sidebar, tables, drawers) stop at their ends instead of
+   bouncing or handing the scroll on. Pages without the shell (sign-in, onboarding) are unchanged. */
+html:has(body .shell), body:has(.shell) { height: 100%; overflow: hidden; overscroll-behavior: none; }
+/* Only the scroll areas themselves: on a non-scrolling element (a row) it would stop the wheel
+   from reaching its scroller in Chromium. :root raises them over each area's own `contain`. */
+:root .shell .app-main, :root .shell .sp-body, :root .exf-scroll, :root .exl-grid, :root .tr-scroll, :root .exd-main { overscroll-behavior: none; }
