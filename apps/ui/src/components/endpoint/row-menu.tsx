@@ -156,7 +156,7 @@ export function EndpointRowMenu({ method, path, appId: rowApp }: { method: strin
               onChange={(e) => setThreshold(e.target.value)}
             />
             <p id={ids.hint} className="ep-hint">
-              Requests slower than this are slow{inApp}. Empty uses the app’s.
+              How fast this endpoint{inApp} should answer. Requests within it count as fast, up to 4× it as OK, slower (or a 5xx) as too slow: that's its Apdex score. Leave empty to use the app's (500 ms unless changed).
             </p>
             {thresholdErr ? (
               <p id={ids.err} className="ep-err" role="alert">

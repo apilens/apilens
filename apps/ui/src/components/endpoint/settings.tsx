@@ -181,7 +181,7 @@ export function SettingsMenu({
                   onChange={(e) => setDraft({ ...draft, threshold: e.target.value })}
                 />
                 <p id={ids.thresholdHint} className="ep-hint">
-                  Requests slower than this are slow, and it is the endpoint’s Apdex target. Empty uses the app’s (500 ms unless set).
+                  How fast this endpoint should answer. Requests within it count as fast, up to 4× it as OK, slower (or a 5xx) as too slow: that's its Apdex score. Leave empty to use the app's (500 ms unless changed).
                 </p>
                 {errors.threshold ? (
                   <p id={ids.thresholdErr} className="ep-err">
