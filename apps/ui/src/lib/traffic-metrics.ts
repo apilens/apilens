@@ -3,10 +3,10 @@
 // sidebar, the filter bar and the table read one state. Pure; see traffic-metrics.test.ts.
 import type { EndpointTraffic } from "./identity";
 
-export type MetricField = "client_errors" | "server_errors" | "p50" | "p95";
+export type MetricField = "requests" | "client_errors" | "server_errors" | "p50" | "p95";
 export type MetricOp = "gt" | "lt" | "eq";
 
-/** One condition. `pct` compares the share of the endpoint's requests (4xx and 5xx only). */
+/** One condition. `pct` compares the share of the endpoint's requests (4xx and 5xx only; never requests). */
 export interface MetricCond {
   field: MetricField;
   op: MetricOp;
@@ -15,6 +15,7 @@ export interface MetricCond {
 }
 
 export const METRIC_FIELDS: readonly { key: MetricField; label: string; latency: boolean }[] = [
+  { key: "requests", label: "Requests", latency: false },
   { key: "client_errors", label: "4xx", latency: false },
   { key: "server_errors", label: "5xx", latency: false },
   { key: "p95", label: "p95", latency: true },
@@ -29,7 +30,8 @@ const isLatency = (f: MetricField) => f === "p50" || f === "p95";
 
 /**
  * Reads what someone typed for a field: an operator (`>`, `<`, `=`; `>` when left out) then a
- * number. Latency takes `ms` or `s` (ms by default); 4xx and 5xx take a count, or a share with `%`.
+ * number. Latency takes `ms` or `s` (ms by default); 4xx and 5xx take a count, or a share with `%`;
+ * requests a count.
  * Null when it isn't one of those.
  */
 export function parseMetricInput(field: MetricField, text: string): MetricCond | null {
@@ -44,6 +46,7 @@ export function parseMetricInput(field: MetricField, text: string): MetricCond |
     return { field, op, value: unit === "s" ? n * 1000 : n, pct: false };
   }
   if (unit === "ms" || unit === "s") return null;
+  if (field === "requests" && unit === "%") return null;
   if (unit === "%" && n > 100) return null;
   return { field, op, value: n, pct: unit === "%" };
 }
@@ -80,6 +83,7 @@ export function metricText(c: MetricCond): string {
 function actual(ep: EndpointTraffic, c: MetricCond): number {
   if (c.field === "p50") return ep.p50_ms;
   if (c.field === "p95") return ep.p95_ms;
+  if (c.field === "requests") return ep.requests;
   const n = c.field === "client_errors" ? ep.client_errors : ep.server_errors;
   return c.pct ? (ep.requests > 0 ? (n / ep.requests) * 100 : 0) : n;
 }

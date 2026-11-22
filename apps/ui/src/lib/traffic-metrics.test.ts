@@ -20,6 +20,11 @@ describe("parseMetricInput", () => {
     expect(parseMetricInput("p95", "> 1.5s")).toEqual({ field: "p95", op: "gt", value: 1500, pct: false });
     expect(parseMetricInput("p50", "<80 ms")).toEqual({ field: "p50", op: "lt", value: 80, pct: false });
   });
+  it("reads requests as a count only", () => {
+    expect(parseMetricInput("requests", "> 1000")).toEqual({ field: "requests", op: "gt", value: 1000, pct: false });
+    expect(parseMetricInput("requests", "< 2%")).toBeNull();
+    expect(parseMetricInput("requests", "> 5ms")).toBeNull();
+  });
   it("refuses units that don't fit the field, and anything else", () => {
     expect(parseMetricInput("p95", "> 5%")).toBeNull();
     expect(parseMetricInput("client_errors", "> 5ms")).toBeNull();
@@ -56,6 +61,9 @@ describe("meetsMetrics", () => {
     expect(meetsMetrics(e, [{ field: "server_errors", op: "eq", value: 5, pct: false }])).toBe(true);
     expect(meetsMetrics(e, [{ field: "p95", op: "lt", value: 500, pct: false }])).toBe(false);
     expect(meetsMetrics(e, [{ field: "p50", op: "lt", value: 50, pct: false }])).toBe(true);
+    expect(meetsMetrics(e, [{ field: "requests", op: "gt", value: 999, pct: false }])).toBe(true);
+    expect(meetsMetrics(e, [{ field: "requests", op: "lt", value: 1000, pct: false }])).toBe(false);
+    expect(meetsMetrics(e, [{ field: "requests", op: "eq", value: 1000, pct: false }])).toBe(true);
   });
   it("needs every condition, and reads an endpoint without requests as a 0% share", () => {
     const e = ep({});

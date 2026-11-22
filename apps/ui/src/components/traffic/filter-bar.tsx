@@ -22,14 +22,15 @@ const FIELDS: { key: Field; label: string; mono?: boolean; metric?: boolean }[] 
   { key: "method", label: "Method", mono: true },
   { key: "path", label: "Endpoint", mono: true },
   { key: "consumer", label: "Consumer" },
+  { key: "requests", label: "Requests", metric: true },
   { key: "client_errors", label: "4xx", metric: true },
   { key: "server_errors", label: "5xx", metric: true },
   { key: "p95", label: "p95", metric: true },
   { key: "p50", label: "p50", metric: true },
 ];
-const isMetric = (f: Field): f is MetricField => f === "client_errors" || f === "server_errors" || f === "p95" || f === "p50";
+const isMetric = (f: Field): f is MetricField => f === "requests" || f === "client_errors" || f === "server_errors" || f === "p95" || f === "p50";
 /** The value stage's hint for a metric field. */
-const METRIC_HINT: Record<MetricField, string> = { client_errors: "> 10, < 2%, = 0", server_errors: "> 0, < 1%", p95: "> 500 ms, < 1.5 s", p50: "> 200 ms" };
+const METRIC_HINT: Record<MetricField, string> = { requests: "> 1000, < 50", client_errors: "> 10, < 2%, = 0", server_errors: "> 0, < 1%", p95: "> 500 ms, < 1.5 s", p50: "> 200 ms" };
 
 type Option = { value: string; label: string; count?: number };
 
@@ -257,7 +258,7 @@ export function TrafficFilterBar({
           aria-autocomplete="list"
           aria-activedescendant={showMenu && options[at] ? `${id}-o-${at}` : undefined}
           aria-keyshortcuts="Shift+F /"
-          placeholder={fieldDef ? (isMetric(fieldDef.key) ? METRIC_HINT[fieldDef.key] : `${fieldDef.label}…`) : pills.length ? "Add filter…" : "Filter by Environment, Method, Endpoint, Consumer, 4xx, p95…"}
+          placeholder={fieldDef ? (isMetric(fieldDef.key) ? METRIC_HINT[fieldDef.key] : `${fieldDef.label}…`) : pills.length ? "Add filter…" : "Filter by Environment, Method, Endpoint, Consumer, Requests, 4xx, p95…"}
           value={text}
           spellCheck={false}
           autoComplete="off"

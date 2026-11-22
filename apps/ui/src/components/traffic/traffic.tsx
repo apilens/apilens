@@ -373,7 +373,7 @@ function EndpointsTable({
               <td className="tr-num" data-label="Requests" data-col="requests" title={total > 0 ? `${formatPercent(ep.requests / total)} of all requests` : undefined}>
                 <span className="tr-cell">
                   <span>{formatCount(ep.requests)}</span>
-                  <FieldMenu label="Requests" actions={[{ label: "Open these requests in Explore", href: drill({}) }]} />
+                  <FieldMenu label="Requests" actions={[...compare("requests", ep.requests), { label: "Open these requests in Explore", href: drill({}) }]} />
                 </span>
               </td>
               <td className="tr-num" data-label="4xx" data-col="client_errors">
