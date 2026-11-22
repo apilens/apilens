@@ -37,8 +37,10 @@ type Row = { key: string; text: string; detail?: string; mono?: boolean; head?: 
  * The Consumers filter bar, Traffic's and Explore's in look and keys. Focus it and the fields show
  * (Username, Group, Status, Environment, App, Method, Endpoint); pick one and all its values show
  * with their counts (every group, every status…), narrowed as you type; Enter or a click applies
- * it as a pill (`Group = Partners`). Group and Endpoint also take what was typed as "contains"
- * (`Endpoint contains orders`); Status ticks levels and codes into one list, as the sidebar does. Typing before picking a field suggests across them: the
+ * it as a pill (`Group = Partners`). Enter without moving to a suggestion applies what was typed as
+ * "contains" (Username, or the picked Group or Endpoint; a field's whole name opens that field);
+ * the "contains" row is shown only when nothing matches. A suggested username narrows the list to
+ * it. Status ticks levels and codes into one list, as the sidebar does. Typing before picking a field suggests across them: the
  * fields that match, "Username contains …", the matching usernames (which open their drawer) and
  * groups. A pill's body changes it, its × removes it; Backspace in the empty box selects the last
  * pill, again removes it; ← → move between pills; Esc steps back. `/` focuses it from anywhere.
@@ -64,6 +66,8 @@ export function ConsumersFilterBar({
   const [active, setActive] = useState(0);
   const [field, setField] = useState<Field | null>(null);
   const [hl, setHl] = useState<number | null>(null);
+  // Whether a suggestion was moved to (arrows or the pointer): until then Enter applies the text.
+  const [navigated, setNavigated] = useState(false);
 
   const current: Record<Pill, string> = {
     env: q.env,
@@ -82,6 +86,7 @@ export function ConsumersFilterBar({
   const codes = values.status.map((o) => o.value).filter((v) => /^\d{3}$/.test(v));
 
   const go = (patch: Partial<ConsumersQuery>) => {
+    setNavigated(false);
     setText("");
     setField(null);
     setMenu(false);
@@ -119,6 +124,7 @@ export function ConsumersFilterBar({
   }, []);
 
   function pick(f: Field) {
+    setNavigated(false);
     setField(f);
     setText(f === "q" ? q.q : f === "group" ? q.groupLike : f === "path" ? q.pathLike : "");
     setActive(0);
@@ -138,10 +144,8 @@ export function ConsumersFilterBar({
         text: u.label,
         detail: u.group || undefined,
         mono: true,
-        run: () => {
-          setMenu(false);
-          router.push(consumersHref(project, { ...q, consumer: u.id }), { scroll: false });
-        },
+        // Picking a username narrows the list to it (the drawer opens from the row).
+        run: () => set("q", u.id),
       }));
   const valueRows = (f: Exclude<Field, "q">, limit = 60): Row[] =>
     values[f]
@@ -157,21 +161,17 @@ export function ConsumersFilterBar({
           run: () => (f === "status" ? toggleStatus(o.value) : set(f, o.value)),
         };
       });
-  // Group and Endpoint: what was typed, applied as "contains", before the exact values.
-  const containsRow = (f: Field): Row[] => {
-    const pill = CONTAINS[f];
-    const def = FIELDS.find((x) => x.key === f);
-    return pill && typed && def ? [{ key: `${f}-like`, text: `${def.label} contains “${typed}”`, detail: "apply", run: () => set(pill, typed) }] : [];
-  };
 
-  const rows: Row[] = field
+  // What Enter does with typed text when nothing was picked: "contains" on the field (Username
+  // when no field is picked, or the field's own for Group and Endpoint).
+  const containsTarget: Pill | null = !field || field === "q" ? "q" : (CONTAINS[field] ?? null);
+  const containsText = containsTarget
+    ? `${containsTarget === "q" ? "Username" : (FIELDS.find((x) => x.key === field)?.label ?? "")} contains “${typed}”`
+    : "";
+  const matches: Row[] = field
     ? field === "q"
-      ? [
-          ...(typed ? [{ key: "q-typed", text: `Username contains “${typed}”`, detail: "apply", run: () => set("q", typed) }] : []),
-          ...(users.length ? [{ key: "h-u", text: "Usernames", head: true, run: () => {} }] : []),
-          ...userRows(20),
-        ]
-      : [...containsRow(field), ...valueRows(field)]
+      ? [...(userRows(20).length ? [{ key: "h-u", text: "Usernames", head: true, run: () => {} }] : []), ...userRows(20)]
+      : valueRows(field)
     : [
         ...FIELDS.filter((f) => !t || f.label.toLowerCase().includes(t)).map((f) => ({
           key: f.key,
@@ -180,10 +180,12 @@ export function ConsumersFilterBar({
           run: () => pick(f.key),
         })),
         // Typed before picking a field: suggest across the values too.
-        ...(typed ? [{ key: "q-typed", text: `Username contains “${typed}”`, detail: "search", run: () => set("q", typed) }] : []),
         ...(typed && userRows(5).length ? [{ key: "h-u", text: "Usernames", head: true, run: () => {} }, ...userRows(5)] : []),
         ...(typed && valueRows("group", 5).length ? [{ key: "h-g", text: "Groups", head: true, run: () => {} }, ...valueRows("group", 5)] : []),
       ];
+  // "Contains" is offered only when nothing matches what was typed (Enter applies it either way).
+  const rows: Row[] =
+    typed && containsTarget && !matches.some((r) => !r.head) ? [{ key: "contains", text: containsText, detail: "apply", run: () => set(containsTarget, typed) }] : matches;
   const pickable = rows.map((r, n) => (r.head ? -1 : n)).filter((n) => n >= 0);
   const at = pickable.includes(active) ? active : (pickable.find((n) => n >= active) ?? pickable[0] ?? -1);
   const step = (d: 1 | -1) => {
@@ -197,11 +199,19 @@ export function ConsumersFilterBar({
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       if (!menu) return setMenu(true);
+      if (!navigated) {
+        setNavigated(true);
+        return;
+      }
       return step(e.key === "ArrowDown" ? 1 : -1);
     }
     if (e.key === "Enter") {
       e.preventDefault();
       if (!field && empty && hl !== null) return pick(pills[hl].field);
+      // Nothing moved to: a field's whole name opens it; other text is applied as "contains".
+      const named = !field && !navigated ? FIELDS.find((f) => f.label.toLowerCase() === t) : undefined;
+      if (named) return pick(named.key);
+      if (!navigated && typed && containsTarget) return set(containsTarget, typed);
       if (at >= 0) rows[at].run();
       return;
     }
@@ -279,7 +289,7 @@ export function ConsumersFilterBar({
           aria-expanded={showMenu}
           aria-controls={`${id}-menu`}
           aria-autocomplete="list"
-          aria-activedescendant={showMenu && at >= 0 ? `${id}-o-${at}` : undefined}
+          aria-activedescendant={showMenu && navigated && at >= 0 ? `${id}-o-${at}` : undefined}
           aria-keyshortcuts="Shift+F /"
           placeholder={fieldDef ? `${fieldDef.label}…` : pills.length ? "Add filter…" : "Filter by Username, Group, Environment, App, Method, Endpoint…"}
           value={text}
@@ -288,6 +298,7 @@ export function ConsumersFilterBar({
           onChange={(e) => {
             setText(e.target.value);
             setActive(0);
+            setNavigated(false);
             setHl(null);
             setMenu(true);
           }}
@@ -318,10 +329,13 @@ export function ConsumersFilterBar({
                   key={r.key}
                   id={`${id}-o-${n}`}
                   role="option"
-                  aria-selected={n === at}
-                  className={n === at ? "is-active" : undefined}
+                  aria-selected={navigated && n === at}
+                  className={navigated && n === at ? "is-active" : undefined}
                   onMouseDown={(e) => e.preventDefault()}
-                  onMouseMove={() => n !== at && setActive(n)}
+                  onMouseMove={() => {
+                    if (!navigated) setNavigated(true);
+                    if (n !== at) setActive(n);
+                  }}
                   onClick={() => r.run()}
                 >
                   <span className={`exp-menu__text${r.mono ? " is-mono" : ""}`}>{r.text}</span>
