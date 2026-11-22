@@ -13,9 +13,9 @@ type Field = "env" | "app" | "method" | "path" | "consumer";
 /**
  * Traffic's secondary sidebar, Explore's facet panel in look: the time range (Explore's button and
  * date picker), then a section per field the page can be narrowed by (environment, app when there
- * are several, method, endpoint, consumer), each value with its requests under the other filters.
- * The endpoints table's metric conditions (4xx, 5xx, p95, p50 with > < =) live in the filter bar
- * only. A value is a link: picking it narrows the
+ * are several, method, consumer), each value with its requests under the other filters. Endpoints
+ * and the table's metric conditions (4xx, 5xx, p95, p50 with > < =) are filtered from the filter bar
+ * and the table's ⋯ menus. A value is a link: picking it narrows the
  * page to it (one per field, as the traffic reads take), picking it again lets it go. Sections
  * fold (`<details>`), so the panel works before JavaScript. Reset clears every filter.
  */
@@ -26,7 +26,6 @@ export function TrafficMenu({
   envs,
   appCounts,
   methods,
-  paths,
   consumers,
 }: {
   project: string;
@@ -35,7 +34,6 @@ export function TrafficMenu({
   envs: FacetValue[] | null;
   appCounts: FacetValue[] | null;
   methods: FacetValue[] | null;
-  paths: FacetValue[] | null;
   consumers: FacetValue[] | null;
 }) {
   const current: Record<Field, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "", consumer: q.consumer ?? "" };
@@ -61,7 +59,6 @@ export function TrafficMenu({
             <FacetSection title="App" field="app" values={appCounts?.map((a) => ({ ...a, label: appName(apps, a.value) })) ?? null} current={current.app} hrefFor={hrefFor} />
           ) : null}
           <FacetSection title="Method" field="method" mono values={methods?.map((m) => ({ ...m, value: m.value.toUpperCase(), label: m.value.toUpperCase() })) ?? null} current={current.method} hrefFor={hrefFor} />
-          <FacetSection title="Endpoint" field="path" mono values={paths} current={current.path} hrefFor={hrefFor} />
           <FacetSection title="Consumer" field="consumer" values={consumers} current={current.consumer} hrefFor={hrefFor} />
         </div>
       </div>

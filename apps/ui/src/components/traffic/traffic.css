@@ -557,3 +557,17 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 .tr .tr-row:has(.tr-ep__link:focus-visible) { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
 .tr .tr-row .tr-drill { text-decoration: none; }
 .tr .tr-row .tr-drill:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Each value's ⋯ menu (Explore's FieldMenu, .exa-btn): after the value, hidden until its row is
+   hovered or focused (always there on touch), above the row's stretched endpoint link. */
+.tr-cell { display: flex; align-items: center; gap: 2px; min-width: 0; }
+td.tr-num .tr-cell { justify-content: flex-end; }
+.tr-cell > :first-child { min-width: 0; }
+.tr-cell > .exa { position: relative; z-index: 2; flex: none; }
+.tr-ep .tr-cell > .exa { margin-left: auto; }
+.tr-row .exa-btn { visibility: hidden; }
+.tr-row:hover .exa-btn, .tr-row:focus-within .exa-btn, .tr-row .exa-btn[aria-expanded="true"] { visibility: visible; }
+@media (hover: none) { .tr-row .exa-btn { visibility: visible; } }
+/* Numeric headers leave the ⋯ menu's 24px, so they line up with the numbers under them. */
+.tr .tr-table th.tr-num { padding-right: 32px; }
+.tr .tr-table th.tr-num:last-child { padding-right: 40px; }

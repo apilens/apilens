@@ -85,7 +85,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
       identity().requestFacets(project, { range: q.range, field, limit, ...(q.from && q.to ? { from: q.from, to: q.to } : {}), ...(filter.length ? { filter } : {}) }, o),
     );
   };
-  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, pathCounts, consumers, consumerCounts] = await Promise.all([
+  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, consumers, consumerCounts] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
@@ -97,7 +97,6 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     facet("method", 12),
     facet("env", 20),
     facet("app", 20),
-    facet("path", 10),
     // The Consumers card: unique consumers of the range (and environment), new vs returning.
     read<ConsumersList>(next, (o) => identity().listConsumers(project, { range: q.range, ...(q.env && q.env !== "all" ? { env: q.env } : {}), ...(q.app ? { app: q.app } : {}), ...(q.method ? { method: q.method } : {}), ...(q.path ? { path: q.path } : {}), limit: 1 }, o)),
     facet("consumer", 12),
@@ -117,7 +116,6 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
           envs={facetValues(envCounts)}
           appCounts={facetValues(appCounts)}
           methods={facetValues(methods)}
-          paths={facetValues(pathCounts)}
           consumers={facetValues(consumerCounts)}
         />
       }
