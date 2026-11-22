@@ -156,7 +156,7 @@ export default async function ConsumersPage({ params, searchParams }: { params: 
       view="consumers"
       menu={<ConsumersMenu project={project} query={q} environments={found.project.environments ?? []} groups={data.groupFacet} />}
     >
-      <ConsumersView project={project} query={q} params={sp} data={data} now={Date.now()} />
+      <ConsumersView project={project} query={q} params={sp} data={data} now={Date.now()} environments={found.project.environments ?? []} />
     </AppShell>
   );
 }

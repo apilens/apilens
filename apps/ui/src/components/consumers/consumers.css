@@ -31,8 +31,7 @@
 .cs-tab__n { padding: 0 6px; border-radius: 9px; background: var(--surface-2); font: 500 11px/16px var(--font-mono); color: var(--ink-soft); }
 .tr .cs-tabs + .tr-sec--table { border-top: 1px solid var(--border); }
 
-/* A username: its initial, the name in mono (its id beside a reported name), New when first seen in the range. */
-.cs-avatar { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font: 600 10px/1 var(--font-sans); color: var(--bg); }
+/* A username: the name in mono (its id beside a reported name), New when first seen in the range. */
 .cs-user .tr-cell { gap: 10px; }
 .tr .cs-user__link { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .tr .cs-user__link code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12.5px/16px var(--font-mono); color: var(--ink); }
@@ -42,20 +41,12 @@
 .cs-tag { display: inline-flex; align-items: center; max-width: 100%; height: 20px; padding: 0 8px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); color: var(--ink-soft); font: 400 11.5px/16px var(--font-sans); text-overflow: ellipsis; white-space: nowrap; }
 .tr .cs-table td.cs-group-cell { font-family: var(--font-sans); }
 .cs-agent { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
-.cs-trend { width: 110px; }
 .tr-row.is-open { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
-
-/* The sparkline (charts.tsx), kept from the old page. */
-.cs-spark { position: relative; flex: none; display: inline-block; width: 96px; height: 22px; overflow: visible; vertical-align: middle; }
-.cs-spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.cs-spark .ct-tip { max-width: none; }
-.cs-spark polyline, .cs-spark svg polyline { fill: none; stroke: var(--chart-accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
 /* The drawer: over the page's right side under the toolbar, as Explore's request drawer. */
 .cs-drawer { position: absolute; top: 48px; right: 0; bottom: 0; z-index: 20; display: flex; flex-direction: column; width: min(460px, 100%); border-left: 1px solid var(--border-strong, var(--border)); background: var(--surface-1); box-shadow: -12px 0 32px rgba(0, 0, 0, .35); animation: cs-in .18s cubic-bezier(.4, 0, .2, 1); }
 @keyframes cs-in { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 .cs-drawer__head { flex: none; display: flex; align-items: center; gap: 10px; min-height: 56px; box-sizing: border-box; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--border); }
-.cs-drawer__head .cs-avatar { width: 32px; height: 32px; font-size: 13px; }
 .cs-drawer__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cs-drawer__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 14px/18px var(--font-mono); color: var(--ink); }
 .cs-drawer__sub { display: inline-flex; align-items: center; gap: 6px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }

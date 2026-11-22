@@ -9,7 +9,6 @@ import {
   GROUPS_LOAD_FAILED,
   type GroupSort,
   RANGE_LABEL,
-  bucketTimes,
   consumerLabel,
   consumersHref,
   errorsOf,
@@ -26,7 +25,6 @@ import { endpointHref, trafficHref } from "@/lib/traffic";
 import { Pagination } from "../pagination/pagination";
 import { ErrorState } from "../states";
 import { LiveNumber } from "../traffic/live";
-import { Sparkline } from "./charts";
 import { IdentifyConsumers } from "./identify-consumers";
 import { ConsumersToolbar } from "./toolbar";
 import { UniqueChart } from "./unique-chart";
@@ -56,10 +54,6 @@ export function exploreGroupHref(project: string, range: QueryRange, group: stri
   return exploreHref(project, { range, filters: { ...NO_FILTERS, env, consumer_group: group } });
 }
 
-/** The colours of the users' initials, picked from the id so a user keeps theirs. */
-const AVATARS = ["#8b88f5", "#5fb3a1", "#d9a35b", "#7aa7e0", "#c98bd6", "#9ccf6a"];
-const avatarOf = (id: string) => AVATARS[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % AVATARS.length];
-
 /**
  * `/project/<project>/consumers` (#596), Option B of the design: Traffic's frame (the sidebar,
  * the filter bar, the chart pinned under the toolbar, the stats strip, a table that scrolls on its
@@ -68,12 +62,32 @@ const avatarOf = (id: string) => AVATARS[[...id].reduce((h, c) => (h * 31 + c.ch
  * them up by the group the SDK reports; Anonymous lists the requests without a user. A username
  * opens its drawer over the list. All state is in the URL, so every view is a link.
  */
-export function ConsumersView({ project, query: q, params, data, now }: { project: string; query: ConsumersQuery; params: SearchParams; data: ConsumersData; now: number }) {
+export function ConsumersView({
+  project,
+  query: q,
+  params,
+  data,
+  now,
+  environments,
+}: {
+  project: string;
+  query: ConsumersQuery;
+  params: SearchParams;
+  data: ConsumersData;
+  now: number;
+  environments: readonly string[];
+}) {
   const list = data.list;
   const scope = `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`;
   return (
     <div className="page tr cs">
-      <ConsumersToolbar project={project} query={q} />
+      <ConsumersToolbar
+        project={project}
+        query={q}
+        users={(list?.consumers ?? []).map((c) => ({ id: c.consumer_id, label: consumerLabel(c), group: c.consumer_group }))}
+        groups={(data.groupFacet ?? []).map((g) => ({ group: g.group, consumers: g.consumers }))}
+        environments={environments}
+      />
       {list === null ? (
         <ErrorState text={CONSUMERS_LOAD_FAILED} href={consumersHref(project, q)} />
       ) : (
@@ -181,14 +195,6 @@ function SortHeader({ project, q, sort, label, num = true }: { project: string; 
   );
 }
 
-function Avatar({ id, label }: { id: string; label: string }) {
-  return (
-    <span className="cs-avatar" aria-hidden="true" style={{ background: avatarOf(id) }}>
-      {label.slice(0, 1).toUpperCase()}
-    </span>
-  );
-}
-
 function Split({ n, requests }: { n: number; requests: number }) {
   if (n <= 0) return <span className="tr-muted">0</span>;
   return (
@@ -201,7 +207,6 @@ function Split({ n, requests }: { n: number; requests: number }) {
 /** The Consumers tab: one row per username, its group beside it; the row opens the user's drawer. */
 function UsersTable({ project, q, params, list, now, scope }: { project: string; q: ConsumersQuery; params: SearchParams; list: ConsumersList; now: number; scope: string }) {
   const rows = list.consumers ?? [];
-  const times = bucketTimes(list.from, list.bucket_seconds, rows[0]?.sparkline?.length ?? 0);
   if (rows.length === 0) {
     return (
       <p className="tr-empty" role="status">
@@ -218,9 +223,6 @@ function UsersTable({ project, q, params, list, now, scope }: { project: string;
               <th scope="col">Username</th>
               <th scope="col">Group</th>
               <SortHeader project={project} q={q} sort="requests" label="Requests" />
-              <th scope="col" className="tr-num">
-                Trend
-              </th>
               <SortHeader project={project} q={q} sort="errors" label="4xx" />
               <th scope="col" className="tr-num">
                 5xx
@@ -230,7 +232,7 @@ function UsersTable({ project, q, params, list, now, scope }: { project: string;
           </thead>
           <tbody>
             {rows.map((c) => (
-              <UserRow key={c.consumer_id} project={project} q={q} c={c} times={times} now={now} />
+              <UserRow key={c.consumer_id} project={project} q={q} c={c} now={now} />
             ))}
           </tbody>
         </table>
@@ -240,14 +242,13 @@ function UsersTable({ project, q, params, list, now, scope }: { project: string;
   );
 }
 
-function UserRow({ project, q, c, times, now }: { project: string; q: ConsumersQuery; c: ConsumerRow; times: string[]; now: number }) {
+function UserRow({ project, q, c, now }: { project: string; q: ConsumersQuery; c: ConsumerRow; now: number }) {
   const label = consumerLabel(c);
   const open = q.consumer === c.consumer_id;
   return (
     <tr className={`tr-row${open ? " is-open" : ""}`}>
       <td className="tr-ep cs-user">
         <span className="tr-cell">
-          <Avatar id={c.consumer_id} label={label} />
           <Link className="tr-ep__link cs-user__link" href={consumersHref(project, { ...q, consumer: c.consumer_id })} scroll={false} prefetch={false} aria-current={open ? "true" : undefined}>
             <code>{label}</code>
             {c.consumer_name.trim() && c.consumer_name.trim() !== c.consumer_id ? <span className="cs-user__id">{c.consumer_id}</span> : null}
@@ -261,9 +262,6 @@ function UserRow({ project, q, c, times, now }: { project: string; q: ConsumersQ
       </td>
       <td className="cs-group-cell">{c.consumer_group ? <span className="cs-tag">{c.consumer_group}</span> : <span className="tr-muted">—</span>}</td>
       <td className="tr-num">{formatCount(c.requests)}</td>
-      <td className="tr-num cs-trend">
-        <Sparkline values={c.sparkline} times={times} range={q.range} name={label} />
-      </td>
       <td className="tr-num">
         <Split n={c.client_errors} requests={c.requests} />
       </td>
@@ -300,7 +298,6 @@ function GroupsTable({
       </p>
     );
   }
-  const times = bucketTimes(groups.from, groups.bucket_seconds, rows[0]?.sparkline?.length ?? 0);
   return (
     <div className="tr-tablewrap">
       <div className="tr-scroll">
@@ -310,9 +307,6 @@ function GroupsTable({
               <th scope="col">Group</th>
               <SortHeader project={project} q={q} sort="consumers" label="Users" />
               <SortHeader project={project} q={q} sort="requests" label="Requests" />
-              <th scope="col" className="tr-num">
-                Trend
-              </th>
               <SortHeader project={project} q={q} sort="errors" label="4xx" />
               <th scope="col" className="tr-num">
                 5xx
@@ -330,9 +324,6 @@ function GroupsTable({
                 </td>
                 <td className="tr-num">{formatCount(g.consumers)}</td>
                 <td className="tr-num">{formatCount(g.requests)}</td>
-                <td className="tr-num cs-trend">
-                  <Sparkline values={g.sparkline} times={times} range={q.range} name={g.group} />
-                </td>
                 <td className="tr-num">
                   <Split n={g.client_errors} requests={g.requests} />
                 </td>
@@ -465,7 +456,6 @@ function DrawerBody({ project, q, c, now, close }: { project: string; q: Consume
   return (
     <>
       <DrawerHead close={close}>
-        <Avatar id={c.consumer_id} label={label} />
         <span className="cs-drawer__who">
           <span className="cs-drawer__title">{label}</span>
           <span className="cs-drawer__sub">
