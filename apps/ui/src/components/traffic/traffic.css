@@ -231,10 +231,6 @@ th[aria-sort="descending"] .tr-sort::after { content: "↓" / ""; }
 .tr .tr-table td { height: 36px; padding: 6px var(--tr-head); }
 .tr .tr-table td.tr-num { font-family: var(--font-mono); font-size: 12px; }
 .tr .tr-table th:first-child, .tr .tr-table td:first-child { padding-left: 0; }
-/* Requests: a small share bar left of the count, on the row's baseline. */
-.tr-req { min-width: 120px; }
-.tr-share { display: inline-block; vertical-align: middle; height: 4px; width: 48px; margin-right: 10px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
-.tr-share > span { display: block; height: 100%; background: var(--chart-neutral); }
 
 @media (max-width: 1279px) {
 }
@@ -242,7 +238,6 @@ th[aria-sort="descending"] .tr-sort::after { content: "↓" / ""; }
   .tr { --tr-sec: 24px; }
 
   .tr .tr-plot svg, .tr .tr-axis-y { height: 180px; }
-  .tr-share { display: none; }
 }
 
 /* The toolbar (toolbar.tsx): Explore's, full width at the top of the page: 48px, a hairline under
@@ -264,22 +259,8 @@ th[aria-sort="descending"] .tr-sort::after { content: "↓" / ""; }
   .tr-tools__title { display: none; }
 }
 
-/* KPI strip (Tiles): one frame of five compact cells. Label and change on one line, the value,
-   one line under it, a sparkline; the cells that drive the chart are links, the current one marked
-   by a 2px accent rule on top. */
-.tr-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0 0 var(--tr-sec); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.tr-kpi { position: relative; min-width: 0; }
-.tr-kpi + .tr-kpi { border-left: 1px solid var(--border); }
-.tr-kpi__link { display: grid; align-content: start; gap: 2px; height: 100%; box-sizing: border-box; padding: 12px 14px 10px; color: inherit; text-decoration: none; }
 a.tr-kpi__link:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
 a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.tr-kpi.is-on::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); }
-.tr-kpi__top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
-.tr-kpi__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
-.tr-kpi__top .tr-compare { flex: none; font-size: 11px; line-height: 16px; }
-.tr-kpi__value { font: 500 20px/28px var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; color: var(--ink); }
-.tr-kpi__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/16px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
-.tr-kpi .tr-spark, .tr-kpi .tr-spark--hover { height: 20px; margin-top: 4px; }
 
 /* Traffic mix (TrafficMix): a label column, then per dimension a thin 100% bar and its legend.
    Neutral shades from ink, except status, whose colours mean something. */
@@ -289,16 +270,8 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr-tools__scope { height: 100%; overflow: visible; }
 
 @media (max-width: 1279px) {
-  .tr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .tr-kpi:nth-child(4) { border-left: 0; }
-  .tr-kpi:nth-child(n + 4) { border-top: 1px solid var(--border); }
 }
 @media (max-width: 760px) {
-  .tr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .tr-kpi:nth-child(n) { border-left: 0; border-top: 1px solid var(--border); }
-  .tr-kpi:nth-child(-n + 2) { border-top: 0; }
-  .tr-kpi:nth-child(even) { border-left: 1px solid var(--border); }
-  .tr-kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
 /* A picked window's × beside the time pill. */
@@ -307,8 +280,6 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr-pill__clear:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 .tr-pill__clear svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 
-/* The chart sits right under the KPI strip that drives it: no title row, only its legend. */
-.tr-chartsec { margin-top: calc(-1 * var(--tr-sec) + 20px); }
 
 /* Select mode (Plot): the marked window, and its menu (filter this page, or open Explore). */
 .tr-plot--select { cursor: crosshair; touch-action: none; user-select: none; }
@@ -318,3 +289,56 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr-selmenu__item { display: block; padding: 6px 8px; border-radius: 6px; color: var(--ink); font: 400 12px/16px var(--font-sans); text-decoration: none; white-space: nowrap; }
 .tr-selmenu__item:hover, .tr-selmenu__item:focus-visible { outline: none; background: var(--surface-2); }
 .tr-selmenu__item.is-primary { font-weight: 500; }
+
+/* ---- One panel: metric tabs over the chart ------------------------------------------------
+   Built from spacing, not lines: one outer border, no dividers between tabs, no rule under them.
+   The current tab is told by a short accent bar under it and its value at full ink; the others
+   sit back in muted ink. Throughput and Apdex are readouts at the row's end, not tabs. */
+.tr-panel { margin: 0 0 var(--tr-sec); border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); }
+.tr-mtabs { display: flex; align-items: stretch; justify-content: space-between; gap: 24px; padding: 8px 20px 0; }
+.tr-mtabs__tabs { display: flex; gap: 8px; min-width: 0; }
+.tr-mtab { position: relative; display: grid; gap: 2px; min-width: 0; padding: 12px 16px 16px; margin: 0 -4px; border-radius: 8px; color: inherit; text-decoration: none; }
+.tr-mtab:first-child { margin-left: -16px; }
+.tr-mtab:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.tr-mtab:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.tr-mtab[aria-current="page"]::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 6px; height: 2px; border-radius: 2px; background: var(--accent); }
+.tr-mtab__label { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.tr-mtab__value { font: 500 22px/30px var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; color: color-mix(in srgb, var(--ink) 62%, transparent); white-space: nowrap; }
+.tr-mtab[aria-current="page"] .tr-mtab__value, .tr-mtab:hover .tr-mtab__value { color: var(--ink); }
+.tr-mtab__sub { font: 400 12px/16px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); white-space: nowrap; }
+.tr-mtabs__facts { display: flex; gap: 32px; margin: 0; padding: 12px 0 16px; }
+.tr-mtabs__facts > div { display: grid; gap: 2px; align-content: start; }
+.tr-mtabs__facts dt { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.tr-mtabs__facts dd { margin: 0; font: 500 15px/30px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.tr-mtabs__rating { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.tr-panel__chart { padding: 8px 20px 16px; }
+.tr-panel__chart .tr-legend { margin-bottom: 8px; }
+.tr-panel .tr-grid { stroke: color-mix(in srgb, var(--grid) 60%, transparent); }
+
+/* Endpoints table: no row lines; the header's hairline, then rows told apart by a soft hover. */
+.tr-tablewrap { border-top: 0; }
+.tr .tr-table th { border-bottom: 1px solid var(--border); }
+.tr .tr-table td { border-top: 0; }
+.tr .tr-table tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.tr .tr-table tbody tr td:first-child { border-radius: 6px 0 0 6px; }
+.tr .tr-table tbody tr td:last-child { border-radius: 0 6px 6px 0; }
+
+@media (max-width: 1079px) {
+  .tr-mtabs { flex-direction: column; gap: 0; }
+  .tr-mtabs__facts { padding-top: 0; }
+}
+@media (max-width: 760px) {
+  .tr-mtabs { padding: 4px 12px 0; }
+  .tr-mtabs__tabs { overflow-x: auto; scrollbar-width: none; }
+  .tr-mtab { padding: 10px 12px 14px; }
+  .tr-mtab:first-child { margin-left: -12px; }
+  .tr-mtab__value { font-size: 18px; line-height: 26px; }
+  .tr-mtab { flex: none; }
+  .tr-mtab__sub { display: none; }
+  .tr-tools .exp-clear { display: none; }
+  .tr-panel__chart { padding: 4px 12px 12px; }
+}
+
+/* Drill-down counts read as plain numbers; the underline comes on hover or focus. */
+.tr .tr-drill { text-decoration: none; }
+.tr .tr-drill:hover, .tr .tr-drill:focus-visible { text-decoration: underline; text-underline-offset: 3px; }

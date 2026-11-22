@@ -1,5 +1,4 @@
 import { formatCount, formatPerMinute } from "@/lib/consumers";
-import { compare } from "@/lib/compare";
 import { bucketHrefs, exploreHrefFor } from "@/lib/explore";
 import { formatPercent, ratio } from "@/lib/format";
 import type { ReactNode } from "react";
@@ -38,8 +37,7 @@ import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
-import { LatencyChart, Sparkline, StatusChart } from "./charts";
-import { CompareLine } from "./compare";
+import { LatencyChart, StatusChart } from "./charts";
 import { LiveNumber } from "./live";
 import { TrafficToolbar } from "./toolbar";
 import "./traffic.css";
@@ -140,9 +138,9 @@ export function TrafficView({
         </div>
       ) : (
         <>
-          <Tiles summary={summary} points={points ?? []} range={q.range} chart={chart} chartHref={chartHref} />
-
-          <section className="tr-sec tr-chartsec" aria-label={CHART_TITLE[chart]}>
+          <section className="tr-panel" aria-label={CHART_TITLE[chart]}>
+            <MetricTabs summary={summary} chart={chart} chartHref={chartHref} />
+            <div className="tr-panel__chart">
             {points === null ? (
               <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
             ) : chart === "latency" ? (
@@ -156,6 +154,7 @@ export function TrafficView({
                 select={select}
               />
             )}
+            </div>
           </section>
 
 
@@ -256,91 +255,64 @@ function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: st
 
 
 /**
- * The KPI strip: one frame of five compact cells split by hairlines, each its label with its
- * change against the previous period, its value, one line under it and, where the series has
- * one, a sparkline. Requests, Error rate and p95 are links that switch the chart to their series
- * (the current one is marked); Throughput and Apdex read on their own.
+ * The metric tabs over the chart, one panel with it: Requests, Errors and p95 are tabs (label,
+ * value, one quiet line) that switch the chart, the current one underlined; Throughput and Apdex
+ * read on their own at the end of the row. No dividers, no sparklines, no comparisons: the chart
+ * under them carries the trend.
  */
-function Tiles({
-  summary: s,
-  points,
-  range,
-  chart,
-  chartHref,
-}: {
-  summary: TrafficSummary;
-  points: TrafficPoint[];
-  range: QueryRange;
-  chart: ChartKind;
-  chartHref: (c: ChartKind) => string;
-}) {
+function MetricTabs({ summary: s, chart, chartHref }: { summary: TrafficSummary; chart: ChartKind; chartHref: (c: ChartKind) => string }) {
   const errors = s.client_errors + s.server_errors;
   const rating = apdexRating(s.apdex);
-  const p = s.previous;
-  const cell = (key: string, label: string, compareTo: ReactNode, value: string, sub: ReactNode, spark: ReactNode, to?: ChartKind) => {
-    const body = (
-      <>
-        <span className="tr-kpi__top">
-          <span className="tr-kpi__label">{label}</span>
-          {compareTo}
-        </span>
-        <span className="tr-kpi__value">
-          <LiveNumber text={value} />
-        </span>
-        <span className="tr-kpi__sub">{sub}</span>
-        {spark}
-      </>
-    );
-    return (
-      <div key={key} className={`tr-kpi${to && chart === to ? " is-on" : ""}`}>
-        {to ? (
-          <a className="tr-kpi__link" href={chartHref(to)} aria-current={chart === to ? "true" : undefined} aria-label={`${label} ${value}: show on the chart`}>
-            {body}
-          </a>
-        ) : (
-          <div className="tr-kpi__link">{body}</div>
-        )}
-      </div>
-    );
-  };
-  return (
-    <div className="tr-kpis" role="group" aria-label="Summary">
-      {cell(
-        "req",
-        "Requests",
-        <CompareLine comparison={compare(s.requests, p?.requests, { kind: "relative", better: "neither", range })} />,
-        formatCount(s.requests),
-        <>{formatPerMinute(s.requests_per_minute)}/min average</>,
-        <Sparkline values={points.map((x) => x.requests)} hover={{ label: "Requests", range, points: points.map((x) => ({ ts: x.ts, text: formatCount(x.requests) })) }} />,
-        "requests",
-      )}
-      {cell("tput", "Throughput", null, `${formatCount(s.current_per_minute ?? 0)}/min`, <>in the last full minute</>, null)}
-      {cell(
-        "err",
-        "Error rate",
-        <CompareLine comparison={p ? compare(ratio(errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range }) : null} />,
-        formatPercent(ratio(errors, s.requests)),
+  const tabs: { key: ChartKind; label: string; value: string; sub: ReactNode }[] = [
+    { key: "requests", label: "Requests", value: formatCount(s.requests), sub: <>{formatPerMinute(s.requests_per_minute)}/min on average</> },
+    {
+      key: "errors",
+      label: "Error rate",
+      value: formatPercent(ratio(errors, s.requests)),
+      sub: (
         <>
           <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
-        </>,
-        <Sparkline
-          values={points.map((x) => (x.requests > 0 ? (x.client_errors + x.server_errors) / x.requests : 0))}
-          hover={{ label: "Error rate", range, points: points.map((x) => ({ ts: x.ts, text: formatPercent(ratio(x.client_errors + x.server_errors, x.requests)) })) }}
-        />,
-        "errors",
-      )}
-      {cell(
-        "p95",
-        "p95 response time",
-        <CompareLine comparison={compare(s.p95_ms, p?.p95_ms, { kind: "relative", better: "down", range })} />,
-        formatLatency(s.p95_ms),
+        </>
+      ),
+    },
+    {
+      key: "latency",
+      label: "p95 response time",
+      value: formatLatency(s.p95_ms),
+      sub: (
         <>
           p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
-        </>,
-        <Sparkline values={points.map((x) => x.p95_ms)} hover={{ label: "p95", range, points: points.map((x) => ({ ts: x.ts, text: formatLatency(x.p95_ms) })) }} />,
-        "latency",
-      )}
-      {cell("apdex", "Apdex", <CompareLine comparison={compare(s.apdex, p?.apdex, { kind: "score", better: "up", range })} />, formatApdex(s.apdex), <>{rating ?? "No requests to score"}</>, null)}
+        </>
+      ),
+    },
+  ];
+  return (
+    <div className="tr-mtabs">
+      <nav className="tr-mtabs__tabs" aria-label="Chart">
+        {tabs.map((t) => (
+          <a key={t.key} className="tr-mtab" href={chartHref(t.key)} aria-current={chart === t.key ? "page" : undefined}>
+            <span className="tr-mtab__label">{t.label}</span>
+            <span className="tr-mtab__value">
+              <LiveNumber text={t.value} />
+            </span>
+            <span className="tr-mtab__sub">{t.sub}</span>
+          </a>
+        ))}
+      </nav>
+      <dl className="tr-mtabs__facts">
+        <div>
+          <dt>Throughput</dt>
+          <dd>
+            <LiveNumber text={`${formatCount(s.current_per_minute ?? 0)}/min`} />
+          </dd>
+        </div>
+        <div>
+          <dt>Apdex</dt>
+          <dd>
+            <LiveNumber text={formatApdex(s.apdex)} /> <span className="tr-mtabs__rating">{rating ?? ""}</span>
+          </dd>
+        </div>
+      </dl>
     </div>
   );
 }
@@ -425,10 +397,7 @@ function EndpointsTable({
                   {appName(apps, ep.app_id)}
                 </td>
               ) : null}
-              <td className="tr-num tr-req" data-label="Requests">
-                <span className="tr-share" aria-hidden="true">
-                  <span style={{ width: `${total > 0 ? Math.max((ep.requests / total) * 100, 1) : 0}%` }} />
-                </span>
+              <td className="tr-num" data-label="Requests" title={total > 0 ? `${formatPercent(ep.requests / total)} of all requests` : undefined}>
                 {formatCount(ep.requests)}
               </td>
               <td className="tr-num" data-label="4xx">
