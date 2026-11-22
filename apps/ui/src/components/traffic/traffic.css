@@ -558,8 +558,9 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 .tr .tr-row .tr-drill { text-decoration: none; }
 .tr .tr-row .tr-drill:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-/* Each value's ⋯ menu (Explore's FieldMenu, .exa-btn): after the value, hidden until its row is
-   hovered or focused (always there on touch), above the row's stretched endpoint link. */
+/* The Endpoint cell's ⋯ menu (Explore's FieldMenu, .exa-btn): after the path, hidden until its row
+   is hovered or focused (always there on touch), above the row's stretched endpoint link. Only the
+   Endpoint column and the settings column have one. */
 .tr-cell { display: flex; align-items: center; gap: 2px; min-width: 0; }
 td.tr-num .tr-cell { justify-content: flex-end; }
 .tr-cell > :first-child { min-width: 0; }
@@ -568,9 +569,6 @@ td.tr-num .tr-cell { justify-content: flex-end; }
 .tr-row .exa-btn { visibility: hidden; }
 .tr-row:hover .exa-btn, .tr-row:focus-within .exa-btn, .tr-row .exa-btn[aria-expanded="true"] { visibility: visible; }
 @media (hover: none) { .tr-row .exa-btn { visibility: visible; } }
-/* Numeric headers leave the ⋯ menu's 24px, so they line up with the numbers under them. */
-.tr .tr-table th.tr-num { padding-right: 32px; }
-.tr .tr-table th.tr-num:last-child { padding-right: 40px; }
 /* The row is one big link (to the endpoint page), so a click just off the 22×20 dots used to open
    it. An invisible hit area the row's height and 6px either side makes a near-miss open the menu
    instead; the button looks the same. */

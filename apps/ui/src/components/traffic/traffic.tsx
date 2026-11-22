@@ -34,8 +34,8 @@ import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
 import { TrafficTimeline } from "./timeline";
-import { type MetricCond, type MetricField, meetsMetrics, metricText } from "@/lib/traffic-metrics";
-import { type FieldAction, FieldMenu } from "../explore/field-menu";
+import { meetsMetrics, metricText } from "@/lib/traffic-metrics";
+import { FieldMenu } from "../explore/field-menu";
 import { LiveNumber } from "./live";
 import { TrafficToolbar } from "./toolbar";
 import "./traffic.css";
@@ -305,13 +305,6 @@ function EndpointsTable({
   sort: EndpointSort;
   sortHref: (key: EndpointSortKey) => string;
 }) {
-  // A metric condition added to the page's (one per field: it replaces that field's).
-  const withMetric = (c: MetricCond) => trafficHref(project, { ...q, metrics: [...(q.metrics ?? []).filter((m) => m.field !== c.field), c] });
-  const compare = (field: MetricField, value: number): FieldAction[] =>
-    (value > 0 ? (["gt", "lt"] as const) : (["gt", "eq"] as const)).map((op) => {
-      const c: MetricCond = { field, op, value, pct: false };
-      return { label: `Endpoints where ${metricText(c)}`, href: withMetric(c) };
-    });
   const header = (key: EndpointSortKey, label: string, num = true) => (
     <SortHeader sort={sort} col={key} href={sortHref(key)} num={num}>
       {label}
@@ -364,49 +357,22 @@ function EndpointsTable({
               </td>
               {apps ? (
                 <td className="tr-app" data-label="App" data-col="app">
-                  <span className="tr-cell">
-                    <span>{appName(apps, ep.app_id)}</span>
-                    <FieldMenu label="App" actions={[{ label: `Show only ${appName(apps, ep.app_id)}`, href: trafficHref(project, { ...q, app: ep.app_id }) }]} />
-                  </span>
+                  {appName(apps, ep.app_id)}
                 </td>
               ) : null}
               <td className="tr-num" data-label="Requests" data-col="requests" title={total > 0 ? `${formatPercent(ep.requests / total)} of all requests` : undefined}>
-                <span className="tr-cell">
-                  <span>{formatCount(ep.requests)}</span>
-                  <FieldMenu label="Requests" actions={[...compare("requests", ep.requests), { label: "Open these requests in Explore", href: drill({}) }]} />
-                </span>
+                {formatCount(ep.requests)}
               </td>
               <td className="tr-num" data-label="4xx" data-col="client_errors">
-                <span className="tr-cell">
-                  <span>
-                    <Errors n={ep.client_errors} requests={ep.requests} href={drill({ status: "4xx" })} label="4xx responses" />
-                  </span>
-                  <FieldMenu
-                    label="4xx"
-                    actions={[...compare("client_errors", ep.client_errors), ...(ep.client_errors > 0 ? [{ label: "Open the 4xx requests in Explore", href: drill({ status: "4xx" }) }] : [])]}
-                  />
-                </span>
+                <Errors n={ep.client_errors} requests={ep.requests} href={drill({ status: "4xx" })} label="4xx responses" />
               </td>
               <td className="tr-num" data-label="5xx" data-col="server_errors">
-                <span className="tr-cell">
-                  <span>
-                    <Errors n={ep.server_errors} requests={ep.requests} href={drill({ status: "5xx" })} label="5xx responses" />
-                  </span>
-                  <FieldMenu
-                    label="5xx"
-                    actions={[...compare("server_errors", ep.server_errors), ...(ep.server_errors > 0 ? [{ label: "Open the 5xx requests in Explore", href: drill({ status: "5xx" }) }] : [])]}
-                  />
-                </span>
+                <Errors n={ep.server_errors} requests={ep.requests} href={drill({ status: "5xx" })} label="5xx responses" />
               </td>
               <td className="tr-num" data-label="p50" data-col="p50">
-                <span className="tr-cell">
-                  <span>{formatLatency(ep.p50_ms)}</span>
-                  <FieldMenu label="p50" actions={compare("p50", Math.round(ep.p50_ms))} />
-                </span>
+                {formatLatency(ep.p50_ms)}
               </td>
               <td className="tr-num" data-label="p95" data-col="p95">
-                <span className="tr-cell">
-                <span>
                 {ep.requests > 0 && ep.p95_ms > 0 ? (
                   <a
                     className="tr-drill"
@@ -419,22 +385,12 @@ function EndpointsTable({
                 ) : (
                   formatLatency(ep.p95_ms)
                 )}
-                </span>
-                <FieldMenu
-                  label="p95"
-                  actions={[...compare("p95", Math.round(ep.p95_ms)), ...(ep.requests > 0 && ep.p95_ms > 0 ? [{ label: "Open p95-or-slower requests in Explore", href: drill({ latency_min: ep.p95_ms }) }] : [])]}
-                />
-                </span>
               </td>
               <td className="tr-num" data-label="Apdex" data-col="apdex">
-                <span className="tr-cell">
-                  <span>{formatApdex(ep.apdex)}</span>
-                </span>
+                {formatApdex(ep.apdex)}
               </td>
               <td className="tr-num" data-label="Time spent" data-col="spent" title="Requests × average response time: where the API spends its time">
-                <span className="tr-cell">
-                  <span>{ep.total_time_ms !== undefined ? spentText(ep.total_time_ms) : <span className="tr-muted">–</span>}</span>
-                </span>
+                {ep.total_time_ms !== undefined ? spentText(ep.total_time_ms) : <span className="tr-muted">–</span>}
               </td>
               {menus ? (
                 <td className="ep-rowmenu__cell">
