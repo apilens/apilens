@@ -35,16 +35,13 @@ import {
   trafficHref,
 } from "@/lib/traffic";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
-import { ScopeFilters, ScopeSelect } from "../endpoint/filters";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
-import { PageToolbar } from "../page-toolbar";
 import { Pagination } from "../pagination/pagination";
-import { RangePicker } from "../range-picker";
 import { LatencyChart, Sparkline, StatusChart } from "./charts";
 import { CompareLine } from "./compare";
-import { EnvPicker } from "./env-picker";
-import { LiveControl, LiveNumber } from "./live";
+import { LiveNumber } from "./live";
+import { TrafficToolbar } from "./toolbar";
 import "./traffic.css";
 import { ErrorState } from "../states";
 
@@ -114,21 +111,7 @@ export function TrafficView({
   const total = summary?.requests ?? 0;
   return (
     <div className="page tr">
-      <header className="tr-head">
-        <h1 className="tr-title">Traffic</h1>
-        <PageToolbar
-          range={<RangePicker options={TRAFFIC_RANGES} value={q.range} href={(r) => trafficHref(project, { ...q, range: r })} />}
-          scope={
-            <ScopeFilters active={(q.env ? 1 : 0) + (q.app ? 1 : 0)}>
-              <EnvPicker project={project} query={q} environments={environments} />
-              {apps && (apps.length > 1 || q.app) ? (
-                <ScopeSelect label="App" value={q.app} options={appOptions(apps, q.app).map((o) => ({ ...o, href: trafficHref(project, { ...q, app: o.value }) }))} />
-              ) : null}
-            </ScopeFilters>
-          }
-          secondary={<LiveControl />}
-        />
-      </header>
+      <TrafficToolbar project={project} query={q} environments={environments} apps={apps} />
 
       {summary === null ? (
         <ErrorState text={TRAFFIC_LOAD_FAILED} href={trafficHref(project, q)} />
@@ -341,7 +324,8 @@ function EndpointSearch({ project, value, params }: { project: string; value: st
         </svg>
         <input id="tr-search" name="q" type="search" defaultValue={value} placeholder="Search paths" maxLength={MAX_ENDPOINT_SEARCH} autoComplete="off" spellCheck={false} />
       </span>
-      <button type="submit" className="tr-btn">
+      {/* Enter searches; the button is there for screen readers. */}
+      <button type="submit" className="tr-vh">
         Search
       </button>
       {value ? (
@@ -417,6 +401,10 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
             <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
           </span>
           <CompareLine comparison={p ? compare(ratio(errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range }) : null} />
+          <Sparkline
+            values={points.map((x) => (x.requests > 0 ? (x.client_errors + x.server_errors) / x.requests : 0))}
+            hover={{ label: "Error rate", range, points: points.map((x) => ({ ts: x.ts, text: formatPercent(ratio(x.client_errors + x.server_errors, x.requests)) })) }}
+          />
         </dd>
       </div>
       <div>
@@ -429,6 +417,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
             p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
           </span>
           <CompareLine comparison={compare(s.p95_ms, p?.p95_ms, { kind: "relative", better: "down", range })} />
+          <Sparkline values={points.map((x) => x.p95_ms)} hover={{ label: "p95", range, points: points.map((x) => ({ ts: x.ts, text: formatLatency(x.p95_ms) })) }} />
         </dd>
       </div>
       <div>
@@ -512,10 +501,10 @@ function EndpointsTable({
                 </td>
               ) : null}
               <td className="tr-num tr-req" data-label="Requests">
-                <span>{formatCount(ep.requests)}</span>
                 <span className="tr-share" aria-hidden="true">
                   <span style={{ width: `${total > 0 ? Math.max((ep.requests / total) * 100, 1) : 0}%` }} />
                 </span>
+                {formatCount(ep.requests)}
               </td>
               <td className="tr-num" data-label="4xx">
                 <Errors n={ep.client_errors} requests={ep.requests} href={drill({ status: "4xx" })} label="4xx responses" />
