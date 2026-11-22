@@ -360,3 +360,35 @@ func TestAuthMiddlewareSharesPrincipal(t *testing.T) {
 		}
 	}
 }
+
+func TestChartWindowDrawsExploreBarWidths(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 7, 30, 0, time.UTC)
+	for _, c := range []struct {
+		name, from, to string
+		bucket         time.Duration
+		bars           int
+	}{
+		{"1h", "", "", time.Minute, 60},
+		{"6h", "", "", 5 * time.Minute, 72},
+		{"24h", "", "", 15 * time.Minute, 96},
+		// 7d ends at 13:00, an odd hour: aligned out to 2h it starts and ends a bar wider (12:00–14:00).
+		{"7d", "", "", 2 * time.Hour, 85},
+		// Custom windows: about Explore's bar count, never finer than the 1m rollup.
+		{"", "2026-11-22T09:00:00Z", "2026-11-22T11:00:00Z", 2 * time.Minute, 60},
+		{"", "2026-11-22T11:50:00Z", "2026-11-22T12:00:00Z", time.Minute, 10},
+		{"", "2026-11-17T00:00:00Z", "2026-11-22T00:00:00Z", 2 * time.Hour, 60},
+	} {
+		w, err := resolveTrafficWindow(c.name, c.from, c.to, now)
+		if err != nil {
+			t.Fatalf("%s %s: %v", c.name, c.from, err)
+		}
+		cw := chartWindow(w)
+		bars := int(cw.to.Sub(cw.from) / cw.bucket)
+		if cw.bucket != c.bucket || bars != c.bars {
+			t.Errorf("%s %s–%s: %v × %d bars, want %v × %d", c.name, c.from, c.to, cw.bucket, bars, c.bucket, c.bars)
+		}
+		if !cw.from.Equal(cw.from.Truncate(cw.bucket)) || cw.from.After(w.from) || cw.to.Before(w.to) {
+			t.Errorf("%s: window %v–%v is not aligned out from %v–%v", c.name, cw.from, cw.to, w.from, w.to)
+		}
+	}
+}

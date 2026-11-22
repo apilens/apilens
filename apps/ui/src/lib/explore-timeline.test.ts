@@ -187,8 +187,26 @@ describe("Supabase TimelineChart formats (#1061)", () => {
   it("thins ticks from the end, as recharts' preserveEnd with minTickGap 32", () => {
     expect(chartTickIndices(0, 10, 30)).toEqual([]);
     expect(chartTickIndices(10, 100, 30)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // The latest label that fits whole, 8px inside the right end: bucket 57 ends at 590 <= 592.
     const picked = chartTickIndices(60, 10, 30);
-    expect(picked.at(-1)).toBe(59);
+    expect(picked.at(-1)).toBe(57);
     for (let i = 1; i < picked.length; i++) expect((picked[i] - picked[i - 1]) * 10).toBeGreaterThanOrEqual(62);
+  });
+  it("keeps every label whole and clear of both ends of the plot", () => {
+    for (const [count, slot, label] of [
+      [24, 46.7, 35],
+      [96, 11.7, 35],
+      [60, 10, 30],
+      [7, 160, 84],
+    ] as const) {
+      const width = count * slot;
+      for (const i of chartTickIndices(count, slot, label)) {
+        const center = (i + 0.5) * slot;
+        expect(center - label / 2).toBeGreaterThanOrEqual(8);
+        expect(center + label / 2).toBeLessThanOrEqual(width - 8);
+      }
+    }
+    // A plot too narrow for one whole label gets none.
+    expect(chartTickIndices(2, 10, 30)).toEqual([]);
   });
 });

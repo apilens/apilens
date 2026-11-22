@@ -404,7 +404,7 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; }
 
 /* Four cards: Requests, Errors, Response time, Consumers (numbers only). */
-.tr-red { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, .72fr); }
+.tr-red { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tr-red__card--stat { display: flex; flex-direction: column; }
 .tr-cstats { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0 20px; margin: auto 0 0; }
 .tr-cstats dt { font: 400 11px/16px var(--font-sans); color: var(--ink-muted); }
@@ -416,3 +416,94 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 
 /* Section titles line up with the Time Range (Explore's title button: 8px in, 500 14px). */
 .tr-facet__btn { box-sizing: border-box; padding: 0 8px; }
+
+/* The overview: one stats line (Requests, Errors, Response time, Consumers), then Explore's 60px
+   status bar chart (StatusChart, .exc) at full width, no cards. */
+.tr-over { margin: 0 0 var(--tr-sec); }
+.tr-strip { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); }
+.tr-strip__item { display: flex; align-items: baseline; gap: 8px; flex: 1 1 0; min-width: 0; padding: 10px 14px; }
+.tr-strip__item + .tr-strip__item { border-left: 1px solid var(--border); }
+.tr-strip dt { flex: none; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.tr-strip dd { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin: 0; font: 500 15px/20px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.tr-strip__unit { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.tr-strip__aside { overflow: hidden; text-overflow: ellipsis; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.tr-over .exc { margin: 12px 0 0; padding: 0; }
+@media (max-width: 1365px) {
+  .tr-strip__item { flex: 1 1 50%; }
+  .tr-strip__item:nth-child(odd) { border-left: 0; }
+  .tr-strip__item:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .tr-strip__item:nth-child(odd) { border-left: 0 !important; }
+}
+@media (max-width: 599px) {
+  .tr-strip__item { flex: 1 1 100%; border-left: 0; }
+  .tr-strip__item + .tr-strip__item { border-left: 0; border-top: 1px solid var(--border); }
+}
+
+/* The endpoints' pagination as Explore's table footer (.exl-foot): one slim 33px line under a
+   hairline, 12px text and 24px controls. */
+.pg.tr-pg { gap: 8px 16px; min-height: 33px; padding: 4px 0 0; border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); }
+.tr-pg .pg-size { gap: 6px; }
+.tr-pg .pg-select { height: 24px; padding: 0 4px; border-color: var(--border); font-size: 12px; }
+.tr-pg .pg-btn { min-width: 24px; height: 24px; padding: 0 6px; font: 500 12px/1 var(--font-sans); }
+.tr-pg .pg-chev { width: 12px; height: 12px; }
+
+/* Explore's gutters (explore.css .exr-tools): the toolbar starts with the 42px sidebar-toggle cell
+   and ends 8px in; the content sits 16px from either edge. */
+.page.tr { --page-gutter: 16px; }
+.tr-tools { padding: 0 8px 0 0; gap: 8px; align-items: stretch; }
+.tr-tools > .tr-tools__scope, .tr-tools > .tr-tools__end { align-self: center; }
+.tr-tools > .tr-tools__scope { align-self: stretch; }
+/* Columns hidden from the Columns menu (columns.tsx names them on the page). */
+.tr[data-hide~="app"] [data-col="app"], .tr[data-hide~="requests"] [data-col="requests"],
+.tr[data-hide~="client_errors"] [data-col="client_errors"], .tr[data-hide~="server_errors"] [data-col="server_errors"],
+.tr[data-hide~="p50"] [data-col="p50"], .tr[data-hide~="p95"] [data-col="p95"],
+.tr[data-hide~="apdex"] [data-col="apdex"], .tr[data-hide~="spent"] [data-col="spent"] { display: none; }
+
+/* The bar chart sits exactly where Explore's does: 6px under the toolbar, across the whole main
+   column with Explore's 8px inset (explore.css .exc), so switching pages doesn't move it. */
+.tr-over .exc { margin: calc(6px - var(--page-gutter)) calc(-1 * var(--page-gutter)) 16px; padding: 0 8px; }
+
+/* Response time: p50, p95, p99 in a row, each a tiny label over its number. */
+.tr-strip__item { align-items: center; }
+.tr-strip dd.tr-pcts { gap: 16px; }
+.tr-pct { display: flex; flex-direction: column; gap: 1px; }
+.tr-pct small { font: 500 10px/12px var(--font-sans); color: var(--ink-muted); text-transform: none; letter-spacing: .02em; }
+.tr-pct > :last-child { font: 500 14px/18px var(--font-sans); }
+/* The percentiles never squeeze into the next item: the Response time item keeps their width. */
+.tr-strip__item:has(.tr-pcts) { flex: 1.25 1 0; }
+.tr-strip dd.tr-pcts { flex: none; }
+@media (max-width: 1365px) { .tr-strip__item:has(.tr-pcts) { flex: 1 1 50%; } }
+@media (max-width: 599px) { .tr-strip__item:has(.tr-pcts) { flex: 1 1 100%; } }
+
+/* The endpoints table as Explore's log table (explore.css .exl): edge to edge across the main
+   column (from the sidebar to the window), a 1px rule above, a 36px header (500 12px, muted, a
+   rule under), 30px rows of 12px mono, cells 8px apart, the first and last 16px in. */
+.tr .tr-sec--table { margin: 0 calc(-1 * var(--page-gutter)); border-top: 1px solid var(--border); }
+.tr .tr-sec--table .tr-tablewrap { border-top: 0; }
+.tr .tr-sec--table .tr-table { width: 100%; }
+.tr .tr-table th { height: 36px; box-sizing: border-box; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--bg); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); vertical-align: middle; }
+.tr .tr-table td { height: 30px; box-sizing: border-box; padding: 0 8px; font: 400 12px/16px var(--font-mono); vertical-align: middle; }
+.tr .tr-table td.tr-num { font: 400 12px/16px var(--font-mono); }
+.tr .tr-table th:first-child, .tr .tr-table td:first-child { padding-left: 16px; }
+.tr .tr-table th:last-child, .tr .tr-table td:last-child { padding-right: 16px; }
+.tr .tr-table .tr-ep__link b { font-weight: 400; color: var(--ink-muted); }
+/* The pagination bar as Explore's footer (.exl-foot): full width, 33px, 16px in, a rule above,
+   12px muted text; it stays at the bottom of the window while the table scrolls. */
+.page.tr { padding-bottom: 0; }
+.tr .tr-pg { position: sticky; bottom: 0; z-index: 2; box-sizing: border-box; min-height: 33px; margin: 0; padding: 0 16px; border-top: 1px solid var(--border); background: var(--bg); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+@media (max-width: 767px) {
+  .tr .tr-sec--table { margin: 0 calc(-1 * var(--page-gutter)); }
+  .tr .tr-table td, .tr .tr-table td.tr-num { height: auto; padding: 2px 0; }
+  .tr .tr-table td:first-child { padding-left: 0; }
+}
+
+/* Stats strip: the title on the left, the value on the right (its detail right-aligned under
+   it); the percentiles stay a row of small-labelled numbers on the right. */
+.tr-strip__item { justify-content: space-between; align-items: center; gap: 16px; padding: 10px 16px; }
+.tr-strip dd { flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.tr-strip dd > :first-child { font: 500 16px/20px var(--font-sans); }
+.tr-strip__aside { font: 400 11px/14px var(--font-sans); }
+.tr-strip__split { display: flex; gap: 10px; }
+.tr-strip dd.tr-pcts { flex-direction: row; align-items: flex-end; gap: 16px; }
+.tr-strip dd.tr-pcts .tr-pct { align-items: flex-end; }
+.tr-strip dd.tr-pcts .tr-pct > :last-child { font: 500 14px/18px var(--font-sans); }

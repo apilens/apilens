@@ -250,15 +250,18 @@ export function chartTooltipLabel(at: number, period: ChartPeriod, tz: string): 
  * Which bucket indices get a tick, as recharts' default `interval="preserveEnd"` with
  * `minTickGap={32}` (TimelineChart.tsx:135) picks them: from the last bucket backwards, a tick
  * wherever its label (`labelPx` wide, centred on its bucket of `slotPx`) clears the one after it
- * by `gap` px. Ascending.
+ * by `gap` px. Ascending. A label is kept whole, `inset` px clear of either end of the plot
+ * (`count * slotPx` wide), so no time ever touches or crosses the chart's edges.
  */
-export function chartTickIndices(count: number, slotPx: number, labelPx: number, gap = 32): number[] {
+export function chartTickIndices(count: number, slotPx: number, labelPx: number, gap = 32, inset = 8): number[] {
   if (count <= 0 || slotPx <= 0) return [];
   const out: number[] = [];
-  let edge = Number.POSITIVE_INFINITY;
+  const width = count * slotPx;
+  let edge = width - inset;
   for (let i = count - 1; i >= 0; i--) {
     const center = (i + 0.5) * slotPx;
-    if (out.length === 0 || center + labelPx / 2 + gap <= edge) {
+    if (center - labelPx / 2 < inset) break;
+    if (center + labelPx / 2 <= edge && (out.length === 0 || center + labelPx / 2 + gap <= edge)) {
       out.push(i);
       edge = center - labelPx / 2;
     }

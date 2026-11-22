@@ -2,9 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import type { ExploreRange } from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
 import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
+import { rangeIsSet } from "../explore/time-range";
 import { Tip } from "../explore/tip";
+import { TrafficTimePill } from "./time-range";
 
 /** The fields Traffic can filter by: the ones its rollups are kept by, so every number follows. */
 type Field = "env" | "app" | "method" | "path";
@@ -151,12 +154,15 @@ export function TrafficFilterBar({
   };
 
   const fieldDef = field ? FIELDS.find((f) => f.key === field) : null;
+  // The range shows as a pill only while it is not the default 24 hours, as in Explore.
+  const timeSet = rangeIsSet({ range: q.range as ExploreRange, from: q.from || undefined, to: q.to || undefined });
   const showMenu = menu && (options.length > 0 || Boolean(field));
 
   return (
     <div className="exp tr-fbar">
-      {pills.length ? (
+      {pills.length || timeSet ? (
         <ul className="exp-pills" aria-label="Active filters">
+          <TrafficTimePill project={project} query={q} />
           {pills.map((f, n) => {
             const words = `${f.label} is ${valueText(f.key, current[f.key])}`;
             return (

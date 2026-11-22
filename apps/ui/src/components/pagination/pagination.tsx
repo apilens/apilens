@@ -7,7 +7,7 @@
 //
 // Props (numbered): pathname, params (the page's plain searchParams object, not URLSearchParams,
 // when rendered from a server component), total, sizes? (default [25, 50, 100]), defaultPer?
-// (default 25), keys? ({ page, per } URL keys, for a second paged table on one page), label? ("Endpoints pages"), compact?, scroll? (default false), className?.
+// (default 25), keys? ({ page, per } URL keys, for a second paged table on one page), label? ("Endpoints pages"), compact?, scroll? (default false), always? (show the bar, for its Rows picker, past the smallest size even on one page), className?.
 // Props (cursor): mode="cursor", newerHref, olderHref (null disables), label?, scroll?, className?.
 //
 //   const state = parsePage(searchParams);                    // ?page=&per=
@@ -54,6 +54,12 @@ export interface PagesProps extends Common, PageOptions {
   params: ParamsInput;
   /** Every row the list has (after filters), not just this page's. */
   total: number;
+  /**
+   * Show the bar (range, Rows, pages) whenever there are more rows than the smallest page size,
+   * even when they all fit on this page, so a reader can still switch sizes. Off (the default) it
+   * shows only with more than one page.
+   */
+  always?: boolean;
 }
 
 /** Newer/Older paging over a list with no total, with the cursors the API returned. */
@@ -80,13 +86,13 @@ export function Pagination(props: PaginationProps) {
   return props.mode === "cursor" ? <CursorPagination {...props} /> : <PagesPagination {...props} />;
 }
 
-function PagesPagination({ pathname, params, total, sizes = PAGE_SIZES, defaultPer, keys, label = "Pagination", compact = false, scroll = false, className }: PagesProps) {
+function PagesPagination({ pathname, params, total, sizes = PAGE_SIZES, defaultPer, keys, label = "Pagination", compact = false, scroll = false, always = false, className }: PagesProps) {
   const router = useRouter();
   const id = useId();
   const options = { sizes, defaultPer, keys };
   const { page: PAGE_PARAM, per: PER_PARAM } = pageKeys(options);
   const w = pageWindow(parsePage(params, options), total);
-  if (!needsPagination(w)) return null;
+  if (!needsPagination(w) && !(always && total > Math.min(...sizes))) return null;
   const href = (page: number) => pageHref(pathname, params, { page }, options);
   const kept = [...toEntries(params)].filter(([k]) => k !== PAGE_PARAM && k !== PER_PARAM);
 

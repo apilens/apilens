@@ -47,6 +47,9 @@ const latestGroup = `argMaxIf(consumer_group, timestamp, consumer_group != '')`
 type consumersInput struct {
 	RangeInput
 	Group  string `query:"group" maxLength:"256" example:"Acme Corp" doc:"Only requests the SDK tagged with this consumer group (the consumer_group it reports); empty means all."`
+	App    string `query:"app" format:"uuid" doc:"Only requests of this app; empty means every app of the project. An app of another project matches nothing."`
+	Method string `query:"method" maxLength:"16" pattern:"^[A-Za-z]*$" doc:"Only requests with this HTTP method; empty means every method. Matched upper case."`
+	Path   string `query:"path" maxLength:"1024" doc:"Only requests to this route template (/orders/{id}); empty means every route."`
 	Search string `query:"search" maxLength:"256" doc:"Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points."`
 	Sort   string `query:"sort" enum:"requests,errors,last_seen" default:"requests" doc:"Order of consumers, largest or latest first: requests, errors (4xx and 5xx) or last_seen (last request in the range)."`
 	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most consumers to list."`
@@ -175,6 +178,11 @@ func (s *Service) consumers(ctx context.Context, in *consumersInput) (*consumers
 		where += " AND consumer_group = ?"
 		args = append(args, in.Group)
 	}
+	// The Traffic page's filters: its Consumers card follows the app, method and route.
+	if where, args, err = withApp(where, args, in.App); err != nil {
+		return nil, err
+	}
+	where, args = withRoute(where, args, RouteInput{Method: in.Method, Path: in.Path})
 	having, hargs := "", []any{}
 	if in.Search != "" {
 		having, hargs = consumerSearch, []any{in.Search, in.Search}

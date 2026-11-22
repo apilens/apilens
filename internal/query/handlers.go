@@ -407,6 +407,9 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 	if err != nil {
 		return nil, err
 	}
+	// The bars are as wide as Explore's timeline over the same span (timelineStep), so the two
+	// pages draw the same chart.
+	w = chartWindow(w)
 	rules, err := s.endpointRules(ctx, p.ProjectID)
 	if err != nil {
 		return nil, err

@@ -267,6 +267,27 @@ func resolveTrafficWindow(name, from, to string, now time.Time) (window, error) 
 	return window{name: pick, from: start, to: end, bucket: r.bucket, table: r.table}, nil
 }
 
+// rollupGrain is the finest bucket each rollup table keeps.
+var rollupGrain = map[string]time.Duration{"api_requests_1m": time.Minute, "api_requests_1h": time.Hour}
+
+// chartWindow is w at the bucket width Explore's timeline draws its span with (timelineStep: the
+// finest width that keeps it to maxTimelineBuckets bars), never finer than w's rollup keeps; its
+// ends are aligned out to that width. 1h, 6h and 24h keep their widths (1m, 5m, 15m); 7d draws
+// 2h bars, and custom windows about 30 to 100 bars.
+func chartWindow(w window) window {
+	step := timelineStep(w.to.Sub(w.from))
+	if grain := rollupGrain[w.table]; step < grain {
+		step = grain
+	}
+	from := w.from.Truncate(step)
+	to := w.to.Truncate(step)
+	if to.Before(w.to) {
+		to = to.Add(step)
+	}
+	w.from, w.to, w.bucket = from, to, step
+	return w
+}
+
 // previous is the window of the same length just before w, the same query
 // shifted back by its span: the baseline of the "vs previous" comparison on
 // the summary tiles (#1000).

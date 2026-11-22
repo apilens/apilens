@@ -711,6 +711,51 @@ const deployChanges = new Map<string, Record<string, unknown>[]>();
 /** Project slug → environment ("" for all) → what the traffic reads answer (#592), as seeded by `/__fake/traffic`. */
 type TrafficSeed = { summary: Record<string, unknown>; points: unknown[]; endpoints: unknown[] };
 const trafficSeed = new Map<string, Record<string, TrafficSeed>>();
+
+/**
+ * A traffic seed narrowed to `?app=`, `?method=` and `?path=`, as the query role filters: the
+ * endpoints that match, a summary summed from them, and each time bucket scaled by their share of
+ * the requests (the seed has no per-endpoint series). Unfiltered, the seed as it is.
+ */
+function narrowTraffic(seed: TrafficSeed | undefined, params: URLSearchParams): TrafficSeed | undefined {
+  const app = params.get("app") ?? "";
+  const method = (params.get("method") ?? "").toUpperCase();
+  const route = params.get("path") ?? "";
+  if (!seed || (!app && !method && !route)) return seed;
+  const all = (seed.endpoints ?? []) as Record<string, unknown>[];
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const rows = all.filter((e) => (!app || e.app_id === app) && (!method || String(e.method).toUpperCase() === method) && (!route || e.path === route));
+  const total = all.reduce((n, e) => n + num(e.requests), 0);
+  const requests = rows.reduce((n, e) => n + num(e.requests), 0);
+  const share = total > 0 ? requests / total : 0;
+  const sum = (k: string) => rows.reduce((n, e) => n + num(e[k]), 0);
+  // Percentiles of the narrowed set: the request-weighted mean of the rows' (close enough for a fake).
+  const weighted = (k: string) => (requests > 0 ? Math.round(rows.reduce((n, e) => n + num(e[k]) * num(e.requests), 0) / requests) : 0);
+  const client_errors = sum("client_errors");
+  const server_errors = sum("server_errors");
+  const base = seed.summary ?? {};
+  const summary: Record<string, unknown> = {
+    ...base,
+    requests,
+    client_errors,
+    server_errors,
+    error_rate: requests > 0 ? (client_errors + server_errors) / requests : 0,
+    p50_ms: weighted("p50_ms"),
+    p95_ms: weighted("p95_ms"),
+    p99_ms: Math.max(weighted("p95_ms"), Math.round(num(base.p99_ms) * share)),
+    requests_per_minute: num(base.requests_per_minute) * share,
+    current_per_minute: Math.round(num(base.current_per_minute) * share),
+    apdex: requests > 0 ? Math.round((rows.reduce((n, e) => n + num(e.apdex) * num(e.requests), 0) / requests) * 100) / 100 : null,
+  };
+  delete summary.previous;
+  const points = ((seed.points ?? []) as Record<string, unknown>[]).map((pt) => ({
+    ...pt,
+    requests: Math.round(num(pt.requests) * share),
+    client_errors: Math.round(num(pt.client_errors) * share),
+    server_errors: Math.round(num(pt.server_errors) * share),
+  }));
+  return { summary, points, endpoints: rows };
+}
 /** "<project> <METHOD> <path>" → tab → what that endpoint read answers (#593), as seeded by `/__fake/endpoint`. */
 const endpointSeed = new Map<string, Record<string, unknown>>();
 /** Every endpoint read since the last seed, oldest first (#593). */
@@ -2239,7 +2284,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (queryDown.has(slug)) return problem(res, 503, "unavailable");
       const range = url.searchParams.get("range") ?? "24h";
       const env = url.searchParams.get("env") ?? "";
-      const seed = seeded?.[env] ?? seeded?.[""];
+      const seed = narrowTraffic(seeded?.[env] ?? seeded?.[""], url.searchParams);
       if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 900, points: seed?.points ?? [] });
       if (path === "/api/v1/traffic/endpoints") {
         // Endpoints excluded from metrics (#600) leave the list, as the query role does.

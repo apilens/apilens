@@ -16974,6 +16974,40 @@
             }
           },
           {
+            "description": "Only requests of this app; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "Only requests of this app; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with this HTTP method; empty means every method. Matched upper case.",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "Only requests with this HTTP method; empty means every method. Matched upper case.",
+              "maxLength": 16,
+              "pattern": "^[A-Za-z]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests to this route template (/orders/{id}); empty means every route.",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "Only requests to this route template (/orders/{id}); empty means every route.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
             "description": "Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points.",
             "explode": false,
             "in": "query",
@@ -30266,6 +30300,51 @@
               "minimum": 1,
               "type": "integer"
             }
+          },
+          {
+            "description": "HTTP method; empty means every method. Matched upper case.",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "HTTP method; empty means every method. Matched upper case.",
+              "maxLength": 16,
+              "pattern": "^[A-Za-z]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30359,6 +30438,51 @@
             "schema": {
               "description": "App id; empty means every app of the project. An app of another project matches nothing.",
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method; empty means every method. Matched upper case.",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "HTTP method; empty means every method. Matched upper case.",
+              "maxLength": 16,
+              "pattern": "^[A-Za-z]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
               "type": "string"
             }
           }
@@ -30456,6 +30580,51 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "HTTP method; empty means every method. Matched upper case.",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "HTTP method; empty means every method. Matched upper case.",
+              "maxLength": 16,
+              "pattern": "^[A-Za-z]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30549,6 +30718,51 @@
             "schema": {
               "description": "App id; empty means every app of the project. An app of another project matches nothing.",
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method; empty means every method. Matched upper case.",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "HTTP method; empty means every method. Matched upper case.",
+              "maxLength": 16,
+              "pattern": "^[A-Za-z]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "Route template, as the endpoints list names it (/orders/{id}); empty means every route.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
               "type": "string"
             }
           }

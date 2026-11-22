@@ -97,7 +97,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     facet("app", 20),
     facet("path", 10),
     // The Consumers card: unique consumers of the range (and environment), new vs returning.
-    read<ConsumersList>(next, (o) => identity().listConsumers(project, { range: q.range, ...(q.env && q.env !== "all" ? { env: q.env } : {}), limit: 1 }, o)),
+    read<ConsumersList>(next, (o) => identity().listConsumers(project, { range: q.range, ...(q.env && q.env !== "all" ? { env: q.env } : {}), ...(q.app ? { app: q.app } : {}), ...(q.method ? { method: q.method } : {}), ...(q.path ? { path: q.path } : {}), limit: 1 }, o)),
   ]);
   const facetValues = (f: RequestFacets | null) => (f === null ? null : (f.values ?? []));
 

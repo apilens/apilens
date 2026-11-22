@@ -280,7 +280,8 @@ export function Plot({
             boxWidth={h.width}
             title={title}
             rows={rows}
-            placement="inside"
+            // Above the plot, never over it: the hovered bar's neighbours stay in view.
+            placement="above"
             hint={select ? "Click or drag to filter this page to a window" : links ? OPEN_HINT : undefined}
           />
         ) : null}

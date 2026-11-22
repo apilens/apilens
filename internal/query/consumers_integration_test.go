@@ -267,6 +267,26 @@ func TestConsumers(t *testing.T) {
 		t.Fatalf("group Partners (not in the last hour) = %+v", list)
 	}
 
+	// Route filter (the Traffic page's Consumers card): only old called POST /login.
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&method=post&path=/login", &list); code != http.StatusOK {
+		t.Fatalf("list by route: %d", code)
+	}
+	if len(list.Consumers) != 1 || list.Consumers[0].ConsumerID != "old" || list.Consumers[0].Requests != 1 || list.Summary.Consumers != 1 || list.Totals.Requests != 1 {
+		t.Fatalf("POST /login = %+v", list)
+	}
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&method=GET", &list); code != http.StatusOK {
+		t.Fatalf("list by method: %d", code)
+	}
+	if list.Summary.Consumers != 2 || list.Totals.Requests != 5 {
+		t.Fatalf("GET = %+v", list)
+	}
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&app="+mine.AppID.String(), &list); code != http.StatusOK || list.Summary.Consumers != 2 {
+		t.Fatalf("list by app: %d %+v", code, list.Summary)
+	}
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&app="+theirs.AppID.String(), &list); code != http.StatusOK || list.Summary.Consumers != 0 {
+		t.Fatalf("list by another project's app: %d %+v", code, list.Summary)
+	}
+
 	// Group traffic: Internal has old's three tagged requests and the
 	// anonymous one; Partners only shows up over 7 days.
 	var groups groupTraffic

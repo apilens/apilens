@@ -2,10 +2,9 @@ import { formatCount, formatPerMinute } from "@/lib/consumers";
 import { bucketHrefs, exploreHrefFor } from "@/lib/explore";
 import { formatPercent, ratio } from "@/lib/format";
 import type { ReactNode } from "react";
-import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
+import type { EndpointTraffic, NamedApp, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import { formatSpan } from "@/lib/alerts";
 import {
-  windowRange,
   ENDPOINTS_LIMIT,
   ENDPOINTS_LOAD_FAILED,
   TIMESERIES_LOAD_FAILED,
@@ -27,14 +26,13 @@ import {
   scopeText,
   sortEndpoints,
   splitDeclared,
-  statusRows,
   trafficHref,
 } from "@/lib/traffic";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
-import { LatencyChart, StatusChart } from "./charts";
+import { TrafficTimeline } from "./timeline";
 import { LiveNumber } from "./live";
 import { TrafficToolbar } from "./toolbar";
 import "./traffic.css";
@@ -134,15 +132,11 @@ export function TrafficView({
           {points === null ? (
             <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
           ) : (
-            <RedCharts summary={summary} points={points} range={windowRange(q)} scope={scope} select={select} audience={audience} />
+            <RedCharts summary={summary} points={points} select={select} audience={audience} />
           )}
 
 
-          <section className="tr-sec tr-sec--table" aria-labelledby="tr-endpoints">
-            <div className="tr-sec__head">
-              <h2 id="tr-endpoints">Endpoints</h2>
-              <span className="tr-sec__meta">{endpoints ? `${formatCount(active.length)} with requests` : ""}</span>
-            </div>
+          <section className="tr-sec tr-sec--table" aria-label="Endpoints">
             {endpoints === null ? (
               <ErrorState text={ENDPOINTS_LOAD_FAILED} href={trafficHref(project, q)} />
             ) : endpoints.length === 0 ? (
@@ -162,7 +156,7 @@ export function TrafficView({
                 ) : (
                   <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} total={total} />
                 )}
-                {active.length > 0 ? <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" /> : null}
+                {active.length > 0 ? <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" always className="tr-pg" /> : null}
                 {declared.length > 0 ? <DeclaredRoutes project={project} q={q} routes={declared} apps={appColumn} scope={scope} open={false} /> : null}
                 {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
               </div>
@@ -209,66 +203,67 @@ function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: st
 function RedCharts({
   summary: s,
   points,
-  range,
-  scope,
   select,
   audience,
 }: {
   summary: TrafficSummary;
   points: TrafficPoint[];
-  range: QueryRange;
-  scope: string;
   select: { page: string; explore: string };
   audience: Audience | null;
 }) {
   const errors = s.client_errors + s.server_errors;
-  const rows = statusRows(points);
-  // Requests read as one series (the Errors card carries the split), so the eye sees volume.
-  const volume = rows.map((r) => ({ ...r, successful: r.successful + r.client_errors + r.server_errors, client_errors: 0, server_errors: 0 }));
   return (
-    <section className="tr-red" aria-label="Requests, errors and response time">
-      <article className="tr-panel tr-red__card">
-        <header className="tr-red__head">
-          <h2 className="tr-red__label">Requests</h2>
-          <span className="tr-red__aside">{formatCount(s.current_per_minute ?? 0)}/min now</span>
-        </header>
-        <p className="tr-red__value">
-          <LiveNumber text={formatCount(s.requests)} />
-        </p>
-        <StatusChart label="Requests" summary={`${formatCount(s.requests)} requests in ${scope}.`} rows={volume} range={range} select={select} />
-      </article>
-      <article className="tr-panel tr-red__card">
-        <header className="tr-red__head">
-          <h2 className="tr-red__label">Errors</h2>
-          <span className="tr-red__aside">
-            <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
-          </span>
-        </header>
-        <p className="tr-red__value">
-          <LiveNumber text={formatPercent(ratio(errors, s.requests))} />
-        </p>
-        <StatusChart
-          label="Errors by status"
-          summary={`${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx in ${scope}.`}
-          rows={rows.map((r) => ({ ...r, successful: 0 }))}
-          range={range}
-          select={select}
-        />
-      </article>
-      <article className="tr-panel tr-red__card">
-        <header className="tr-red__head">
-          <h2 className="tr-red__label">Response time</h2>
-          <span className="tr-red__aside">
-            p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
-          </span>
-        </header>
-        <p className="tr-red__value">
-          <LiveNumber text={formatLatency(s.p95_ms)} />
-          <span className="tr-red__unit">p95</span>
-        </p>
-        <LatencyChart label="Response time" summary={`p95 of ${formatLatency(s.p95_ms)} over ${scope}.`} rows={points} range={range} select={select} />
-      </article>
-      {audience ? <ConsumersCard audience={audience} /> : null}
+    <section className="tr-over" aria-label="Requests, errors, response time and consumers">
+      {/* First under the toolbar, edge to edge, as in Explore: the chart doesn't move between pages. */}
+      <TrafficTimeline points={points} page={select.page} />
+      <dl className="tr-strip">
+        <div className="tr-strip__item">
+          <dt>Requests</dt>
+          <dd>
+            <LiveNumber text={formatCount(s.requests)} />
+            <span className="tr-strip__aside">{formatCount(s.current_per_minute ?? 0)}/min now</span>
+          </dd>
+        </div>
+        <div className="tr-strip__item">
+          <dt>Errors</dt>
+          <dd>
+            <LiveNumber text={formatPercent(ratio(errors, s.requests))} />
+            <span className="tr-strip__aside tr-strip__split">
+              <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span>
+              <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
+            </span>
+          </dd>
+        </div>
+        <div className="tr-strip__item">
+          <dt>Response time</dt>
+          {/* Three percentiles side by side, each under its own small label. */}
+          <dd className="tr-pcts">
+            {(
+              [
+                ["p50", s.p50_ms],
+                ["p95", s.p95_ms],
+                ["p99", s.p99_ms],
+              ] as const
+            ).map(([k, ms]) => (
+              <span key={k} className="tr-pct">
+                <small>{k}</small>
+                <LiveNumber text={formatLatency(ms)} />
+              </span>
+            ))}
+          </dd>
+        </div>
+        {audience ? (
+          <div className="tr-strip__item">
+            <dt title="Users the SDK identified, in this range and scope">Consumers</dt>
+            <dd>
+              <LiveNumber text={formatCount(audience.consumers)} />
+              <span className="tr-strip__aside">
+                {formatCount(audience.new)} new · {formatCount(audience.returning)} returning
+              </span>
+            </dd>
+          </div>
+        ) : null}
+      </dl>
     </section>
   );
 }
@@ -326,7 +321,7 @@ function EndpointsTable({
           {header("p50", "p50")}
           {header("p95", "p95")}
           {header("apdex", "Apdex")}
-          <th scope="col" className="tr-num">
+          <th scope="col" className="tr-num" data-col="spent">
             Time spent
           </th>
           {menus ? (
@@ -349,23 +344,23 @@ function EndpointsTable({
                 </a>
               </td>
               {apps ? (
-                <td className="tr-app" data-label="App">
+                <td className="tr-app" data-label="App" data-col="app">
                   {appName(apps, ep.app_id)}
                 </td>
               ) : null}
-              <td className="tr-num" data-label="Requests" title={total > 0 ? `${formatPercent(ep.requests / total)} of all requests` : undefined}>
+              <td className="tr-num" data-label="Requests" data-col="requests" title={total > 0 ? `${formatPercent(ep.requests / total)} of all requests` : undefined}>
                 {formatCount(ep.requests)}
               </td>
-              <td className="tr-num" data-label="4xx">
+              <td className="tr-num" data-label="4xx" data-col="client_errors">
                 <Errors n={ep.client_errors} requests={ep.requests} href={drill({ status: "4xx" })} label="4xx responses" />
               </td>
-              <td className="tr-num" data-label="5xx">
+              <td className="tr-num" data-label="5xx" data-col="server_errors">
                 <Errors n={ep.server_errors} requests={ep.requests} href={drill({ status: "5xx" })} label="5xx responses" />
               </td>
-              <td className="tr-num" data-label="p50">
+              <td className="tr-num" data-label="p50" data-col="p50">
                 {formatLatency(ep.p50_ms)}
               </td>
-              <td className="tr-num" data-label="p95">
+              <td className="tr-num" data-label="p95" data-col="p95">
                 {ep.requests > 0 && ep.p95_ms > 0 ? (
                   <a
                     className="tr-drill"
@@ -379,10 +374,10 @@ function EndpointsTable({
                   formatLatency(ep.p95_ms)
                 )}
               </td>
-              <td className="tr-num" data-label="Apdex">
+              <td className="tr-num" data-label="Apdex" data-col="apdex">
                 {formatApdex(ep.apdex)}
               </td>
-              <td className="tr-num" data-label="Time spent" title="Requests × average response time: where the API spends its time">
+              <td className="tr-num" data-label="Time spent" data-col="spent" title="Requests × average response time: where the API spends its time">
                 {ep.total_time_ms !== undefined ? spentText(ep.total_time_ms) : <span className="tr-muted">–</span>}
               </td>
               {menus ? (
@@ -405,7 +400,7 @@ function EndpointsTable({
 function SortHeader({ sort, col, href, num, children }: { sort: EndpointSort; col: EndpointSortKey; href: string; num: boolean; children: string }) {
   const dir = ariaSort(sort, col);
   return (
-    <th scope="col" className={num ? "tr-num" : undefined} aria-sort={dir}>
+    <th scope="col" className={num ? "tr-num" : undefined} aria-sort={dir} data-col={col}>
       <a className="tr-sort" href={href}>
         {children}
       </a>
@@ -430,41 +425,10 @@ function Errors({ n, requests, href, label }: { n: number; requests: number; hre
   );
 }
 
-/** The Consumers card's numbers: unique consumers of the range, new vs returning, and their requests. */
+/**
+ * The stats line's Consumers: unique consumers (the users the SDK identified) with requests in
+ * the scope, how many are new (first seen in it) or returning, and the requests they made. It
+ * follows the range, environment, app, method and endpoint.
+ */
 export type Audience = { consumers: number; new: number; returning: number; requests: number };
 
-/**
- * Consumers beside the RED cards, numbers only: unique consumers (the users the SDK identified)
- * with requests in the range, how many are new (first seen in it) or returning, and the requests
- * they made. It follows the range and environment; app, method, endpoint and a picked window
- * don't narrow it (the consumers read is kept by consumer, not route).
- */
-function ConsumersCard({ audience: a }: { audience: Audience }) {
-  return (
-    <article className="tr-panel tr-red__card tr-red__card--stat">
-      <header className="tr-red__head">
-        <h2 className="tr-red__label">Consumers</h2>
-        <span className="tr-red__aside" title="Users the SDK identified, in this range and environment">
-          unique
-        </span>
-      </header>
-      <p className="tr-red__value">
-        <LiveNumber text={formatCount(a.consumers)} />
-      </p>
-      <dl className="tr-cstats">
-        <div>
-          <dt>New</dt>
-          <dd>{formatCount(a.new)}</dd>
-        </div>
-        <div>
-          <dt>Returning</dt>
-          <dd>{formatCount(a.returning)}</dd>
-        </div>
-        <div>
-          <dt>Requests</dt>
-          <dd>{formatCount(a.requests)}</dd>
-        </div>
-      </dl>
-    </article>
-  );
-}
