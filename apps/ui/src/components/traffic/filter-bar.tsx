@@ -14,7 +14,7 @@ import { TrafficTimePill } from "./time-range";
  * The fields Traffic can filter by. The scope fields narrow every number (consumer from the raw
  * requests); the metric fields are conditions on the endpoints table's rows (`p95 > 500 ms`).
  */
-type ScopeField = "env" | "app" | "method" | "path" | "consumer";
+type ScopeField = "env" | "app" | "method" | "path" | "consumer" | "status";
 type Field = ScopeField | MetricField;
 const FIELDS: { key: Field; label: string; mono?: boolean; metric?: boolean }[] = [
   { key: "env", label: "Environment" },
@@ -22,6 +22,7 @@ const FIELDS: { key: Field; label: string; mono?: boolean; metric?: boolean }[] 
   { key: "method", label: "Method", mono: true },
   { key: "path", label: "Endpoint", mono: true },
   { key: "consumer", label: "Consumer" },
+  { key: "status", label: "Status", mono: true },
   { key: "requests", label: "Requests", metric: true },
   { key: "client_errors", label: "4xx", metric: true },
   { key: "server_errors", label: "5xx", metric: true },
@@ -51,6 +52,7 @@ export function TrafficFilterBar({
   methods,
   paths,
   consumers = [],
+  statuses = [],
 }: {
   project: string;
   query: TrafficState;
@@ -61,6 +63,8 @@ export function TrafficFilterBar({
   paths: Option[];
   /** Consumers to suggest (id, name, requests). */
   consumers?: Option[];
+  /** Status levels and codes to suggest. */
+  statuses?: Option[];
 }) {
   const router = useRouter();
   const id = useId();
@@ -71,10 +75,10 @@ export function TrafficFilterBar({
   const [field, setField] = useState<Field | null>(null);
   const [hl, setHl] = useState<number | null>(null);
 
-  const current: Record<ScopeField, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "", consumer: q.consumer ?? "" };
+  const current: Record<ScopeField, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "", consumer: q.consumer ?? "", status: q.status ?? "" };
   const metrics = q.metrics ?? [];
   const valueText = (f: ScopeField, v: string) =>
-    f === "app" ? (apps ? appName(apps, v) : v) : f === "consumer" ? (consumers.find((c) => c.value === v)?.label ?? v) : v;
+    f === "app" ? (apps ? appName(apps, v) : v) : f === "consumer" ? (consumers.find((c) => c.value === v)?.label ?? v) : f === "status" ? v.replace("2xx,3xx", "2xx–3xx") : v;
   // Every condition in force as one pill: the scope's, then the metric conditions.
   const pills: { key: Field; label: string; op: string; value: string; mono?: boolean }[] = [
     ...FIELDS.flatMap((f) => (!isMetric(f.key) && current[f.key as ScopeField] ? [{ key: f.key, label: f.label, op: "=", value: valueText(f.key as ScopeField, current[f.key as ScopeField]), mono: f.mono }] : [])),
@@ -114,7 +118,9 @@ export function TrafficFilterBar({
           ? methods
           : f === "consumer"
             ? consumers
-            : paths;
+            : f === "status"
+              ? statuses
+              : paths;
   // A metric field's value stage: what was typed, read as a condition (`> 500 ms`), else the
   // operators to start one with.
   const metricOptions = (f: MetricField) => {
@@ -325,7 +331,7 @@ export function TrafficFilterBar({
       </div>
       {pills.length ? (
         <Tip label="Clear all filters">
-          <button type="button" className="exp-clear" onClick={() => go({ env: "", app: "", method: "", path: "", consumer: "", metrics: [] })}>
+          <button type="button" className="exp-clear" onClick={() => go({ env: "", app: "", method: "", path: "", consumer: "", status: "", metrics: [] })}>
             Clear
           </button>
         </Tip>

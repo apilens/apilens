@@ -268,8 +268,8 @@ func resolveTrafficWindow(name, from, to string, now time.Time) (window, error) 
 }
 
 // trafficSource is where a traffic read counts its requests: the rollup of its window, or the
-// raw requests when a consumer is in scope (the rollups are kept by app, environment, method and
-// route, not consumer). Every field is a fixed SQL fragment, never input.
+// raw requests when a consumer or a status is in scope (the rollups are kept by app, environment,
+// method and route, with counts per status class, not by consumer or status). Every field is a fixed SQL fragment, never input.
 type trafficSource struct {
 	table, ts                   string
 	requests, client, server    string
@@ -277,7 +277,7 @@ type trafficSource struct {
 }
 
 func sourceOf(w window, in RouteInput) trafficSource {
-	if in.Consumer == "" {
+	if !in.raw() {
 		return trafficSource{
 			table: w.table, ts: "bucket",
 			requests: "sum(requests)", client: "sum(client_errors)", server: "sum(server_errors)",

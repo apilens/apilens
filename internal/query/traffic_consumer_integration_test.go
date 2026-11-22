@@ -116,6 +116,28 @@ func TestTrafficByConsumer(t *testing.T) {
 	if beta.P95Ms > 25 || acme.P95Ms < 300 {
 		t.Fatalf("p95: beta %v (want ~20), acme %v (want toward 900)", beta.P95Ms, acme.P95Ms)
 	}
+	// Status: the 404 and the 500 (raw requests), by class, by code, and with a consumer.
+	for _, c := range []struct {
+		query string
+		want  [3]uint64
+	}{
+		{"&status=4xx", [3]uint64{1, 1, 0}},
+		{"&status=5xx", [3]uint64{1, 0, 1}},
+		{"&status=4xx,500", [3]uint64{2, 1, 1}},
+		{"&status=2xx", [3]uint64{4, 0, 0}},
+		{"&status=2xx&consumer=beta", [3]uint64{2, 0, 0}},
+	} {
+		var got totals
+		if code := get("/api/v1/traffic/summary?range=1h"+c.query, &got); code != http.StatusOK {
+			t.Fatalf("summary %q: %d", c.query, code)
+		}
+		if g := [3]uint64{got.Requests, got.ClientErrors, got.ServerErrors}; g != c.want {
+			t.Fatalf("summary %q = %v, want %v", c.query, g, c.want)
+		}
+	}
+	if code := get("/api/v1/traffic/summary?range=1h&status=4xxx", nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad status: %d, want 422", code)
+	}
 	var none totals
 	if code := get("/api/v1/traffic/summary?range=1h&consumer=nobody", &none); code != http.StatusOK || none.Requests != 0 {
 		t.Fatalf("unknown consumer: %d %+v", code, none)

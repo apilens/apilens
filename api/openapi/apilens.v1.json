@@ -30356,6 +30356,21 @@
               "maxLength": 256,
               "type": "string"
             }
+          },
+          {
+            "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+              "examples": [
+                "4xx,500"
+              ],
+              "maxLength": 256,
+              "pattern": "^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30505,6 +30520,21 @@
             "schema": {
               "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
               "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+              "examples": [
+                "4xx,500"
+              ],
+              "maxLength": 256,
+              "pattern": "^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$",
               "type": "string"
             }
           }
@@ -30658,6 +30688,21 @@
               "maxLength": 256,
               "type": "string"
             }
+          },
+          {
+            "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+              "examples": [
+                "4xx,500"
+              ],
+              "maxLength": 256,
+              "pattern": "^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30807,6 +30852,21 @@
             "schema": {
               "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
               "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests.",
+              "examples": [
+                "4xx,500"
+              ],
+              "maxLength": 256,
+              "pattern": "^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$",
               "type": "string"
             }
           }

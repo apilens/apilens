@@ -60,7 +60,7 @@ func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*traff
 	scope, sargs := rules.withoutExcluded(tenant, targs)
 	src := sourceOf(w, in.RouteInput)
 	agg := rollLatency
-	if in.Consumer != "" {
+	if in.raw() {
 		agg = rawLatency
 	}
 	where, args := scope+" AND "+src.ts+" >= ? AND "+src.ts+" < ?", append(append([]any{}, sargs...), w.from, w.to)

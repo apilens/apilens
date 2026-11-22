@@ -52,6 +52,37 @@ type RouteInput struct {
 	To     string `query:"to" maxLength:"40" doc:"End of a custom window (RFC 3339), with from."`
 	// Consumer is read from the raw requests (the rollups aren't kept by consumer): see sourceOf.
 	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans."`
+	// Status is read from the raw requests too (the rollups keep counts per class, not requests).
+	Status string `query:"status" maxLength:"256" pattern:"^$|^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$" example:"4xx,500" doc:"Only requests with these status codes: classes (2xx, 4xx) and codes (404), comma-separated; empty means every status. Read from the raw requests."`
+}
+
+// raw is whether the read narrows by a column the rollups don't keep (consumer, status), so it
+// counts the raw requests (sourceOf).
+func (in RouteInput) raw() bool { return in.Consumer != "" || in.Status != "" }
+
+// statusCond is the SQL condition of a status filter (`4xx,500` → status_code BETWEEN 400 AND
+// 499 OR status_code = 500); its args are the bounds. The pattern on Status already refuses
+// anything else; a token it lets through that isn't a class or a code adds nothing.
+func statusCond(status string) (string, []any) {
+	var parts []string
+	var args []any
+	for _, t := range strings.Split(status, ",") {
+		switch {
+		case len(t) == 3 && strings.HasSuffix(t, "xx") && t[0] >= '1' && t[0] <= '5':
+			lo := int(t[0]-'0') * 100
+			parts = append(parts, "status_code BETWEEN ? AND ?")
+			args = append(args, lo, lo+99)
+		case len(t) == 3:
+			if n, err := strconv.Atoi(t); err == nil && n >= 100 && n <= 599 {
+				parts = append(parts, "status_code = ?")
+				args = append(args, n)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
 }
 
 // withRoute narrows a filter to the method, route template and consumer in, when given. A
@@ -61,6 +92,10 @@ func withRoute(where string, args []any, in RouteInput) (string, []any) {
 	if in.Consumer != "" {
 		where += " AND consumer_id = ?"
 		out = append(out, in.Consumer)
+	}
+	if c, cargs := statusCond(in.Status); c != "" {
+		where += " AND " + c
+		out = append(out, cargs...)
 	}
 	if in.Method != "" {
 		where += " AND method = ?"
@@ -367,7 +402,7 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	}
 	var current uint64
 	lastMinute := now.UTC().Truncate(time.Minute).Add(-time.Minute)
-	if in.Consumer != "" {
+	if in.raw() {
 		err = s.ch.QueryRow(qctx, `SELECT count() FROM api_requests WHERE `+sc.where+` AND timestamp >= ? AND timestamp < ?`,
 			append(append([]any{}, sc.args...), lastMinute, lastMinute.Add(time.Minute))...).Scan(&current)
 	} else {
@@ -584,8 +619,8 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err := rows.Err(); err != nil {
 		return nil, internalError("endpoints", err)
 	}
-	// Declared routes without traffic aren't a consumer's: with one in scope they stay out.
-	if len(out.Body.Endpoints) < in.Limit && in.Consumer == "" {
+	// Declared routes without traffic aren't a consumer's or a status's: with one in scope they stay out.
+	if len(out.Body.Endpoints) < in.Limit && !in.raw() {
 		routes, err := s.discoveredRoutes(ctx, p.ProjectID, in.Env)
 		if err != nil {
 			return nil, err

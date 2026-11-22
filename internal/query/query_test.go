@@ -392,3 +392,25 @@ func TestChartWindowDrawsExploreBarWidths(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusCondReadsClassesAndCodes(t *testing.T) {
+	for _, c := range []struct {
+		in, want string
+		args     []any
+	}{
+		{"", "", nil},
+		{"4xx", "(status_code BETWEEN ? AND ?)", []any{400, 499}},
+		{"2xx,3xx", "(status_code BETWEEN ? AND ? OR status_code BETWEEN ? AND ?)", []any{200, 299, 300, 399}},
+		{"4xx,500", "(status_code BETWEEN ? AND ? OR status_code = ?)", []any{400, 499, 500}},
+		{"404", "(status_code = ?)", []any{404}},
+		{"9xx,abc", "", nil},
+	} {
+		got, args := statusCond(c.in)
+		if got != c.want || fmt.Sprint(args) != fmt.Sprint(c.args) {
+			t.Errorf("statusCond(%q) = %q %v, want %q %v", c.in, got, args, c.want, c.args)
+		}
+	}
+	if !(RouteInput{Status: "5xx"}).raw() || !(RouteInput{Consumer: "a"}).raw() || (RouteInput{Method: "GET"}).raw() {
+		t.Error("raw: status or consumer read the raw requests, a route alone the rollups")
+	}
+}

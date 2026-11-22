@@ -127,6 +127,7 @@ export function TrafficView({
         methods={filterOptions(methods, endpoints, "method")}
         paths={filterOptions(null, endpoints, "path")}
         consumers={(consumers ?? []).map((c) => ({ value: c.value, label: c.label || c.value, count: c.count }))}
+        statuses={statusOptions(statuses)}
       />
 
       {summary === null ? (
@@ -444,3 +445,18 @@ function Errors({ n, requests, href, label }: { n: number; requests: number; hre
  */
 export type Audience = { consumers: number; new: number; returning: number; requests: number };
 
+
+/**
+ * The filter bar's Status suggestions: the three levels (as the sidebar's Level rows), then the
+ * codes with their requests under the other filters.
+ */
+function statusOptions(statuses: FacetValue[] | null): { value: string; label: string; count?: number }[] {
+  const codes = (statuses ?? []).filter((v) => /^\d{3}$/.test(v.value));
+  const sum = (first: string) => codes.filter((c) => first.includes(c.value[0])).reduce((n, c) => n + c.count, 0);
+  return [
+    { value: "2xx,3xx", label: "2xx–3xx (success)", count: sum("23") },
+    { value: "4xx", label: "4xx (warning)", count: sum("4") },
+    { value: "5xx", label: "5xx (error)", count: sum("5") },
+    ...codes.map((c) => ({ value: c.value, label: c.value, count: c.count })),
+  ];
+}

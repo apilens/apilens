@@ -27,16 +27,16 @@ const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
 
 describe("parseTrafficQuery", () => {
   it("defaults to the last 24 hours in all environments", () => {
-    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
+    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [], status: "" });
   });
 
   it("reads a known range and an environment", () => {
-    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
-    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
+    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [], status: "" });
+    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [], status: "" });
   });
 
   it("falls back on an unknown range or an environment name the API would refuse", () => {
-    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
+    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [], status: "" });
   });
 
   it("reads the filter bar's method (upper case) and route template, refusing what the API would", () => {
@@ -249,5 +249,17 @@ describe("consumer and endpoint metric filters", () => {
     const back = parseTrafficQuery(Object.fromEntries([...new URLSearchParams(href.split("?")[1]).keys()].map((k) => [k, new URLSearchParams(href.split("?")[1]).getAll(k)])));
     expect(back.consumer).toBe("acme");
     expect(back.metrics).toEqual(q.metrics);
+  });
+});
+
+describe("status filter", () => {
+  it("reads classes and codes, lower-cased, and drops what the API would refuse", () => {
+    expect(parseTrafficQuery({ status: "4XX" }).status).toBe("4xx");
+    expect(parseTrafficQuery({ status: "2xx,3xx" }).status).toBe("2xx,3xx");
+    expect(parseTrafficQuery({ status: "404" }).status).toBe("404");
+    for (const bad of ["4xxx", "9xx", "40", "4xx,", "abc"]) expect(parseTrafficQuery({ status: bad }).status).toBe("");
+  });
+  it("writes it into the page URL", () => {
+    expect(trafficHref("shop", { range: "24h", env: "production", status: "2xx,3xx" })).toBe("/project/shop/traffic?range=24h&env=production&status=2xx%2C3xx");
   });
 });

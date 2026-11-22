@@ -1351,6 +1351,8 @@ export interface TrafficQuery {
   to?: string;
   /** One consumer's requests (read from the raw requests); absent means every consumer. */
   consumer?: string;
+  /** Status classes and codes, comma-separated (read from the raw requests); absent means all. */
+  status?: string;
 }
 
 /** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
@@ -2539,8 +2541,8 @@ export interface AppSettings {
  * {@link CallOptions} last; authenticated ones require `accessToken`.
  */
 /** The traffic reads' `range` and `env` query parameters; an empty environment is left out (all). */
-function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; from?: string; to?: string; consumer?: string } {
-  const { range, env, app, method, path, from, to, consumer } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
+function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; from?: string; to?: string; consumer?: string; status?: string } {
+  const { range, env, app, method, path, from, to, consumer, status } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
   return {
     ...(range ? { range } : {}),
     ...(env ? { env } : {}),
@@ -2549,6 +2551,8 @@ function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?:
     ...(path ? { path } : {}),
     ...(from && to ? { from, to } : {}),
     ...(consumer ? { consumer } : {}),
+    // "all" is the endpoint pages' "no status filter", never sent.
+    ...(status && status !== "all" ? { status } : {}),
   };
 }
 

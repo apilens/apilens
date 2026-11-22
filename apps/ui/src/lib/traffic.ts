@@ -33,12 +33,16 @@ export interface TrafficState {
   to?: string;
   /** One consumer's requests only (the consumer id the SDK reports); "" or absent means all. */
   consumer?: string;
+  /** Status codes: classes and codes, comma-separated (`4xx`, `2xx,3xx`, `404`); "" or absent means all. */
+  status?: string;
   /** Conditions on the endpoints table's numbers (`?m=p95:gt:500`): rows that don't meet them are left out. */
   metrics?: MetricCond[];
 }
 
 /** The longest consumer id the API takes. */
 const MAX_CONSUMER = 256;
+/** A status filter the API takes: classes (4xx) and codes (404), comma-separated. */
+const STATUS_RE = /^[1-5](xx|[0-9]{2})(,[1-5](xx|[0-9]{2}))*$/;
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/;
 /** The longest window the API reads (7 days). */
@@ -77,6 +81,10 @@ export function parseTrafficQuery(params: SearchParams): TrafficState {
       return v.length <= MAX_CONSUMER ? v : "";
     })(),
     metrics: parseMetricParams(params.m),
+    status: (() => {
+      const v = (first(params.status) ?? "").trim().toLowerCase();
+      return v.length <= 256 && STATUS_RE.test(v) ? v : "";
+    })(),
   };
 }
 
@@ -122,6 +130,7 @@ export function trafficHref(project: string, q: Partial<TrafficState>): string {
     p.set("to", q.to);
   }
   if (q.consumer) p.set("consumer", q.consumer);
+  if (q.status) p.set("status", q.status);
   for (const m of q.metrics ?? []) p.append("m", metricParam(m));
   const all = p.toString();
   return `${projectHref(project, "traffic")}${all ? `?${all}` : ""}`;

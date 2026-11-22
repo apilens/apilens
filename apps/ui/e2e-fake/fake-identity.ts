@@ -722,7 +722,8 @@ function narrowTraffic(seed: TrafficSeed | undefined, params: URLSearchParams): 
   const method = (params.get("method") ?? "").toUpperCase();
   const route = params.get("path") ?? "";
   const consumer = params.get("consumer") ?? "";
-  if (!seed || (!app && !method && !route && !consumer)) return seed;
+  const status = (params.get("status") ?? "").toLowerCase();
+  if (!seed || (!app && !method && !route && !consumer && !status)) return seed;
   const all = (seed.endpoints ?? []) as Record<string, unknown>[];
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
   // `?consumer=`: the seed has no consumers, so a consumer is a stable made-up slice: about two
@@ -736,11 +737,34 @@ function narrowTraffic(seed: TrafficSeed | undefined, params: URLSearchParams): 
     const n = (k: string) => Math.round(num(e[k]) * f);
     return { ...e, requests: Math.max(1, n("requests")), client_errors: n("client_errors"), server_errors: n("server_errors"), total_time_ms: num(e.total_time_ms) * f };
   };
+  // `?status=`: the seed only splits requests into under 400, 4xx and 5xx, so a class takes its
+  // part, and one code a steady share of its class (most of 2xx is 200, a third of 4xx is 404…).
+  const CODE_SHARE: Record<string, number> = { "200": 0.8, "201": 0.1, "204": 0.06, "301": 0.04, "400": 0.2, "401": 0.15, "404": 0.35, "422": 0.3, "500": 0.5, "502": 0.3, "503": 0.2 };
+  const byStatus = (e: Record<string, unknown>): Record<string, unknown> | null => {
+    if (!status) return e;
+    const ok = Math.max(0, num(e.requests) - num(e.client_errors) - num(e.server_errors));
+    let client = 0;
+    let server = 0;
+    let fine = 0;
+    for (const t of status.split(",")) {
+      const cls = t[0];
+      const part = /^[1-5]xx$/.test(t) ? 1 : (CODE_SHARE[t] ?? 0.05);
+      if (cls === "4") client += num(e.client_errors) * part;
+      else if (cls === "5") server += num(e.server_errors) * part;
+      else if (cls === "2") fine += ok * (t === "2xx" ? 0.96 : part);
+      else if (cls === "3") fine += ok * (t === "3xx" ? 0.04 : part);
+    }
+    const requests = Math.round(client + server + fine);
+    if (requests === 0) return null;
+    const f = requests / Math.max(1, num(e.requests));
+    return { ...e, requests, client_errors: Math.round(client), server_errors: Math.round(server), total_time_ms: num(e.total_time_ms) * f };
+  };
   const rows = all
     .filter((e) => (!app || e.app_id === app) && (!method || String(e.method).toUpperCase() === method) && (!route || e.path === route))
     .flatMap((e) => {
       const r = slice(e);
-      return r ? [r] : [];
+      const s2 = r ? byStatus(r) : null;
+      return s2 ? [s2] : [];
     });
   const total = all.reduce((n, e) => n + num(e.requests), 0);
   const requests = rows.reduce((n, e) => n + num(e.requests), 0);
@@ -765,12 +789,22 @@ function narrowTraffic(seed: TrafficSeed | undefined, params: URLSearchParams): 
     apdex: requests > 0 ? Math.round((rows.reduce((n, e) => n + num(e.apdex) * num(e.requests), 0) / requests) * 100) / 100 : null,
   };
   delete summary.previous;
-  const points = ((seed.points ?? []) as Record<string, unknown>[]).map((pt) => ({
-    ...pt,
-    requests: Math.round(num(pt.requests) * share),
-    client_errors: Math.round(num(pt.client_errors) * share),
-    server_errors: Math.round(num(pt.server_errors) * share),
-  }));
+  // Each bucket keeps the narrowed rows' share of each class (under 400, 4xx, 5xx), so a status
+  // filter draws its own colours, not the whole mix scaled down.
+  const okOf = (e: Record<string, unknown>) => Math.max(0, num(e.requests) - num(e.client_errors) - num(e.server_errors));
+  const part = (k: (e: Record<string, unknown>) => number) => {
+    const whole = all.reduce((n, e) => n + k(e), 0);
+    return whole > 0 ? rows.reduce((n, e) => n + k(e), 0) / whole : 0;
+  };
+  const okShare = part(okOf);
+  const ceShare = part((e) => num(e.client_errors));
+  const seShare = part((e) => num(e.server_errors));
+  const points = ((seed.points ?? []) as Record<string, unknown>[]).map((pt) => {
+    const ok = Math.round(okOf(pt) * okShare);
+    const ce = Math.round(num(pt.client_errors) * ceShare);
+    const se = Math.round(num(pt.server_errors) * seShare);
+    return { ...pt, requests: ok + ce + se, client_errors: ce, server_errors: se };
+  });
   return { summary, points, endpoints: rows };
 }
 /** The query role's bar widths (timelineStep, at most 100 bars), never finer than its 1m rollup. */
