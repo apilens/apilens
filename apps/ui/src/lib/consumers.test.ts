@@ -12,7 +12,7 @@ import {
   stackBars,
 } from "./consumers";
 
-const DEFAULTS = { range: "24h", env: "", by: "consumers", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
+const DEFAULTS = { range: "24h", env: "", app: "", method: "", path: "", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
 
 describe("parseConsumersQuery", () => {
   it("defaults everything", () => {
@@ -23,19 +23,26 @@ describe("parseConsumersQuery", () => {
     expect(parseConsumersQuery({ range: "7d", group: " Acme Corp ", consumer: "usr_1f3a9c", tab: "errors", q: " priya ", sort: "last_seen" })).toEqual({
       range: "7d",
       env: "",
-      by: "consumers",
+      app: "",
+      method: "",
+      path: "",
       group: "Acme Corp",
       consumer: "usr_1f3a9c",
       tab: "errors",
       q: "priya",
       sort: "last_seen",
     });
-    expect(parseConsumersQuery({ range: "30d", by: "x", group: "x".repeat(257), consumer: "x".repeat(257), tab: "y", q: "  ", sort: "p95" })).toEqual(DEFAULTS);
+    expect(parseConsumersQuery({ range: "30d", group: "x".repeat(257), consumer: "x".repeat(257), tab: "y", q: "  ", sort: "p95" })).toEqual(DEFAULTS);
     expect(parseConsumersQuery({ range: ["6h", "7d"] }).range).toBe("6h");
   });
 
-  it("sorts groups by users too, and never filters groups by a group", () => {
-    expect(parseConsumersQuery({ by: "groups", sort: "consumers", group: "Initech" })).toMatchObject({ by: "groups", sort: "consumers", group: null });
+  it("reads the filter bar's app, method and endpoint, and only known sorts", () => {
+    expect(parseConsumersQuery({ app: "5D0C1B2A-3E4F-4A5B-8C6D-7E8F9A0B1C2D", method: "post", path: "/orders/{id}" })).toMatchObject({
+      app: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+      method: "POST",
+      path: "/orders/{id}",
+    });
+    expect(parseConsumersQuery({ app: "nope", method: "GET1", path: "orders" })).toMatchObject({ app: "", method: "", path: "" });
     expect(parseConsumersQuery({ sort: "consumers" }).sort).toBe("requests");
   });
 });
@@ -50,8 +57,7 @@ describe("consumersHref", () => {
   });
 
   it("drops what does not apply, and never carries a page", () => {
-    expect(consumersHref("shop", { by: "groups", group: "Initech", sort: "consumers" })).toBe("/project/shop/consumers?by=groups&sort=consumers");
-    expect(consumersHref("shop", { sort: "consumers" })).toBe("/project/shop/consumers");
+    expect(consumersHref("shop", { method: "POST", path: "/charge", sort: "requests" })).toBe("/project/shop/consumers?method=POST&path=%2Fcharge");
     expect(consumersHref("shop", { tab: "errors" })).toBe("/project/shop/consumers");
     // The drawer (consumer) opens over the list, which keeps its filters under it.
     expect(consumersHref("shop", { consumer: "u1", q: "x", group: "G", sort: "errors" })).toBe("/project/shop/consumers?group=G&q=x&sort=errors&consumer=u1");
@@ -127,16 +133,14 @@ describe("sparklinePoints", () => {
   });
 });
 
-describe("environment and the Anonymous tab", () => {
-  it("reads an environment (all for none) and the anonymous view", () => {
+describe("environment", () => {
+  it("reads an environment (all for none)", () => {
     expect(parseConsumersQuery({ env: " production " }).env).toBe("production");
     expect(parseConsumersQuery({ env: "all" }).env).toBe("");
     expect(parseConsumersQuery({ env: "x".repeat(65) }).env).toBe("");
-    expect(parseConsumersQuery({ by: "anonymous", group: "G" })).toMatchObject({ by: "anonymous", group: null });
   });
-  it("writes them, and the anonymous view drops search and sort", () => {
+  it("writes it with the other filters", () => {
     expect(consumersHref("shop", { range: "24h", env: "production", group: "Partners" })).toBe("/project/shop/consumers?range=24h&env=production&group=Partners");
-    expect(consumersHref("shop", { by: "anonymous", q: "x", sort: "errors" })).toBe("/project/shop/consumers?by=anonymous");
     expect(groupHref("shop", "Partners", "24h", "staging")).toBe("/project/shop/consumers?range=24h&env=staging&group=Partners");
   });
 });

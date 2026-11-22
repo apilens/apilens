@@ -27,7 +27,7 @@ export function ConsumersMenu({
   groups: ConsumerGroupTraffic[] | null;
 }) {
   const href = (patch: Partial<ConsumersQuery>) => consumersHref(project, { ...q, consumer: null, ...patch });
-  const any = Boolean(q.env || q.group || q.q);
+  const any = Boolean(q.env || q.group || q.q || q.app || q.method || q.path);
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
   const groupRows = groups ?? [];
   const listedGroups = q.group && !groupRows.some((g) => g.group === q.group) ? [{ group: q.group, consumers: 0 }, ...groupRows] : groupRows;
@@ -36,7 +36,7 @@ export function ConsumersMenu({
       title="Consumers"
       actions={
         any ? (
-          <Link className="exf-reset" href={href({ env: "", group: null, q: "" })} scroll={false} prefetch={false}>
+          <Link className="exf-reset" href={href({ env: "", group: null, q: "", app: "", method: "", path: "" })} scroll={false} prefetch={false}>
             Reset
           </Link>
         ) : null
@@ -65,8 +65,8 @@ export function ConsumersMenu({
                   <Item
                     key={g.group}
                     on={q.group === g.group}
-                    href={href({ by: "consumers", group: q.group === g.group ? null : g.group })}
-                    only={href({ by: "consumers", group: g.group })}
+                    href={href({ group: q.group === g.group ? null : g.group })}
+                    only={href({ group: g.group })}
                     label={g.group}
                     count={g.consumers}
                     unit="users"

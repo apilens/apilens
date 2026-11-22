@@ -2996,11 +2996,28 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return send(res, 200, { top_endpoints: [], ...detail, consumer_id: id, range, recent_requests: recent("recent_requests"), recent_errors: recent("recent_errors") });
     }
     const group = url.searchParams.get("group");
-    const inGroup = seed.consumers.filter((c) => !group || c.consumer_group === group);
+    // `?method=&path=` (the Consumers filter bar): the users who called that route (from their
+    // seeded top endpoints), each with that route's requests.
+    const method = (url.searchParams.get("method") ?? "").toUpperCase();
+    const route = url.searchParams.get("path") ?? "";
+    const byRoute = (c: Record<string, unknown>): Record<string, unknown> | null => {
+      if (!method && !route) return c;
+      const eps = ((seed.details[String(c.consumer_id)]?.top_endpoints as Record<string, unknown>[] | undefined) ?? []).filter(
+        (e) => (!method || String(e.method).toUpperCase() === method) && (!route || e.path === route),
+      );
+      if (!eps.length) return null;
+      const sum = (k: string) => eps.reduce((t, e) => t + n(e, k), 0);
+      const f = sum("requests") / Math.max(1, n(c, "requests"));
+      return { ...c, requests: sum("requests"), successful: sum("successful"), client_errors: sum("client_errors"), server_errors: sum("server_errors"), sparkline: ((c.sparkline as number[]) ?? []).map((v) => Math.round(v * f)) };
+    };
+    const inGroup = seed.consumers.filter((c) => !group || c.consumer_group === group).flatMap((c) => {
+      const r = byRoute(c);
+      return r ? [r] : [];
+    });
     const matched = order(inGroup.filter((c) => !search || String(c.consumer_id).toLowerCase().includes(search) || String(c.consumer_name).toLowerCase().includes(search)));
     const totals = { requests: 0, successful: 0, client_errors: 0, server_errors: 0 };
     for (const c of inGroup) for (const k of Object.keys(totals) as (keyof typeof totals)[]) totals[k] += n(c, k);
-    const summary = group ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
+    const summary = group || method || route ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
     return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, summary, totals, points: seed.points, total: matched.length, consumers: page(matched) });
   }
   if (req.method === "POST" && path === "/__fake/consumers") {

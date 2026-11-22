@@ -1,13 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { type ConsumerSdk, exploreIpHref } from "@/lib/consumer-setup";
+import type { ConsumerSdk } from "@/lib/consumer-setup";
 import {
-  ANONYMOUS_LOAD_FAILED,
   CONSUMERS_LOAD_FAILED,
   CONSUMER_LOAD_FAILED,
   type ConsumersQuery,
-  GROUPS_LOAD_FAILED,
-  type GroupSort,
+  type ConsumerSort,
   RANGE_LABEL,
   consumerLabel,
   consumersHref,
@@ -15,11 +13,10 @@ import {
   formatCount,
   formatPerMinute,
 } from "@/lib/consumers";
-import { exploreHref, exploreHrefFor } from "@/lib/explore";
-import { NO_FILTERS } from "@/lib/explore-filters";
+import { exploreHrefFor } from "@/lib/explore";
 import { formatAgo } from "@/lib/first-data";
 import { formatPercent, ratio } from "@/lib/format";
-import type { AnonymousCallers, ConsumerDetail, ConsumerGroupTraffic, ConsumerGroupsTraffic, ConsumerRow, ConsumersList, QueryRange } from "@/lib/identity";
+import type { AnonymousCallers, ConsumerDetail, ConsumerGroupTraffic, ConsumerRow, ConsumersList, NamedApp, QueryRange } from "@/lib/identity";
 import type { SearchParams } from "@/lib/pagination";
 import { endpointHref, trafficHref } from "@/lib/traffic";
 import { Pagination } from "../pagination/pagination";
@@ -34,24 +31,25 @@ import "./consumers.css";
 
 export type DetailState = { kind: "ok"; consumer: ConsumerDetail } | { kind: "missing" } | { kind: "error" };
 
+/** A filter-bar value with its requests. */
+export type FacetOption = { value: string; label: string; count: number };
+
 /**
- * What the page read (null where the API could not answer): the consumers list (the Consumers
- * tab's rows, and the chart and stats on every tab), the Groups tab's groups, the anonymous
- * requests and their callers, the sidebar's groups, the open user's detail, and the SDKs to
- * identify users with when none is identified yet.
+ * What the page read (null where the API could not answer): the consumers list (the rows, the
+ * chart and the stats), the anonymous requests' total, the groups (sidebar and filter bar), the
+ * project's apps and the methods and routes with requests (filter bar), the open user's detail,
+ * and the SDKs to identify users with when none is identified yet.
  */
 export interface ConsumersData {
   list: ConsumersList | null;
-  groups: ConsumerGroupsTraffic | null;
   anonymous: AnonymousCallers | null;
   groupFacet: ConsumerGroupTraffic[] | null;
+  /** The filter bar's App, Method and Endpoint values. */
+  apps: NamedApp[];
+  methods: FacetOption[];
+  paths: FacetOption[];
   detail?: DetailState;
   sdks: ConsumerSdk[] | null;
-}
-
-/** Explore's request log narrowed to one group, in the range. */
-export function exploreGroupHref(project: string, range: QueryRange, group: string, env = ""): string {
-  return exploreHref(project, { range, filters: { ...NO_FILTERS, env, consumer_group: group } });
 }
 
 /**
@@ -85,8 +83,13 @@ export function ConsumersView({
         project={project}
         query={q}
         users={(list?.consumers ?? []).map((c) => ({ id: c.consumer_id, label: consumerLabel(c), group: c.consumer_group }))}
-        groups={(data.groupFacet ?? []).map((g) => ({ group: g.group, consumers: g.consumers }))}
-        environments={environments}
+        values={{
+          group: (data.groupFacet ?? []).map((g) => ({ value: g.group, label: g.group, detail: `${formatCount(g.consumers)} ${g.consumers === 1 ? "user" : "users"}` })),
+          env: environments.map((e) => ({ value: e, label: e })),
+          app: data.apps.map((a) => ({ value: a.id.toLowerCase(), label: a.name })),
+          method: data.methods,
+          path: data.paths,
+        }}
       />
       {list === null ? (
         <ErrorState text={CONSUMERS_LOAD_FAILED} href={consumersHref(project, q)} />
@@ -102,33 +105,13 @@ export function ConsumersView({
               <IdentifyConsumers sdks={data.sdks} />
             </div>
           ) : null}
-          <nav className="cs-tabs" aria-label="Views">
-            <Tab href={consumersHref(project, { range: q.range, env: q.env, group: q.group })} on={q.by === "consumers"} label="Consumers" count={list.total} />
-            <Tab href={consumersHref(project, { range: q.range, env: q.env, by: "groups" })} on={q.by === "groups"} label="Groups" count={data.groupFacet?.length} />
-            <Tab href={consumersHref(project, { range: q.range, env: q.env, by: "anonymous" })} on={q.by === "anonymous"} label="Anonymous" count={data.anonymous?.totals.requests} />
-          </nav>
-          <section className="tr-sec tr-sec--table" aria-label={q.by === "groups" ? "Groups" : q.by === "anonymous" ? "Anonymous callers" : "Consumers"}>
-            {q.by === "groups" ? (
-              <GroupsTable project={project} q={q} params={params} groups={data.groups} now={now} scope={scope} />
-            ) : q.by === "anonymous" ? (
-              <AnonymousTable project={project} q={q} anonymous={data.anonymous} now={now} scope={scope} />
-            ) : (
-              <UsersTable project={project} q={q} params={params} list={list} now={now} scope={scope} />
-            )}
+          <section className="tr-sec tr-sec--table" aria-label="Consumers">
+            <UsersTable project={project} q={q} params={params} list={list} now={now} scope={scope} />
           </section>
         </>
       )}
       {q.consumer ? <Drawer project={project} q={q} detail={data.detail ?? { kind: "error" }} now={now} /> : null}
     </div>
-  );
-}
-
-function Tab({ href, on, label, count }: { href: string; on: boolean; label: string; count?: number }) {
-  return (
-    <Link className={`cs-tab${on ? " is-on" : ""}`} href={href} scroll={false} prefetch={false} aria-current={on ? "page" : undefined}>
-      {label}
-      {count !== undefined ? <span className="cs-tab__n">{formatCount(count)}</span> : null}
-    </Link>
   );
 }
 
@@ -184,7 +167,7 @@ function Stats({ list, anonymous }: { list: ConsumersList; anonymous: AnonymousC
   );
 }
 
-function SortHeader({ project, q, sort, label, num = true }: { project: string; q: ConsumersQuery; sort: GroupSort; label: string; num?: boolean }) {
+function SortHeader({ project, q, sort, label, num = true }: { project: string; q: ConsumersQuery; sort: ConsumerSort; label: string; num?: boolean }) {
   const on = q.sort === sort;
   return (
     <th scope="col" className={num ? "tr-num" : undefined} aria-sort={on ? "descending" : undefined}>
@@ -204,7 +187,7 @@ function Split({ n, requests }: { n: number; requests: number }) {
   );
 }
 
-/** The Consumers tab: one row per username, its group beside it; the row opens the user's drawer. */
+/** The list: one row per username, its group beside it; the row opens the user's drawer. */
 function UsersTable({ project, q, params, list, now, scope }: { project: string; q: ConsumersQuery; params: SearchParams; list: ConsumersList; now: number; scope: string }) {
   const rows = list.consumers ?? [];
   if (rows.length === 0) {
@@ -270,140 +253,6 @@ function UserRow({ project, q, c, now }: { project: string; q: ConsumersQuery; c
       </td>
       <td className="tr-num tr-muted">{formatAgo(c.last_seen, now)}</td>
     </tr>
-  );
-}
-
-/** The Groups tab: the groups the SDK reported; a group opens the Consumers tab narrowed to it. */
-function GroupsTable({
-  project,
-  q,
-  params,
-  groups,
-  now,
-  scope,
-}: {
-  project: string;
-  q: ConsumersQuery;
-  params: SearchParams;
-  groups: ConsumerGroupsTraffic | null;
-  now: number;
-  scope: string;
-}) {
-  if (groups === null) return <ErrorState text={GROUPS_LOAD_FAILED} href={consumersHref(project, q)} />;
-  const rows = groups.groups ?? [];
-  if (rows.length === 0) {
-    return (
-      <p className="tr-empty" role="status">
-        {q.q ? <>No groups match “{q.q}” in {scope}.</> : <>No groups reported in {scope}. The SDK reports a user’s group with each request.</>}
-      </p>
-    );
-  }
-  return (
-    <div className="tr-tablewrap">
-      <div className="tr-scroll">
-        <table className="tr-table cs-table" aria-label="Groups">
-          <thead>
-            <tr>
-              <th scope="col">Group</th>
-              <SortHeader project={project} q={q} sort="consumers" label="Users" />
-              <SortHeader project={project} q={q} sort="requests" label="Requests" />
-              <SortHeader project={project} q={q} sort="errors" label="4xx" />
-              <th scope="col" className="tr-num">
-                5xx
-              </th>
-              <SortHeader project={project} q={q} sort="last_seen" label="Last seen" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((g) => (
-              <tr key={g.group} className="tr-row">
-                <td className="tr-ep">
-                  <Link className="tr-ep__link" href={consumersHref(project, { range: q.range, env: q.env, group: g.group })} scroll={false} prefetch={false}>
-                    <span className="cs-tag">{g.group}</span>
-                  </Link>
-                </td>
-                <td className="tr-num">{formatCount(g.consumers)}</td>
-                <td className="tr-num">{formatCount(g.requests)}</td>
-                <td className="tr-num">
-                  <Split n={g.client_errors} requests={g.requests} />
-                </td>
-                <td className="tr-num">
-                  <Split n={g.server_errors} requests={g.requests} />
-                </td>
-                <td className="tr-num tr-muted">{formatAgo(g.last_seen, now)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <Pagination pathname={consumersHref(project, {})} params={params} total={groups.total} label="Groups pages" always className="tr-pg" />
-    </div>
-  );
-}
-
-/** The Anonymous tab: the requests that came without a user, by the client IP and user agent that sent them. */
-function AnonymousTable({ project, q, anonymous, now, scope }: { project: string; q: ConsumersQuery; anonymous: AnonymousCallers | null; now: number; scope: string }) {
-  if (anonymous === null) return <ErrorState text={ANONYMOUS_LOAD_FAILED} href={consumersHref(project, q)} />;
-  const rows = anonymous.callers ?? [];
-  if (rows.length === 0) {
-    return (
-      <p className="tr-empty" role="status">
-        Every request in {scope} came from an identified user.
-      </p>
-    );
-  }
-  return (
-    <div className="tr-tablewrap">
-      <div className="tr-scroll">
-        <table className="tr-table cs-table" aria-label="Anonymous callers">
-          <thead>
-            <tr>
-              <th scope="col">Client IP</th>
-              <th scope="col">User agent</th>
-              <th scope="col" className="tr-num">
-                Requests
-              </th>
-              <th scope="col" className="tr-num">
-                4xx
-              </th>
-              <th scope="col" className="tr-num">
-                5xx
-              </th>
-              <th scope="col" className="tr-num">
-                Last seen
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((c) => (
-              <tr key={`${c.ip_address} ${c.user_agent}`} className="tr-row">
-                <td className="tr-ep">
-                  {c.ip_address ? (
-                    <a className="tr-ep__link" href={exploreIpHref(project, q.range, c.ip_address)}>
-                      <code>{c.ip_address}</code>
-                    </a>
-                  ) : (
-                    <span className="tr-muted">Not captured</span>
-                  )}
-                </td>
-                <td className="cs-agent" title={c.user_agent || undefined}>
-                  {c.user_agent || <span className="tr-muted">Not captured</span>}
-                </td>
-                <td className="tr-num">{formatCount(c.requests)}</td>
-                <td className="tr-num">
-                  <Split n={c.client_errors} requests={c.requests} />
-                </td>
-                <td className="tr-num">
-                  <Split n={c.server_errors} requests={c.requests} />
-                </td>
-                <td className="tr-num tr-muted">{formatAgo(c.last_seen, now)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="tr-cap">The busiest callers without a user in {scope}. Identify users in the SDK to see them by name.</p>
-    </div>
   );
 }
 

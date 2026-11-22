@@ -7,6 +7,7 @@ import type { QueryRange, StatusSplit } from "./identity";
 import { zoneLabel, zoned } from "./time-zone";
 import { projectHref } from "./routes";
 import { envParam } from "./scope-defaults";
+import { parseAppParam } from "./traffic";
 
 export const CONSUMER_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -15,25 +16,25 @@ export const RANGE_LABEL: Record<QueryRange, string> = { "1h": "1 hour", "6h": "
 /** Longest consumer id, group name and search the API takes. */
 export const MAX_TEXT = 256;
 
-export type ConsumersBy = "consumers" | "groups" | "anonymous";
 export type DetailTab = "requests" | "errors";
 export type ConsumerSort = "requests" | "errors" | "last_seen";
-export type GroupSort = ConsumerSort | "consumers";
 const CONSUMER_SORTS: readonly ConsumerSort[] = ["requests", "errors", "last_seen"];
-const GROUP_SORTS: readonly GroupSort[] = ["requests", "errors", "consumers", "last_seen"];
 
 /** The longest environment name the API takes. */
 const MAX_ENV = 64;
 
 /**
- * The page's state, all of it in the URL: `?range=&env=&by=&group=&consumer=&tab=&q=&sort=` (plus
- * `page`/`per`). `consumer` opens that user's drawer over the list, which keeps its own filters.
+ * The page's state, all of it in the URL: `?range=&env=&app=&method=&path=&group=&q=&sort=&consumer=&tab=`
+ * (plus `page`/`per`). `consumer` opens that user's drawer over the list, which keeps its own filters.
  */
 export interface ConsumersQuery {
   range: QueryRange;
   /** An environment the reads are narrowed to; "" for all. */
   env: string;
-  by: ConsumersBy;
+  /** The requests of one app (its id), one method (upper case) or one route template; "" for all. */
+  app: string;
+  method: string;
+  path: string;
   /** An SDK consumer group the consumers list is narrowed to, or null. */
   group: string | null;
   /** The consumer whose detail is open, or null. */
@@ -41,8 +42,8 @@ export interface ConsumersQuery {
   tab: DetailTab;
   /** Search over consumer ids and names (or group names, by group); "" for none. */
   q: string;
-  /** The table's order; `consumers` only applies by group. */
-  sort: GroupSort;
+  /** The table's order. */
+  sort: ConsumerSort;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -56,23 +57,24 @@ const text = (v: string | undefined) => {
 /** Reads the page state from search params; anything unknown falls back to the default. */
 export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
   const range = first(params.range);
-  const byParam = first(params.by);
-  const by: ConsumersBy = byParam === "groups" || byParam === "anonymous" ? byParam : "consumers";
   const env = (first(params.env) ?? "").trim();
   const sort = first(params.sort);
-  const sorts: readonly string[] = by === "groups" ? GROUP_SORTS : CONSUMER_SORTS;
+  const method = (first(params.method) ?? "").trim();
+  const path = (first(params.path) ?? "").trim();
   return {
     range: CONSUMER_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
     env: env.length <= MAX_ENV && env !== "all" ? env : "",
-    by,
-    group: by === "consumers" ? text(first(params.group)) : null,
+    app: parseAppParam(params.app),
+    method: /^[A-Za-z]{1,16}$/.test(method) ? method.toUpperCase() : "",
+    path: path.startsWith("/") && path.length <= 1024 ? path : "",
+    group: text(first(params.group)),
     consumer: (() => {
       const c = first(params.consumer);
       return c && c.length <= MAX_TEXT ? c : null;
     })(),
     tab: first(params.tab) === "errors" ? "errors" : "requests",
     q: text(first(params.q)) ?? "",
-    sort: sort && sorts.includes(sort) ? (sort as GroupSort) : "requests",
+    sort: sort && (CONSUMER_SORTS as readonly string[]).includes(sort) ? (sort as ConsumerSort) : "requests",
   };
 }
 
@@ -86,10 +88,12 @@ export function consumersHref(project: string, q: Partial<ConsumersQuery>): stri
   if (q.range) p.set("range", q.range);
   // As Traffic: an env given is always written, "" as `all`, so All environments isn't read as the default (#993).
   if (q.env !== undefined) p.set("env", envParam(q.env));
-  if (q.by === "groups" || q.by === "anonymous") p.set("by", q.by);
-  if (q.group && (q.by ?? "consumers") === "consumers") p.set("group", q.group);
-  if (q.q && q.by !== "anonymous") p.set("q", q.q);
-  if (q.sort && q.sort !== "requests" && q.by !== "anonymous" && (q.by === "groups" || q.sort !== "consumers")) p.set("sort", q.sort);
+  if (q.app) p.set("app", q.app);
+  if (q.method) p.set("method", q.method);
+  if (q.path) p.set("path", q.path);
+  if (q.group) p.set("group", q.group);
+  if (q.q) p.set("q", q.q);
+  if (q.sort && q.sort !== "requests") p.set("sort", q.sort);
   if (q.consumer) {
     p.set("consumer", q.consumer);
     if (q.tab === "errors") p.set("tab", "errors");

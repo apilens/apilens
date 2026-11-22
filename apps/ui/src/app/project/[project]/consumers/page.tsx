@@ -8,10 +8,7 @@ import { pickConsumerSdks } from "@/lib/consumer-setup";
 import { CONSUMER_RANGES, type ConsumersQuery, DEFAULT_RANGE, consumersHref, parseConsumersQuery } from "@/lib/consumers";
 import {
   type CallOptions,
-  type ConsumerGroupsTraffic,
-  type ConsumerSortKey,
   type ConsumersList,
-  type GroupSortKey,
   identity,
   isApiError,
 } from "@/lib/identity";
@@ -61,55 +58,57 @@ const MAX_LIST_OFFSET = 100_000;
 async function load(project: string, q: ConsumersQuery, page: PageState, next: string): Promise<ConsumersData> {
   const api = identity();
   const env = q.env ? { env: q.env } : {};
-  const sort: ConsumerSortKey = q.sort === "consumers" ? "requests" : q.sort;
-  // The list feeds the chart and the stats on every tab; its rows are the Consumers tab's table.
-  const consumersTab = q.by === "consumers";
-  const [list, groups, anonymous, groupFacet, detail] = await Promise.all([
-    consumersTab
-      ? readPage<ConsumersList>(
-          page,
-          MAX_LIST_OFFSET,
-          (offset) =>
-            read(next, (o) =>
-              api.listConsumers(project, { range: q.range, ...env, sort, limit: page.per, offset, ...(q.group ? { group: q.group } : {}), ...(q.q ? { search: q.q } : {}) }, o),
-            ),
-          (l) => ({ rows: (l.consumers ?? []).length, total: l.total }),
-        )
-      : read(next, (o) => api.listConsumers(project, { range: q.range, ...env, limit: 1 }, o)),
-    q.by === "groups"
-      ? readPage<ConsumerGroupsTraffic>(
-          page,
-          MAX_LIST_OFFSET,
-          (offset) =>
-            read(next, (o) => api.listConsumerGroupTraffic(project, { range: q.range, ...env, sort: q.sort as GroupSortKey, limit: page.per, offset, ...(q.q ? { search: q.q } : {}) }, o)),
-          (g) => ({ rows: (g.groups ?? []).length, total: g.total }),
-        )
-      : Promise.resolve(null),
-    // The Anonymous tab's callers, and the stats' anonymous requests on every tab.
-    read(next, (o) => api.listAnonymousCallers(project, { range: q.range, ...env, limit: q.by === "anonymous" ? ANONYMOUS_CALLERS : 1 }, o)),
-    // The sidebar's Group section: the groups with their users, most users first.
+  // Every filter in the bar narrows the list (the consumers read takes them all).
+  const scope = { ...env, ...(q.app ? { app: q.app } : {}), ...(q.method ? { method: q.method } : {}), ...(q.path ? { path: q.path } : {}) };
+  // The filter bar's Method and Endpoint values: requests per method and route in the range and
+  // environment (request facets).
+  const facet = (field: "method" | "path", limit: number) =>
+    read(next, (o) => api.requestFacets(project, { range: q.range, field, limit, ...(q.env ? { filter: [`env:eq:${q.env}`] } : {}) }, o));
+  const [list, anonymous, groupFacet, apps, methods, paths, detail] = await Promise.all([
+    readPage<ConsumersList>(
+      page,
+      MAX_LIST_OFFSET,
+      (offset) =>
+        read(next, (o) =>
+          api.listConsumers(
+            project,
+            { range: q.range, ...scope, sort: q.sort, limit: page.per, offset, ...(q.group ? { group: q.group } : {}), ...(q.q ? { search: q.q } : {}) },
+            o,
+          ),
+        ),
+      (l) => ({ rows: (l.consumers ?? []).length, total: l.total }),
+    ),
+    // The stats' anonymous requests (no list is shown for them).
+    read(next, (o) => api.listAnonymousCallers(project, { range: q.range, ...env, limit: 1 }, o)),
+    // The sidebar's Group section and the filter bar's Group values: every group with its users.
     read(next, (o) => api.listConsumerGroupTraffic(project, { range: q.range, ...env, sort: "consumers", limit: GROUP_FACETS }, o)),
+    read(next, (o) => api.projectApps(project, o)),
+    facet("method", 12),
+    facet("path", 50),
     q.consumer ? read(next, (o) => api.getConsumer(project, q.consumer as string, { range: q.range, ...env, limit: DRAWER_ROWS }, o)) : Promise.resolve(null),
   ]);
   const ok = <T,>(v: T | null | 404): T | null => (v === null || v === 404 ? null : v);
   const l = ok(list);
-  const nobody = l !== null && l.summary.consumers === 0 && l.total === 0 && !q.q && !q.group;
+  const filtered = Boolean(q.q || q.group || q.app || q.method || q.path);
+  const nobody = l !== null && l.summary.consumers === 0 && l.total === 0 && !filtered;
+  const values = (f: { values: { value: string; label: string; count: number }[] | null } | null) =>
+    (f?.values ?? []).map((v) => ({ value: v.value, label: v.label || v.value, count: v.count }));
   return {
     list: l,
-    groups: ok(groups),
     anonymous: ok(anonymous),
     groupFacet: ok(groupFacet)?.groups ?? null,
+    apps: ok(apps)?.apps ?? [],
+    methods: values(ok(methods)).map((m) => ({ ...m, value: m.value.toUpperCase(), label: m.value.toUpperCase() })),
+    paths: values(ok(paths)),
     detail: !q.consumer ? undefined : detail === 404 ? { kind: "missing" } : detail === null ? { kind: "error" } : { kind: "ok", consumer: detail },
     sdks: nobody ? await loadSdks(project, next) : null,
   };
 }
 
-/** The most groups the sidebar lists, and recent requests and errors the drawer shows. */
-const GROUP_FACETS = 20;
+/** The most groups the sidebar and the filter bar list. */
+const GROUP_FACETS = 100;
+/** Recent requests and errors the drawer shows. */
 const DRAWER_ROWS = 5;
-
-/** The most anonymous callers the empty state lists. */
-const ANONYMOUS_CALLERS = 10;
 
 /**
  * No user identified in the range (#989): the SDKs the project's apps run (from what each app's SDK
