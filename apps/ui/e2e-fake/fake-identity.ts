@@ -3018,6 +3018,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const requests = Math.round(ok + ce + se);
       return requests ? { ...c, requests, successful: Math.round(ok), client_errors: Math.round(ce), server_errors: Math.round(se) } : null;
     };
+    // `?from=&to=` (a window picked on the chart): the seed's buckets inside it; each user keeps the
+    // requests of those buckets (its sparkline lines up with the seed's points), errors in step.
+    const wFrom = Date.parse(url.searchParams.get("from") ?? "");
+    const wTo = Date.parse(url.searchParams.get("to") ?? "");
+    const windowed = Number.isFinite(wFrom) && Number.isFinite(wTo) && wFrom < wTo;
+    const inWindow = (seed.points as Record<string, unknown>[]).map((pt) => {
+      const t = Date.parse(String(pt.ts));
+      return !windowed || (t >= wFrom && t < wTo);
+    });
+    const byWindow = (c: Record<string, unknown>): Record<string, unknown> | null => {
+      if (!windowed) return c;
+      const spark = (c.sparkline as number[]) ?? [];
+      const kept = spark.reduce((t, v, k) => t + (inWindow[k] ? v : 0), 0);
+      if (kept <= 0) return null;
+      const f = kept / Math.max(1, n(c, "requests"));
+      return { ...c, requests: kept, successful: Math.round(n(c, "successful") * f), client_errors: Math.round(n(c, "client_errors") * f), server_errors: Math.round(n(c, "server_errors") * f), sparkline: spark.filter((_, k) => inWindow[k]) };
+    };
     const byRoute = (c: Record<string, unknown>): Record<string, unknown> | null => {
       if (groupLike && !String(c.consumer_group ?? "").toLowerCase().includes(groupLike)) return null;
       if (!method && !route && !routeLike) return byStatus(c);
@@ -3030,14 +3047,16 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return byStatus({ ...c, requests: sum("requests"), successful: sum("successful"), client_errors: sum("client_errors"), server_errors: sum("server_errors"), sparkline: ((c.sparkline as number[]) ?? []).map((v) => Math.round(v * f)) });
     };
     const inGroup = seed.consumers.filter((c) => !group || c.consumer_group === group).flatMap((c) => {
-      const r = byRoute(c);
+      const w = byWindow(c);
+      const r = w ? byRoute(w) : null;
       return r ? [r] : [];
     });
     const matched = order(inGroup.filter((c) => !search || String(c.consumer_id).toLowerCase().includes(search) || String(c.consumer_name).toLowerCase().includes(search)));
     const totals = { requests: 0, successful: 0, client_errors: 0, server_errors: 0 };
     for (const c of inGroup) for (const k of Object.keys(totals) as (keyof typeof totals)[]) totals[k] += n(c, k);
-    const summary = group || method || route || routeLike || groupLike || status ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
-    return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, summary, totals, points: seed.points, total: matched.length, consumers: page(matched) });
+    const summary = group || method || route || routeLike || groupLike || status || windowed ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
+    const points = (seed.points as Record<string, unknown>[]).filter((_, k) => inWindow[k]);
+    return send(res, 200, { range, from: String(points[0]?.ts ?? "2026-11-05T10:00:00Z"), to: "", bucket_seconds: 900, summary, totals, points, total: matched.length, consumers: page(matched) });
   }
   if (req.method === "POST" && path === "/__fake/consumers") {
     // Test hook: replaces what the consumers reads answer for `project`.

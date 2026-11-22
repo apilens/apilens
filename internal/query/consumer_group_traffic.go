@@ -15,6 +15,7 @@ import (
 
 type consumerGroupTrafficInput struct {
 	RangeInput
+	WindowInput
 	Search string `query:"search" maxLength:"256" doc:"Only groups whose name contains this text, ignoring case."`
 	Sort   string `query:"sort" enum:"requests,errors,consumers,last_seen" default:"requests" doc:"Order of groups, largest or latest first: requests, errors (4xx and 5xx), consumers or last_seen."`
 	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"50" doc:"Most groups to list."`
@@ -69,7 +70,7 @@ func (s *Service) consumerGroupTraffic(ctx context.Context, in *consumerGroupTra
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, s.now())
 	if err != nil {
 		return nil, err
 	}

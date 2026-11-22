@@ -4,7 +4,10 @@ import { useRouter } from "next/navigation";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { type ConsumersQuery, consumersHref } from "@/lib/consumers";
 import { codeOn, levelState, statusText, toggleCode, toggleLevel } from "@/lib/traffic-status";
+import type { ExploreRange } from "@/lib/explore-query";
+import { rangeIsSet } from "../explore/time-range";
 import { Tip } from "../explore/tip";
+import { ConsumersTimePill } from "./time-range";
 
 /** The fields the consumers list can be narrowed by (all of them the consumers read takes). */
 type Field = "env" | "group" | "app" | "method" | "path" | "q" | "status";
@@ -227,6 +230,8 @@ export function ConsumersFilterBar({
   };
 
   const fieldDef = field ? FIELDS.find((f) => f.key === field) : null;
+  // The range shows as a pill only while it is not the default 24 hours, as on Explore and Traffic.
+  const timeSet = rangeIsSet({ range: q.range as ExploreRange, from: q.from || undefined, to: q.to || undefined });
   const showMenu = menu && (rows.length > 0 || Boolean(field));
   const draft = fieldDef ? (
     <li className="exp-pill is-draft">
@@ -237,8 +242,9 @@ export function ConsumersFilterBar({
 
   return (
     <div className="exp tr-fbar">
-      {pills.length || draft ? (
+      {pills.length || draft || timeSet ? (
         <ul className="exp-pills" aria-label="Active filters">
+          <ConsumersTimePill project={project} query={q} />
           {pills.map((f, n) => {
             const words = `${f.label} ${f.op === "=" ? "is" : f.op} ${label(f.key, current[f.key])}`;
             return (

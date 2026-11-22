@@ -13112,6 +13112,28 @@
             }
           },
           {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
             "description": "Most callers to list.",
             "explode": false,
             "in": "query",
@@ -16820,6 +16842,28 @@
             }
           },
           {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
             "description": "Only groups whose name contains this text, ignoring case.",
             "explode": false,
             "in": "query",
@@ -16956,6 +17000,28 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
               "type": "string"
             }
           },
@@ -17180,6 +17246,28 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of a custom window (RFC 3339), with from.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of a custom window (RFC 3339), with from.",
+              "maxLength": 40,
               "type": "string"
             }
           },

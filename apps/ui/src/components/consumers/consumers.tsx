@@ -78,7 +78,7 @@ export function ConsumersView({
   environments: readonly string[];
 }) {
   const list = data.list;
-  const scope = `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}`;
+  const scope = `${q.from && q.to ? "the selected window" : `the last ${RANGE_LABEL[q.range]}`}${q.env ? ` in ${q.env}` : ""}`;
   return (
     <div className="page tr cs">
       <ConsumersToolbar
@@ -104,7 +104,7 @@ export function ConsumersView({
       ) : (
         <>
           <section className="tr-over" aria-label="Users over time">
-            <UniqueChart points={list.points ?? []} />
+            <UniqueChart project={project} query={q} points={list.points ?? []} bucketSeconds={list.bucket_seconds} />
             <Stats list={list} anonymous={data.anonymous} />
           </section>
           {data.sdks ? (

@@ -57,7 +57,8 @@ const MAX_LIST_OFFSET = 100_000;
 
 async function load(project: string, q: ConsumersQuery, page: PageState, next: string): Promise<ConsumersData> {
   const api = identity();
-  const env = q.env ? { env: q.env } : {};
+  // A picked window replaces the range on every read (the chart selection, the date picker).
+  const env = { ...(q.env ? { env: q.env } : {}), ...(q.from && q.to ? { from: q.from, to: q.to } : {}) };
   // Every filter in the bar narrows the list (the consumers read takes them all).
   const scope = {
     ...env,
@@ -71,7 +72,9 @@ async function load(project: string, q: ConsumersQuery, page: PageState, next: s
   // The filter bar's Method and Endpoint values: requests per method and route in the range and
   // environment (request facets).
   const facet = (field: "method" | "path" | "status", limit: number) =>
-    read(next, (o) => api.requestFacets(project, { range: q.range, field, limit, ...(q.env ? { filter: [`env:eq:${q.env}`] } : {}) }, o));
+    read(next, (o) =>
+      api.requestFacets(project, { range: q.range, field, limit, ...(q.from && q.to ? { from: q.from, to: q.to } : {}), ...(q.env ? { filter: [`env:eq:${q.env}`] } : {}) }, o),
+    );
   const [list, anonymous, groupFacet, apps, methods, paths, statuses, detail] = await Promise.all([
     readPage<ConsumersList>(
       page,

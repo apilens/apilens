@@ -267,6 +267,20 @@ func TestConsumers(t *testing.T) {
 		t.Fatalf("group Partners (not in the last hour) = %+v", list)
 	}
 
+	// A custom window (the Consumers chart's selection): 11 to 7 minutes ago holds old's requests
+	// at 10, 9 (POST /login) and 8 minutes, and none of fresh's.
+	win := "&from=" + now.Add(-11*time.Minute).Format(time.RFC3339) + "&to=" + now.Add(-7*time.Minute).Format(time.RFC3339)
+	list = consumersList{}
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h"+win, &list); code != http.StatusOK {
+		t.Fatalf("window: %d", code)
+	}
+	if len(list.Consumers) != 1 || list.Consumers[0].ConsumerID != "old" || list.Consumers[0].Requests != 3 || list.Summary.Consumers != 1 {
+		t.Fatalf("window: %+v summary %+v", list.Consumers, list.Summary)
+	}
+	if code := get(mine.ReadKey, "/api/v1/consumers?range=1h&from=nope&to=nope", nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad window: %d, want 422", code)
+	}
+
 	// The Consumers filter bar: a status filter, and "contains" on the group and the route.
 	for _, tc := range []struct {
 		query string

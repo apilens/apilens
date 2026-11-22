@@ -29,6 +29,9 @@ const MAX_ENV = 64;
  */
 export interface ConsumersQuery {
   range: QueryRange;
+  /** A window picked on the chart or the date picker (RFC 3339, both or neither); it replaces the range's. */
+  from: string;
+  to: string;
   /** An environment the reads are narrowed to; "" for all. */
   env: string;
   /** The requests of one app (its id), one method (upper case) or one route template; "" for all. */
@@ -59,6 +62,17 @@ const text = (v: string | undefined) => {
   return t !== "" && t.length <= MAX_TEXT ? t : null;
 };
 
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/;
+/** The longest window the API reads (7 days). */
+const MAX_WINDOW_MS = 7 * 24 * 3_600_000;
+
+/** `?from=&to=` when both are instants in order and at most 7 days apart, else neither (as Traffic). */
+function parseWindow(from: string, to: string): { from: string; to: string } {
+  const f = Date.parse(from);
+  const t = Date.parse(to);
+  return ISO_RE.test(from) && ISO_RE.test(to) && f < t && t - f <= MAX_WINDOW_MS ? { from, to } : { from: "", to: "" };
+}
+
 /** Reads the page state from search params; anything unknown falls back to the default. */
 export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
   const range = first(params.range);
@@ -68,6 +82,7 @@ export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
   const path = (first(params.path) ?? "").trim();
   return {
     range: CONSUMER_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
+    ...parseWindow((first(params.from) ?? "").trim(), (first(params.to) ?? "").trim()),
     env: env.length <= MAX_ENV && env !== "all" ? env : "",
     app: parseAppParam(params.app),
     method: /^[A-Za-z]{1,16}$/.test(method) ? method.toUpperCase() : "",
@@ -100,6 +115,10 @@ export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
 export function consumersHref(project: string, q: Partial<ConsumersQuery>): string {
   const p = new URLSearchParams();
   if (q.range) p.set("range", q.range);
+  if (q.from && q.to) {
+    p.set("from", q.from);
+    p.set("to", q.to);
+  }
   // As Traffic: an env given is always written, "" as `all`, so All environments isn't read as the default (#993).
   if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.app) p.set("app", q.app);

@@ -292,6 +292,14 @@ func sourceOf(w window, in RouteInput) trafficSource {
 	}
 }
 
+// WindowInput is a custom window (both or neither) that replaces a read's range, as the traffic
+// reads take one (resolveTrafficWindow): the Consumers page's chart selection and date picker.
+// Exported so Huma reads its fields.
+type WindowInput struct {
+	From string `query:"from" maxLength:"40" doc:"Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long."`
+	To   string `query:"to" maxLength:"40" doc:"End of a custom window (RFC 3339), with from."`
+}
+
 // rollupGrain is the finest bucket each rollup table keeps.
 var rollupGrain = map[string]time.Duration{"api_requests_1m": time.Minute, "api_requests_1h": time.Hour}
 

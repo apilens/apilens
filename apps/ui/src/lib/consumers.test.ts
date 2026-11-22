@@ -12,7 +12,7 @@ import {
   stackBars,
 } from "./consumers";
 
-const DEFAULTS = { range: "24h", env: "", app: "", method: "", path: "", groupLike: "", pathLike: "", status: "", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
+const DEFAULTS = { range: "24h", from: "", to: "", env: "", app: "", method: "", path: "", groupLike: "", pathLike: "", status: "", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
 
 describe("parseConsumersQuery", () => {
   it("defaults everything", () => {
@@ -22,6 +22,8 @@ describe("parseConsumersQuery", () => {
   it("reads known values and drops the rest", () => {
     expect(parseConsumersQuery({ range: "7d", group: " Acme Corp ", consumer: "usr_1f3a9c", tab: "errors", q: " priya ", sort: "last_seen" })).toEqual({
       range: "7d",
+      from: "",
+      to: "",
       env: "",
       app: "",
       method: "",
@@ -155,6 +157,20 @@ describe("contains and status", () => {
     expect(parseConsumersQuery({ status: "4xxx" }).status).toBe("");
     expect(consumersHref("shop", { range: "24h", groupLike: "part", pathLike: "orders", status: "4xx,500" })).toBe(
       "/project/shop/consumers?range=24h&path_contains=orders&status=4xx%2C500&group_contains=part",
+    );
+  });
+});
+
+describe("a picked window", () => {
+  it("reads both ends in order and at most 7 days apart, else neither", () => {
+    expect(parseConsumersQuery({ from: "2026-11-22T08:00:00Z", to: "2026-11-22T09:00:00Z" })).toMatchObject({ from: "2026-11-22T08:00:00Z", to: "2026-11-22T09:00:00Z" });
+    expect(parseConsumersQuery({ from: "2026-11-22T09:00:00Z", to: "2026-11-22T08:00:00Z" })).toMatchObject({ from: "", to: "" });
+    expect(parseConsumersQuery({ from: "2026-11-01T00:00:00Z", to: "2026-11-22T00:00:00Z" })).toMatchObject({ from: "", to: "" });
+    expect(parseConsumersQuery({ from: "2026-11-22T08:00:00Z" })).toMatchObject({ from: "", to: "" });
+  });
+  it("writes it after the range", () => {
+    expect(consumersHref("shop", { range: "24h", from: "2026-11-22T08:00:00Z", to: "2026-11-22T09:00:00Z", group: "Partners" })).toBe(
+      "/project/shop/consumers?range=24h&from=2026-11-22T08%3A00%3A00Z&to=2026-11-22T09%3A00%3A00Z&group=Partners",
     );
   });
 });

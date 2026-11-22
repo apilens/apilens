@@ -19,6 +19,7 @@ const maxAnonymousCallers = 100
 
 type anonymousCallersInput struct {
 	RangeInput
+	WindowInput
 	Limit int `query:"limit" minimum:"1" maximum:"100" default:"10" doc:"Most callers to list."`
 }
 
@@ -57,7 +58,7 @@ func (s *Service) anonymousCallers(ctx context.Context, in *anonymousCallersInpu
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, s.now())
 	if err != nil {
 		return nil, err
 	}

@@ -46,6 +46,7 @@ const latestGroup = `argMaxIf(consumer_group, timestamp, consumer_group != '')`
 
 type consumersInput struct {
 	RangeInput
+	WindowInput
 	Group  string `query:"group" maxLength:"256" example:"Acme Corp" doc:"Only requests the SDK tagged with this consumer group (the consumer_group it reports); empty means all."`
 	App    string `query:"app" format:"uuid" doc:"Only requests of this app; empty means every app of the project. An app of another project matches nothing."`
 	Method string `query:"method" maxLength:"16" pattern:"^[A-Za-z]*$" doc:"Only requests with this HTTP method; empty means every method. Matched upper case."`
@@ -102,6 +103,7 @@ type consumersOutput struct {
 
 type consumerInput struct {
 	RangeInput
+	WindowInput
 	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" example:"usr_1f3a9c" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
 	Limit      int    `query:"limit" minimum:"1" maximum:"100" default:"50" doc:"Most recent requests, and most recent errors, to list."`
 	Offset     int    `query:"offset" minimum:"0" maximum:"10000" default:"0" doc:"Recent requests and errors to skip, for paging. Their totals are summary.requests and summary.client_errors plus summary.server_errors."`
@@ -157,7 +159,7 @@ func (s *Service) consumers(ctx context.Context, in *consumersInput) (*consumers
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +381,7 @@ func (s *Service) consumer(ctx context.Context, in *consumerInput) (*consumerOut
 		return nil, err
 	}
 	now := s.now()
-	w, err := resolveWindow(in.Range, now)
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, now)
 	if err != nil {
 		return nil, err
 	}

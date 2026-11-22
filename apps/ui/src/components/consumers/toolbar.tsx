@@ -30,7 +30,12 @@ export function ConsumersToolbar({
   users: { id: string; label: string; group: string }[];
 }) {
   const router = useRouter();
-  const [live, setLive] = useState(true);
+  // A picked window is a fixed past span: Live has nothing new to show there, so it pauses.
+  const picked = Boolean(q.from && q.to);
+  const [live, setLive] = useState(!picked);
+  useEffect(() => {
+    if (picked) setLive(false);
+  }, [picked]);
   const [pending, startTransition] = useTransition();
   const [hidden, setHidden] = useState(false);
   const refresh = () => startTransition(() => router.refresh());
