@@ -2322,7 +2322,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   // One app's traffic for the Apps overview (#591) and the app's page (#995); same access rules as below.
   const appParam = url.searchParams.get("app") ?? "";
   const appEndpoints = path === "/api/v1/traffic/endpoints" && Array.isArray(appTraffic.get(appParam)?.endpoints);
-  const appScoped = ((path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app")) || appEndpoints;
+  // An app without its own seed, in a project with a traffic seed (the Traffic page's App filter),
+  // reads the project's seed narrowed to the app below, as the query role filters by app_id.
+  const projectSeeded = trafficSeed.has(url.searchParams.get("project") ?? "");
+  const appScoped =
+    ((path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app") && (appTraffic.has(appParam) || !projectSeeded)) || appEndpoints;
   if (req.method === "GET" && appScoped) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
