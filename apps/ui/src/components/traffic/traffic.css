@@ -357,3 +357,12 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 @media (max-width: 1023px) {
   .tr-red { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Review pass: in the cards only the top value labels the scale (the headline gives the rest);
+   the mid label sat on the bars like a sticker. Error bars a touch softer, so 3% doesn't shout;
+   the picked window a light tint, not a slab. */
+.tr-red__card .tr-axis-y span:nth-child(2) { display: none; }
+.tr-red__card .tr-axis-y span { background: none; padding: 0; margin: 0; }
+.tr-red__card .tr-fill-4xx { fill: color-mix(in srgb, var(--chart-warn) 78%, transparent); }
+.tr-red__card .tr-fill-5xx { fill: color-mix(in srgb, var(--chart-error) 85%, transparent); }
+.tr-sel { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: color-mix(in srgb, var(--accent) 45%, transparent); }
