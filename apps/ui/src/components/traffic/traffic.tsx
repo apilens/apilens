@@ -238,8 +238,9 @@ function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: st
 /**
  * Rate, errors, duration: the three signals of an API's health side by side, as service
  * dashboards lay them out (Datadog's service page, Apitally's traffic), so none hides behind a
- * switch. Each card is its number, one quiet line and a compact chart of the range: requests by
- * status (and the throughput now), errors by class (4xx, 5xx), p95 (and Apdex). A drag or click on
+ * switch. Each card is its label with one aside, its number and a small chart without axes (the
+ * tooltip reads each bucket): requests as one series (throughput now aside), errors by class
+ * (4xx, 5xx), p95 (p50 and p99 aside). A drag or click on
  * any chart picks a window that filters the page (select mode).
  */
 function RedCharts({
@@ -257,6 +258,8 @@ function RedCharts({
 }) {
   const errors = s.client_errors + s.server_errors;
   const rows = statusRows(points);
+  // Requests read as one series (the Errors card carries the split), so the eye sees volume.
+  const volume = rows.map((r) => ({ ...r, successful: r.successful + r.client_errors + r.server_errors, client_errors: 0, server_errors: 0 }));
   return (
     <section className="tr-red" aria-label="Requests, errors and response time">
       <article className="tr-panel tr-red__card">
@@ -267,8 +270,7 @@ function RedCharts({
         <p className="tr-red__value">
           <LiveNumber text={formatCount(s.requests)} />
         </p>
-        <p className="tr-red__sub">{formatPerMinute(s.requests_per_minute)}/min on average</p>
-        <StatusChart label="Requests by status" summary={`${formatCount(s.requests)} requests in ${scope}.`} rows={rows} range={range} select={select} />
+        <StatusChart label="Requests" summary={`${formatCount(s.requests)} requests in ${scope}.`} rows={volume} range={range} select={select} />
       </article>
       <article className="tr-panel tr-red__card">
         <header className="tr-red__head">
@@ -280,7 +282,6 @@ function RedCharts({
         <p className="tr-red__value">
           <LiveNumber text={formatPercent(ratio(errors, s.requests))} />
         </p>
-        <p className="tr-red__sub">{formatCount(errors)} of {formatCount(s.requests)} requests failed</p>
         <StatusChart
           label="Errors by status"
           summary={`${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx in ${scope}.`}
@@ -293,15 +294,12 @@ function RedCharts({
         <header className="tr-red__head">
           <h2 className="tr-red__label">Response time</h2>
           <span className="tr-red__aside">
-            Apdex {formatApdex(s.apdex)} {apdexRating(s.apdex) ?? ""}
+            p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
           </span>
         </header>
         <p className="tr-red__value">
           <LiveNumber text={formatLatency(s.p95_ms)} />
           <span className="tr-red__unit">p95</span>
-        </p>
-        <p className="tr-red__sub">
-          p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
         </p>
         <LatencyChart label="Response time" summary={`p95 of ${formatLatency(s.p95_ms)} over ${scope}.`} rows={points} range={range} select={select} />
       </article>

@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { EnvMemory } from "@/components/env-memory";
 import { SetupReminder } from "@/components/onboarding/setup-reminder";
 import { TrafficView } from "@/components/traffic/traffic";
+import { TrafficMenu } from "@/components/traffic/menu";
 import { getContext, getSession } from "@/lib/auth/server";
 import { visibleEnvironments } from "@/lib/environments";
 import {
@@ -67,18 +68,21 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     ...(q.path ? { path: q.path } : {}),
     ...(q.from && q.to ? { from: q.from, to: q.to } : {}),
   };
-  // The filter bar's method suggestions: the request facets under the same scope.
-  const filter = [
-    ...(q.env && q.env !== "all" ? [`env:eq:${q.env}`] : []),
-    ...(q.app ? [`app:eq:${q.app.toLowerCase()}`] : []),
-    ...(q.method ? [`method:eq:${q.method}`] : []),
-    ...(q.path ? [`path:eq:${q.path}`] : []),
-  ];
-  const facet = (field: "method", limit: number) =>
-    read<RequestFacets>(next, (o) =>
+  // The sidebar's facets (and the filter bar's suggestions): requests per value of each field
+  // under every other condition (a field's own is left out, so its other values stay listed).
+  const cond: Record<"env" | "app" | "method" | "path", string | null> = {
+    env: q.env && q.env !== "all" ? `env:eq:${q.env}` : null,
+    app: q.app ? `app:eq:${q.app.toLowerCase()}` : null,
+    method: q.method ? `method:eq:${q.method}` : null,
+    path: q.path ? `path:eq:${q.path}` : null,
+  };
+  const facet = (field: "env" | "app" | "method" | "path", limit: number) => {
+    const filter = Object.entries(cond).flatMap(([k, v]) => (k === field || !v ? [] : [v]));
+    return read<RequestFacets>(next, (o) =>
       identity().requestFacets(project, { range: q.range, field, limit, ...(q.from && q.to ? { from: q.from, to: q.to } : {}), ...(filter.length ? { filter } : {}) }, o),
     );
-  const [summary, series, endpoints, apps, envs, methods] = await Promise.all([
+  };
+  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, pathCounts] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
@@ -88,10 +92,29 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     // The picker follows Project settings › Environments (#816): their order, hidden ones left out.
     read<EnvironmentsList>(next, (o) => identity().listEnvironments(project, o)),
     facet("method", 12),
+    facet("env", 20),
+    facet("app", 20),
+    facet("path", 10),
   ]);
+  const facetValues = (f: RequestFacets | null) => (f === null ? null : (f.values ?? []));
 
   return (
-    <AppShell context={context} project={project} view="traffic">
+    <AppShell
+      context={context}
+      project={project}
+      view="traffic"
+      menu={
+        <TrafficMenu
+          project={project}
+          query={q}
+          apps={apps?.apps ?? null}
+          envs={facetValues(envCounts)}
+          appCounts={facetValues(appCounts)}
+          methods={facetValues(methods)}
+          paths={facetValues(pathCounts)}
+        />
+      }
+    >
       <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
       {/* "I’ll do this later" on the onboarding install step (#333) lands on the home view (#994), which can be this one. */}
       {raw[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}

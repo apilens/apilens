@@ -71,7 +71,6 @@ export function TrafficToolbar({
 
   return (
     <div className="tr-tools" role="toolbar" aria-label="Traffic">
-      <h1 className="tr-tools__title">Traffic</h1>
       <div className="tr-tools__scope">
         <ScopePill
           label="Time range"
