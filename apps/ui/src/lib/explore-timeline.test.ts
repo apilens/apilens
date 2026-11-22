@@ -126,6 +126,9 @@ describe("labels", () => {
     expect(formatInstant("x", { tz: "UTC" })).toBe("");
     expect(windowText(at(2), at(14), "UTC")).toBe("10:02 to 10:14 UTC");
     expect(windowText(at(2, 30), at(3), "UTC")).toBe("10:02:30 to 10:03:00 UTC");
+    // An empty timeline has no ends: no words, and no throw (Intl rejects NaN).
+    expect(windowText("", "", "UTC")).toBe("");
+    expect(windowText(at(2), "not a time", "UTC")).toBe("");
     expect(windowText("2026-11-04T22:00:00Z", "2026-11-05T02:00:00Z", "UTC")).toBe("Nov 4, 22:00 to Nov 5, 02:00 UTC");
     expect(instantText(at(5), "UTC")).toBe("10:05 UTC");
   });

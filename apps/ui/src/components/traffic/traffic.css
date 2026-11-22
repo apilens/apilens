@@ -545,3 +545,5 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 .tr-facet__btn { gap: 8px; border-radius: var(--radius-control); transition: color .15s cubic-bezier(.4, 0, .2, 1); }
 .tr-facet > summary:focus-visible { border-radius: var(--radius-control); }
 .tr .tr-pg { gap: 16px; }
+/* An empty Traffic chart keeps the 60px plot's place. */
+.tr-over .exc:empty { height: 60px; }

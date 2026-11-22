@@ -122,7 +122,7 @@ export function TrafficView({
 
       {summary === null ? (
         <ErrorState text={TRAFFIC_LOAD_FAILED} href={trafficHref(project, q)} />
-      ) : summary.requests === 0 ? (
+      ) : !(summary.requests > 0) ? (
         <div className="tr-notice" role="status">
           <ObIcon name="info" />
           <p>No requests in {scope}. Once your app reports requests through the SDK, they show up here.</p>

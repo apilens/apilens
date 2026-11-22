@@ -164,8 +164,10 @@ export function labelStyle(t: Pick<RequestTimeline, "from" | "to" | "bucket_seco
   return { seconds: t.bucket_seconds < 60, withDay: Date.parse(t.to) - Date.parse(t.from) >= 6 * 3600_000 };
 }
 
-/** A window in words, in `tz`: `10:02 to 10:14 UTC`, `Nov 4, 22:00 to Nov 5, 02:00 UTC`. */
+/** A window in words, in `tz`: `10:02 to 10:14 UTC`, `Nov 4, 22:00 to Nov 5, 02:00 UTC`; "" when an end isn't a time. */
 export function windowText(from: string, to: string, tz: string): string {
+  // A missing or unreadable end (an empty timeline) has no words, rather than throwing.
+  if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to))) return "";
   const day = zoned("en-US", DAY, tz);
   const seconds = Date.parse(from) % 60_000 !== 0 || Date.parse(to) % 60_000 !== 0;
   const withDay = day.format(Date.parse(from)) !== day.format(Date.parse(to)) || Date.parse(to) - Date.parse(from) >= 24 * 3600_000;

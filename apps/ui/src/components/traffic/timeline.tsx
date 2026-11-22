@@ -31,6 +31,9 @@ export function asTimeline(points: readonly TrafficPoint[]): RequestTimeline {
  */
 export function TrafficTimeline({ points, page }: { points: readonly TrafficPoint[]; page: string }) {
   const router = useRouter();
+  // No buckets (nothing reported in the window yet): an empty plot of the chart's size, so the
+  // rows under it don't move and the chart never reads a window without ends.
+  if (points.length === 0) return <section className="exc" aria-label="No requests over time" />;
   const onRange = (from: string, to: string) => router.push(page.replace("__FROM__", encodeURIComponent(from)).replace("__TO__", encodeURIComponent(to)));
   return <StatusChart timeline={asTimeline(points)} shown={ALL} onRange={onRange} />;
 }
