@@ -42,6 +42,12 @@ export function TrafficToolbar({
   const router = useRouter();
   // A picked window is a fixed past span: Live has nothing new to show there, so it starts paused.
   const [live, setLive] = useState(!(q.from && q.to));
+  // Picking a window on the chart (a client navigation, this toolbar stays mounted) pauses Live;
+  // leaving the window doesn't turn it back on by itself.
+  const picked = Boolean(q.from && q.to);
+  useEffect(() => {
+    if (picked) setLive(false);
+  }, [picked]);
   const [pending, startTransition] = useTransition();
   const refresh = () => startTransition(() => router.refresh());
 

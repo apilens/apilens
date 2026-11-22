@@ -709,7 +709,7 @@ const requestsSeed = new Map<string, Record<string, unknown>[]>();
 /** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
 const deployChanges = new Map<string, Record<string, unknown>[]>();
 /** Project slug → environment ("" for all) → what the traffic reads answer (#592), as seeded by `/__fake/traffic`. */
-type TrafficSeed = { summary: Record<string, unknown>; points: unknown[]; endpoints: unknown[] };
+type TrafficSeed = { summary: Record<string, unknown>; points: unknown[]; endpoints: unknown[]; bucket_seconds?: number };
 const trafficSeed = new Map<string, Record<string, TrafficSeed>>();
 
 /**
@@ -773,6 +773,64 @@ function narrowTraffic(seed: TrafficSeed | undefined, params: URLSearchParams): 
   }));
   return { summary, points, endpoints: rows };
 }
+/** The query role's bar widths (timelineStep, at most 100 bars), never finer than its 1m rollup. */
+const CHART_STEPS = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
+
+/**
+ * A traffic seed narrowed to a picked window (`?from=&to=`), as the query role reads one: the
+ * seed's buckets inside it, re-cut to the width the API draws that span with (chartWindow: finer
+ * buckets share each seeded one with a steady wobble), and the summary and endpoints scaled by the
+ * window's share of the requests. Without a window, the seed as it is.
+ */
+function narrowWindow(seed: TrafficSeed | undefined, params: URLSearchParams): TrafficSeed | undefined {
+  const from = Date.parse(params.get("from") ?? "");
+  const to = Date.parse(params.get("to") ?? "");
+  if (!seed || !Number.isFinite(from) || !Number.isFinite(to) || from >= to) return seed;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const pts = (seed.points ?? []) as Record<string, unknown>[];
+  const width = pts.length > 1 ? (Date.parse(String(pts[1].ts)) - Date.parse(String(pts[0].ts))) / 1000 : 900;
+  const step = CHART_STEPS.find((s) => (to - from) / 1000 <= s * 100) ?? 86400;
+  const start = Math.floor(from / 1000 / step) * step * 1000;
+  const end = Math.ceil(to / 1000 / step) * step * 1000;
+  const out: Record<string, unknown>[] = [];
+  const keys = ["requests", "client_errors", "server_errors"] as const;
+  for (let t = start; t < end; t += step * 1000) {
+    const bar: Record<string, unknown> = { ts: new Date(t).toISOString().replace(".000Z", "Z"), requests: 0, client_errors: 0, server_errors: 0, p95_ms: 0 };
+    let p95 = 0;
+    for (const p of pts) {
+      const ps = Date.parse(String(p.ts));
+      const overlap = Math.min(ps + width * 1000, t + step * 1000) - Math.max(ps, t);
+      if (overlap <= 0) continue;
+      // The seeded bucket's share of this bar, with a steady wobble when the bar is finer.
+      const wobble = step < width ? 0.75 + ((Math.floor(t / 60000) * 7919) % 50) / 100 : 1;
+      const f = (overlap / (width * 1000)) * wobble;
+      for (const k of keys) bar[k] = num(bar[k]) + num(p[k]) * f;
+      p95 = Math.max(p95, num(p.p95_ms));
+    }
+    for (const k of keys) bar[k] = Math.round(num(bar[k]));
+    bar.p95_ms = p95;
+    out.push(bar);
+  }
+  const inWindow = out.reduce((n, b) => n + num(b.requests), 0);
+  const all = pts.reduce((n, p) => n + num(p.requests), 0);
+  const share = all > 0 ? inWindow / all : 0;
+  const scale = (e: Record<string, unknown>) => ({
+    ...e,
+    requests: Math.round(num(e.requests) * share),
+    client_errors: Math.round(num(e.client_errors) * share),
+    server_errors: Math.round(num(e.server_errors) * share),
+    ...(e.total_time_ms !== undefined ? { total_time_ms: num(e.total_time_ms) * share } : {}),
+  });
+  const endpoints = ((seed.endpoints ?? []) as Record<string, unknown>[]).map(scale).filter((e) => num(e.requests) > 0);
+  const b = seed.summary ?? {};
+  const requests = out.reduce((n, x) => n + num(x.requests), 0);
+  const ce = out.reduce((n, x) => n + num(x.client_errors), 0);
+  const se = out.reduce((n, x) => n + num(x.server_errors), 0);
+  const summary = { ...b, requests, client_errors: ce, server_errors: se, error_rate: requests > 0 ? (ce + se) / requests : 0, requests_per_minute: requests / ((to - from) / 60000) };
+  delete (summary as Record<string, unknown>).previous;
+  return { summary, points: out, endpoints, bucket_seconds: step };
+}
+
 /** "<project> <METHOD> <path>" → tab → what that endpoint read answers (#593), as seeded by `/__fake/endpoint`. */
 const endpointSeed = new Map<string, Record<string, unknown>>();
 /** Every endpoint read since the last seed, oldest first (#593). */
@@ -2301,8 +2359,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (queryDown.has(slug)) return problem(res, 503, "unavailable");
       const range = url.searchParams.get("range") ?? "24h";
       const env = url.searchParams.get("env") ?? "";
-      const seed = narrowTraffic(seeded?.[env] ?? seeded?.[""], url.searchParams);
-      if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 900, points: seed?.points ?? [] });
+      const seed = narrowWindow(narrowTraffic(seeded?.[env] ?? seeded?.[""], url.searchParams), url.searchParams);
+      if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: seed?.bucket_seconds ?? 900, points: seed?.points ?? [] });
       if (path === "/api/v1/traffic/endpoints") {
         // Endpoints excluded from metrics (#600) leave the list, as the query role does.
         const excluded = (e: Record<string, unknown>) => shopApps.some((a) => endpointSettings.get(`${a.id} ${String(e.method).toUpperCase()} ${String(e.path)}`)?.excluded === true);
