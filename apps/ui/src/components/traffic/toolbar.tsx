@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { RANGE_LABEL } from "@/lib/consumers";
+import { windowText } from "@/lib/explore-timeline";
+import { useTimeZone } from "@/lib/time-zone-context";
 import type { NamedApp } from "@/lib/identity";
 import { LIVE_INTERVAL_MS, TRAFFIC_RANGES, type TrafficState, trafficHref } from "@/lib/traffic";
 import { Icon } from "../icons";
@@ -33,7 +35,9 @@ export function TrafficToolbar({
   paths: { value: string; label: string; count?: number }[];
 }) {
   const router = useRouter();
-  const [live, setLive] = useState(true);
+  const tz = useTimeZone();
+  // A picked window is a fixed past span: Live has nothing new to show there, so it starts paused.
+  const [live, setLive] = useState(!(q.from && q.to));
   const [pending, startTransition] = useTransition();
   const refresh = () => startTransition(() => router.refresh());
 
@@ -72,9 +76,18 @@ export function TrafficToolbar({
         <ScopePill
           label="Time range"
           icon
-          value={`Last ${RANGE_LABEL[q.range]}`}
-          options={TRAFFIC_RANGES.map((r) => ({ key: r, label: `Last ${RANGE_LABEL[r]}`, href: trafficHref(project, { ...q, range: r }), on: r === q.range }))}
+          value={q.from && q.to ? windowText(q.from, q.to, tz) : `Last ${RANGE_LABEL[q.range]}`}
+          options={TRAFFIC_RANGES.map((r) => ({ key: r, label: `Last ${RANGE_LABEL[r]}`, href: trafficHref(project, { ...q, range: r, from: "", to: "" }), on: !q.from && r === q.range }))}
         />
+        {q.from && q.to ? (
+          <Tip label={`Back to the last ${RANGE_LABEL[q.range]}`}>
+            <a className="tr-pill__clear" href={trafficHref(project, { ...q, from: "", to: "" })} aria-label={`Clear the picked window, back to the last ${RANGE_LABEL[q.range]}`}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+              </svg>
+            </a>
+          </Tip>
+        ) : null}
         <TrafficFilterBar project={project} query={q} environments={envs} apps={apps} methods={methods} paths={paths} />
       </div>
       <div className="tr-tools__end">

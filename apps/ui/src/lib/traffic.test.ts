@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  windowRange,
   apdexRating,
   appName,
   appOptions,
@@ -26,16 +27,16 @@ const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
 
 describe("parseTrafficQuery", () => {
   it("defaults to the last 24 hours in all environments", () => {
-    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "" });
+    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "" });
   });
 
   it("reads a known range and an environment", () => {
-    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "" });
-    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "" });
+    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "", from: "", to: "" });
+    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "", from: "", to: "" });
   });
 
   it("falls back on an unknown range or an environment name the API would refuse", () => {
-    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "" });
+    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "" });
   });
 
   it("reads the filter bar's method (upper case) and route template, refusing what the API would", () => {
@@ -44,6 +45,24 @@ describe("parseTrafficQuery", () => {
     const bad = parseTrafficQuery({ method: "GET; DROP", path: "orders" });
     expect([bad.method, bad.path]).toEqual(["", ""]);
     expect(parseTrafficQuery({ path: `/${"x".repeat(1024)}` }).path).toBe("");
+  });
+
+  it("reads a window picked on the chart: both ends, in order, at most 7 days apart", () => {
+    const q = parseTrafficQuery({ range: "24h", from: "2026-11-21T17:00:00Z", to: "2026-11-21T22:00:00Z" });
+    expect([q.from, q.to]).toEqual(["2026-11-21T17:00:00Z", "2026-11-21T22:00:00Z"]);
+    expect(windowRange(q)).toBe("6h");
+    for (const bad of [
+      { from: "2026-11-21T22:00:00Z", to: "2026-11-21T17:00:00Z" },
+      { from: "2026-11-01T00:00:00Z", to: "2026-11-21T00:00:00Z" },
+      { from: "2026-11-21T17:00:00Z" },
+      { from: "yesterday", to: "2026-11-21T22:00:00Z" },
+    ]) {
+      const b = parseTrafficQuery({ range: "24h", ...bad });
+      expect([b.from, b.to]).toEqual(["", ""]);
+      expect(windowRange(b)).toBe("24h");
+    }
+    const href = trafficHref("shop", { range: "24h", env: "", app: "", from: "2026-11-21T17:00:00Z", to: "2026-11-21T22:00:00Z" });
+    expect(new URL(href, "http://x").searchParams.get("from")).toBe("2026-11-21T17:00:00Z");
   });
 
   it("puts the method and route in the page URL, never in an endpoint link", () => {

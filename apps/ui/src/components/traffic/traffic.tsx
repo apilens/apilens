@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import { formatSpan } from "@/lib/alerts";
 import {
+  windowRange,
   ENDPOINTS_LIMIT,
   ENDPOINTS_LOAD_FAILED,
   TIMESERIES_LOAD_FAILED,
@@ -112,8 +113,13 @@ export function TrafficView({
   const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
   const chart = readChart(params);
   const chartHref = (c: ChartKind) => hrefWithoutPage(trafficHref(project, {}), params, { chart: c === "requests" ? null : c });
-  const explore = (s: { status?: string; consumer_id?: string; method?: string; path?: string; app?: string }) => exploreHrefFor(project, { range: q.range, env: q.env, app: s.app ?? q.app, ...s });
   const total = summary?.requests ?? 0;
+  // A window picked on the chart filters this page (the default) or opens Explore: link templates
+  // with the window's ends to fill in, keeping every other filter.
+  const select = {
+    page: trafficHref(project, { ...q, from: "__FROM__", to: "__TO__" }),
+    explore: exploreHrefFor(project, { range: q.range, env: q.env, app: q.app, method: q.method, path: q.path, from: "__FROM__", to: "__TO__" }),
+  };
   return (
     <div className="page tr">
       <TrafficToolbar
@@ -136,48 +142,22 @@ export function TrafficView({
         <>
           <Tiles summary={summary} points={points ?? []} range={q.range} chart={chart} chartHref={chartHref} />
 
-          <section className="tr-sec" aria-labelledby="tr-over-time">
-            <div className="tr-sec__head">
-              <h2 id="tr-over-time">{CHART_TITLE[chart]}</h2>
-              <span className="tr-sec__meta">{scope}</span>
-              <nav className="tr-switch" aria-label="Chart">
-                <a href={chartHref("requests")} aria-current={chart === "requests" ? "page" : undefined}>
-                  Requests
-                </a>
-                <a href={chartHref("errors")} aria-current={chart === "errors" ? "page" : undefined}>
-                  Errors
-                </a>
-                <a href={chartHref("latency")} aria-current={chart === "latency" ? "page" : undefined}>
-                  Response time
-                </a>
-              </nav>
-            </div>
+          <section className="tr-sec tr-chartsec" aria-label={CHART_TITLE[chart]}>
             {points === null ? (
               <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
             ) : chart === "latency" ? (
-              <LatencyChart label="Response time" summary={`p95 of ${formatLatency(summary.p95_ms)} over ${scope}.`} rows={points} range={q.range} />
+              <LatencyChart label="Response time" summary={`p95 of ${formatLatency(summary.p95_ms)} over ${scope}.`} rows={points} range={windowRange(q)} select={select} />
             ) : (
               <StatusChart
-                label="Requests by status"
+                label={chart === "errors" ? "Errors by status" : "Requests by status"}
                 summary={`${formatCount(summary.requests)} requests in ${scope}: ${formatCount(summary.client_errors)} 4xx and ${formatCount(summary.server_errors)} 5xx.`}
                 rows={chart === "errors" ? statusRows(points).map((r) => ({ ...r, successful: 0 })) : statusRows(points)}
-                range={q.range}
-                hrefs={bucketHrefs(project, q, points)}
+                range={windowRange(q)}
+                select={select}
               />
             )}
           </section>
 
-          <TrafficMix
-            statuses={statuses}
-            methods={methods}
-            consumers={consumers}
-            apps={apps && apps.length > 1 && !q.app ? appCounts : null}
-            appLabel={(id) => (apps ? appName(apps, id) : id)}
-            statusHref={(cls) => explore({ status: cls })}
-            consumerHref={(id) => explore({ consumer_id: id })}
-            methodHref={(m) => trafficHref(project, { ...q, method: m })}
-            appHref={(id) => trafficHref(project, { ...q, app: id })}
-          />
 
           <section className="tr-sec tr-sec--table" aria-labelledby="tr-endpoints">
             <div className="tr-sec__head">
@@ -377,113 +357,6 @@ function filterOptions(facet: FacetValue[] | null, endpoints: EndpointTraffic[] 
     m.set(v, (m.get(v) ?? 0) + ep.requests);
   }
   return [...m].sort((a, b) => b[1] - a[1]).map(([value, count]) => ({ value, label: value, count }));
-}
-
-type MixPart = { key: string; label: string; count: number; href?: string; tone?: "ok" | "3xx" | "4xx" | "5xx" | "other" };
-
-/** Status codes summed into classes, in class order. */
-function statusClasses(statuses: FacetValue[]): MixPart[] {
-  const sum: Record<string, number> = {};
-  for (const s of statuses) {
-    const c = `${String(s.value)[0]}xx`;
-    sum[c] = (sum[c] ?? 0) + s.count;
-  }
-  return ["2xx", "3xx", "4xx", "5xx"].filter((c) => sum[c]).map((c) => ({ key: c, label: c, count: sum[c], tone: c === "2xx" ? "ok" : (c as MixPart["tone"]) }));
-}
-
-/** The top `n` parts and the rest of `total` as "Other". */
-function topWithOther(parts: MixPart[], total: number, n: number): MixPart[] {
-  const sorted = [...parts].sort((a, b) => b.count - a.count);
-  const top = sorted.slice(0, n);
-  const rest = total - top.reduce((x, p) => x + p.count, 0);
-  return rest > 0 ? [...top, { key: "__other", label: "Other", count: rest, tone: "other" }] : top;
-}
-
-/**
- * Traffic mix: what the page's requests are made of, one thin 100% bar per dimension (status
- * class, method, consumer, and app when the page spans several), each segment its share; the
- * legend under a bar names the parts with their share. A part opens its requests in Explore
- * (status, consumer) or narrows the page to it (method, app). Neutral shades except status, whose
- * colours mean something.
- */
-function TrafficMix({
-  statuses,
-  methods,
-  consumers,
-  apps,
-  appLabel,
-  statusHref,
-  consumerHref,
-  methodHref,
-  appHref,
-}: {
-  statuses: FacetValue[] | null;
-  methods: FacetValue[] | null;
-  consumers: FacetValue[] | null;
-  apps: FacetValue[] | null;
-  appLabel: (id: string) => string;
-  statusHref: (cls: string) => string;
-  consumerHref: (id: string) => string;
-  methodHref: (m: string) => string;
-  appHref: (id: string) => string;
-}) {
-  // Every row shares one total: the requests the status facet counted (all codes).
-  const total = (statuses ?? []).reduce((n, s) => n + s.count, 0);
-  if (!statuses || total === 0) return null;
-  const rows: { key: string; label: string; parts: MixPart[]; note?: string }[] = [
-    { key: "status", label: "Status", parts: statusClasses(statuses).map((p) => ({ ...p, href: statusHref(p.key) })) },
-    ...(methods?.length
-      ? [{ key: "method", label: "Method", parts: topWithOther(methods.map((m) => ({ key: m.value, label: m.value.toUpperCase(), count: m.count, href: methodHref(m.value.toUpperCase()) })), total, 5) }]
-      : []),
-    ...(consumers
-      ? [
-          {
-            key: "consumer",
-            label: "Consumer",
-            parts: topWithOther(
-              consumers.map((c) => ({ key: c.value, label: c.label || c.value, count: c.count, href: consumerHref(c.value) })),
-              total,
-              5,
-            ).map((p) => (p.key === "__other" ? { ...p, label: "Anonymous or other" } : p)),
-          },
-        ]
-      : []),
-    ...(apps?.length ? [{ key: "app", label: "App", parts: topWithOther(apps.map((a) => ({ key: a.value, label: appLabel(a.value), count: a.count, href: appHref(a.value) })), total, 5) }] : []),
-  ];
-  return (
-    <section className="tr-sec" aria-labelledby="tr-mix">
-      <div className="tr-sec__head">
-        <h2 id="tr-mix">Traffic mix</h2>
-        <span className="tr-sec__meta">share of {formatCount(total)} requests</span>
-      </div>
-      <div className="tr-mix">
-        {rows.map((row) => (
-          <div key={row.key} className="tr-mix__row">
-            <span className="tr-mix__label">{row.label}</span>
-            <div className="tr-mix__body">
-              <div className="tr-mix__bar" role="img" aria-label={`${row.label}: ${row.parts.map((p) => `${p.label} ${formatPercent(p.count / total)}`).join(", ")}`}>
-                {row.parts.map((p, i) => (
-                  <span key={p.key} className={`tr-mix__seg tr-mix__seg--${p.tone ?? `n${Math.min(i, 4)}`}`} style={{ flexGrow: p.count }} title={`${p.label}: ${formatCount(p.count)} (${formatPercent(p.count / total)})`} />
-                ))}
-              </div>
-              <ul className="tr-mix__legend">
-                {row.parts.map((p, i) => {
-                  const inner = (
-                    <>
-                      <span className={`tr-mix__sw tr-mix__seg--${p.tone ?? `n${Math.min(i, 4)}`}`} aria-hidden="true" />
-                      <span className="tr-mix__name">{p.label}</span>
-                      <span className="tr-mix__pct">{formatPercent(p.count / total)}</span>
-                    </>
-                  );
-                  return <li key={p.key}>{p.href ? <a href={p.href}>{inner}</a> : <span>{inner}</span>}</li>;
-                })}
-              </ul>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
 }
 
 function EndpointsTable({

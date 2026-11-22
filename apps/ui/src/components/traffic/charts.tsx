@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type KeyboardEvent, type PointerEvent, type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { windowText } from "@/lib/explore-timeline";
 import { formatPercent, ratio } from "@/lib/format";
 import { pointX, tooltipText } from "@/lib/chart-hover";
 import { RANGE_LABEL, formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/consumers";
@@ -59,6 +60,32 @@ export interface PlotHover {
    * focused plot or a second tap on the shown bucket opens it. Ignored unless there is one per point.
    */
   hrefs?: readonly string[];
+  /**
+   * Select mode (Traffic): a click on a bucket, or a drag across several, marks a window and opens
+   * a small menu: filter this page to it (the default) or open it in Explore. `windows` is each
+   * bucket's start and end; `page` and `explore` are links with `__FROM__` and `__TO__` in place of
+   * the window's ends. It replaces `hrefs`.
+   */
+  select?: PlotSelect;
+}
+
+/** A plot's select mode (see PlotHover.select). */
+export interface PlotSelect {
+  windows: readonly { from: string; to: string }[];
+  page: string;
+  explore: string;
+}
+
+/** A link of a select template with the window's ends in it. */
+const fillWindow = (template: string, from: string, to: string) => template.replace("__FROM__", encodeURIComponent(from)).replace("__TO__", encodeURIComponent(to));
+
+/** Each bucket's window: from its start to the next bucket's (the last as long as the one before). */
+export function bucketWindows(rows: readonly { ts: string }[]): { from: string; to: string }[] {
+  return rows.map((r, i) => {
+    const start = Date.parse(r.ts);
+    const next = rows[i + 1] ? Date.parse(rows[i + 1].ts) : rows[i - 1] ? start + (start - Date.parse(rows[i - 1].ts)) : start + 60_000;
+    return { from: new Date(start).toISOString().replace(".000Z", "Z"), to: new Date(next).toISOString().replace(".000Z", "Z") };
+  });
 }
 
 /** What the tooltip of a plot whose buckets open in Explore says a click does. */
@@ -96,6 +123,7 @@ export function Plot({
 }) {
   const [measureRef, measured] = useMeasuredWidth<HTMLDivElement>();
   const h = useChartHover<HTMLDivElement>(hover?.count ?? 0, "slot");
+  const tz = useTimeZone();
   const w = measured ?? FALLBACK_W;
   const i = hover && hover.count > 0 ? h.index : null;
   const title = hover && i !== null ? hover.title(i) : "";
@@ -111,7 +139,68 @@ export function Plot({
   const interactive = hover !== undefined && hover.count > 0;
   // Drill-down (#977): the shown bucket opens its requests in Explore.
   const router = useRouter();
-  const links = interactive && hover.hrefs && hover.hrefs.length === hover.count ? hover.hrefs : null;
+  const select = interactive && hover.select && hover.select.windows.length === hover.count ? hover.select : null;
+  const links = !select && interactive && hover.hrefs && hover.hrefs.length === hover.count ? hover.hrefs : null;
+  // Select mode: the bucket a press started on, the marked range, and whether it is done (menu open).
+  const [sel, setSel] = useState<{ a: number; b: number; done: boolean } | null>(null);
+  const drag = useRef<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const slotAt = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const n = hover?.count ?? 1;
+    return Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / Math.max(1, r.width)) * n)));
+  };
+  useEffect(() => {
+    if (!sel?.done) return;
+    const down = (e: globalThis.PointerEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || (e.target as Element | null)?.closest?.(".tr-plot--select")) return;
+      setSel(null);
+    };
+    const key = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setSel(null);
+    };
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("keydown", key, true);
+    menuRef.current?.querySelector<HTMLElement>("a")?.focus();
+    return () => {
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [sel?.done]);
+  const lo = sel ? Math.min(sel.a, sel.b) : 0;
+  const hi = sel ? Math.max(sel.a, sel.b) : 0;
+  const picked = select && sel ? { from: select.windows[lo].from, to: select.windows[hi].to } : null;
+  const selectBind = select
+    ? {
+        onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+          if (e.button !== 0) return;
+          const i = slotAt(e);
+          drag.current = i;
+          setSel({ a: i, b: i, done: false });
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          h.bind.onPointerDown(e);
+        },
+        onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+          h.bind.onPointerMove?.(e);
+          if (drag.current !== null) setSel({ a: drag.current, b: slotAt(e), done: false });
+        },
+        onPointerUp: (e: PointerEvent<HTMLDivElement>) => {
+          if (drag.current === null) return;
+          setSel({ a: drag.current, b: slotAt(e), done: true });
+          drag.current = null;
+        },
+        onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === "Enter" && !(e.metaKey || e.ctrlKey || e.altKey) && h.index !== null) {
+            e.preventDefault();
+            setSel({ a: h.index, b: h.index, done: true });
+            return;
+          }
+          h.bind.onKeyDown(e);
+        },
+      }
+    : {};
   // The bucket shown before a touch: a first tap only shows a bucket, a second tap on it opens it.
   const before = useRef<{ touch: boolean; index: number | null }>({ touch: false, index: null });
   const go = (at: number | null) => {
@@ -137,13 +226,17 @@ export function Plot({
         },
       }
     : {};
-  const hint = links ? ` Press Enter to see a ${hover?.noun ?? "bucket"}’s requests in Explore.` : "";
+  const hint = select
+    ? ` Press Enter, or drag across ${hover?.noun ?? "bucket"}s, to filter this page to a window.`
+    : links
+      ? ` Press Enter to see a ${hover?.noun ?? "bucket"}’s requests in Explore.`
+      : "";
   const plot = (
     <>
       <div
-        className={`tr-plot${interactive ? " tr-plot--hover ct-box" : ""}${links ? " tr-plot--open" : ""}`}
+        className={`tr-plot${interactive ? " tr-plot--hover ct-box" : ""}${links ? " tr-plot--open" : ""}${select ? " tr-plot--select" : ""}`}
         ref={setRef}
-        {...(interactive ? { role: "group", "aria-label": `${label}. Use the arrow keys to read each ${hover.noun ?? "bucket"}.${hint}`, ...h.bind, ...open } : {})}
+        {...(interactive ? { role: "group", "aria-label": `${label}. Use the arrow keys to read each ${hover.noun ?? "bucket"}.${hint}`, ...h.bind, ...open, ...selectBind } : {})}
       >
         {scale ? null : (
           <span className="tr-axis-top" aria-hidden="true">
@@ -156,14 +249,40 @@ export function Plot({
           <line className="tr-base" x1="0" x2={w} y1={H - 0.5} y2={H - 0.5} />
           {children(w, i)}
           {hover?.marks && i !== null ? hover.marks(i, w) : null}
+          {sel && hover ? <rect className="tr-sel" x={(lo / hover.count) * w} y={0} width={((hi - lo + 1) / hover.count) * w} height={H} /> : null}
         </svg>
+        {select && sel?.done && picked ? (
+          <div
+            ref={menuRef}
+            className="tr-selmenu"
+            role="menu"
+            aria-label="Selected window"
+            style={{ left: `${Math.min(88, Math.max(0, (((lo + hi + 1) / 2) / (hover?.count ?? 1)) * 100))}%` }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <p className="tr-selmenu__when">{windowText(picked.from, picked.to, tz)}</p>
+            <a role="menuitem" className="tr-selmenu__item is-primary" href={fillWindow(select.page, picked.from, picked.to)} onClick={() => setSel(null)}>
+              Filter this page to this window
+            </a>
+            <a role="menuitem" className="tr-selmenu__item" href={fillWindow(select.explore, picked.from, picked.to)}>
+              Open these requests in Explore
+            </a>
+          </div>
+        ) : null}
         {overlay ? (
           <div className="tr-plot__overlay" aria-hidden="true">
             {overlay(w)}
           </div>
         ) : null}
-        {interactive && i !== null && h.width > 0 ? (
-          <ChartTooltip x={pointX(i, h.width, hover.count, "slot")} boxWidth={h.width} title={title} rows={rows} placement="inside" hint={links ? OPEN_HINT : undefined} />
+        {interactive && i !== null && h.width > 0 && !sel?.done ? (
+          <ChartTooltip
+            x={pointX(i, h.width, hover.count, "slot")}
+            boxWidth={h.width}
+            title={title}
+            rows={rows}
+            placement="inside"
+            hint={select ? "Click or drag to filter this page to a window" : links ? OPEN_HINT : undefined}
+          />
         ) : null}
       </div>
       {interactive ? <ChartAnnounce text={i !== null ? tooltipText(title, rows) : ""} /> : null}
@@ -271,6 +390,7 @@ export function StatusChart({
   rows,
   range,
   hrefs,
+  select,
 }: {
   label: string;
   summary: string;
@@ -278,12 +398,20 @@ export function StatusChart({
   range: QueryRange;
   /** Each bucket's requests in Explore (#977, bucketHrefs), one per row; without it the bars only read. */
   hrefs?: readonly string[];
+  /** Select mode (Traffic): link templates for a picked window; the windows come from the rows. */
+  select?: Omit<PlotSelect, "windows">;
 }) {
   const tz = useTimeZone();
   const keys = STATUS.map((s) => s.key);
   const className = Object.fromEntries(STATUS.map((s) => [s.key, s.className])) as Record<Status, string>;
   const { top } = stackBars(rows, keys, FALLBACK_W, H);
-  const hover: PlotHover = { count: rows.length, title: (i) => formatBucket(rows[i].ts, range, tz), rows: (i) => statusTipRows(rows[i]), hrefs };
+  const hover: PlotHover = {
+    count: rows.length,
+    title: (i) => formatBucket(rows[i].ts, range, tz),
+    rows: (i) => statusTipRows(rows[i]),
+    hrefs,
+    ...(select ? { select: { ...select, windows: bucketWindows(rows) } } : {}),
+  };
   return (
     <figure className="tr-chart">
       <ul className="tr-legend" aria-label={`${label} legend`}>
@@ -312,7 +440,20 @@ export function StatusChart({
 }
 
 /** p95 latency over time as a line, one point per bucket; hovering a bucket shows its p95. */
-export function LatencyChart({ label, summary, rows, range }: { label: string; summary: string; rows: { ts: string; p95_ms: number }[]; range: QueryRange }) {
+export function LatencyChart({
+  label,
+  summary,
+  rows,
+  range,
+  select,
+}: {
+  label: string;
+  summary: string;
+  rows: { ts: string; p95_ms: number }[];
+  range: QueryRange;
+  /** Select mode (Traffic), as StatusChart's. */
+  select?: Omit<PlotSelect, "windows">;
+}) {
   const tz = useTimeZone();
   const values = rows.map((r) => r.p95_ms);
   const top = latencyTop(values);
@@ -321,6 +462,7 @@ export function LatencyChart({ label, summary, rows, range }: { label: string; s
     title: (i) => formatBucket(rows[i].ts, range, tz),
     rows: (i) => [{ label: "p95", value: formatLatency(values[i]), swatch: "tr-sw-line" }],
     marks: (i, w) => <LineMarks i={i} count={rows.length} w={w} dots={[{ y: lineY(values[i], H, top), className: "tr-dot--accent" }]} />,
+    ...(select ? { select: { ...select, windows: bucketWindows(rows) } } : {}),
   };
   return (
     <figure className="tr-chart">

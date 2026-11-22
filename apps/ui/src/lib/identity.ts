@@ -1346,6 +1346,9 @@ export interface TrafficQuery {
   /** The Traffic filter bar's method and route template; absent means all. */
   method?: string;
   path?: string;
+  /** A custom window (RFC 3339, both or neither), replacing the range's. */
+  from?: string;
+  to?: string;
 }
 
 /** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
@@ -2534,9 +2537,16 @@ export interface AppSettings {
  * {@link CallOptions} last; authenticated ones require `accessToken`.
  */
 /** The traffic reads' `range` and `env` query parameters; an empty environment is left out (all). */
-function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string } {
-  const { range, env, app, method, path } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
-  return { ...(range ? { range } : {}), ...(env ? { env } : {}), ...(app ? { app } : {}), ...(method ? { method } : {}), ...(path ? { path } : {}) };
+function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; from?: string; to?: string } {
+  const { range, env, app, method, path, from, to } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
+  return {
+    ...(range ? { range } : {}),
+    ...(env ? { env } : {}),
+    ...(app ? { app } : {}),
+    ...(method ? { method } : {}),
+    ...(path ? { path } : {}),
+    ...(from && to ? { from, to } : {}),
+  };
 }
 
 /** The endpoint reads' query parameters; empty values and the `all` status are left out. */

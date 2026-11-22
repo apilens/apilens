@@ -27,6 +27,20 @@ export interface TrafficState {
   /** The filter bar's method (upper case) and route template; "" or absent means all. */
   method?: string;
   path?: string;
+  /** A window picked on the chart (RFC 3339, both or neither); it replaces the range's window. */
+  from?: string;
+  to?: string;
+}
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/;
+/** The longest window the API reads (7 days). */
+const MAX_WINDOW_MS = 7 * 24 * 3_600_000;
+
+/** `?from=&to=` when both are valid instants in order and at most 7 days apart, else neither. */
+function parseWindow(from: string, to: string): { from: string; to: string } {
+  const f = Date.parse(from);
+  const t = Date.parse(to);
+  return ISO_RE.test(from) && ISO_RE.test(to) && f < t && t - f <= MAX_WINDOW_MS ? { from, to } : { from: "", to: "" };
 }
 
 /** Longest route template a filter carries, as the API takes. */
@@ -49,6 +63,7 @@ export function parseTrafficQuery(params: SearchParams): TrafficState {
       const v = (first(params.path) ?? "").trim();
       return v.startsWith("/") && v.length <= MAX_PATH ? v : "";
     })(),
+    ...parseWindow((first(params.from) ?? "").trim(), (first(params.to) ?? "").trim()),
   };
 }
 
@@ -89,6 +104,10 @@ export function trafficHref(project: string, q: Partial<TrafficState>): string {
   const p = new URLSearchParams(s.slice(1));
   if (q.method) p.set("method", q.method);
   if (q.path) p.set("path", q.path);
+  if (q.from && q.to) {
+    p.set("from", q.from);
+    p.set("to", q.to);
+  }
   const all = p.toString();
   return `${projectHref(project, "traffic")}${all ? `?${all}` : ""}`;
 }
@@ -105,8 +124,21 @@ export function endpointHref(project: string, ep: Pick<EndpointTraffic, "method"
  * The scope in words, for empty states and chart summaries: `the last 24 hours in production`,
  * then `for Billing` when one app is in scope (`appLabel` is its name).
  */
-export function scopeText(q: Pick<TrafficState, "range" | "env"> & { app?: string }, appLabel?: string): string {
-  return `the last ${RANGE_LABEL[q.range]}${q.env ? ` in ${q.env}` : ""}${q.app && appLabel ? ` for ${appLabel}` : ""}`;
+export function scopeText(q: Pick<TrafficState, "range" | "env" | "from" | "to"> & { app?: string }, appLabel?: string): string {
+  const when = q.from && q.to ? "the selected window" : `the last ${RANGE_LABEL[q.range]}`;
+  return `${when}${q.env ? ` in ${q.env}` : ""}${q.app && appLabel ? ` for ${appLabel}` : ""}`;
+}
+
+/** The range whose buckets and time labels a window reads at: the smallest that covers it (as the API picks). */
+export function windowRange(q: Pick<TrafficState, "range" | "from" | "to">): QueryRange {
+  if (!q.from || !q.to) return q.range;
+  const span = Date.parse(q.to) - Date.parse(q.from);
+  const spans: [QueryRange, number][] = [
+    ["1h", 3_600_000],
+    ["6h", 6 * 3_600_000],
+    ["24h", 24 * 3_600_000],
+  ];
+  return spans.find(([, ms]) => span <= ms)?.[0] ?? "7d";
 }
 
 /** A latency in milliseconds: `<1 ms`, `42 ms`, `1.24 s`, `12.5 s`. */

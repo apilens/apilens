@@ -121,6 +121,29 @@ func TestWithRouteNarrowsToMethodAndPath(t *testing.T) {
 	}
 }
 
+func TestResolveTrafficWindowTakesACustomWindow(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 7, 0, 0, time.UTC)
+	w, err := resolveTrafficWindow("24h", "2026-11-22T09:07:00Z", "2026-11-22T11:52:00Z", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2 h 45 min fits 6h: 5-minute buckets on the minute rollup, ends aligned out to them.
+	if w.bucket != 5*time.Minute || w.table != "api_requests_1m" || !w.from.Equal(time.Date(2026, 11, 22, 9, 5, 0, 0, time.UTC)) || !w.to.Equal(time.Date(2026, 11, 22, 11, 55, 0, 0, time.UTC)) {
+		t.Fatalf("custom window: %+v", w)
+	}
+	if p := w.previous(); !p.to.Equal(w.from) || p.to.Sub(p.from) != w.to.Sub(w.from) {
+		t.Fatalf("previous of a custom window: %+v", p)
+	}
+	if w, _ := resolveTrafficWindow("1h", "", "", now); w.name != "1h" {
+		t.Fatalf("no from/to reads the range: %+v", w)
+	}
+	for _, c := range [][2]string{{"2026-11-22T11:00:00Z", "2026-11-22T10:00:00Z"}, {"2026-11-01T00:00:00Z", "2026-11-22T00:00:00Z"}, {"yesterday", "2026-11-22T10:00:00Z"}, {"2026-11-22T10:00:00Z", ""}} {
+		if _, err := resolveTrafficWindow("24h", c[0], c[1], now); err == nil {
+			t.Fatalf("%v must be refused", c)
+		}
+	}
+}
+
 type stubVerifier struct {
 	scopes []string
 	err    error

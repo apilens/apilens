@@ -228,6 +228,45 @@ func resolveWindow(name string, now time.Time) (window, error) {
 	return window{name: name, from: to.Add(-r.span), to: to, bucket: r.bucket, table: r.table}, nil
 }
 
+// maxCustomSpan is the longest custom window a read takes, the longest range.
+const maxCustomSpan = 7 * 24 * time.Hour
+
+// resolveTrafficWindow is the window of a traffic read: from and to (RFC 3339) when both are
+// given, a custom window read at the bucket and rollup of the smallest range that covers it,
+// its ends aligned to that bucket; else the named range, as resolveWindow.
+func resolveTrafficWindow(name, from, to string, now time.Time) (window, error) {
+	if from == "" && to == "" {
+		return resolveWindow(name, now)
+	}
+	f, err1 := time.Parse(time.RFC3339, from)
+	t, err2 := time.Parse(time.RFC3339, to)
+	if err1 != nil || err2 != nil {
+		return window{}, huma.Error422UnprocessableEntity("from and to must both be RFC 3339 times")
+	}
+	f, t = f.UTC(), t.UTC()
+	if !f.Before(t) {
+		return window{}, huma.Error422UnprocessableEntity("from must be before to")
+	}
+	if t.Sub(f) > maxCustomSpan {
+		return window{}, huma.Error422UnprocessableEntity("a custom window spans at most 7 days")
+	}
+	span := t.Sub(f)
+	pick := "7d"
+	for _, n := range []string{"1h", "6h", "24h", "7d"} {
+		if span <= ranges[n].span {
+			pick = n
+			break
+		}
+	}
+	r := ranges[pick]
+	start := f.Truncate(r.bucket)
+	end := t.Truncate(r.bucket)
+	if end.Before(t) {
+		end = end.Add(r.bucket)
+	}
+	return window{name: pick, from: start, to: end, bucket: r.bucket, table: r.table}, nil
+}
+
 // previous is the window of the same length just before w, the same query
 // shifted back by its span: the baseline of the "vs previous" comparison on
 // the summary tiles (#1000).

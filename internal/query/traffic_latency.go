@@ -43,7 +43,7 @@ func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*traff
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, s.now())
 	if err != nil {
 		return nil, err
 	}

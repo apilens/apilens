@@ -48,6 +48,8 @@ type appRangeInput struct {
 type RouteInput struct {
 	Method string `query:"method" maxLength:"16" pattern:"^[A-Za-z]*$" doc:"HTTP method; empty means every method. Matched upper case."`
 	Path   string `query:"path" maxLength:"1024" doc:"Route template, as the endpoints list names it (/orders/{id}); empty means every route."`
+	From   string `query:"from" maxLength:"40" doc:"Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long."`
+	To     string `query:"to" maxLength:"40" doc:"End of a custom window (RFC 3339), with from."`
 }
 
 // withRoute narrows a filter to the method and route template in, when given.
@@ -330,7 +332,7 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 		return nil, err
 	}
 	now := s.now()
-	w, err := resolveWindow(in.Range, now)
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, now)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +403,7 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +502,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
-	w, err := resolveWindow(in.Range, s.now())
+	w, err := resolveTrafficWindow(in.Range, in.From, in.To, s.now())
 	if err != nil {
 		return nil, err
 	}
