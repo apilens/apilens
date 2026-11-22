@@ -145,6 +145,8 @@ export function TrafficView({
               </p>
             ) : (
               <div className="tr-tablewrap">
+                {/* Only this scrolls (as Supabase's Unified Logs): the toolbar, chart and stats stay put. */}
+                <div className="tr-scroll">
                 {active.length === 0 ? (
                   <p className="tr-empty" role="status">
                     No endpoints with requests in {scope}.
@@ -156,9 +158,10 @@ export function TrafficView({
                 ) : (
                   <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} total={total} />
                 )}
-                {active.length > 0 ? <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" always className="tr-pg" /> : null}
                 {declared.length > 0 ? <DeclaredRoutes project={project} q={q} routes={declared} apps={appColumn} scope={scope} open={false} /> : null}
                 {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
+                </div>
+                {active.length > 0 ? <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" always className="tr-pg" /> : null}
               </div>
             )}
           </section>

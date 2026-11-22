@@ -95,6 +95,14 @@ export function TrafficToolbar({
     } catch {}
   };
 
+  // While a refresh is in flight the data under the toolbar dims, as Explore's (.exr-data.is-stale).
+  useEffect(() => {
+    const page = document.querySelector<HTMLElement>(".page.tr");
+    if (!page) return;
+    if (pending) page.setAttribute("data-pending", "");
+    else page.removeAttribute("data-pending");
+  }, [pending]);
+
   // A link the project no longer lists (a shared URL) stays selectable.
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
 

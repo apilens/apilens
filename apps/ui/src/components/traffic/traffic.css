@@ -507,3 +507,26 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 .tr-strip dd.tr-pcts { flex-direction: row; align-items: flex-end; gap: 16px; }
 .tr-strip dd.tr-pcts .tr-pct { align-items: flex-end; }
 .tr-strip dd.tr-pcts .tr-pct > :last-child { font: 500 14px/18px var(--font-sans); }
+
+/* Supabase's Unified Logs model (as Explore): the page never scrolls. It fills the content pane;
+   the toolbar, the chart and the stats strip are fixed rows, and only the endpoints table scrolls,
+   under its sticky header, with the pagination bar pinned under it. Phones keep a scrolling page
+   (the stacked stats leave too little room for an inner scroller). */
+@media (min-width: 768px) {
+  .shell .app-main:has(> .page.tr) { overflow: hidden; }
+  .page.tr { display: flex; flex-direction: column; box-sizing: border-box; height: 100%; min-height: 0; max-width: none; padding: 0 var(--page-gutter); overflow: hidden; }
+  .page.tr > .tr-tools { flex: none; margin-top: 0; }
+  .tr > :not(.tr-tools) { max-width: none; }
+  .tr > .tr-over, .tr > .tr-notice, .tr > .ex-notice { flex: none; }
+  .tr > .tr-sec--table { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  .tr-sec--table > .tr-tablewrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .tr-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .tr .tr-table thead th { position: sticky; top: 0; z-index: 4; background: var(--bg); }
+  .tr .tr-pg { position: static; flex: none; }
+}
+/* Explore's motion: data dims while a refresh is in flight; rows and links ease their colours
+   (Supabase's transition-colors, 150ms). */
+.tr .tr-over, .tr .tr-scroll { transition: opacity .15s ease; }
+.page.tr[data-pending] .tr-over, .page.tr[data-pending] .tr-scroll { opacity: .6; }
+.tr .tr-row, .tr .tr-ep__link code, .tr .tr-drill { transition: background-color .15s cubic-bezier(.4, 0, .2, 1), color .15s cubic-bezier(.4, 0, .2, 1); }
+@media (prefers-reduced-motion: reduce) { .tr .tr-over, .tr .tr-scroll, .tr .tr-row, .tr .tr-ep__link code, .tr .tr-drill { transition: none; } }
