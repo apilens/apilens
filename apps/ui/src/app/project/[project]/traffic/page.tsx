@@ -116,7 +116,6 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
           envs={facetValues(envCounts)}
           appCounts={facetValues(appCounts)}
           methods={facetValues(methods)}
-          consumers={facetValues(consumerCounts)}
         />
       }
     >
