@@ -30345,6 +30345,17 @@
               "maxLength": 40,
               "type": "string"
             }
+          },
+          {
+            "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+              "maxLength": 256,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30483,6 +30494,17 @@
             "schema": {
               "description": "End of a custom window (RFC 3339), with from.",
               "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+              "maxLength": 256,
               "type": "string"
             }
           }
@@ -30625,6 +30647,17 @@
               "maxLength": 40,
               "type": "string"
             }
+          },
+          {
+            "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+              "maxLength": 256,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30763,6 +30796,17 @@
             "schema": {
               "description": "End of a custom window (RFC 3339), with from.",
               "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans.",
+              "maxLength": 256,
               "type": "string"
             }
           }

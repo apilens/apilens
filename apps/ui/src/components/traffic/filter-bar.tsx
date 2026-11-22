@@ -5,24 +5,38 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import type { ExploreRange } from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
 import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
+import { type MetricField, OP_SYMBOL, metricText, metricValueText, parseMetricInput } from "@/lib/traffic-metrics";
 import { rangeIsSet } from "../explore/time-range";
 import { Tip } from "../explore/tip";
 import { TrafficTimePill } from "./time-range";
 
-/** The fields Traffic can filter by: the ones its rollups are kept by, so every number follows. */
-type Field = "env" | "app" | "method" | "path";
-const FIELDS: { key: Field; label: string; mono?: boolean }[] = [
+/**
+ * The fields Traffic can filter by. The scope fields narrow every number (consumer from the raw
+ * requests); the metric fields are conditions on the endpoints table's rows (`p95 > 500 ms`).
+ */
+type ScopeField = "env" | "app" | "method" | "path" | "consumer";
+type Field = ScopeField | MetricField;
+const FIELDS: { key: Field; label: string; mono?: boolean; metric?: boolean }[] = [
   { key: "env", label: "Environment" },
   { key: "app", label: "App" },
   { key: "method", label: "Method", mono: true },
   { key: "path", label: "Endpoint", mono: true },
+  { key: "consumer", label: "Consumer" },
+  { key: "client_errors", label: "4xx", metric: true },
+  { key: "server_errors", label: "5xx", metric: true },
+  { key: "p95", label: "p95", metric: true },
+  { key: "p50", label: "p50", metric: true },
 ];
+const isMetric = (f: Field): f is MetricField => f === "client_errors" || f === "server_errors" || f === "p95" || f === "p50";
+/** The value stage's hint for a metric field. */
+const METRIC_HINT: Record<MetricField, string> = { client_errors: "> 10, < 2%, = 0", server_errors: "> 0, < 1%", p95: "> 500 ms, < 1.5 s", p50: "> 200 ms" };
 
 type Option = { value: string; label: string; count?: number };
 
 /**
  * Traffic's filter bar, Explore's in look and keys, over the fields every Traffic number can be
- * narrowed by (environment, app, method, endpoint). The scope is pills (`Method = POST`): click
+ * narrowed by (environment, app, method, endpoint, consumer) and the endpoints table's metric
+ * conditions (4xx, 5xx, p95, p50: `p95 > 500 ms`). The scope is pills (`Method = POST`): click
  * one to change it, × to remove it. In the input, type to find a field, Enter, then type or pick
  * a value and Enter; Backspace in the empty input selects the last pill, again removes it; ← →
  * move between pills; Esc closes. `/` or ⇧F focuses it from anywhere. Each choice is a link, so
@@ -35,6 +49,7 @@ export function TrafficFilterBar({
   apps,
   methods,
   paths,
+  consumers = [],
 }: {
   project: string;
   query: TrafficState;
@@ -43,6 +58,8 @@ export function TrafficFilterBar({
   /** Methods and endpoint paths to suggest, with request counts where known. */
   methods: Option[];
   paths: Option[];
+  /** Consumers to suggest (id, name, requests). */
+  consumers?: Option[];
 }) {
   const router = useRouter();
   const id = useId();
@@ -53,9 +70,15 @@ export function TrafficFilterBar({
   const [field, setField] = useState<Field | null>(null);
   const [hl, setHl] = useState<number | null>(null);
 
-  const current: Record<Field, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "" };
-  const pills = FIELDS.filter((f) => current[f.key]);
-  const valueText = (f: Field, v: string) => (f === "app" ? (apps ? appName(apps, v) : v) : v);
+  const current: Record<ScopeField, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "", consumer: q.consumer ?? "" };
+  const metrics = q.metrics ?? [];
+  const valueText = (f: ScopeField, v: string) =>
+    f === "app" ? (apps ? appName(apps, v) : v) : f === "consumer" ? (consumers.find((c) => c.value === v)?.label ?? v) : v;
+  // Every condition in force as one pill: the scope's, then the metric conditions.
+  const pills: { key: Field; label: string; op: string; value: string; mono?: boolean }[] = [
+    ...FIELDS.flatMap((f) => (!isMetric(f.key) && current[f.key as ScopeField] ? [{ key: f.key, label: f.label, op: "=", value: valueText(f.key as ScopeField, current[f.key as ScopeField]), mono: f.mono }] : [])),
+    ...metrics.map((m) => ({ key: m.field as Field, label: FIELDS.find((f) => f.key === m.field)?.label ?? m.field, op: OP_SYMBOL[m.op], value: metricValueText(m) })),
+  ];
   const go = (patch: Partial<TrafficState>) => {
     setText("");
     setField(null);
@@ -63,7 +86,8 @@ export function TrafficFilterBar({
     setHl(null);
     router.push(trafficHref(project, { ...q, ...patch }));
   };
-  const set = (f: Field, v: string) => go({ [f]: v } as Partial<TrafficState>);
+  const set = (f: ScopeField, v: string) => go({ [f]: v } as Partial<TrafficState>);
+  const remove = (f: Field) => (isMetric(f) ? go({ metrics: metrics.filter((m) => m.field !== f) }) : set(f, ""));
 
   // `/` or ⇧F focuses the bar, as in Explore; not while typing elsewhere.
   useEffect(() => {
@@ -80,18 +104,37 @@ export function TrafficFilterBar({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  const valuesOf = (f: Field): Option[] =>
+  const valuesOf = (f: ScopeField): Option[] =>
     f === "env"
       ? environments.map((e) => ({ value: e, label: e }))
       : f === "app"
         ? (apps ?? []).map((a) => ({ value: a.id.toLowerCase(), label: a.name }))
         : f === "method"
           ? methods
-          : paths;
+          : f === "consumer"
+            ? consumers
+            : paths;
+  // A metric field's value stage: what was typed, read as a condition (`> 500 ms`), else the
+  // operators to start one with.
+  const metricOptions = (f: MetricField) => {
+    const c = text.trim() ? parseMetricInput(f, text) : null;
+    if (c) return [{ key: "apply", text: metricText(c), detail: "apply", run: () => go({ metrics: [...metrics.filter((m) => m.field !== f), c] }) }];
+    return (["gt", "lt", "eq"] as const).map((op) => ({
+      key: op,
+      text: `${OP_SYMBOL[op]} ${op === "gt" ? "greater than" : op === "lt" ? "less than" : "equal to"}`,
+      detail: undefined as string | undefined,
+      run: () => {
+        setText(`${OP_SYMBOL[op]} `);
+        input.current?.focus();
+      },
+    }));
+  };
 
   const t = text.trim().toLowerCase();
   const options: { key: string; text: string; detail?: string; mono?: boolean; run: () => void }[] = field
-    ? valuesOf(field)
+    ? isMetric(field)
+      ? metricOptions(field)
+      : valuesOf(field)
         .filter((o) => !t || o.label.toLowerCase().includes(t) || o.value.toLowerCase().includes(t))
         .slice(0, 50)
         .map((o) => ({
@@ -103,7 +146,10 @@ export function TrafficFilterBar({
         }))
     : FIELDS.filter((f) => !t || f.label.toLowerCase().includes(t))
         .filter((f) => f.key !== "app" || (apps && apps.length > 1))
-        .map((f) => ({ key: f.key, text: f.label, detail: current[f.key] ? valueText(f.key, current[f.key]) : undefined, run: () => pick(f.key) }));
+        .map((f) => {
+          const on = pills.find((p) => p.key === f.key);
+          return { key: f.key, text: f.metric ? `${f.label} (endpoints)` : f.label, detail: on ? `${on.op === "=" ? "" : `${on.op} `}${on.value}` : undefined, run: () => pick(f.key) };
+        });
   const at = Math.min(active, Math.max(0, options.length - 1));
 
   function pick(f: Field) {
@@ -141,7 +187,7 @@ export function TrafficFilterBar({
     if (e.key === "Backspace" && empty) {
       e.preventDefault();
       if (field) return setField(null);
-      if (hl !== null) return set(pills[hl].key, "");
+      if (hl !== null) return remove(pills[hl].key);
       if (pills.length) setHl(pills.length - 1);
       setMenu(false);
       return;
@@ -164,18 +210,18 @@ export function TrafficFilterBar({
         <ul className="exp-pills" aria-label="Active filters">
           <TrafficTimePill project={project} query={q} />
           {pills.map((f, n) => {
-            const words = `${f.label} is ${valueText(f.key, current[f.key])}`;
+            const words = `${f.label} ${f.op === "=" ? "is" : f.op} ${f.value}`;
             return (
               <li key={f.key} className={`exp-pill${hl === n ? " is-hl" : ""}`}>
                 <Tip label={`Change: ${words}`}>
                   <button type="button" className="exp-pill__body" aria-label={`Change filter: ${words}`} onClick={() => pick(f.key)}>
                     <span className="exp-pill__field">{f.label}</span>
-                    <span className="exp-pill__op">=</span>
-                    <span className={`exp-pill__value${f.mono ? " is-mono" : ""}`}>{valueText(f.key, current[f.key])}</span>
+                    <span className="exp-pill__op">{f.op}</span>
+                    <span className={`exp-pill__value${f.mono ? " is-mono" : ""}`}>{f.value}</span>
                   </button>
                 </Tip>
                 <Tip label="Remove filter">
-                  <button type="button" className="exp-pill__x" aria-label={`Remove filter: ${words}`} onClick={() => set(f.key, "")}>
+                  <button type="button" className="exp-pill__x" aria-label={`Remove filter: ${words}`} onClick={() => remove(f.key)}>
                     <svg viewBox="0 0 16 16" aria-hidden="true">
                       <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
                     </svg>
@@ -187,7 +233,7 @@ export function TrafficFilterBar({
           {fieldDef ? (
             <li className="exp-pill is-draft">
               <span className="exp-pill__seg exp-pill__field">{fieldDef.label}</span>
-              <span className="exp-pill__seg exp-pill__op">=</span>
+              {fieldDef.metric ? null : <span className="exp-pill__seg exp-pill__op">=</span>}
             </li>
           ) : null}
         </ul>
@@ -195,7 +241,7 @@ export function TrafficFilterBar({
         <ul className="exp-pills" aria-label="Filter being added">
           <li className="exp-pill is-draft">
             <span className="exp-pill__seg exp-pill__field">{fieldDef.label}</span>
-            <span className="exp-pill__seg exp-pill__op">=</span>
+            {fieldDef.metric ? null : <span className="exp-pill__seg exp-pill__op">=</span>}
           </li>
         </ul>
       ) : null}
@@ -211,7 +257,7 @@ export function TrafficFilterBar({
           aria-autocomplete="list"
           aria-activedescendant={showMenu && options[at] ? `${id}-o-${at}` : undefined}
           aria-keyshortcuts="Shift+F /"
-          placeholder={fieldDef ? `${fieldDef.label}…` : pills.length ? "Add filter…" : "Filter by Environment, App, Method, Endpoint…"}
+          placeholder={fieldDef ? (isMetric(fieldDef.key) ? METRIC_HINT[fieldDef.key] : `${fieldDef.label}…`) : pills.length ? "Add filter…" : "Filter by Environment, Method, Endpoint, Consumer, 4xx, p95…"}
           value={text}
           spellCheck={false}
           autoComplete="off"
@@ -235,7 +281,7 @@ export function TrafficFilterBar({
           <ul className="exp-menu" id={`${id}-menu`} role="listbox" aria-label={fieldDef ? `${fieldDef.label} values` : "Fields"}>
             {fieldDef ? (
               <li className="exp-menu__head" role="presentation">
-                {fieldDef.label} is
+                {isMetric(fieldDef.key) ? `Endpoints where ${fieldDef.label} is` : `${fieldDef.label} is`}
               </li>
             ) : null}
             {options.map((o, i) => (
@@ -255,7 +301,7 @@ export function TrafficFilterBar({
             ))}
             {fieldDef && options.length === 0 ? (
               <li className="exp-menu__note" role="presentation">
-                Nothing matches “{text}”.
+                {isMetric(fieldDef.key) ? `Not a value for ${fieldDef.label}: try ${METRIC_HINT[fieldDef.key]}.` : `Nothing matches “${text}”.`}
               </li>
             ) : null}
             <li className="exp-menu__keys" role="presentation" aria-hidden="true">
@@ -278,7 +324,7 @@ export function TrafficFilterBar({
       </div>
       {pills.length ? (
         <Tip label="Clear all filters">
-          <button type="button" className="exp-clear" onClick={() => go({ env: "", app: "", method: "", path: "" })}>
+          <button type="button" className="exp-clear" onClick={() => go({ env: "", app: "", method: "", path: "", consumer: "", metrics: [] })}>
             Clear
           </button>
         </Tip>

@@ -58,21 +58,27 @@ func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*traff
 	}
 	tenant, targs = withRoute(tenant, targs, in.RouteInput)
 	scope, sargs := rules.withoutExcluded(tenant, targs)
-	where, args := scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), w.from, w.to)
+	src := sourceOf(w, in.RouteInput)
+	agg := rollLatency
+	if in.Consumer != "" {
+		agg = rawLatency
+	}
+	where, args := scope+" AND "+src.ts+" >= ? AND "+src.ts+" < ?", append(append([]any{}, sargs...), w.from, w.to)
 	rawWhere, rawArgs := scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), w.from, w.to)
 
 	out := &trafficLatencyOutput{}
 	b := &out.Body
 	b.Range, b.From, b.To, b.BucketSeconds = w.name, w.from, w.to, int(w.bucket.Seconds())
-	b.Summary, b.Points, b.Histogram, err = s.latencyReport(ctx, p.ProjectID, w, w.table, "bucket", rollLatency, where, args, rawWhere, rawArgs)
+	b.Summary, b.Points, b.Histogram, err = s.latencyReport(ctx, p.ProjectID, w, src.table, src.ts, agg, where, args, rawWhere, rawArgs)
 	if err != nil {
 		return nil, err
 	}
 	pw := w.previous()
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
-	prev, err := s.latencySummary(qctx, p.ProjectID, pw.table, rollLatency,
-		scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), pw.from, pw.to),
+	psrc := sourceOf(pw, in.RouteInput)
+	prev, err := s.latencySummary(qctx, p.ProjectID, psrc.table, agg,
+		scope+" AND "+psrc.ts+" >= ? AND "+psrc.ts+" < ?", append(append([]any{}, sargs...), pw.from, pw.to),
 		scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), pw.from, pw.to))
 	if err != nil {
 		return nil, err

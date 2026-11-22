@@ -4,16 +4,18 @@ import type { NamedApp } from "@/lib/identity";
 import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
 import { Icon } from "../icons";
 import { SidePanel } from "../shell/side-panel";
+import { MetricFilters } from "./metric-filters";
 import { TrafficTimeRange } from "./time-range";
 import "../explore/explore.css";
 
 type FacetValue = { value: string; label: string; count: number };
-type Field = "env" | "app" | "method" | "path";
+type Field = "env" | "app" | "method" | "path" | "consumer";
 
 /**
  * Traffic's secondary sidebar, Explore's facet panel in look: the time range (Explore's button and
  * date picker), then a section per
- * field the page can be narrowed by (environment, app when there are several, method, endpoint),
+ * field the page can be narrowed by (environment, app when there are several, method, endpoint,
+ * consumer), then Endpoint metrics (4xx, 5xx, p95, p50 conditions on the table's rows);
  * each value with its requests under the other filters. A value is a link: picking it narrows the
  * page to it (one per field, as the traffic reads take), picking it again lets it go. Sections
  * fold (`<details>`), so the panel works before JavaScript. Reset clears every filter.
@@ -26,6 +28,7 @@ export function TrafficMenu({
   appCounts,
   methods,
   paths,
+  consumers,
 }: {
   project: string;
   query: TrafficState;
@@ -34,11 +37,12 @@ export function TrafficMenu({
   appCounts: FacetValue[] | null;
   methods: FacetValue[] | null;
   paths: FacetValue[] | null;
+  consumers: FacetValue[] | null;
 }) {
-  const current: Record<Field, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "" };
-  const any = Object.values(current).some(Boolean);
+  const current: Record<Field, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "", consumer: q.consumer ?? "" };
+  const any = Object.values(current).some(Boolean) || (q.metrics ?? []).length > 0;
   const hrefFor = (f: Field, v: string) => trafficHref(project, { ...q, [f]: current[f] === v ? "" : v });
-  const reset = trafficHref(project, { range: q.range, env: "", app: "", method: "", path: "", from: q.from, to: q.to });
+  const reset = trafficHref(project, { range: q.range, env: "", app: "", method: "", path: "", consumer: "", metrics: [], from: q.from, to: q.to });
   return (
     <SidePanel
       title="Traffic"
@@ -59,6 +63,10 @@ export function TrafficMenu({
           ) : null}
           <FacetSection title="Method" field="method" mono values={methods?.map((m) => ({ ...m, value: m.value.toUpperCase(), label: m.value.toUpperCase() })) ?? null} current={current.method} hrefFor={hrefFor} />
           <FacetSection title="Endpoint" field="path" mono values={paths} current={current.path} hrefFor={hrefFor} />
+          <FacetSection title="Consumer" field="consumer" values={consumers} current={current.consumer} hrefFor={hrefFor} />
+          <Section title="Endpoint metrics">
+            <MetricFilters project={project} query={q} />
+          </Section>
         </div>
       </div>
     </SidePanel>

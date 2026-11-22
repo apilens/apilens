@@ -267,6 +267,31 @@ func resolveTrafficWindow(name, from, to string, now time.Time) (window, error) 
 	return window{name: pick, from: start, to: end, bucket: r.bucket, table: r.table}, nil
 }
 
+// trafficSource is where a traffic read counts its requests: the rollup of its window, or the
+// raw requests when a consumer is in scope (the rollups are kept by app, environment, method and
+// route, not consumer). Every field is a fixed SQL fragment, never input.
+type trafficSource struct {
+	table, ts                   string
+	requests, client, server    string
+	split, totalTime, quantiles string
+}
+
+func sourceOf(w window, in RouteInput) trafficSource {
+	if in.Consumer == "" {
+		return trafficSource{
+			table: w.table, ts: "bucket",
+			requests: "sum(requests)", client: "sum(client_errors)", server: "sum(server_errors)",
+			split: "sum(requests), sum(client_errors), sum(server_errors)", totalTime: "sum(latency_sum_ms)", quantiles: quantiles,
+		}
+	}
+	return trafficSource{
+		table: "api_requests", ts: "timestamp",
+		requests: "count()", client: "countIf(status_code >= 400 AND status_code < 500)", server: "countIf(status_code >= 500)",
+		split:     "count(), countIf(status_code >= 400 AND status_code < 500), countIf(status_code >= 500)",
+		totalTime: "sum(response_time_ms)", quantiles: "quantilesTDigest(0.5, 0.75, 0.9, 0.95, 0.99)(response_time_ms)",
+	}
+}
+
 // rollupGrain is the finest bucket each rollup table keeps.
 var rollupGrain = map[string]time.Duration{"api_requests_1m": time.Minute, "api_requests_1h": time.Hour}
 

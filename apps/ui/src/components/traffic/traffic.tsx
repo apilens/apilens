@@ -34,6 +34,7 @@ import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
 import { TrafficTimeline } from "./timeline";
+import { meetsMetrics, metricText } from "@/lib/traffic-metrics";
 import { LiveNumber } from "./live";
 import { TrafficToolbar } from "./toolbar";
 import "./traffic.css";
@@ -97,7 +98,12 @@ export function TrafficView({
   // The routes an app declared without traffic (`discovered_only`) are not rows but one collapsed
   // group under the table. Paths are narrowed by the Endpoint filter (sidebar, filter bar).
   const sort = parseEndpointSort(params);
-  const { active, declared } = splitDeclared(endpoints ?? []);
+  // The metric conditions (`?m=`, 4xx/5xx/p50/p95) keep the rows that meet them; declared routes
+  // without traffic only show while none is set.
+  const metrics = q.metrics ?? [];
+  const split = splitDeclared(endpoints ?? []);
+  const active = metrics.length ? split.active.filter((ep) => meetsMetrics(ep, metrics)) : split.active;
+  const declared = metrics.length ? [] : split.declared;
   const page = slicePage(sortEndpoints(active, sort, (id) => appName(apps, id)), parsePage(params));
   const sortHref = (key: EndpointSortKey) => hrefWithoutPage(trafficHref(project, {}), params, nextEndpointSort(sort, key));
   const scope = scopeText(q, q.app ? appName(apps, q.app) : undefined);
@@ -119,6 +125,7 @@ export function TrafficView({
         apps={apps}
         methods={filterOptions(methods, endpoints, "method")}
         paths={filterOptions(null, endpoints, "path")}
+        consumers={(consumers ?? []).map((c) => ({ value: c.value, label: c.label || c.value, count: c.count }))}
       />
 
       {summary === null ? (
@@ -150,7 +157,7 @@ export function TrafficView({
                 <div className="tr-scroll">
                 {active.length === 0 ? (
                   <p className="tr-empty" role="status">
-                    No endpoints with requests in {scope}.
+                    {metrics.length ? <>No endpoints in {scope} where {metrics.map(metricText).join(" and ")}.</> : <>No endpoints with requests in {scope}.</>}
                   </p>
                 ) : apps && apps.length > 0 ? (
                   <EndpointRowMenus project={project} apps={apps}>

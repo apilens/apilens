@@ -50,11 +50,18 @@ type RouteInput struct {
 	Path   string `query:"path" maxLength:"1024" doc:"Route template, as the endpoints list names it (/orders/{id}); empty means every route."`
 	From   string `query:"from" maxLength:"40" doc:"Start of a custom window (RFC 3339), with to; it replaces range. At most 7 days long."`
 	To     string `query:"to" maxLength:"40" doc:"End of a custom window (RFC 3339), with from."`
+	// Consumer is read from the raw requests (the rollups aren't kept by consumer): see sourceOf.
+	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests of this consumer (the consumer id the SDK reports); empty means every consumer. Read from the raw requests, up to the 7 days a custom window spans."`
 }
 
-// withRoute narrows a filter to the method and route template in, when given.
+// withRoute narrows a filter to the method, route template and consumer in, when given. A
+// consumer condition only reads on the raw requests: callers read from sourceOf(w, in).
 func withRoute(where string, args []any, in RouteInput) (string, []any) {
 	out := append([]any{}, args...)
+	if in.Consumer != "" {
+		where += " AND consumer_id = ?"
+		out = append(out, in.Consumer)
+	}
 	if in.Method != "" {
 		where += " AND method = ?"
 		out = append(out, strings.ToUpper(in.Method))
@@ -293,15 +300,17 @@ type summaryScope struct {
 	targs      []any
 	where      string
 	args       []any
+	route      RouteInput
 }
 
 // totals reads the summary totals of w.
 func (s *Service) totals(ctx context.Context, sc summaryScope, w window) (summaryTotals, error) {
 	t := summaryTotals{From: w.from, To: w.to}
 	var q []float32
+	src := sourceOf(w, sc.route)
 	err := s.ch.QueryRow(ctx, fmt.Sprintf(`
-		SELECT sum(requests), sum(client_errors), sum(server_errors), %s, min(bucket)
-		FROM %s WHERE %s AND bucket >= ? AND bucket < ?`, quantiles, w.table, sc.where),
+		SELECT %s, %s, toDateTime(min(%s))
+		FROM %s WHERE %s AND %s >= ? AND %s < ?`, src.split, src.quantiles, src.ts, src.table, sc.where, src.ts, src.ts),
 		append(append([]any{}, sc.args...), w.from, w.to)...).Scan(&t.Requests, &t.ClientErrors, &t.ServerErrors, &q, &t.first)
 	if err != nil {
 		return t, internalError("summary", err)
@@ -322,7 +331,7 @@ func (s *Service) totals(ctx context.Context, sc summaryScope, w window) (summar
 	t.ErrorRate = float64(t.ClientErrors+t.ServerErrors) / float64(t.Requests)
 	t.P50Ms, t.P95Ms, t.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
 	t.Apdex = apdex[""].score()
-	t.first = t.first.UTC()
+	t.first = t.first.UTC().Truncate(time.Minute)
 	return t, nil
 }
 
@@ -344,6 +353,7 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	if sc.tenant, sc.targs, err = withApp(sc.tenant, sc.targs, in.App); err != nil {
 		return nil, err
 	}
+	sc.route = in.RouteInput
 	sc.tenant, sc.targs = withRoute(sc.tenant, sc.targs, in.RouteInput)
 	sc.where, sc.args = sc.rules.withoutExcluded(sc.tenant, sc.targs)
 	if sc.thresholds, err = s.apdexThresholds(ctx, p.ProjectID); err != nil {
@@ -357,8 +367,13 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 	}
 	var current uint64
 	lastMinute := now.UTC().Truncate(time.Minute).Add(-time.Minute)
-	err = s.ch.QueryRow(qctx, `SELECT sum(requests) FROM api_requests_1m WHERE `+sc.where+` AND bucket = ?`,
-		append(append([]any{}, sc.args...), lastMinute)...).Scan(&current)
+	if in.Consumer != "" {
+		err = s.ch.QueryRow(qctx, `SELECT count() FROM api_requests WHERE `+sc.where+` AND timestamp >= ? AND timestamp < ?`,
+			append(append([]any{}, sc.args...), lastMinute, lastMinute.Add(time.Minute))...).Scan(&current)
+	} else {
+		err = s.ch.QueryRow(qctx, `SELECT sum(requests) FROM api_requests_1m WHERE `+sc.where+` AND bucket = ?`,
+			append(append([]any{}, sc.args...), lastMinute)...).Scan(&current)
+	}
 	if err != nil {
 		return nil, internalError("summary current rate", err)
 	}
@@ -429,12 +444,12 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 	if err != nil {
 		return nil, err
 	}
-	// table and bucket width come from the fixed ranges map, never from input.
+	// table, columns and bucket width come from sourceOf and the fixed ranges map, never from input.
+	src := sourceOf(w, in.RouteInput)
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket, INTERVAL %d SECOND) AS ts,
-		       sum(requests), sum(client_errors), sum(server_errors), %s
-		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
-		GROUP BY ts ORDER BY ts`, seconds, quantiles, w.table, where), append(args, w.from, w.to)...)
+		SELECT toDateTime(toStartOfInterval(%s, INTERVAL %d SECOND)) AS ts, %s, %s
+		FROM %s WHERE %s AND %s >= ? AND %s < ?
+		GROUP BY ts ORDER BY ts`, src.ts, seconds, src.split, src.quantiles, src.table, where, src.ts, src.ts), append(args, w.from, w.to)...)
 	if err != nil {
 		return nil, internalError("timeseries", err)
 	}
@@ -534,10 +549,12 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
+	src := sourceOf(w, in.RouteInput)
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
-		SELECT app_id, method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), sum(latency_sum_ms), %s
-		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
-		GROUP BY app_id, method, path ORDER BY total DESC, path, method, app_id LIMIT ?`, quantiles, w.table, where),
+		SELECT app_id, method, path, %s AS total, %s, %s, %s, %s
+		FROM %s WHERE %s AND %s >= ? AND %s < ?
+		GROUP BY app_id, method, path ORDER BY total DESC, path, method, app_id LIMIT ?`,
+		src.requests, src.client, src.server, src.totalTime, src.quantiles, src.table, where, src.ts, src.ts),
 		append(args, w.from, w.to, in.Limit)...)
 	if err != nil {
 		return nil, internalError("endpoints", err)
@@ -567,7 +584,8 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err := rows.Err(); err != nil {
 		return nil, internalError("endpoints", err)
 	}
-	if len(out.Body.Endpoints) < in.Limit {
+	// Declared routes without traffic aren't a consumer's: with one in scope they stay out.
+	if len(out.Body.Endpoints) < in.Limit && in.Consumer == "" {
 		routes, err := s.discoveredRoutes(ctx, p.ProjectID, in.Env)
 		if err != nil {
 			return nil, err

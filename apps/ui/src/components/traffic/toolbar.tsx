@@ -29,6 +29,7 @@ export function TrafficToolbar({
   apps,
   methods,
   paths,
+  consumers = [],
 }: {
   project: string;
   query: TrafficState;
@@ -36,6 +37,7 @@ export function TrafficToolbar({
   apps: NamedApp[] | null;
   methods: { value: string; label: string; count?: number }[];
   paths: { value: string; label: string; count?: number }[];
+  consumers?: { value: string; label: string; count?: number }[];
 }) {
   const router = useRouter();
   // A picked window is a fixed past span: Live has nothing new to show there, so it starts paused.
@@ -116,7 +118,7 @@ export function TrafficToolbar({
         </Tip>
       </div>
       <div className="tr-tools__scope">
-        <TrafficFilterBar project={project} query={q} environments={envs} apps={apps} methods={methods} paths={paths} />
+        <TrafficFilterBar project={project} query={q} environments={envs} apps={apps} methods={methods} paths={paths} consumers={consumers} />
       </div>
       <div className="tr-tools__end">
         <Tip label="Refresh" keys={["⇧", "R"]}>

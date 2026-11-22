@@ -721,10 +721,27 @@ function narrowTraffic(seed: TrafficSeed | undefined, params: URLSearchParams): 
   const app = params.get("app") ?? "";
   const method = (params.get("method") ?? "").toUpperCase();
   const route = params.get("path") ?? "";
-  if (!seed || (!app && !method && !route)) return seed;
+  const consumer = params.get("consumer") ?? "";
+  if (!seed || (!app && !method && !route && !consumer)) return seed;
   const all = (seed.endpoints ?? []) as Record<string, unknown>[];
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  const rows = all.filter((e) => (!app || e.app_id === app) && (!method || String(e.method).toUpperCase() === method) && (!route || e.path === route));
+  // `?consumer=`: the seed has no consumers, so a consumer is a stable made-up slice: about two
+  // thirds of the routes, each at 5–25% of its requests, picked from a hash of the id and route.
+  const hash = (t: string) => [...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const slice = (e: Record<string, unknown>): Record<string, unknown> | null => {
+    if (!consumer) return e;
+    const h = hash(`${consumer} ${String(e.method)} ${String(e.path)}`);
+    if (h % 3 === 0) return null;
+    const f = 0.05 + (h % 21) / 100;
+    const n = (k: string) => Math.round(num(e[k]) * f);
+    return { ...e, requests: Math.max(1, n("requests")), client_errors: n("client_errors"), server_errors: n("server_errors"), total_time_ms: num(e.total_time_ms) * f };
+  };
+  const rows = all
+    .filter((e) => (!app || e.app_id === app) && (!method || String(e.method).toUpperCase() === method) && (!route || e.path === route))
+    .flatMap((e) => {
+      const r = slice(e);
+      return r ? [r] : [];
+    });
   const total = all.reduce((n, e) => n + num(e.requests), 0);
   const requests = rows.reduce((n, e) => n + num(e.requests), 0);
   const share = total > 0 ? requests / total : 0;

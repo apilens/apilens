@@ -1349,6 +1349,8 @@ export interface TrafficQuery {
   /** A custom window (RFC 3339, both or neither), replacing the range's. */
   from?: string;
   to?: string;
+  /** One consumer's requests (read from the raw requests); absent means every consumer. */
+  consumer?: string;
 }
 
 /** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
@@ -2537,8 +2539,8 @@ export interface AppSettings {
  * {@link CallOptions} last; authenticated ones require `accessToken`.
  */
 /** The traffic reads' `range` and `env` query parameters; an empty environment is left out (all). */
-function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; from?: string; to?: string } {
-  const { range, env, app, method, path, from, to } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
+function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string; method?: string; path?: string; from?: string; to?: string; consumer?: string } {
+  const { range, env, app, method, path, from, to, consumer } = typeof q === "string" ? ({ range: q } as TrafficQuery) : q;
   return {
     ...(range ? { range } : {}),
     ...(env ? { env } : {}),
@@ -2546,6 +2548,7 @@ function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?:
     ...(method ? { method } : {}),
     ...(path ? { path } : {}),
     ...(from && to ? { from, to } : {}),
+    ...(consumer ? { consumer } : {}),
   };
 }
 

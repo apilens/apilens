@@ -547,3 +547,34 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 .tr .tr-pg { gap: 16px; }
 /* An empty Traffic chart keeps the 60px plot's place. */
 .tr-over .exc:empty { height: 60px; }
+
+/* Rows behave as Explore's log rows (.exl-body > .exl-row): the whole row opens (pointer), hover
+   is a --surface-2 wash with no underline or colour change on the path, and keyboard focus washes
+   the row with a 2px --accent-ink bar on its left edge instead of an outline. */
+.tr .tr-row { cursor: pointer; }
+.tr .tr-row:hover .tr-ep__link code { color: var(--ink); text-decoration: none; }
+.tr .tr-ep__link:focus { outline: none; }
+.tr .tr-row:has(.tr-ep__link:focus-visible) { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
+.tr .tr-row .tr-drill { text-decoration: none; }
+.tr .tr-row .tr-drill:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* The sidebar's Endpoint metrics (metric-filters.tsx): per field a 32px row of Explore's controls
+   (.exf-search: --control-border hairline, --radius-xs, 12px text), the field name, an operator
+   and the value; a set row's name is in ink, an unreadable value says so under it. */
+.tr-mf { display: grid; gap: 6px; }
+.tr-mf__row { display: grid; grid-template-columns: 32px 44px minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.tr-mf__label { padding-left: 8px; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.tr-mf__row.is-on .tr-mf__label { color: var(--ink); }
+.tr-mf__op, .tr-mf__value { box-sizing: border-box; height: 32px; border: 1px solid var(--control-border); border-radius: var(--radius-xs); background: transparent; color: var(--ink); font: 450 12px/1 var(--font-sans); transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out; }
+.tr-mf__op { padding: 0 6px; text-align: center; cursor: pointer; }
+.tr-mf__op option { background: var(--surface-1); color: var(--ink); }
+.tr-mf__value { min-width: 0; width: 100%; padding: 0 8px; }
+.tr-mf__value::placeholder { color: var(--ink-muted); }
+.tr-mf__op:focus-visible, .tr-mf__value:focus { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+.tr-mf__value[aria-invalid] { border-color: var(--error); }
+.tr-mf__row.is-on .tr-mf__value { border-color: var(--ink-muted); }
+.tr-mf__x { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-muted); cursor: pointer; }
+.tr-mf__x:hover { background: var(--surface-2); color: var(--ink); }
+.tr-mf__x svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.tr-mf__err { grid-column: 2 / -1; margin: 0; font: 400 11px/14px var(--font-sans); color: var(--error); }
+@media (prefers-reduced-motion: reduce) { .tr-mf__op, .tr-mf__value { transition: none; } }

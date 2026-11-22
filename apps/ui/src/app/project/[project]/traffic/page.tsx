@@ -68,22 +68,24 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     ...(q.method ? { method: q.method } : {}),
     ...(q.path ? { path: q.path } : {}),
     ...(q.from && q.to ? { from: q.from, to: q.to } : {}),
+    ...(q.consumer ? { consumer: q.consumer } : {}),
   };
   // The sidebar's facets (and the filter bar's suggestions): requests per value of each field
   // under every other condition (a field's own is left out, so its other values stay listed).
-  const cond: Record<"env" | "app" | "method" | "path", string | null> = {
+  const cond: Record<"env" | "app" | "method" | "path" | "consumer", string | null> = {
     env: q.env && q.env !== "all" ? `env:eq:${q.env}` : null,
     app: q.app ? `app:eq:${q.app.toLowerCase()}` : null,
     method: q.method ? `method:eq:${q.method}` : null,
     path: q.path ? `path:eq:${q.path}` : null,
+    consumer: q.consumer ? `consumer:eq:${q.consumer}` : null,
   };
-  const facet = (field: "env" | "app" | "method" | "path", limit: number) => {
+  const facet = (field: "env" | "app" | "method" | "path" | "consumer", limit: number) => {
     const filter = Object.entries(cond).flatMap(([k, v]) => (k === field || !v ? [] : [v]));
     return read<RequestFacets>(next, (o) =>
       identity().requestFacets(project, { range: q.range, field, limit, ...(q.from && q.to ? { from: q.from, to: q.to } : {}), ...(filter.length ? { filter } : {}) }, o),
     );
   };
-  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, pathCounts, consumers] = await Promise.all([
+  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, pathCounts, consumers, consumerCounts] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
@@ -98,6 +100,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     facet("path", 10),
     // The Consumers card: unique consumers of the range (and environment), new vs returning.
     read<ConsumersList>(next, (o) => identity().listConsumers(project, { range: q.range, ...(q.env && q.env !== "all" ? { env: q.env } : {}), ...(q.app ? { app: q.app } : {}), ...(q.method ? { method: q.method } : {}), ...(q.path ? { path: q.path } : {}), limit: 1 }, o)),
+    facet("consumer", 12),
   ]);
   const facetValues = (f: RequestFacets | null) => (f === null ? null : (f.values ?? []));
 
@@ -115,6 +118,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
           appCounts={facetValues(appCounts)}
           methods={facetValues(methods)}
           paths={facetValues(pathCounts)}
+          consumers={facetValues(consumerCounts)}
         />
       }
     >
@@ -131,6 +135,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
         apps={apps?.apps ?? null}
         methods={methods === null ? null : (methods.values ?? [])}
+        consumers={facetValues(consumerCounts)}
         audience={consumers === null ? null : { ...consumers.summary, requests: consumers.totals.requests }}
 
         // Links and forms keep the URL form of the scope (`env=all` stays all environments).

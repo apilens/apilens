@@ -27,16 +27,16 @@ const BILLING = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
 
 describe("parseTrafficQuery", () => {
   it("defaults to the last 24 hours in all environments", () => {
-    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "" });
+    expect(parseTrafficQuery({})).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
   });
 
   it("reads a known range and an environment", () => {
-    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "", from: "", to: "" });
-    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "", from: "", to: "" });
+    expect(parseTrafficQuery({ range: "7d", env: "production" })).toEqual({ range: "7d", env: "production", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
+    expect(parseTrafficQuery({ range: ["1h", "7d"], env: [" staging "] })).toEqual({ range: "1h", env: "staging", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
   });
 
   it("falls back on an unknown range or an environment name the API would refuse", () => {
-    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "" });
+    expect(parseTrafficQuery({ range: "30d", env: "x".repeat(65) })).toEqual({ range: "24h", env: "", app: "", method: "", path: "", from: "", to: "", consumer: "", metrics: [] });
   });
 
   it("reads the filter bar's method (upper case) and route template, refusing what the API would", () => {
@@ -229,5 +229,25 @@ describe("declared routes and path search (#1003)", () => {
     expect(paths("ORDERS")).toEqual(["GET /orders/{id}", "DELETE /orders/{id}"]);
     expect(paths("post /ch")).toEqual(["POST /charge"]);
     expect(paths("/nothing")).toEqual([]);
+  });
+});
+
+describe("consumer and endpoint metric filters", () => {
+  it("reads ?consumer= and ?m= conditions, dropping what the API would refuse", () => {
+    const q = parseTrafficQuery({ consumer: " acme ", m: ["p95:gt:500", "client_errors:lt:2%", "p99:gt:5"] });
+    expect(q.consumer).toBe("acme");
+    expect(q.metrics).toEqual([
+      { field: "client_errors", op: "lt", value: 2, pct: true },
+      { field: "p95", op: "gt", value: 500, pct: false },
+    ]);
+    expect(parseTrafficQuery({ consumer: "x".repeat(257) }).consumer).toBe("");
+  });
+  it("writes them back into the page URL, so the sidebar, the filter bar and links agree", () => {
+    const q = parseTrafficQuery({ range: "24h", env: "production", consumer: "acme", m: ["server_errors:eq:0", "p95:gt:1500"] });
+    const href = trafficHref("shop", q);
+    expect(href).toBe("/project/shop/traffic?range=24h&env=production&consumer=acme&m=server_errors%3Aeq%3A0&m=p95%3Agt%3A1500");
+    const back = parseTrafficQuery(Object.fromEntries([...new URLSearchParams(href.split("?")[1]).keys()].map((k) => [k, new URLSearchParams(href.split("?")[1]).getAll(k)])));
+    expect(back.consumer).toBe("acme");
+    expect(back.metrics).toEqual(q.metrics);
   });
 });

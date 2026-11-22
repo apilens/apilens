@@ -6,6 +6,7 @@ import { RANGE_LABEL, niceMax } from "./consumers";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint } from "./identity";
 import { envParam } from "./scope-defaults";
 import { projectHref } from "./routes";
+import { type MetricCond, metricParam, parseMetricParams } from "./traffic-metrics";
 
 export const TRAFFIC_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -30,7 +31,14 @@ export interface TrafficState {
   /** A window picked on the chart (RFC 3339, both or neither); it replaces the range's window. */
   from?: string;
   to?: string;
+  /** One consumer's requests only (the consumer id the SDK reports); "" or absent means all. */
+  consumer?: string;
+  /** Conditions on the endpoints table's numbers (`?m=p95:gt:500`): rows that don't meet them are left out. */
+  metrics?: MetricCond[];
 }
+
+/** The longest consumer id the API takes. */
+const MAX_CONSUMER = 256;
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/;
 /** The longest window the API reads (7 days). */
@@ -64,6 +72,11 @@ export function parseTrafficQuery(params: SearchParams): TrafficState {
       return v.startsWith("/") && v.length <= MAX_PATH ? v : "";
     })(),
     ...parseWindow((first(params.from) ?? "").trim(), (first(params.to) ?? "").trim()),
+    consumer: (() => {
+      const v = (first(params.consumer) ?? "").trim();
+      return v.length <= MAX_CONSUMER ? v : "";
+    })(),
+    metrics: parseMetricParams(params.m),
   };
 }
 
@@ -108,6 +121,8 @@ export function trafficHref(project: string, q: Partial<TrafficState>): string {
     p.set("from", q.from);
     p.set("to", q.to);
   }
+  if (q.consumer) p.set("consumer", q.consumer);
+  for (const m of q.metrics ?? []) p.append("m", metricParam(m));
   const all = p.toString();
   return `${projectHref(project, "traffic")}${all ? `?${all}` : ""}`;
 }
