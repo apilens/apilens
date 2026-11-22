@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { reasonPhrase } from "@/lib/http-status";
-import { compactCount } from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
 import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
 import { Icon } from "../icons";
 import { SidePanel } from "../shell/side-panel";
+import { Item } from "./facet-item";
+import { SearchableList } from "./searchable-list";
 import { TrafficTimeRange } from "./time-range";
 import "../explore/explore.css";
 
@@ -22,7 +22,7 @@ const LEVELS = [
  * Traffic's secondary sidebar, Explore's facet panel in look: the time range (Explore's button and
  * date picker), then a section per field the page can be narrowed by (environment, app, method),
  * as Explore lists them, then Level (success 2xx–3xx, warning 4xx, error 5xx) and Status (the
- * codes), each value with its requests under the other filters. One status filter at a time: a
+ * codes, with Explore's facet search), each value with its requests under the other filters. One status filter at a time: a
  * level or a code. Endpoints, consumers
  * and the table's metric conditions (4xx, 5xx, p95, p50 with > < =) are filtered from the filter bar
  * and the table's ⋯ menus. A value is a link: picking it narrows the page to it (one per field, as
@@ -98,21 +98,26 @@ export function TrafficMenu({
               ))}
             </ul>
           </Section>
-          <FacetSection
-            title="Status"
-            field="status"
-            mono
-            values={codes.map((c) => ({ ...c, label: c.value }))}
-            current={/^\d{3}$/.test(current.status) ? current.status : ""}
-            hrefFor={hrefFor}
-            onlyFor={onlyFor}
-            body={(v) => (
-              <span className="exf-code">
-                <span className="exf-code__num">{v}</span>
-                {reasonPhrase(Number(v)) ? <span className="exf-code__phrase">{reasonPhrase(Number(v))}</span> : null}
-              </span>
+          <Section title="Status">
+            {statuses === null ? (
+              <p className="tr-fnote">Couldn’t load these just now.</p>
+            ) : codes.length === 0 ? (
+              <p className="tr-fnote">No requests in this range.</p>
+            ) : (
+              <SearchableList
+                label="Status"
+                codes
+                rows={codes.map((c) => ({
+                  value: c.value,
+                  label: c.value,
+                  count: c.count,
+                  on: current.status === c.value,
+                  href: hrefFor("status", c.value),
+                  only: onlyFor("status", c.value),
+                }))}
+              />
             )}
-          />
+          </Section>
         </div>
       </div>
     </SidePanel>
@@ -143,7 +148,6 @@ function FacetSection({
   hrefFor,
   onlyFor,
   mono = false,
-  body,
 }: {
   title: string;
   field: Field;
@@ -152,8 +156,6 @@ function FacetSection({
   hrefFor: (f: Field, v: string) => string;
   onlyFor: (f: Field, v: string) => string;
   mono?: boolean;
-  /** A row's own content (a status code with its reason phrase); the label otherwise. */
-  body?: (value: string) => ReactNode;
 }) {
   // The current value stays listed even when the counts left it out.
   const list = values && current && !values.some((v) => v.value === current) ? [{ value: current, label: current, count: 0 }, ...values] : values;
@@ -166,48 +168,10 @@ function FacetSection({
       ) : (
         <ul className="exf-list tr-flist">
           {list.map((v) => (
-            <Item key={v.value} on={current === v.value} href={hrefFor(field, v.value)} only={onlyFor(field, v.value)} label={v.label || v.value} count={v.count} mono={mono} body={body?.(v.value)} />
+            <Item key={v.value} on={current === v.value} href={hrefFor(field, v.value)} only={onlyFor(field, v.value)} label={v.label || v.value} count={v.count} mono={mono} />
           ))}
         </ul>
       )}
     </Section>
-  );
-}
-
-function Item({
-  on,
-  href,
-  only,
-  label,
-  count,
-  mono = false,
-  body,
-}: {
-  on: boolean;
-  href: string;
-  /** Keeps this value alone (Explore's hover Only). */
-  only: string;
-  label: string;
-  count?: number;
-  mono?: boolean;
-  body?: ReactNode;
-}) {
-  return (
-    <li className={`exf-item${on ? " is-checked" : ""}`}>
-      <a className={`exf-label tr-flink${mono ? " is-mono" : ""}`} href={href} aria-current={on ? "true" : undefined} title={on ? `${label}: click to clear` : label}>
-        <span className={`tr-fbox${on ? " is-on" : ""}`} aria-hidden="true">
-          {on ? <Icon name="check" /> : null}
-        </span>
-        {body ?? <span className="exf-label__text">{label}</span>}
-      </a>
-      {count !== undefined ? (
-        <span className="exf-count" title={`${count.toLocaleString("en-US")} requests`}>
-          {compactCount(count)}
-        </span>
-      ) : null}
-      <a className="exf-only" href={only} aria-label={`Only ${label}`}>
-        Only
-      </a>
-    </li>
   );
 }

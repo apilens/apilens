@@ -574,3 +574,6 @@ td.tr-num .tr-cell { justify-content: flex-end; }
    instead; the button looks the same. */
 .tr-row .exa-btn { position: relative; }
 .tr-row .exa-btn::before { content: ""; position: absolute; inset: -5px -6px; }
+
+/* "Only" is a link here (the filter is in the URL); Explore's is a button, so no underline. */
+.tr-flist a.exf-only { text-decoration: none; }
