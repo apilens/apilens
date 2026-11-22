@@ -353,7 +353,6 @@ function EndpointsTable({
                   </a>
                   <FieldMenu
                     label="Endpoint"
-                    copy={`${ep.method.toUpperCase()} ${ep.path}`}
                     actions={[
                       { label: "Show only this endpoint", href: trafficHref(project, { ...q, method: ep.method.toUpperCase(), path: ep.path }) },
                       { label: `Show only ${ep.method.toUpperCase()}`, href: trafficHref(project, { ...q, method: ep.method.toUpperCase() }) },
@@ -367,14 +366,14 @@ function EndpointsTable({
                 <td className="tr-app" data-label="App" data-col="app">
                   <span className="tr-cell">
                     <span>{appName(apps, ep.app_id)}</span>
-                    <FieldMenu label="App" copy={appName(apps, ep.app_id)} actions={[{ label: `Show only ${appName(apps, ep.app_id)}`, href: trafficHref(project, { ...q, app: ep.app_id }) }]} />
+                    <FieldMenu label="App" actions={[{ label: `Show only ${appName(apps, ep.app_id)}`, href: trafficHref(project, { ...q, app: ep.app_id }) }]} />
                   </span>
                 </td>
               ) : null}
               <td className="tr-num" data-label="Requests" data-col="requests" title={total > 0 ? `${formatPercent(ep.requests / total)} of all requests` : undefined}>
                 <span className="tr-cell">
                   <span>{formatCount(ep.requests)}</span>
-                  <FieldMenu label="Requests" copy={String(ep.requests)} actions={[{ label: "Open these requests in Explore", href: drill({}) }]} />
+                  <FieldMenu label="Requests" actions={[{ label: "Open these requests in Explore", href: drill({}) }]} />
                 </span>
               </td>
               <td className="tr-num" data-label="4xx" data-col="client_errors">
@@ -384,7 +383,6 @@ function EndpointsTable({
                   </span>
                   <FieldMenu
                     label="4xx"
-                    copy={String(ep.client_errors)}
                     actions={[...compare("client_errors", ep.client_errors), ...(ep.client_errors > 0 ? [{ label: "Open the 4xx requests in Explore", href: drill({ status: "4xx" }) }] : [])]}
                   />
                 </span>
@@ -396,7 +394,6 @@ function EndpointsTable({
                   </span>
                   <FieldMenu
                     label="5xx"
-                    copy={String(ep.server_errors)}
                     actions={[...compare("server_errors", ep.server_errors), ...(ep.server_errors > 0 ? [{ label: "Open the 5xx requests in Explore", href: drill({ status: "5xx" }) }] : [])]}
                   />
                 </span>
@@ -404,7 +401,7 @@ function EndpointsTable({
               <td className="tr-num" data-label="p50" data-col="p50">
                 <span className="tr-cell">
                   <span>{formatLatency(ep.p50_ms)}</span>
-                  <FieldMenu label="p50" copy={formatLatency(ep.p50_ms)} actions={compare("p50", Math.round(ep.p50_ms))} />
+                  <FieldMenu label="p50" actions={compare("p50", Math.round(ep.p50_ms))} />
                 </span>
               </td>
               <td className="tr-num" data-label="p95" data-col="p95">
@@ -425,7 +422,6 @@ function EndpointsTable({
                 </span>
                 <FieldMenu
                   label="p95"
-                  copy={formatLatency(ep.p95_ms)}
                   actions={[...compare("p95", Math.round(ep.p95_ms)), ...(ep.requests > 0 && ep.p95_ms > 0 ? [{ label: "Open p95-or-slower requests in Explore", href: drill({ latency_min: ep.p95_ms }) }] : [])]}
                 />
                 </span>
@@ -433,13 +429,11 @@ function EndpointsTable({
               <td className="tr-num" data-label="Apdex" data-col="apdex">
                 <span className="tr-cell">
                   <span>{formatApdex(ep.apdex)}</span>
-                  <FieldMenu label="Apdex" copy={formatApdex(ep.apdex)} actions={[]} />
                 </span>
               </td>
               <td className="tr-num" data-label="Time spent" data-col="spent" title="Requests × average response time: where the API spends its time">
                 <span className="tr-cell">
                   <span>{ep.total_time_ms !== undefined ? spentText(ep.total_time_ms) : <span className="tr-muted">–</span>}</span>
-                  {ep.total_time_ms !== undefined ? <FieldMenu label="Time spent" copy={spentText(ep.total_time_ms)} actions={[]} /> : null}
                 </span>
               </td>
               {menus ? (

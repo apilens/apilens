@@ -34,7 +34,7 @@ export function FieldMenu({ label, copy, actions }: { label: string; copy?: stri
 
   return (
     <span className="exa" onClick={stop} onKeyDown={(e) => e.stopPropagation()}>
-      <Tip label={`Filter by or copy ${label.toLowerCase()}`}>
+      <Tip label={copy !== undefined ? `Filter by or copy ${label.toLowerCase()}` : `Filter by ${label.toLowerCase()}`}>
         <button
           ref={trigger}
           type="button"
