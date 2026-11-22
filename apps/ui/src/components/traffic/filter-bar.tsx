@@ -6,6 +6,7 @@ import type { ExploreRange } from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
 import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
 import { type MetricField, OP_SYMBOL, metricText, metricValueText, parseMetricInput } from "@/lib/traffic-metrics";
+import { codeOn, levelState, statusText, toggleCode, toggleLevel } from "@/lib/traffic-status";
 import { rangeIsSet } from "../explore/time-range";
 import { Tip } from "../explore/tip";
 import { TrafficTimePill } from "./time-range";
@@ -78,7 +79,7 @@ export function TrafficFilterBar({
   const current: Record<ScopeField, string> = { env: q.env, app: q.app, method: q.method ?? "", path: q.path ?? "", consumer: q.consumer ?? "", status: q.status ?? "" };
   const metrics = q.metrics ?? [];
   const valueText = (f: ScopeField, v: string) =>
-    f === "app" ? (apps ? appName(apps, v) : v) : f === "consumer" ? (consumers.find((c) => c.value === v)?.label ?? v) : f === "status" ? v.replace("2xx,3xx", "2xx–3xx") : v;
+    f === "app" ? (apps ? appName(apps, v) : v) : f === "consumer" ? (consumers.find((c) => c.value === v)?.label ?? v) : f === "status" ? statusText(v) : v;
   // Every condition in force as one pill: the scope's, then the metric conditions.
   const pills: { key: Field; label: string; op: string; value: string; mono?: boolean }[] = [
     ...FIELDS.flatMap((f) => (!isMetric(f.key) && current[f.key as ScopeField] ? [{ key: f.key, label: f.label, op: "=", value: valueText(f.key as ScopeField, current[f.key as ScopeField]), mono: f.mono }] : [])),
@@ -137,6 +138,9 @@ export function TrafficFilterBar({
     }));
   };
 
+  const statusCodes = statuses.map((o) => o.value).filter((v) => /^\d{3}$/.test(v));
+  // Whether a status option is in the filter, for its ✓ in the menu.
+  const statusOn = (v: string) => (v.includes("xx") ? levelState(current.status, v.split(",")) === "on" : codeOn(current.status, v));
   const t = text.trim().toLowerCase();
   const options: { key: string; text: string; detail?: string; mono?: boolean; run: () => void }[] = field
     ? isMetric(field)
@@ -147,9 +151,13 @@ export function TrafficFilterBar({
         .map((o) => ({
           key: o.value,
           text: o.label,
-          detail: o.count !== undefined ? o.count.toLocaleString("en-US") : current[field] === o.value ? "current" : undefined,
+          detail: `${field === "status" && statusOn(o.value) ? "✓ " : ""}${o.count !== undefined ? o.count.toLocaleString("en-US") : current[field] === o.value ? "current" : ""}` || undefined,
           mono: FIELDS.find((x) => x.key === field)?.mono,
-          run: () => set(field, o.value),
+          // Status adds to (or takes from) the list, as Explore's Level and Status ticks; the rest set one value.
+          run: () =>
+            field === "status"
+              ? set("status", o.value.includes("xx") ? toggleLevel(current.status, o.value.split(",")) : toggleCode(current.status, o.value, statusCodes))
+              : set(field, o.value),
         }))
     : FIELDS.filter((f) => !t || f.label.toLowerCase().includes(t))
         .filter((f) => f.key !== "app" || (apps && apps.length > 0))

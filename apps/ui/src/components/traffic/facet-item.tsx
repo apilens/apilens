@@ -15,8 +15,11 @@ export function Item({
   count,
   mono = false,
   body,
+  partial = false,
 }: {
   on: boolean;
+  /** Some of what the row stands for is in (a level with only some of its codes): Explore's dash. */
+  partial?: boolean;
   href: string;
   /** Keeps this value alone (Explore's hover Only). */
   only: string;
@@ -26,10 +29,10 @@ export function Item({
   body?: ReactNode;
 }) {
   return (
-    <li className={`exf-item${on ? " is-checked" : ""}`}>
+    <li className={`exf-item${on ? " is-checked" : ""}${partial ? " is-partial" : ""}`}>
       <a className={`exf-label tr-flink${mono ? " is-mono" : ""}`} href={href} aria-current={on ? "true" : undefined} title={on ? `${label}: click to clear` : label}>
-        <span className={`tr-fbox${on ? " is-on" : ""}`} aria-hidden="true">
-          {on ? <Icon name="check" /> : null}
+        <span className={`tr-fbox${on || partial ? " is-on" : ""}`} aria-hidden="true">
+          {on ? <Icon name="check" /> : partial ? <span className="exf-dash" /> : null}
         </span>
         {body ?? <span className="exf-label__text">{label}</span>}
       </a>

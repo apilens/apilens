@@ -5,30 +5,25 @@ import { Icon } from "../icons";
 import { SidePanel } from "../shell/side-panel";
 import { Item } from "./facet-item";
 import { SearchableList } from "./searchable-list";
+import { STATUS_LEVELS, codeOn, levelState, toggleCode, toggleLevel } from "@/lib/traffic-status";
 import { TrafficTimeRange } from "./time-range";
 import "../explore/explore.css";
 
 type FacetValue = { value: string; label: string; count: number };
 type Field = "env" | "app" | "method" | "path" | "consumer" | "status";
 
-/** The Level rows (Explore's Supabase levels): each a status filter of its classes. */
-const LEVELS = [
-  { key: "success", label: "Success", cls: "2xx", value: "2xx,3xx" },
-  { key: "warning", label: "Warning", cls: "4xx", value: "4xx" },
-  { key: "error", label: "Error", cls: "5xx", value: "5xx" },
-] as const;
 
 /**
  * Traffic's secondary sidebar, Explore's facet panel in look: the time range (Explore's button and
  * date picker), then a section per field the page can be narrowed by (environment, app, method),
  * as Explore lists them, then Level (success 2xx–3xx, warning 4xx, error 5xx) and Status (the
- * codes, with Explore's facet search), each value with its requests under the other filters. One status filter at a time: a
- * level or a code. Endpoints, consumers
- * and the table's metric conditions (4xx, 5xx, p95, p50 with > < =) are filtered from the filter bar
- * and the table's ⋯ menus. A value is a link: picking it narrows the page to it (one per field, as
- * the traffic reads take), picking it again lets it go; its Only (on hover, as Explore's) keeps it
- * alone. Sections
- * fold (`<details>`), so the panel works before JavaScript. Reset clears every filter.
+ * codes, with Explore's facet search), each value with its requests under the other filters.
+ * Endpoints, consumers and the table's metric conditions (4xx, 5xx, p95, p50 with > < =) are
+ * filtered from the filter bar and the table's ⋯ menus. A value is a link. Environment, app and
+ * method take one value (as the traffic reads do): picking one narrows to it, again lets it go.
+ * Level and Status tick like Explore's (lib/traffic-status): any mix of levels and codes, a level
+ * partly ticked when only some of its codes are in. Every row's Only (on hover) keeps it alone.
+ * Sections fold (`<details>`), so the panel works before JavaScript. Reset clears every filter.
  */
 export function TrafficMenu({
   project,
@@ -77,14 +72,15 @@ export function TrafficMenu({
           <FacetSection title="Method" field="method" mono values={methods?.map((m) => ({ ...m, value: m.value.toUpperCase(), label: m.value.toUpperCase() })) ?? null} current={current.method} hrefFor={hrefFor} onlyFor={onlyFor} />
           <Section title="Level">
             <ul className="exf-list tr-flist">
-              {LEVELS.map((l) => (
+              {STATUS_LEVELS.map((l) => (
                 <Item
                   key={l.key}
-                  on={current.status === l.value}
-                  href={hrefFor("status", l.value)}
-                  only={onlyFor("status", l.value)}
+                  on={levelState(current.status, l.classes) === "on"}
+                  partial={levelState(current.status, l.classes) === "partial"}
+                  href={trafficHref(project, { ...q, status: toggleLevel(current.status, l.classes) })}
+                  only={onlyFor("status", l.classes.join(","))}
                   label={l.label}
-                  count={statuses === null ? undefined : levelCount(l.value)}
+                  count={statuses === null ? undefined : levelCount(l.classes.join(","))}
                   body={
                     <span className="exf-level">
                       <span className="exf-level__name">{l.label}</span>
@@ -111,8 +107,8 @@ export function TrafficMenu({
                   value: c.value,
                   label: c.value,
                   count: c.count,
-                  on: current.status === c.value,
-                  href: hrefFor("status", c.value),
+                  on: codeOn(current.status, c.value),
+                  href: trafficHref(project, { ...q, status: toggleCode(current.status, c.value, codes.map((k) => k.value)) }),
                   only: onlyFor("status", c.value),
                 }))}
               />
