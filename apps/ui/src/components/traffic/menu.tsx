@@ -12,8 +12,8 @@ type Field = "env" | "app" | "method" | "path" | "consumer";
 
 /**
  * Traffic's secondary sidebar, Explore's facet panel in look: the time range (Explore's button and
- * date picker), then a section per field the page can be narrowed by (environment, app when there
- * are several, method, consumer), each value with its requests under the other filters. Endpoints
+ * date picker), then a section per field the page can be narrowed by (environment, app, method,
+ * consumer), as Explore lists them, each value with its requests under the other filters. Endpoints
  * and the table's metric conditions (4xx, 5xx, p95, p50 with > < =) are filtered from the filter bar
  * and the table's ⋯ menus. A value is a link: picking it narrows the
  * page to it (one per field, as the traffic reads take), picking it again lets it go. Sections
@@ -55,7 +55,7 @@ export function TrafficMenu({
         <div className="exf-scroll">
           <TrafficTimeRange project={project} query={q} />
           <FacetSection title="Environment" field="env" values={envs} current={current.env} hrefFor={hrefFor} />
-          {apps && apps.length > 1 ? (
+          {apps && apps.length > 0 ? (
             <FacetSection title="App" field="app" values={appCounts?.map((a) => ({ ...a, label: appName(apps, a.value) })) ?? null} current={current.app} hrefFor={hrefFor} />
           ) : null}
           <FacetSection title="Method" field="method" mono values={methods?.map((m) => ({ ...m, value: m.value.toUpperCase(), label: m.value.toUpperCase() })) ?? null} current={current.method} hrefFor={hrefFor} />

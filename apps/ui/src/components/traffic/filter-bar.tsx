@@ -146,7 +146,7 @@ export function TrafficFilterBar({
           run: () => set(field, o.value),
         }))
     : FIELDS.filter((f) => !t || f.label.toLowerCase().includes(t))
-        .filter((f) => f.key !== "app" || (apps && apps.length > 1))
+        .filter((f) => f.key !== "app" || (apps && apps.length > 0))
         .map((f) => {
           const on = pills.find((p) => p.key === f.key);
           return { key: f.key, text: f.metric ? `${f.label} (endpoints)` : f.label, detail: on ? `${on.op === "=" ? "" : `${on.op} `}${on.value}` : undefined, run: () => pick(f.key) };
