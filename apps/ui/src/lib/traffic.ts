@@ -335,3 +335,7 @@ export function declaredLabel(n: number): string {
 export const TRAFFIC_LOAD_FAILED ="We couldn’t load traffic just now.";
 export const TIMESERIES_LOAD_FAILED = "We couldn’t load traffic over time just now.";
 export const ENDPOINTS_LOAD_FAILED = "We couldn’t load endpoints just now.";
+
+/** Endpoints-table columns hidden until shown from the Columns menu: p95 is the table's latency,
+ * p50 and time spent are opt-in. The page renders them hidden from the server. */
+export const TRAFFIC_HIDDEN_COLUMNS = ["p50", "spent"] as const;

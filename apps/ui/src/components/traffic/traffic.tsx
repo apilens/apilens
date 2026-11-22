@@ -27,6 +27,7 @@ import {
   sortEndpoints,
   splitDeclared,
   trafficHref,
+  TRAFFIC_HIDDEN_COLUMNS,
 } from "@/lib/traffic";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
@@ -110,7 +111,7 @@ export function TrafficView({
     explore: exploreHrefFor(project, { range: q.range, env: q.env, app: q.app, method: q.method, path: q.path, from: "__FROM__", to: "__TO__" }),
   };
   return (
-    <div className="page tr">
+    <div className="page tr" data-hide={TRAFFIC_HIDDEN_COLUMNS.join(" ")}>
       <TrafficToolbar
         project={project}
         query={q}
@@ -239,20 +240,9 @@ function RedCharts({
         </div>
         <div className="tr-strip__item">
           <dt>Response time</dt>
-          {/* Three percentiles side by side, each under its own small label. */}
-          <dd className="tr-pcts">
-            {(
-              [
-                ["p50", s.p50_ms],
-                ["p95", s.p95_ms],
-                ["p99", s.p99_ms],
-              ] as const
-            ).map(([k, ms]) => (
-              <span key={k} className="tr-pct">
-                <small>{k}</small>
-                <LiveNumber text={formatLatency(ms)} />
-              </span>
-            ))}
+          <dd>
+            <LiveNumber text={formatLatency(s.p95_ms)} />
+            <span className="tr-strip__aside">p95</span>
           </dd>
         </div>
         {audience ? (

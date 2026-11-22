@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TRAFFIC_HIDDEN_COLUMNS } from "@/lib/traffic";
 import { Icon } from "../icons";
 import { PopMenu } from "../pop-menu";
 import { Tip } from "../explore/tip";
@@ -18,21 +19,26 @@ export const TRAFFIC_COLUMNS = [
 ] as const;
 type ColumnId = (typeof TRAFFIC_COLUMNS)[number]["id"];
 
-const KEY = "apilens.traffic.columns.hidden";
+const DEFAULT_HIDDEN: readonly ColumnId[] = TRAFFIC_HIDDEN_COLUMNS;
+// v2: the defaults changed (p50 and Time spent hidden), so older saved choices don't apply.
+const KEY = "apilens.traffic.columns.hidden.v2";
 const ATTR = "data-hide";
 
 function readHidden(): ColumnId[] {
   try {
-    const v: unknown = JSON.parse(window.localStorage.getItem(KEY) ?? "[]");
+    const raw = window.localStorage.getItem(KEY);
+    if (raw === null) return [...DEFAULT_HIDDEN];
+    const v: unknown = JSON.parse(raw);
     return Array.isArray(v) ? v.filter((x): x is ColumnId => TRAFFIC_COLUMNS.some((c) => c.id === x)) : [];
   } catch {
-    return [];
+    return [...DEFAULT_HIDDEN];
   }
 }
 
 /**
  * The Columns menu, Explore's (the 26px sliders button, a find box, a checkbox per column, Reset
  * columns ⌘U), for the endpoints table: show or hide each column, remembered in this browser.
+ * p50 and Time spent start hidden (TRAFFIC_HIDDEN_COLUMNS); the page renders them hidden from the server.
  * The table stays server-rendered; hidden columns are named on the page (`data-hide`) and CSS
  * hides their cells.
  */
@@ -40,7 +46,7 @@ export function TrafficColumnsMenu() {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [hidden, setHidden] = useState<ColumnId[]>([]);
+  const [hidden, setHidden] = useState<ColumnId[]>([...DEFAULT_HIDDEN]);
 
   useEffect(() => setHidden(readHidden()), []);
   useEffect(() => {
@@ -64,7 +70,7 @@ export function TrafficColumnsMenu() {
       if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "u") {
         e.preventDefault();
-        save([]);
+        save([...DEFAULT_HIDDEN]);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -112,7 +118,7 @@ export function TrafficColumnsMenu() {
           </ul>
           <div className="ex-views__actions">
             <Tip label="Reset columns" keys={["⌘", "U"]}>
-              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-keyshortcuts="Meta+U" onClick={() => save([])}>
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-keyshortcuts="Meta+U" onClick={() => save([...DEFAULT_HIDDEN])}>
                 Reset columns
               </button>
             </Tip>
