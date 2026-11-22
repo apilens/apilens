@@ -11,6 +11,7 @@ import {
   type EndpointTraffic,
   type EnvironmentsList,
   type ProjectApps,
+  type RequestFacets,
   type TrafficSummary,
   type TrafficTimeseries,
   identity,
@@ -38,8 +39,9 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
   }
 }
 
-// Traffic (#592): requests, errors and latency tiles, the status-split timeseries and the
-// endpoints table, scoped by the range and environment in the URL.
+// Traffic (#592): the KPI strip, one chart (requests by status, or response time), the top
+// endpoints, consumers and status codes, and the endpoints table, scoped by the range,
+// environment and app in the URL.
 export default async function TrafficPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
   const raw = await searchParams;
@@ -58,7 +60,12 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
 
   // `?app=` (#976) narrows every read to one app; without it they count all apps.
   const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
-  const [summary, series, endpoints, apps, envs] = await Promise.all([
+  // The breakdown cards' top consumers and status codes: the request facets under the same scope
+  // (environment and app as conditions), so they add up with the tiles.
+  const filter = [...(q.env && q.env !== "all" ? [`env:eq:${q.env}`] : []), ...(q.app ? [`app:eq:${q.app.toLowerCase()}`] : [])];
+  const facet = (field: "consumer" | "status", limit: number) =>
+    read<RequestFacets>(next, (o) => identity().requestFacets(project, { range: q.range, field, limit, ...(filter.length ? { filter } : {}) }, o));
+  const [summary, series, endpoints, apps, envs, consumers, statuses] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
@@ -67,6 +74,8 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     read<ProjectApps>(next, (o) => identity().projectApps(project, o)),
     // The picker follows Project settings › Environments (#816): their order, hidden ones left out.
     read<EnvironmentsList>(next, (o) => identity().listEnvironments(project, o)),
+    facet("consumer", 5),
+    facet("status", 50),
   ]);
 
   return (
@@ -83,6 +92,8 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
         points={series === null ? null : (series.points ?? [])}
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
         apps={apps?.apps ?? null}
+        consumers={consumers === null ? null : (consumers.values ?? [])}
+        statuses={statuses === null ? null : (statuses.values ?? [])}
         // Links and forms keep the URL form of the scope (`env=all` stays all environments).
         params={urlParams}
       />
