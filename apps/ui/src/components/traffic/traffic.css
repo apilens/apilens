@@ -389,7 +389,6 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr-fbox { flex: none; display: grid; place-items: center; box-sizing: border-box; width: 16px; height: 16px; border: 1px solid var(--control-border); border-radius: var(--radius-xs); background: color-mix(in srgb, var(--control-border) 25%, transparent); }
 .tr-fbox.is-on { border-color: var(--ink); background: var(--ink); color: var(--bg); }
 .tr-fbox .cp-ic { width: 12px; height: 12px; stroke-width: 3; }
-.exf-item.is-checked { color: var(--ink); }
 .tr-fnote { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 @media (prefers-reduced-motion: reduce) { .tr-facet__btn .cp-ic { transition: none; } }
 
@@ -530,3 +529,19 @@ a.exf-reset { display: inline-flex; align-items: center; text-decoration: none; 
 .page.tr[data-pending] .tr-over, .page.tr[data-pending] .tr-scroll { opacity: .6; }
 .tr .tr-row, .tr .tr-ep__link code, .tr .tr-drill { transition: background-color .15s cubic-bezier(.4, 0, .2, 1), color .15s cubic-bezier(.4, 0, .2, 1); }
 @media (prefers-reduced-motion: reduce) { .tr .tr-over, .tr .tr-scroll, .tr .tr-row, .tr .tr-ep__link code, .tr .tr-drill { transition: none; } }
+
+/* The sidebar box is Explore's checkbox (.exf-check input): transparent, a --control-border
+   hairline, filled with --ink when ticked (the hairline kept), a 12px check in --bg, 150ms fade. */
+.tr-fbox { border: 1px solid var(--control-border); background: transparent; transition: background-color .15s ease-in-out, border-color .15s ease-in-out; }
+.tr-fbox.is-on { border-color: var(--control-border); background: var(--ink); color: var(--bg); }
+.tr-fbox .cp-ic { width: 12px; height: 12px; stroke: var(--bg); stroke-width: 4; }
+@media (prefers-reduced-motion: reduce) { .tr-fbox { transition: none; } }
+
+/* Endpoint cell text as Explore's log row (.exl-body > .exl-row): mono 400 12px/16px; the
+   method muted, the path in ink. */
+.tr .tr-table td.tr-ep, .tr .tr-ep__link b, .tr .tr-ep__link code { font: 400 12px/16px var(--font-mono); }
+.tr .tr-table tbody tr { font: 400 12px/16px var(--font-mono); }
+/* Section titles take Explore's title-button shape (.exf-facet__title button): rounded, 8px gap. */
+.tr-facet__btn { gap: 8px; border-radius: var(--radius-control); transition: color .15s cubic-bezier(.4, 0, .2, 1); }
+.tr-facet > summary:focus-visible { border-radius: var(--radius-control); }
+.tr .tr-pg { gap: 16px; }
