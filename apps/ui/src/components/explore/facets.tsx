@@ -196,7 +196,7 @@ function useFacetValues(project: string, q: ExploreQuery, panel: PanelField, sea
 /**
  * Explore's facet sidebar (#1052, after Supabase's DataTableFilterCheckbox): first the Time Range
  * (the only place the range is set, time-range.tsx), then Level (success,
- * warning, error), Status (the codes), App, Environment and Method (Endpoint, Consumer and Consumer group are the filter bar's), each a list of values with a checkbox
+ * warning, error), App, Environment, Method and last Status (the codes); Endpoint, Consumer and Consumer group are the filter bar's, each a list of values with a checkbox
  * and the server's count (compact mono, 1.2k). Hovering a value swaps its count for "Only", which
  * keeps just that value. Ticking adds an `=` condition, so the facets and the filter bar's pills
  * are one filter set. Path and Consumer search the API as you type. Each facet has its own Reset;
@@ -223,7 +223,8 @@ export function FacetPanel({
       <div className="exf-scroll">
         <TimeRangeFacet query={q} onRange={onRange} open={open.time ?? true} onToggle={() => setOpen((m) => ({ ...m, time: !(m.time ?? true) }))} />
         {/* No Endpoint, Consumer or Consumer group sections: those are the filter bar's (and the ⋯ menus'). */}
-        {PANEL_FIELDS.filter((f) => f !== "path" && f !== "consumer" && f !== "consumer_group").map((f) => (
+        {/* Status goes last (after Method), as on Traffic. */}
+        {[...PANEL_FIELDS.filter((f) => f !== "path" && f !== "consumer" && f !== "consumer_group" && f !== "status"), "status" as const].map((f) => (
           <Facet
             key={f}
             project={project}
