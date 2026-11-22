@@ -366,3 +366,11 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr-red__card .tr-fill-4xx { fill: color-mix(in srgb, var(--chart-warn) 78%, transparent); }
 .tr-red__card .tr-fill-5xx { fill: color-mix(in srgb, var(--chart-error) 85%, transparent); }
 .tr-sel { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* Compact cards: smaller number, tighter padding, an 80px chart. */
+.tr-red__card { padding: 10px 14px 8px; }
+.tr-red__value { margin-top: 2px; font-size: 18px; line-height: 24px; }
+.tr-red__unit { font-size: 11px; }
+.tr-red__sub { margin-bottom: 16px; }
+.tr-red__card .tr-plot svg, .tr-red__card .tr-axis-y { height: 80px; }
+.tr-red__card .tr-axis-x--ticks { margin-top: 4px; }
