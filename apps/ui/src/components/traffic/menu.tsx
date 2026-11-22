@@ -1,17 +1,18 @@
 import type { ReactNode } from "react";
-import { RANGE_LABEL } from "@/lib/consumers";
 import { compactCount } from "@/lib/explore-query";
 import type { NamedApp } from "@/lib/identity";
-import { TRAFFIC_RANGES, type TrafficState, appName, trafficHref } from "@/lib/traffic";
+import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
 import { Icon } from "../icons";
 import { SidePanel } from "../shell/side-panel";
+import { TrafficTimeRange } from "./time-range";
 import "../explore/explore.css";
 
 type FacetValue = { value: string; label: string; count: number };
 type Field = "env" | "app" | "method" | "path";
 
 /**
- * Traffic's secondary sidebar, Explore's facet panel in look: the time range, then a section per
+ * Traffic's secondary sidebar, Explore's facet panel in look: the time range (Explore's button and
+ * date picker), then a section per
  * field the page can be narrowed by (environment, app when there are several, method, endpoint),
  * each value with its requests under the other filters. A value is a link: picking it narrows the
  * page to it (one per field, as the traffic reads take), picking it again lets it go. Sections
@@ -51,17 +52,7 @@ export function TrafficMenu({
     >
       <div className="exf" role="region" aria-label="Filters">
         <div className="exf-scroll">
-          <Section title="Time Range">
-            <ul className="exf-list tr-flist">
-              {TRAFFIC_RANGES.map((r) => {
-                const on = !q.from && q.range === r;
-                return (
-                  <Item key={r} on={on} href={trafficHref(project, { ...q, range: r, from: "", to: "" })} label={`Last ${RANGE_LABEL[r]}`} />
-                );
-              })}
-            </ul>
-            {q.from && q.to ? <p className="tr-fnote">A window picked on the chart is in use; pick a range to leave it.</p> : null}
-          </Section>
+          <TrafficTimeRange project={project} query={q} />
           <FacetSection title="Environment" field="env" values={envs} current={current.env} hrefFor={hrefFor} />
           {apps && apps.length > 1 ? (
             <FacetSection title="App" field="app" values={appCounts?.map((a) => ({ ...a, label: appName(apps, a.value) })) ?? null} current={current.app} hrefFor={hrefFor} />

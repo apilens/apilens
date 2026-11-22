@@ -22,12 +22,9 @@ import {
   endpointHref,
   formatApdex,
   formatLatency,
-  MAX_ENDPOINT_SEARCH,
   nextEndpointSort,
-  parseEndpointSearch,
   parseEndpointSort,
   scopeText,
-  searchEndpoints,
   sortEndpoints,
   splitDeclared,
   statusRows,
@@ -72,6 +69,7 @@ export function TrafficView({
   statuses = null,
   methods = null,
   appCounts = null,
+  audience = null,
   params = {},
 }: {
   project: string;
@@ -89,17 +87,18 @@ export function TrafficView({
   /** Requests per method and per app under the page's scope (request facets), for the mix. */
   methods?: FacetValue[] | null;
   appCounts?: FacetValue[] | null;
+  /** Unique consumers of the range and environment (new vs returning) and their requests; null when unread. */
+  audience?: Audience | null;
   /** The page's search params as read, for the endpoints table's `?page=&per=` and `?chart=`. */
   params?: SearchParams;
 }) {
   // Every endpoint the API listed, paged here; the range and environment links leave `page` out,
   // so they start again at page 1, and a page past the end (the list shrank while live) clamps.
   // Sorted by the column in `?sort=&dir=` (#1001) before paging, so a page is a slice of the order.
-  // `?q=` (#1003) narrows the table to the paths matching it; the routes an app declared without
-  // traffic (`discovered_only`) are not rows but one collapsed group under the table.
+  // The routes an app declared without traffic (`discovered_only`) are not rows but one collapsed
+  // group under the table. Paths are narrowed by the Endpoint filter (sidebar, filter bar).
   const sort = parseEndpointSort(params);
-  const search = parseEndpointSearch(params);
-  const { active, declared } = splitDeclared(searchEndpoints(endpoints ?? [], search));
+  const { active, declared } = splitDeclared(endpoints ?? []);
   const page = slicePage(sortEndpoints(active, sort, (id) => appName(apps, id)), parsePage(params));
   const sortHref = (key: EndpointSortKey) => hrefWithoutPage(trafficHref(project, {}), params, nextEndpointSort(sort, key));
   const scope = scopeText(q, q.app ? appName(apps, q.app) : undefined);
@@ -135,7 +134,7 @@ export function TrafficView({
           {points === null ? (
             <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
           ) : (
-            <RedCharts summary={summary} points={points} range={windowRange(q)} scope={scope} select={select} />
+            <RedCharts summary={summary} points={points} range={windowRange(q)} scope={scope} select={select} audience={audience} />
           )}
 
 
@@ -143,7 +142,6 @@ export function TrafficView({
             <div className="tr-sec__head">
               <h2 id="tr-endpoints">Endpoints</h2>
               <span className="tr-sec__meta">{endpoints ? `${formatCount(active.length)} with requests` : ""}</span>
-              {endpoints && endpoints.length > 0 ? <EndpointSearch project={project} value={search} params={params} /> : null}
             </div>
             {endpoints === null ? (
               <ErrorState text={ENDPOINTS_LOAD_FAILED} href={trafficHref(project, q)} />
@@ -155,7 +153,7 @@ export function TrafficView({
               <div className="tr-tablewrap">
                 {active.length === 0 ? (
                   <p className="tr-empty" role="status">
-                    {search ? <>No endpoints with requests match “{search}” in {scope}.</> : <>No endpoints with requests in {scope}.</>}
+                    No endpoints with requests in {scope}.
                   </p>
                 ) : apps && apps.length > 0 ? (
                   <EndpointRowMenus project={project} apps={apps}>
@@ -165,7 +163,7 @@ export function TrafficView({
                   <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} total={total} />
                 )}
                 {active.length > 0 ? <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" /> : null}
-                {declared.length > 0 ? <DeclaredRoutes project={project} q={q} routes={declared} apps={appColumn} scope={scope} open={search !== ""} /> : null}
+                {declared.length > 0 ? <DeclaredRoutes project={project} q={q} routes={declared} apps={appColumn} scope={scope} open={false} /> : null}
                 {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
               </div>
             )}
@@ -177,43 +175,8 @@ export function TrafficView({
 }
 
 /**
- * The endpoints table's path search (#1003): a plain GET form, so it works before JavaScript,
- * keeping the rest of the URL (range, environment, app, sort, page size) and starting at page 1.
- */
-function EndpointSearch({ project, value, params }: { project: string; value: string; params: SearchParams }) {
-  const kept = Object.entries(params).flatMap(([k, v]) => (k === "q" || k === "page" || v === undefined ? [] : (Array.isArray(v) ? v : [v]).map((x) => [k, x] as const)));
-  const clear = hrefWithoutPage(trafficHref(project, {}), params, { q: null });
-  return (
-    <form className="tr-search" role="search" aria-label="Endpoints" method="get" action={trafficHref(project, {})}>
-      {kept.map(([k, v], i) => (
-        <input key={`${k}-${i}`} type="hidden" name={k} value={v} />
-      ))}
-      <label htmlFor="tr-search" className="tr-vh">
-        Search endpoint paths
-      </label>
-      <span className="tr-search__box">
-        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="7" cy="7" r="4.5" />
-          <path d="m10.5 10.5 3 3" />
-        </svg>
-        <input id="tr-search" name="q" type="search" defaultValue={value} placeholder="Search paths" maxLength={MAX_ENDPOINT_SEARCH} autoComplete="off" spellCheck={false} />
-      </span>
-      {/* Enter searches; the button is there for screen readers. */}
-      <button type="submit" className="tr-vh">
-        Search
-      </button>
-      {value ? (
-        <a className="cp-link" href={clear}>
-          Clear
-        </a>
-      ) : null}
-    </form>
-  );
-}
-
-/**
  * The routes an app declared without traffic in the range (#1003), collapsed into one line under
- * the table so their zero counts never read like fast endpoints; open while a search narrows them.
+ * the table so their zero counts never read like fast endpoints.
  */
 function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: string; q: TrafficState; routes: EndpointTraffic[]; apps: NamedApp[] | null; scope: string; open: boolean }) {
   return (
@@ -249,12 +212,14 @@ function RedCharts({
   range,
   scope,
   select,
+  audience,
 }: {
   summary: TrafficSummary;
   points: TrafficPoint[];
   range: QueryRange;
   scope: string;
   select: { page: string; explore: string };
+  audience: Audience | null;
 }) {
   const errors = s.client_errors + s.server_errors;
   const rows = statusRows(points);
@@ -303,6 +268,7 @@ function RedCharts({
         </p>
         <LatencyChart label="Response time" summary={`p95 of ${formatLatency(s.p95_ms)} over ${scope}.`} rows={points} range={range} select={select} />
       </article>
+      {audience ? <ConsumersCard audience={audience} /> : null}
     </section>
   );
 }
@@ -461,5 +427,44 @@ function Errors({ n, requests, href, label }: { n: number; requests: number; hre
       )}{" "}
       <span className="tr-muted">({formatPercent(ratio(n, requests))})</span>
     </>
+  );
+}
+
+/** The Consumers card's numbers: unique consumers of the range, new vs returning, and their requests. */
+export type Audience = { consumers: number; new: number; returning: number; requests: number };
+
+/**
+ * Consumers beside the RED cards, numbers only: unique consumers (the users the SDK identified)
+ * with requests in the range, how many are new (first seen in it) or returning, and the requests
+ * they made. It follows the range and environment; app, method, endpoint and a picked window
+ * don't narrow it (the consumers read is kept by consumer, not route).
+ */
+function ConsumersCard({ audience: a }: { audience: Audience }) {
+  return (
+    <article className="tr-panel tr-red__card tr-red__card--stat">
+      <header className="tr-red__head">
+        <h2 className="tr-red__label">Consumers</h2>
+        <span className="tr-red__aside" title="Users the SDK identified, in this range and environment">
+          unique
+        </span>
+      </header>
+      <p className="tr-red__value">
+        <LiveNumber text={formatCount(a.consumers)} />
+      </p>
+      <dl className="tr-cstats">
+        <div>
+          <dt>New</dt>
+          <dd>{formatCount(a.new)}</dd>
+        </div>
+        <div>
+          <dt>Returning</dt>
+          <dd>{formatCount(a.returning)}</dd>
+        </div>
+        <div>
+          <dt>Requests</dt>
+          <dd>{formatCount(a.requests)}</dd>
+        </div>
+      </dl>
+    </article>
   );
 }

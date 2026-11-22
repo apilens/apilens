@@ -9,6 +9,7 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { visibleEnvironments } from "@/lib/environments";
 import {
   type CallOptions,
+  type ConsumersList,
   type EndpointTraffic,
   type EnvironmentsList,
   type ProjectApps,
@@ -82,7 +83,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
       identity().requestFacets(project, { range: q.range, field, limit, ...(q.from && q.to ? { from: q.from, to: q.to } : {}), ...(filter.length ? { filter } : {}) }, o),
     );
   };
-  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, pathCounts] = await Promise.all([
+  const [summary, series, endpoints, apps, envs, methods, envCounts, appCounts, pathCounts, consumers] = await Promise.all([
     read<TrafficSummary>(next, (o) => identity().trafficSummary(project, scope, o)),
     read<TrafficTimeseries>(next, (o) => identity().trafficTimeseries(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: ENDPOINTS_LIMIT }, o)),
@@ -95,6 +96,8 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
     facet("env", 20),
     facet("app", 20),
     facet("path", 10),
+    // The Consumers card: unique consumers of the range (and environment), new vs returning.
+    read<ConsumersList>(next, (o) => identity().listConsumers(project, { range: q.range, ...(q.env && q.env !== "all" ? { env: q.env } : {}), limit: 1 }, o)),
   ]);
   const facetValues = (f: RequestFacets | null) => (f === null ? null : (f.values ?? []));
 
@@ -128,6 +131,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
         apps={apps?.apps ?? null}
         methods={methods === null ? null : (methods.values ?? [])}
+        audience={consumers === null ? null : { ...consumers.summary, requests: consumers.totals.requests }}
 
         // Links and forms keep the URL form of the scope (`env=all` stays all environments).
         params={urlParams}
