@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { compactCount } from "@/lib/explore-query";
 import { Icon } from "../icons";
@@ -30,20 +31,22 @@ export function Item({
 }) {
   return (
     <li className={`exf-item${on ? " is-checked" : ""}${partial ? " is-partial" : ""}`}>
-      <a className={`exf-label tr-flink${mono ? " is-mono" : ""}`} href={href} aria-current={on ? "true" : undefined} title={on ? `${label}: click to clear` : label}>
+      {/* An in-app link that keeps the scroll (Explore updates in place): picking a value re-reads
+          the page without reloading it, so the sidebar stays where it was for the next pick. */}
+      <Link className={`exf-label tr-flink${mono ? " is-mono" : ""}`} href={href} scroll={false} prefetch={false} aria-current={on ? "true" : undefined} title={on ? `${label}: click to clear` : label}>
         <span className={`tr-fbox${on || partial ? " is-on" : ""}`} aria-hidden="true">
           {on ? <Icon name="check" /> : partial ? <span className="exf-dash" /> : null}
         </span>
         {body ?? <span className="exf-label__text">{label}</span>}
-      </a>
+      </Link>
       {count !== undefined ? (
         <span className="exf-count" title={`${count.toLocaleString("en-US")} requests`}>
           {compactCount(count)}
         </span>
       ) : null}
-      <a className="exf-only" href={only} aria-label={`Only ${label}`}>
+      <Link className="exf-only" href={only} scroll={false} prefetch={false} aria-label={`Only ${label}`}>
         Only
-      </a>
+      </Link>
     </li>
   );
 }

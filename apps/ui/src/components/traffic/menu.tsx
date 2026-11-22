@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import type { NamedApp } from "@/lib/identity";
 import { type TrafficState, appName, trafficHref } from "@/lib/traffic";
@@ -56,9 +57,9 @@ export function TrafficMenu({
       title="Traffic"
       actions={
         any ? (
-          <a className="exf-reset" href={reset}>
+          <Link className="exf-reset" href={reset} scroll={false} prefetch={false}>
             Reset
-          </a>
+          </Link>
         ) : null
       }
     >
