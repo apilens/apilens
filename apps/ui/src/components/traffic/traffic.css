@@ -295,24 +295,6 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
    The current tab is told by a short accent bar under it and its value at full ink; the others
    sit back in muted ink. Throughput and Apdex are readouts at the row's end, not tabs. */
 .tr-panel { margin: 0 0 var(--tr-sec); border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); }
-.tr-mtabs { display: flex; align-items: stretch; justify-content: space-between; gap: 24px; padding: 8px 20px 0; }
-.tr-mtabs__tabs { display: flex; gap: 8px; min-width: 0; }
-.tr-mtab { position: relative; display: grid; gap: 2px; min-width: 0; padding: 12px 16px 16px; margin: 0 -4px; border-radius: 8px; color: inherit; text-decoration: none; }
-.tr-mtab:first-child { margin-left: -16px; }
-.tr-mtab:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
-.tr-mtab:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.tr-mtab[aria-current="page"]::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 6px; height: 2px; border-radius: 2px; background: var(--accent); }
-.tr-mtab__label { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
-.tr-mtab__value { font: 500 22px/30px var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; color: color-mix(in srgb, var(--ink) 62%, transparent); white-space: nowrap; }
-.tr-mtab[aria-current="page"] .tr-mtab__value, .tr-mtab:hover .tr-mtab__value { color: var(--ink); }
-.tr-mtab__sub { font: 400 12px/16px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); white-space: nowrap; }
-.tr-mtabs__facts { display: flex; gap: 32px; margin: 0; padding: 12px 0 16px; }
-.tr-mtabs__facts > div { display: grid; gap: 2px; align-content: start; }
-.tr-mtabs__facts dt { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
-.tr-mtabs__facts dd { margin: 0; font: 500 15px/30px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
-.tr-mtabs__rating { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
-.tr-panel__chart { padding: 8px 20px 16px; }
-.tr-panel__chart .tr-legend { margin-bottom: 8px; }
 .tr-panel .tr-grid { stroke: color-mix(in srgb, var(--grid) 60%, transparent); }
 
 /* Endpoints table: no row lines; the header's hairline, then rows told apart by a soft hover. */
@@ -324,19 +306,9 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr .tr-table tbody tr td:last-child { border-radius: 0 6px 6px 0; }
 
 @media (max-width: 1079px) {
-  .tr-mtabs { flex-direction: column; gap: 0; }
-  .tr-mtabs__facts { padding-top: 0; }
 }
 @media (max-width: 760px) {
-  .tr-mtabs { padding: 4px 12px 0; }
-  .tr-mtabs__tabs { overflow-x: auto; scrollbar-width: none; }
-  .tr-mtab { padding: 10px 12px 14px; }
-  .tr-mtab:first-child { margin-left: -12px; }
-  .tr-mtab__value { font-size: 18px; line-height: 26px; }
-  .tr-mtab { flex: none; }
-  .tr-mtab__sub { display: none; }
   .tr-tools .exp-clear { display: none; }
-  .tr-panel__chart { padding: 4px 12px 12px; }
 }
 
 /* Drill-down counts read as plain numbers; the underline comes on hover or focus. */
@@ -350,18 +322,6 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr { --tr-sec: 24px; --tr-head: 8px; }
 .tr-tools { margin-bottom: 16px; }
 .tr-panel { border-radius: 10px; }
-.tr-mtabs { gap: 16px; padding: 4px 16px 0; }
-.tr-mtabs__tabs { gap: 4px; }
-.tr-mtab { gap: 0; padding: 10px 12px 12px; margin: 0; }
-.tr-mtab:first-child { margin-left: -12px; }
-.tr-mtab[aria-current="page"]::after { left: 12px; right: 12px; bottom: 4px; }
-.tr-mtab__value { font-size: 18px; line-height: 24px; letter-spacing: -0.01em; }
-.tr-mtab__sub { font-size: 11px; }
-.tr-mtabs__facts { gap: 24px; padding: 10px 0 12px; }
-.tr-mtabs__facts dt { font-size: 12px; }
-.tr-mtabs__facts dd { font-size: 14px; line-height: 24px; }
-.tr-panel__chart { padding: 4px 16px 12px; }
-.tr-panel__chart .tr-legend { gap: 12px; margin-bottom: 4px; font-size: 11px; justify-content: flex-end; }
 .tr-panel .tr-chart { --tr-gutter: 0px; }
 .tr-panel .tr-plot svg { height: 160px; }
 .tr-panel .tr-yplot { display: block; position: relative; }
@@ -378,3 +338,22 @@ a.tr-kpi__link:focus-visible { outline: 2px solid var(--accent-ink); outline-off
 .tr .tr-table .tr-ep__link code { font-size: 12px; }
 .tr-panel .tr-axis-x--inset { grid-template-columns: minmax(0, 1fr); }
 .tr-panel .tr-axis-y span { padding: 0 4px; margin-left: -4px; border-radius: 3px; background: color-mix(in srgb, var(--surface-1) 85%, transparent); }
+
+/* ---- Rate · Errors · Duration (RedCharts) --------------------------------------------------
+   Three equal cards in one row: the label and an aside on one line, the number, one quiet line,
+   then a 120px chart whose value labels sit inside it. Legends stay out: the asides name the
+   colours (4xx amber, 5xx red) and the tooltip reads each bucket. */
+.tr-red { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 0 var(--tr-sec); }
+.tr-red__card { display: grid; align-content: start; min-width: 0; margin: 0; padding: 14px 16px 10px; }
+.tr-red__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.tr-red__label { margin: 0; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.tr-red__aside { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/16px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.tr-red__value { display: flex; align-items: baseline; gap: 6px; margin: 6px 0 0; font: 500 22px/28px var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; color: var(--ink); }
+.tr-red__unit { font: 400 12px/16px var(--font-sans); letter-spacing: 0; color: var(--ink-muted); }
+.tr-red__sub { margin: 0 0 22px; font: 400 11px/16px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.tr-red__card .tr-legend { display: none; }
+.tr-red__card .tr-plot svg, .tr-red__card .tr-axis-y { height: 120px; }
+.tr-red__card .tr-axis-x { font-size: 10px; }
+@media (max-width: 1023px) {
+  .tr-red { grid-template-columns: minmax(0, 1fr); }
+}

@@ -48,10 +48,6 @@ type FacetValue = { value: string; label: string; count: number };
 /** Time spent in words: as a latency under a minute, else `52 min`, `1 h 43 min`. */
 const spentText = (ms: number) => (ms >= 60_000 ? formatSpan(ms / 1000) : formatLatency(ms));
 
-/** The chart the page shows (`?chart=`): requests by status (the default), errors only, or response time. */
-type ChartKind = "requests" | "errors" | "latency";
-const readChart = (params: SearchParams): ChartKind => (params.chart === "latency" ? "latency" : params.chart === "errors" ? "errors" : "requests");
-const CHART_TITLE: Record<ChartKind, string> = { requests: "Requests over time", errors: "Errors over time", latency: "Response time" };
 
 /**
  * `/project/<project>/traffic` (#592): how the API is doing, summary first. One header row (the
@@ -109,8 +105,6 @@ export function TrafficView({
   const scope = scopeText(q, q.app ? appName(apps, q.app) : undefined);
   // The App column (#976): which app serves each row, when the rows can be of several apps.
   const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
-  const chart = readChart(params);
-  const chartHref = (c: ChartKind) => hrefWithoutPage(trafficHref(project, {}), params, { chart: c === "requests" ? null : c });
   const total = summary?.requests ?? 0;
   // A window picked on the chart filters this page (the default) or opens Explore: link templates
   // with the window's ends to fill in, keeping every other filter.
@@ -138,24 +132,11 @@ export function TrafficView({
         </div>
       ) : (
         <>
-          <section className="tr-panel" aria-label={CHART_TITLE[chart]}>
-            <MetricTabs summary={summary} chart={chart} chartHref={chartHref} />
-            <div className="tr-panel__chart">
-            {points === null ? (
-              <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
-            ) : chart === "latency" ? (
-              <LatencyChart label="Response time" summary={`p95 of ${formatLatency(summary.p95_ms)} over ${scope}.`} rows={points} range={windowRange(q)} select={select} />
-            ) : (
-              <StatusChart
-                label={chart === "errors" ? "Errors by status" : "Requests by status"}
-                summary={`${formatCount(summary.requests)} requests in ${scope}: ${formatCount(summary.client_errors)} 4xx and ${formatCount(summary.server_errors)} 5xx.`}
-                rows={chart === "errors" ? statusRows(points).map((r) => ({ ...r, successful: 0 })) : statusRows(points)}
-                range={windowRange(q)}
-                select={select}
-              />
-            )}
-            </div>
-          </section>
+          {points === null ? (
+            <ErrorState text={TIMESERIES_LOAD_FAILED} href={trafficHref(project, q)} />
+          ) : (
+            <RedCharts summary={summary} points={points} range={windowRange(q)} scope={scope} select={select} />
+          )}
 
 
           <section className="tr-sec tr-sec--table" aria-labelledby="tr-endpoints">
@@ -255,65 +236,76 @@ function DeclaredRoutes({ project, q, routes, apps, scope, open }: { project: st
 
 
 /**
- * The metric tabs over the chart, one panel with it: Requests, Errors and p95 are tabs (label,
- * value, one quiet line) that switch the chart, the current one underlined; Throughput and Apdex
- * read on their own at the end of the row. No dividers, no sparklines, no comparisons: the chart
- * under them carries the trend.
+ * Rate, errors, duration: the three signals of an API's health side by side, as service
+ * dashboards lay them out (Datadog's service page, Apitally's traffic), so none hides behind a
+ * switch. Each card is its number, one quiet line and a compact chart of the range: requests by
+ * status (and the throughput now), errors by class (4xx, 5xx), p95 (and Apdex). A drag or click on
+ * any chart picks a window that filters the page (select mode).
  */
-function MetricTabs({ summary: s, chart, chartHref }: { summary: TrafficSummary; chart: ChartKind; chartHref: (c: ChartKind) => string }) {
+function RedCharts({
+  summary: s,
+  points,
+  range,
+  scope,
+  select,
+}: {
+  summary: TrafficSummary;
+  points: TrafficPoint[];
+  range: QueryRange;
+  scope: string;
+  select: { page: string; explore: string };
+}) {
   const errors = s.client_errors + s.server_errors;
-  const rating = apdexRating(s.apdex);
-  const tabs: { key: ChartKind; label: string; value: string; sub: ReactNode }[] = [
-    { key: "requests", label: "Requests", value: formatCount(s.requests), sub: <>{formatPerMinute(s.requests_per_minute)}/min on average</> },
-    {
-      key: "errors",
-      label: "Error rate",
-      value: formatPercent(ratio(errors, s.requests)),
-      sub: (
-        <>
-          <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
-        </>
-      ),
-    },
-    {
-      key: "latency",
-      label: "p95 response time",
-      value: formatLatency(s.p95_ms),
-      sub: (
-        <>
-          p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
-        </>
-      ),
-    },
-  ];
+  const rows = statusRows(points);
   return (
-    <div className="tr-mtabs">
-      <nav className="tr-mtabs__tabs" aria-label="Chart">
-        {tabs.map((t) => (
-          <a key={t.key} className="tr-mtab" href={chartHref(t.key)} aria-current={chart === t.key ? "page" : undefined}>
-            <span className="tr-mtab__label">{t.label}</span>
-            <span className="tr-mtab__value">
-              <LiveNumber text={t.value} />
-            </span>
-            <span className="tr-mtab__sub">{t.sub}</span>
-          </a>
-        ))}
-      </nav>
-      <dl className="tr-mtabs__facts">
-        <div>
-          <dt>Throughput</dt>
-          <dd>
-            <LiveNumber text={`${formatCount(s.current_per_minute ?? 0)}/min`} />
-          </dd>
-        </div>
-        <div>
-          <dt>Apdex</dt>
-          <dd>
-            <LiveNumber text={formatApdex(s.apdex)} /> <span className="tr-mtabs__rating">{rating ?? ""}</span>
-          </dd>
-        </div>
-      </dl>
-    </div>
+    <section className="tr-red" aria-label="Requests, errors and response time">
+      <article className="tr-panel tr-red__card">
+        <header className="tr-red__head">
+          <h2 className="tr-red__label">Requests</h2>
+          <span className="tr-red__aside">{formatCount(s.current_per_minute ?? 0)}/min now</span>
+        </header>
+        <p className="tr-red__value">
+          <LiveNumber text={formatCount(s.requests)} />
+        </p>
+        <p className="tr-red__sub">{formatPerMinute(s.requests_per_minute)}/min on average</p>
+        <StatusChart label="Requests by status" summary={`${formatCount(s.requests)} requests in ${scope}.`} rows={rows} range={range} select={select} />
+      </article>
+      <article className="tr-panel tr-red__card">
+        <header className="tr-red__head">
+          <h2 className="tr-red__label">Errors</h2>
+          <span className="tr-red__aside">
+            <span className="tr-4xx">{formatCount(s.client_errors)} 4xx</span> · <span className="tr-5xx">{formatCount(s.server_errors)} 5xx</span>
+          </span>
+        </header>
+        <p className="tr-red__value">
+          <LiveNumber text={formatPercent(ratio(errors, s.requests))} />
+        </p>
+        <p className="tr-red__sub">{formatCount(errors)} of {formatCount(s.requests)} requests failed</p>
+        <StatusChart
+          label="Errors by status"
+          summary={`${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx in ${scope}.`}
+          rows={rows.map((r) => ({ ...r, successful: 0 }))}
+          range={range}
+          select={select}
+        />
+      </article>
+      <article className="tr-panel tr-red__card">
+        <header className="tr-red__head">
+          <h2 className="tr-red__label">Response time</h2>
+          <span className="tr-red__aside">
+            Apdex {formatApdex(s.apdex)} {apdexRating(s.apdex) ?? ""}
+          </span>
+        </header>
+        <p className="tr-red__value">
+          <LiveNumber text={formatLatency(s.p95_ms)} />
+          <span className="tr-red__unit">p95</span>
+        </p>
+        <p className="tr-red__sub">
+          p50 {formatLatency(s.p50_ms)} · p99 {formatLatency(s.p99_ms)}
+        </p>
+        <LatencyChart label="Response time" summary={`p95 of ${formatLatency(s.p95_ms)} over ${scope}.`} rows={points} range={range} select={select} />
+      </article>
+    </section>
   );
 }
 
