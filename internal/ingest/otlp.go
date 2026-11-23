@@ -245,6 +245,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	now := e.now()
 	rows := make([]pipeline.SpanRow, 0, total)
 	var excLogs []pipeline.LogRow
+	var reqRows []pipeline.RequestRow
 	rds := e.redactors(p.ProjectID)
 	var rejected int64
 	for i, rs := range req.GetResourceSpans() {
@@ -267,6 +268,9 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 				}
 				row.ProjectID, row.AppID = p.ProjectID, appID
 				rows = append(rows, row)
+				if req, ok := serverRequest(row); ok {
+					reqRows = append(reqRows, req)
+				}
 				logs := exceptionLogs(sp, row)
 				if len(logs) == 0 {
 					continue
@@ -292,6 +296,14 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 			for _, row := range rows {
 				t.reject(row.AppID, ReasonStorageUnavailable, 1)
 			}
+			e.otlpFail(w, c, signal, e.submitError(err))
+			return
+		}
+	}
+	// Server spans' requests fill Traffic, Endpoints and Performance (see
+	// otlp_requests.go); like exception logs they are not counted as records.
+	if len(reqRows) > 0 {
+		if err := e.sink.SubmitRequests(r.Context(), reqRows); err != nil {
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}
