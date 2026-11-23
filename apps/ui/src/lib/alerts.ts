@@ -558,3 +558,6 @@ export const INCIDENTS_LOAD_FAILED = "We couldn’t load incidents just now.";
 export const RULES_LOAD_FAILED = "We couldn’t load alert rules just now.";
 export const CHANNELS_LOAD_FAILED = "We couldn’t load notification channels just now.";
 export const READ_ONLY = "You can see alerts. Only project admins can change rules and channels.";
+
+/** Whether Incidents is open: while it is "Coming soon", the shell shows no open-incidents badge. */
+export const INCIDENTS_OPEN = false;

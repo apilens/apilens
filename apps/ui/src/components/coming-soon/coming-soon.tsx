@@ -15,16 +15,24 @@ export async function ComingSoonPage({ project, view, title, blurb }: { project:
   return (
     <AppShell context={context} project={project} view={view}>
       <div className="page cs-soon">
-        <section className="cs-soon__card" aria-labelledby="cs-soon-title">
-          <span className="cs-soon__tag">Coming soon</span>
-          <h1 id="cs-soon-title">{title}</h1>
-          <p>{blurb}</p>
-          <p className="cs-soon__meanwhile">
-            Meanwhile, <a href={projectHref(project, "traffic")}>Traffic</a> and <a href={projectHref(project, "explore")}>Explore</a> show every request, its status and
-            response time.
-          </p>
-        </section>
+        <ComingSoonCard project={project} title={title} blurb={blurb} />
       </div>
     </AppShell>
+  );
+}
+
+/** The Coming soon card alone, for a page or a settings section: the tag, the name, what it will hold. */
+export function ComingSoonCard({ project, title, blurb, heading = "h1" }: { project: string; title: string; blurb: string; heading?: "h1" | "h2" }) {
+  const H = heading;
+  return (
+    <section className="cs-soon__card" aria-labelledby="cs-soon-title">
+      <span className="cs-soon__tag">Coming soon</span>
+      <H id="cs-soon-title">{title}</H>
+      <p>{blurb}</p>
+      <p className="cs-soon__meanwhile">
+        Meanwhile, <a href={projectHref(project, "traffic")}>Traffic</a> and <a href={projectHref(project, "explore")}>Explore</a> show every request, its status and
+        response time.
+      </p>
+    </section>
   );
 }

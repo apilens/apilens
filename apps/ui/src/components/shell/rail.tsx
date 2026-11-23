@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { badgeText } from "@/lib/alerts";
+import { INCIDENTS_OPEN, badgeText } from "@/lib/alerts";
 import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
 import { sidebarHref } from "@/lib/nav-scope";
 import { ORG_NAV, type OrgNavItem, orgHref, orgNavActive } from "@/lib/routes";
@@ -73,7 +73,8 @@ export function Rail({
   drawer: boolean;
 }) {
   const search = useSearchParams();
-  const open = badgeText(openIncidents);
+  // Incidents is coming soon: no open-incidents badge until it opens.
+  const open = INCIDENTS_OPEN ? badgeText(openIncidents) : "";
   const [control, setControl] = useState(false);
   const controlRef = useRef<HTMLButtonElement>(null);
   const tips = mode !== "expanded" && !drawer;

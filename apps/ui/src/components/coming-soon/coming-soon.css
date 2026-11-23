@@ -8,3 +8,7 @@
 .cs-soon__meanwhile { font-size: 13px !important; color: var(--ink-muted) !important; }
 .cs-soon__card a { color: var(--accent-ink); text-decoration: none; }
 .cs-soon__card a:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* In a settings section: the card at the top of the content, not centred in the window. */
+.page.cs-soon.cs-soon--section { display: block; min-height: 0; place-items: normal; }
+.cs-soon--section .cs-soon__card { margin: 8px 0 0; text-align: left; }
+.cs-soon__card h2 { margin: 14px 0 8px; font: 600 18px/26px var(--font-sans); color: var(--ink); }

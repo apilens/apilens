@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { badgeText } from "@/lib/alerts";
+import { INCIDENTS_OPEN, badgeText } from "@/lib/alerts";
 import type { User } from "@/lib/identity";
 import { LINKS } from "@/lib/links";
 import { sidebarHref } from "@/lib/nav-scope";
@@ -59,7 +59,8 @@ export function TopBar({
   onSearch: () => void;
 }) {
   const search = useSearchParams();
-  const open = badgeText(openIncidents);
+  // Incidents is coming soon: no open-incidents badge until it opens.
+  const open = INCIDENTS_OPEN ? badgeText(openIncidents) : "";
   const scoped = project && !orgScope && !account ? project : undefined;
   return (
     <header className={`tb${onMenu ? "" : " tb--bare"}`} aria-label="Top bar">
