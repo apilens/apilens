@@ -246,6 +246,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	rows := make([]pipeline.SpanRow, 0, total)
 	var excLogs []pipeline.LogRow
 	var reqRows []pipeline.RequestRow
+	payloadCaps := map[uuid.UUID]int{}
 	rds := e.redactors(p.ProjectID)
 	var rejected int64
 	for i, rs := range req.GetResourceSpans() {
@@ -268,7 +269,17 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 				}
 				row.ProjectID, row.AppID = p.ProjectID, appID
 				rows = append(rows, row)
-				if req, ok := serverRequest(row); ok {
+				if req, ok := serverRequest(row, otlpPayload(sp.GetAttributes())); ok {
+					red, aerr := rds.get(r.Context(), appID)
+					if aerr != nil {
+						e.otlpFail(w, c, signal, aerr)
+						return
+					}
+					if redactRequestRow(red, &req) {
+						e.masked.WithLabelValues("requests").Inc()
+						t.app(appID).Masked++
+					}
+					e.capRequestRow(r.Context(), payloadCaps, &req, t)
 					reqRows = append(reqRows, req)
 				}
 				logs := exceptionLogs(sp, row)
@@ -681,6 +692,9 @@ func otlpAttributes(kvs []*commonpb.KeyValue) (map[string]string, uint16) {
 	var statusCode uint16
 	for _, kv := range kvs {
 		key := kv.GetKey()
+		if isPayloadAttribute(key) {
+			continue // the derived request's payload, never a span attribute
+		}
 		if key == "http.response.status_code" || key == "http.status_code" {
 			if code := kv.GetValue().GetIntValue(); code > 0 {
 				statusCode = clampStatus(int(code))

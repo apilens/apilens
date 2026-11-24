@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -55,5 +56,45 @@ func TestRequestPath(t *testing.T) {
 		if got := requestPath(c.route, cleanPath(c.raw)); got != c.want {
 			t.Errorf("requestPath(%q, %q) = %q, want %q", c.route, c.raw, got, c.want)
 		}
+	}
+}
+
+func TestOTLPServerSpanPayloadsAreMaskedAndNotSpanAttributes(t *testing.T) {
+	sink := &fakeSink{}
+	h := newEdge(t, fakeVerifier{}, sink)
+	server := &tracepb.Span{
+		TraceId: traceID, SpanId: spanID, Name: "POST /login", Kind: tracepb.Span_SPAN_KIND_SERVER,
+		StartTimeUnixNano: startNs, EndTimeUnixNano: startNs + 5_000_000,
+		Attributes: []*commonpb.KeyValue{
+			str("http.request.method", "POST"), str("http.route", "/login"), num("http.response.status_code", 200),
+			str("apilens.request.body", `{"user":"neel","password":"hunter2"}`),
+			str("apilens.response.body", `{"ok":true}`),
+			str("apilens.request.headers", `{"authorization":"Bearer abc","accept":"*/*"}`),
+			str("apilens.response.headers", `{"content-type":"application/json"}`),
+		},
+	}
+	req := &coltrace.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{
+		{Resource: resource("storefront"), ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{server}}}},
+	}}
+	if rec := otlpPost(t, h, "/otlp/v1/traces", req); rec.Code != 200 {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if len(sink.spans) != 1 || len(sink.requests) != 1 {
+		t.Fatalf("spans = %d, requests = %d", len(sink.spans), len(sink.requests))
+	}
+	for k := range sink.spans[0].Attributes {
+		if isPayloadAttribute(k) {
+			t.Fatalf("span kept payload attribute %q", k)
+		}
+	}
+	r := sink.requests[0]
+	if strings.Contains(r.RequestPayload, "hunter2") || !strings.Contains(r.RequestPayload, `"user":"neel"`) {
+		t.Fatalf("request payload = %s", r.RequestPayload)
+	}
+	if strings.Contains(r.RequestHeaders, "Bearer abc") || !strings.Contains(r.RequestHeaders, `"accept":"*/*"`) {
+		t.Fatalf("request headers = %s", r.RequestHeaders)
+	}
+	if r.ResponsePayload != `{"ok":true}` || r.ResponseHeaders != `{"content-type":"application/json"}` {
+		t.Fatalf("response = %s %s", r.ResponsePayload, r.ResponseHeaders)
 	}
 }

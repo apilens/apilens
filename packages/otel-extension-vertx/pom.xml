@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>ai.apilens</groupId>
+  <artifactId>apilens-otel-extension-vertx</artifactId>
+  <version>0.1.0</version>
+  <name>APILens OpenTelemetry extension: Vert.x payloads</name>
+  <description>
+    OpenTelemetry Java agent extension that records Vert.x 5 HTTP/1.x request and response
+    bodies and headers on the server span, for APILens to store as the request's payload.
+  </description>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <otel.agent.version>2.34.0</otel.agent.version>
+  </properties>
+
+  <!-- Everything is provided at runtime: by the agent (extension API, OTel API, Byte Buddy)
+       or by the instrumented application (Vert.x, Netty). The jar holds only our classes. -->
+  <dependencies>
+    <dependency>
+      <groupId>io.opentelemetry.javaagent</groupId>
+      <artifactId>opentelemetry-javaagent-extension-api</artifactId>
+      <version>${otel.agent.version}-alpha</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry.instrumentation</groupId>
+      <artifactId>opentelemetry-instrumentation-api</artifactId>
+      <version>${otel.agent.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-core</artifactId>
+      <version>5.1.4</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>

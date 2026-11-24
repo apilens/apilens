@@ -1,10 +1,15 @@
 package ingest
 
 import (
+	"context"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+
+	"github.com/apilens/apilens/internal/controlplane/privacy"
 	"github.com/apilens/apilens/internal/pipeline"
 )
 
@@ -15,6 +20,48 @@ import (
 // a request row carrying the span's trace and span ids, so the request opens
 // its own trace. Like exception logs, these rows derive from accepted spans
 // and are not counted as records.
+//
+// OpenTelemetry records no bodies. The APILens agent extensions (see
+// packages/otel-extension-vertx) put them on the server span as the payload
+// attributes below; they become the request's payload and headers, masked by
+// the project's privacy policy and capped like the SDKs' own, and are never
+// stored as span attributes.
+
+const (
+	attrRequestBody     = "apilens.request.body"
+	attrResponseBody    = "apilens.response.body"
+	attrRequestHeaders  = "apilens.request.headers"
+	attrResponseHeaders = "apilens.response.headers"
+)
+
+func isPayloadAttribute(key string) bool {
+	switch key {
+	case attrRequestBody, attrResponseBody, attrRequestHeaders, attrResponseHeaders:
+		return true
+	}
+	return false
+}
+
+type spanPayload struct {
+	requestBody, responseBody, requestHeaders, responseHeaders string
+}
+
+func otlpPayload(kvs []*commonpb.KeyValue) spanPayload {
+	var p spanPayload
+	for _, kv := range kvs {
+		switch kv.GetKey() {
+		case attrRequestBody:
+			p.requestBody = anyString(kv.GetValue())
+		case attrResponseBody:
+			p.responseBody = anyString(kv.GetValue())
+		case attrRequestHeaders:
+			p.requestHeaders = anyString(kv.GetValue())
+		case attrResponseHeaders:
+			p.responseHeaders = anyString(kv.GetValue())
+		}
+	}
+	return p
+}
 
 var (
 	uuidSegment = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -24,7 +71,7 @@ var (
 
 // serverRequest maps an accepted span; ok is false unless it is an HTTP
 // server span.
-func serverRequest(sp pipeline.SpanRow) (pipeline.RequestRow, bool) {
+func serverRequest(sp pipeline.SpanRow, pl spanPayload) (pipeline.RequestRow, bool) {
 	if sp.Kind != "server" {
 		return pipeline.RequestRow{}, false
 	}
@@ -36,25 +83,29 @@ func serverRequest(sp pipeline.SpanRow) (pipeline.RequestRow, bool) {
 		return pipeline.RequestRow{}, false
 	}
 	return pipeline.RequestRow{
-		ProjectID:      sp.ProjectID,
-		AppID:          sp.AppID,
-		Environment:    sp.Environment,
-		Timestamp:      sp.Timestamp,
-		Method:         truncate(method, 16),
-		Path:           short(path),
-		RawPath:        truncate(raw, maxPayloadChars),
-		StatusCode:     sp.StatusCode,
-		ResponseTimeMs: nonNegative(sp.DurationMs),
-		RequestSize:    attrSize(attrs, "http.request.body.size", "http.request_content_length"),
-		ResponseSize:   attrSize(attrs, "http.response.body.size", "http.response_content_length"),
-		IPAddress:      truncate(strings.TrimSpace(firstNonEmpty(attrs["client.address"], attrs["http.client_ip"], attrs["network.peer.address"])), 64),
-		UserAgent:      short(firstNonEmpty(attrs["user_agent.original"], attrs["http.user_agent"])),
-		BaseURL:        short(baseURL(attrs)),
-		TraceID:        sp.TraceID,
-		SpanID:         sp.SpanID,
-		Release:        sp.Release,
-		Commit:         sp.Commit,
-		Sampled:        true,
+		ProjectID:       sp.ProjectID,
+		AppID:           sp.AppID,
+		Environment:     sp.Environment,
+		Timestamp:       sp.Timestamp,
+		Method:          truncate(method, 16),
+		Path:            short(path),
+		RawPath:         truncate(raw, maxPayloadChars),
+		StatusCode:      sp.StatusCode,
+		ResponseTimeMs:  nonNegative(sp.DurationMs),
+		RequestSize:     attrSize(attrs, "http.request.body.size", "http.request_content_length"),
+		ResponseSize:    attrSize(attrs, "http.response.body.size", "http.response_content_length"),
+		IPAddress:       truncate(strings.TrimSpace(firstNonEmpty(attrs["client.address"], attrs["http.client_ip"], attrs["network.peer.address"])), 64),
+		UserAgent:       short(firstNonEmpty(attrs["user_agent.original"], attrs["http.user_agent"])),
+		BaseURL:         short(baseURL(attrs)),
+		RequestPayload:  pl.requestBody,
+		ResponsePayload: pl.responseBody,
+		RequestHeaders:  pl.requestHeaders,
+		ResponseHeaders: pl.responseHeaders,
+		TraceID:         sp.TraceID,
+		SpanID:          sp.SpanID,
+		Release:         sp.Release,
+		Commit:          sp.Commit,
+		Sampled:         true,
 	}, true
 }
 
@@ -130,4 +181,33 @@ func baseURL(attrs map[string]string) string {
 		return scheme + "://" + host
 	}
 	return host
+}
+
+// redactRequestRow masks a derived request like redactRequest masks an SDK
+// record; it reports whether anything was masked.
+func redactRequestRow(r *privacy.Redactor, row *pipeline.RequestRow) bool {
+	before := *row
+	row.Path = r.RawPath(row.Path)
+	row.RawPath = r.RawPath(row.RawPath)
+	row.RequestHeaders = r.Headers(row.RequestHeaders)
+	row.ResponseHeaders = r.Headers(row.ResponseHeaders)
+	row.RequestPayload = r.Body(row.RequestPayload)
+	row.ResponsePayload = r.Body(row.ResponsePayload)
+	return row.Path != before.Path || row.RawPath != before.RawPath ||
+		row.RequestHeaders != before.RequestHeaders || row.ResponseHeaders != before.ResponseHeaders ||
+		row.RequestPayload != before.RequestPayload || row.ResponsePayload != before.ResponsePayload
+}
+
+// capRequestRow applies capRequests' caps; caps memoizes each app's payload cap.
+func (e *Edge) capRequestRow(ctx context.Context, caps map[uuid.UUID]int, row *pipeline.RequestRow, t tally) {
+	n, ok := caps[row.AppID]
+	if !ok {
+		n = e.payloadCap(ctx, row.AppID)
+		caps[row.AppID] = n
+	}
+	c := t.app(row.AppID)
+	e.capField(c, FieldRequestPayload, &row.RequestPayload, n)
+	e.capField(c, FieldResponsePayload, &row.ResponsePayload, n)
+	e.capField(c, FieldRequestHeaders, &row.RequestHeaders, maxHeaderBytes)
+	e.capField(c, FieldResponseHeaders, &row.ResponseHeaders, maxHeaderBytes)
 }
