@@ -2,26 +2,52 @@ package ai.apilens.otel.vertx;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanBuilder;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.impl.HttpRequestHead;
+import io.vertx.core.net.HostAndPort;
+import io.vertx.core.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Helper injected into the application's class loader: the state of one exchange, kept from
  * the request's start until its response ends. Bodies are cut at {@link #MAX_BODY_CHARS}; only
  * text bodies (JSON, XML, forms, plain text) are recorded.
+ *
+ * <p>HTTP/1.x exchanges annotate the server span of the agent's Netty instrumentation. The agent
+ * does not trace HTTP/2 (or HTTP/3) at all, so for those this class starts the server span
+ * itself, keeps it current while the request handler runs, and ends it with the response.
  */
 public final class PayloadCapture {
 
   static final int MAX_BODY_CHARS = 65_536;
 
-  /** Keyed by the Http1ServerResponse; weak so an exchange that never ends cannot leak. */
+  /** Static assets are not API traffic: no span for them on HTTP/2 (the agent's HTTP/1 spans stay). */
+  private static final Pattern STATIC_ASSET =
+      Pattern.compile(
+          "(?i).*\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|html?|txt|wasm)$");
+
+  private static final Tracer TRACER =
+      GlobalOpenTelemetry.getTracer("ai.apilens.vertx-http2", "0.2.0");
+
+  /** Keyed by the server response; weak so an exchange that never ends cannot leak. */
   private static final Map<Object, Exchange> EXCHANGES =
       Collections.synchronizedMap(new WeakHashMap<>());
 
@@ -31,13 +57,30 @@ public final class PayloadCapture {
     final boolean requestText;
     final StringBuilder requestBody = new StringBuilder();
     final StringBuilder responseBody = new StringBuilder();
+    /** Whether this class started the span (HTTP/2) and so must end it. */
+    final boolean owned;
 
-    Exchange(Span span, String requestHeaders, boolean requestText) {
+    Exchange(Span span, String requestHeaders, boolean requestText, boolean owned) {
       this.span = span;
       this.requestHeaders = requestHeaders;
       this.requestText = requestText;
+      this.owned = owned;
     }
   }
+
+  static final class HeadersGetter implements TextMapGetter<MultiMap> {
+    @Override
+    public Iterable<String> keys(MultiMap carrier) {
+      return carrier.names();
+    }
+
+    @Override
+    public String get(MultiMap carrier, String key) {
+      return carrier == null ? null : carrier.get(key);
+    }
+  }
+
+  private static final HeadersGetter GETTER = new HeadersGetter();
 
   private PayloadCapture() {}
 
@@ -56,7 +99,7 @@ public final class PayloadCapture {
       put(headers, h.getKey(), h.getValue());
     }
     boolean text = textual(req.headers().get("content-type"), true);
-    EXCHANGES.put(response, new Exchange(span, json(headers), text));
+    EXCHANGES.put(response, new Exchange(span, json(headers), text, false));
   }
 
   public static void requestChunk(Object response, Object chunk) {
@@ -87,6 +130,124 @@ public final class PayloadCapture {
     if (chunk instanceof Buffer) {
       append(ex.responseBody, (Buffer) chunk);
     }
+    finish(ex, headers);
+  }
+
+  /**
+   * HTTP/2 request start: starts the server span and returns its scope, which the caller closes
+   * once the request handler returns. Null when nothing was started.
+   */
+  public static Object h2Begin(Object request, Object response, Object head) {
+    if (response == null
+        || !(head instanceof HttpRequestHead)
+        || !(request instanceof HttpServerRequest)) {
+      return null;
+    }
+    HttpRequestHead h = (HttpRequestHead) head;
+    String path = h.uri == null ? "/" : h.uri;
+    int q = path.indexOf('?');
+    if (q >= 0) {
+      path = path.substring(0, q);
+    }
+    if (STATIC_ASSET.matcher(path).matches()) {
+      return null;
+    }
+    String method = h.method == null ? "GET" : h.method.name();
+    Context parent =
+        GlobalOpenTelemetry.getPropagators()
+            .getTextMapPropagator()
+            .extract(Context.root(), h.headers, GETTER);
+    SpanBuilder b =
+        TRACER
+            .spanBuilder(method)
+            .setSpanKind(SpanKind.SERVER)
+            .setParent(parent)
+            .setAttribute("http.request.method", method)
+            .setAttribute("url.path", path)
+            .setAttribute("network.protocol.version", "2");
+    if (h.scheme != null) {
+      b.setAttribute("url.scheme", h.scheme);
+    }
+    HostAndPort authority = h.authority;
+    if (authority != null) {
+      b.setAttribute("server.address", authority.host());
+      if (authority.port() > 0) {
+        b.setAttribute("server.port", (long) authority.port());
+      }
+    }
+    Map<String, String> headers = new LinkedHashMap<>();
+    String contentType = null;
+    if (h.headers != null) {
+      for (Map.Entry<String, String> e : h.headers) {
+        put(headers, e.getKey(), e.getValue());
+      }
+      contentType = h.headers.get("content-type");
+      String ua = h.headers.get("user-agent");
+      if (ua != null) {
+        b.setAttribute("user_agent.original", ua);
+      }
+    }
+    try {
+      SocketAddress remote = ((HttpServerRequest) request).remoteAddress();
+      if (remote != null && remote.hostAddress() != null) {
+        b.setAttribute("client.address", remote.hostAddress());
+      }
+    } catch (RuntimeException ignored) {
+      // the address is optional
+    }
+    Span span = b.startSpan();
+    EXCHANGES.put(
+        response, new Exchange(span, json(headers), textual(contentType, true), true));
+    return parent.with(span).makeCurrent();
+  }
+
+  public static void h2Exit(Object scope) {
+    if (scope instanceof Scope) {
+      ((Scope) scope).close();
+    }
+  }
+
+  /** HTTP/2 response write; the one with {@code end} set ends the span. */
+  public static void h2Write(
+      Object response, Object chunk, boolean end, Object headers, Object status) {
+    Exchange ex = end ? EXCHANGES.remove(response) : EXCHANGES.get(response);
+    if (ex == null) {
+      return;
+    }
+    if (chunk instanceof Buffer) {
+      append(ex.responseBody, (Buffer) chunk);
+    }
+    if (end) {
+      finish(ex, headers);
+      endOwned(ex, status, false);
+    }
+  }
+
+  /** HTTP/2 stream closed or reset: ends a span whose response did not end through a write. */
+  public static void h2Closed(Object response, boolean ended, Object headers, Object status) {
+    Exchange ex = EXCHANGES.remove(response);
+    if (ex == null || !ex.owned) {
+      return;
+    }
+    finish(ex, headers);
+    endOwned(ex, status, !ended);
+  }
+
+  private static void endOwned(Exchange ex, Object status, boolean aborted) {
+    if (!ex.owned) {
+      return;
+    }
+    int code = status instanceof HttpResponseStatus ? ((HttpResponseStatus) status).code() : 200;
+    ex.span.setAttribute("http.response.status_code", (long) code);
+    if (aborted) {
+      ex.span.setStatus(StatusCode.ERROR, "stream closed before the response ended");
+    } else if (code >= 500) {
+      ex.span.setStatus(StatusCode.ERROR);
+    }
+    ex.span.end();
+  }
+
+  private static void finish(Exchange ex, Object headers) {
     Span span = ex.span;
     span.setAttribute("apilens.request.headers", ex.requestHeaders);
     if (ex.requestBody.length() > 0) {

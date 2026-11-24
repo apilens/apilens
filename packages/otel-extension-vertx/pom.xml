@@ -6,11 +6,11 @@
 
   <groupId>ai.apilens</groupId>
   <artifactId>apilens-otel-extension-vertx</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <name>APILens OpenTelemetry extension: Vert.x payloads</name>
   <description>
-    OpenTelemetry Java agent extension that records Vert.x 5 HTTP/1.x request and response
-    bodies and headers on the server span, for APILens to store as the request's payload.
+    OpenTelemetry Java agent extension that records Vert.x 5 HTTP request and response
+    bodies and headers on the server span (starting it for HTTP/2, which the agent does not trace), for APILens to store as the request's payload.
   </description>
 
   <properties>
