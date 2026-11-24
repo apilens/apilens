@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
@@ -96,5 +97,30 @@ func TestOTLPServerSpanPayloadsAreMaskedAndNotSpanAttributes(t *testing.T) {
 	}
 	if r.ResponsePayload != `{"ok":true}` || r.ResponseHeaders != `{"content-type":"application/json"}` {
 		t.Fatalf("response = %s %s", r.ResponsePayload, r.ResponseHeaders)
+	}
+}
+
+func TestBearerConsumer(t *testing.T) {
+	jwt := func(claims string) string {
+		return "eyJhbGciOiJSUzUxMiJ9." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".c2ln"
+	}
+	for _, c := range []struct {
+		headers string
+		want    consumerInfo
+	}{
+		// Motadata: sub is the constant "Motadata API v1"; id and user.name name the user.
+		{`{"authorization":"Bearer ` + jwt(`{"user.name":"admin","id":10000000000000001,"session-id":"s","sub":"Motadata API v1"}`) + `"}`,
+			consumerInfo{id: "10000000000000001", name: "admin"}},
+		{`{"Authorization":"bearer ` + jwt(`{"sub":"u-42","email":"a@b.c","tenant":"acme"}`) + `"}`,
+			consumerInfo{id: "u-42", name: "a@b.c", group: "acme"}},
+		{`{"authorization":"Bearer ` + jwt(`{"preferred_username":"neel"}`) + `"}`, consumerInfo{id: "neel", name: "neel"}},
+		{`{"authorization":"Basic dXNlcjpwYXNz"}`, consumerInfo{}},
+		{`{"authorization":"Bearer opaque-token"}`, consumerInfo{}},
+		{`{"accept":"*/*"}`, consumerInfo{}},
+		{``, consumerInfo{}},
+	} {
+		if got := bearerConsumer(c.headers); got != c.want {
+			t.Errorf("bearerConsumer(%s) = %+v, want %+v", c.headers, got, c.want)
+		}
 	}
 }

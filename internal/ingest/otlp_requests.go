@@ -1,7 +1,10 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -82,6 +85,7 @@ func serverRequest(sp pipeline.SpanRow, pl spanPayload) (pipeline.RequestRow, bo
 	if method == "" || path == "" {
 		return pipeline.RequestRow{}, false
 	}
+	consumer := bearerConsumer(pl.requestHeaders) // before redaction masks the header
 	return pipeline.RequestRow{
 		ProjectID:       sp.ProjectID,
 		AppID:           sp.AppID,
@@ -98,6 +102,9 @@ func serverRequest(sp pipeline.SpanRow, pl spanPayload) (pipeline.RequestRow, bo
 		UserAgent:       short(firstNonEmpty(attrs["user_agent.original"], attrs["http.user_agent"])),
 		BaseURL:         short(baseURL(attrs)),
 		RequestPayload:  pl.requestBody,
+		ConsumerID:      consumer.id,
+		ConsumerName:    consumer.name,
+		ConsumerGroup:   consumer.group,
 		ResponsePayload: pl.responseBody,
 		RequestHeaders:  pl.requestHeaders,
 		ResponseHeaders: pl.responseHeaders,
@@ -210,4 +217,74 @@ func (e *Edge) capRequestRow(ctx context.Context, caps map[uuid.UUID]int, row *p
 	e.capField(c, FieldResponsePayload, &row.ResponsePayload, n)
 	e.capField(c, FieldRequestHeaders, &row.RequestHeaders, maxHeaderBytes)
 	e.capField(c, FieldResponseHeaders, &row.ResponseHeaders, maxHeaderBytes)
+}
+
+// Claims naming the caller of a request that carries a bearer JWT, most
+// specific first. "sub" comes last: many issuers put a constant there.
+var (
+	consumerIDClaims    = []string{"user.id", "user_id", "uid", "id", "sub"}
+	consumerNameClaims  = []string{"user.name", "preferred_username", "username", "name", "email"}
+	consumerGroupClaims = []string{"tenant", "org", "organization", "group", "role"}
+)
+
+type consumerInfo struct{ id, name, group string }
+
+// bearerConsumer reads the consumer from the claims of the bearer JWT in the
+// request headers (a JSON object). The signature is not checked: this only
+// attributes traffic, it authorizes nothing.
+func bearerConsumer(headersJSON string) consumerInfo {
+	if headersJSON == "" {
+		return consumerInfo{}
+	}
+	var headers map[string]string
+	if json.Unmarshal([]byte(headersJSON), &headers) != nil {
+		return consumerInfo{}
+	}
+	var auth string
+	for k, v := range headers {
+		if strings.EqualFold(k, "authorization") {
+			auth = strings.TrimSpace(v)
+		}
+	}
+	scheme, token, ok := strings.Cut(auth, " ")
+	if !ok || !strings.EqualFold(scheme, "bearer") {
+		return consumerInfo{}
+	}
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return consumerInfo{}
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return consumerInfo{}
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber() // ids past 2^53 keep their digits
+	var claims map[string]any
+	if dec.Decode(&claims) != nil {
+		return consumerInfo{}
+	}
+	c := consumerInfo{
+		id:    claim(claims, consumerIDClaims),
+		name:  claim(claims, consumerNameClaims),
+		group: claim(claims, consumerGroupClaims),
+	}
+	if c.id == "" {
+		c.id = c.name
+	}
+	return c
+}
+
+func claim(claims map[string]any, keys []string) string {
+	for _, k := range keys {
+		switch v := claims[k].(type) {
+		case string:
+			if v = strings.TrimSpace(v); v != "" {
+				return truncate(v, 256)
+			}
+		case json.Number:
+			return v.String()
+		}
+	}
+	return ""
 }
