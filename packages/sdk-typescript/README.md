@@ -38,6 +38,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [SDK health & stats](#sdk-health--stats)
 - [App metadata](#app-metadata)
 - [Heartbeat](#heartbeat)
+- [Runtime resources](#runtime-resources)
 - [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
 - [Network requirements](#network-requirements)
@@ -535,6 +536,9 @@ adapter (which builds the client for you).
 | `userAgent` | `"apilens-js-sdk/<version>"` | `User-Agent` header the SDK sends to ingest. |
 | `ingestPath` / `tracesPath` / `logsPath` | `"requests"` / `"traces"` / `"logs"` | Endpoint paths, relative to `baseUrl` (a leading `/` resolves from the host root, a full `https://` URL is used as-is). |
 | `metadataPath` / `heartbeatPath` | `"metadata"` / `"heartbeat"` | Metadata and heartbeat endpoint paths, relative to `baseUrl`. |
+| `captureResources` | `true` | Sample CPU, memory, the container's cgroup and runtime health (event loop, heap, GC, DB pools) and send them with every heartbeat. Env `APILENS_CAPTURE_RESOURCES=false` turns it off. See [Runtime resources](#runtime-resources). |
+| `resourcesIntervalMs` | `15000` | Milliseconds between resource samples; minimum 15 000 (a lower value is raised to it). The remote policy can only lengthen it. |
+| `captureProcessList` | `true` | Add the top 20 processes of the same container (pid, ppid, name, CPU, RSS; never command lines or environments) to the heartbeat. Linux only; off by itself on a host PID namespace. |
 
 JS-only client options:
 
@@ -769,6 +773,9 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flushIntervalMs` | number, **seconds** | `3` (3000 ms) |
 | `APILENS_MODE` | — | not read by the JS SDK; set `flushMode` in code | — |
+| `APILENS_CAPTURE_RESOURCES` | `captureResources` | bool | `true` |
+| `APILENS_RESOURCES_INTERVAL` | `resourcesIntervalMs` | number, **seconds** | `15` (15 000 ms, the minimum) |
+| `APILENS_CAPTURE_PROCESS_LIST` | `captureProcessList` | bool | `true` |
 
 Also read from the environment, with their own rules: `APILENS_RELEASE` /
 `APILENS_COMMIT` (release stamping), `APILENS_PARAMETRIZE_PATHS=false` (wins
@@ -958,7 +965,8 @@ capture policy.
   client (`client.registerApp(appId, environment)` for manual use).
 - **Body:** `app_id`, `environment`, `instance_id` (a UUID, new per process
   start), `sdk_name`, `sdk_version`, `runtime`, `pid`, `uptime_s`, `release`,
-  `commit`, and `stats` (the [`client.stats()`](#sdk-health--stats) snapshot).
+  `commit`, `stats` (the [`client.stats()`](#sdk-health--stats) snapshot),
+  and `identity` / `resources` (see [Runtime resources](#runtime-resources)).
   Never the API key.
 - **Policy:** the response's `policy` (set per app in the dashboard) is applied
   to every record from then on, so capture can be turned down without a deploy.
@@ -968,12 +976,58 @@ capture policy.
   - `sample_rate` samples out more requests (base record still sent);
   - `capture_headers` / `capture_request_body` / `capture_response_body`
     `false` turn those off; `true` never turns on what you disabled locally;
-  - `max_payload_bytes` lowers your body cap, never raises it.
+  - `max_payload_bytes` lowers your body cap, never raises it;
+  - `resources` turns resource sampling or single collectors off and
+    lengthens the sampling interval (see [Runtime resources](#runtime-resources)).
 
   A failed heartbeat keeps the previous policy.
 - **Failures are silent:** heartbeats are never retried and never delay data
   delivery; `Retry-After` is honoured.
 - **Turn it off:** `sendHeartbeat: false`, or env `APILENS_SEND_HEARTBEAT=false`.
+
+---
+
+## Runtime resources
+
+Every heartbeat also carries where the process runs (`identity`) and what it
+used since the previous heartbeat (`resources`, contract `v: 1`, see
+[`apps/docs/ingest/heartbeat.mdx`](../../apps/docs/ingest/heartbeat.mdx)).
+The SDK samples every `resourcesIntervalMs` (15 s) from an unref'd timer, so a
+script still exits by itself, and sends `{min, avg, max, last}` per value.
+Anything it cannot measure is left out, never sent as `0`.
+
+| Block | What | Where |
+|---|---|---|
+| `process.cpu` | `cores_used` (can exceed 1) and `pct_of_limit` (of the cgroup quota, cpuset or affinity, else the host's CPUs) | `process.cpuUsage()` deltas |
+| `process.memory` | RSS every sample; PSS / USS every 60 s; threads and open fds | `process.memoryUsage.rss()`, `/proc/self` (Linux) |
+| `container` | CPU usage, limit and throttling; memory current, working set, anon, file, swap, limit and OOM kills; the container id | cgroup v1 / v2 (Linux) |
+| `runtime.node` | Event loop delay p50 / p99 / max (ms, reset every heartbeat), event loop utilization, heap used / total, external, array buffers (every 60 s), GC count and pause time | `perf_hooks` |
+| `pools` | `pg.Pool` and mysql2 pools: connections in use, idle, max and callers waiting | found by the `pg` / `mysql2` hooks |
+| `processes` | Top 20 processes of the same container by RSS: pid, ppid, name, CPU %, RSS. **Never** command lines, environments or working directories | `/proc` (Linux) |
+
+`identity` is resolved once: hostname, container id, Kubernetes pod name, uid,
+namespace and node (from Downward API env vars `POD_NAME`, `POD_NAMESPACE`,
+`POD_UID`, `NODE_NAME`, then files, then the hostname, marked
+`hostname_guess`), platform (`k8s`, `ecs`, `cloud_run`, `app_engine`,
+`heroku`, `fly`, `lambda`, `vm`, `bare`), region and the process start time.
+On ECS one metadata request (1 s timeout) adds the container id.
+
+- **Where it runs:** the main thread of each Node, Bun or Deno process.
+  `worker_threads` workers do not sample (the main thread already covers the
+  process); each cluster / PM2 worker is its own process and samples itself.
+  Edge runtimes (Cloudflare Workers, Vercel Edge) send `capabilities: []`.
+- **Serverless:** in inline flush mode the SDK samples at the end of an
+  invocation, in `flushInline()`. A clock jump of more than twice the interval
+  (the runtime was frozen) is flagged `freeze_gap` and never averaged into CPU.
+- **Cost and safety:** a sample costs well under 0.1 % of a core; the SDK
+  measures it (`sampler_cost_us`) and samples less often when it is over.
+  A collector that fails five times in a row is turned off; nothing is ever
+  thrown into your app.
+- **Policy:** the heartbeat response's `policy.resources` can turn sampling or
+  single collectors off and lengthen the interval, never the reverse.
+- **Turn it off:** `captureResources: false`, or env `APILENS_CAPTURE_RESOURCES=false`
+  (no timer, no `identity`, no `resources`); `captureProcessList: false` keeps
+  everything but the process list.
 
 ---
 

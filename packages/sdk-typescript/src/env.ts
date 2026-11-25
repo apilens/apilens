@@ -132,6 +132,9 @@ export type EnvConfig = {
   captureSpans?: boolean;
   batchSize?: number;
   flushIntervalMs?: number;
+  captureResources?: boolean;
+  resourcesIntervalMs?: number;
+  captureProcessList?: boolean;
 };
 
 type EnvOption = {
@@ -169,6 +172,10 @@ export const ENV_OPTIONS: readonly EnvOption[] = Object.freeze([
   { option: "batch_size", key: "batchSize", parse: parseInteger },
   // Seconds, like the Python SDK; stored as milliseconds.
   { option: "flush_interval", key: "flushIntervalMs", parse: SECONDS_TO_MS },
+  { option: "capture_resources", key: "captureResources", parse: parseBool },
+  // Seconds, like the Python SDK; stored as milliseconds.
+  { option: "resources_interval", key: "resourcesIntervalMs", parse: SECONDS_TO_MS },
+  { option: "capture_process_list", key: "captureProcessList", parse: parseBool },
 ] satisfies EnvOption[]);
 
 /** `"sample_rate"` → `"APILENS_SAMPLE_RATE"`. */
