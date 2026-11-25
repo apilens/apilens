@@ -10,7 +10,12 @@
  * - `edge`: Cloudflare Workers, Vercel Edge, anything without
  *   `process.versions.node`: `capabilities: []`, nothing else (D13).
  * - `off`: `captureResources: false`, or a `worker_threads` worker (the main
- *   thread already samples this process): no `identity`, no `resources`.
+ *   thread already samples this process): no `resources`.
+ *
+ * `identity` is sent whenever this is a process's main thread (`node` mode, or
+ * `off` because of `captureResources: false`): it is tiny and the server needs
+ * it to infer restarts. The kill switch turns off `resources` only. Edge
+ * runtimes and `worker_threads` workers send no identity.
  */
 
 import { builtin, isEdgeRuntime, processObject } from "../runtime.js";
@@ -53,8 +58,15 @@ export type RuntimeResourcesOptions = {
   fetchImpl?: typeof fetch;
 };
 
+/** Whether this process sends `identity`: a Node main thread, whatever `captureResources` says. */
+export function sendsIdentity(): boolean {
+  return !isEdgeRuntime() && !isWorkerThread();
+}
+
 export class RuntimeResources {
   readonly mode: ResourcesMode;
+  /** Whether heartbeats carry `identity` (independent of `captureResources`). */
+  readonly identityEnabled: boolean;
   private sampler?: ResourceSampler;
   private identityValue?: Identity;
   private ecsStarted = false;
@@ -62,11 +74,12 @@ export class RuntimeResources {
 
   constructor(private readonly options: RuntimeResourcesOptions) {
     this.mode = resourcesMode(options.captureResources);
+    this.identityEnabled = this.mode === "node" || (this.mode === "off" && sendsIdentity());
   }
 
   /** The process identity (resolved on first use; never throws). */
   identity(): Identity | undefined {
-    if (this.mode !== "node") {
+    if (!this.identityEnabled) {
       return undefined;
     }
     if (!this.identityValue) {
@@ -82,6 +95,10 @@ export class RuntimeResources {
   /** Start sampling (and the one ECS metadata fetch). Idempotent. */
   start(): void {
     if (this.mode !== "node") {
+      // Kill switch: no sampler, but identity still gets its ECS container id.
+      if (this.identityEnabled) {
+        this.startEcs();
+      }
       return;
     }
     if (!this.sampler) {
@@ -141,11 +158,8 @@ export class RuntimeResources {
       if (this.mode === "edge") {
         return { resources: edgeResourcesBlock() };
       }
-      if (this.mode !== "node") {
-        return {};
-      }
       const identity = this.identity();
-      const resources = this.sampler?.drain();
+      const resources = this.mode === "node" ? this.sampler?.drain() : undefined;
       return {
         ...(identity && Object.keys(identity).length > 0 ? { identity: { ...identity } } : {}),
         ...(resources ? { resources } : {}),

@@ -939,7 +939,9 @@ platform (`k8s`, `ecs`, `cloud_run`, `app_engine`, `heroku`, `fly`, `lambda`,
 - **Request records** carry the same `instance_id` as the heartbeat, so latency
   and errors can be split per instance.
 - **Turn it off:** `apilens.capture-resources=false` (`captureResources(false)`),
-  or env `APILENS_CAPTURE_RESOURCES=false`.
+  or env `APILENS_CAPTURE_RESOURCES=false`: no sampler thread and no `resources`
+  block. `identity` is still sent: it is tiny and the server needs it to infer
+  restarts.
 
 ---
 

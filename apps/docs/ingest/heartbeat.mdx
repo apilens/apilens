@@ -63,7 +63,7 @@ SDKs with runtime resources (M7) add two blocks to every heartbeat:
 - `identity`: where the process runs.
 - `resources`: CPU, memory and runtime health over the window since the previous heartbeat.
 
-The SDK samples every 15 seconds and sends the aggregate. Older SDKs send neither block, and their heartbeats work as before.
+The SDK samples every 15 seconds and sends the aggregate. Older SDKs send neither block, and their heartbeats work as before. `identity` is sent even when `capture_resources` is off (it is small, and restart inference needs it); only `resources` is turned off. What each SDK collects, what it costs and the platform matrix are in [Runtime resources](/sdk-reference/runtime-resources).
 
 ```json
 {

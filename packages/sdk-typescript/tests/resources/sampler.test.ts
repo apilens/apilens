@@ -308,7 +308,7 @@ describe("contract shape", () => {
     }
   });
 
-  it("captureResources: false sends no identity and no resources", async () => {
+  it("captureResources: false sends identity but no resources", async () => {
     process.env.APILENS_SEND_HEARTBEAT = "true";
     try {
       const client = new ApiLensClient({
@@ -320,7 +320,9 @@ describe("contract shape", () => {
       client.stop();
       const body = client.heartbeatPayload();
       expect(body).not.toHaveProperty("resources");
-      expect(body).not.toHaveProperty("identity");
+      expect(client.resources.mode).toBe("off");
+      expect(body.identity).toMatchObject({ platform: expect.any(String), process_start_time: expect.stringMatching(/Z$/) });
+      expect(validate(body, requestSchema("/v1/heartbeat"))).toEqual([]);
       await client.handleShutdown({ flush: false });
     } finally {
       process.env.APILENS_SEND_HEARTBEAT = "false";
@@ -451,6 +453,10 @@ describe("real processes", () => {
           const body = c.heartbeatPayload();
           console.log("worker", c.resources.mode, "resources" in body, "identity" in body);
           await c.handleShutdown({ flush: false });
+          const off = new ApiLensClient({ apiKey: "k", captureResources: false, fetchImpl: async () => new Response("{}"), logger: { debug() {}, warn() {} } });
+          const offBody = off.heartbeatPayload();
+          console.log("worker-off", off.resources.mode, "resources" in offBody, "identity" in offBody);
+          await off.handleShutdown({ flush: false });
         });
       \`, { eval: true });
       worker.on("exit", () => client.handleShutdown({ flush: false }));
@@ -458,5 +464,6 @@ describe("real processes", () => {
     expect(status).toBe(0);
     expect(stdout).toContain("main node");
     expect(stdout).toContain("worker off false false");
+    expect(stdout).toContain("worker-off off false false");
   });
 });

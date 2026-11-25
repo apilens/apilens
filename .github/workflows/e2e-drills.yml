@@ -5,6 +5,12 @@
 # takes ingest down, answers 5xx and 429 with Retry-After, and checks that the
 # apps stay fast, the SDKs count their drops by reason (heartbeat stats) and
 # recovery flushes without duplicates.
+#
+# The kind job (test/kind/drill.sh, `task test:kind:drill`) runs the runtime
+# resources drill (M7): the FastAPI example on a kind cluster with Downward
+# API identity and 500m / 256Mi limits, an OOM kill, a container restart and
+# a pod replacement, asserted from Postgres (and the instance-events API when
+# the server has it).
 name: Failure drills
 
 on:
@@ -22,6 +28,7 @@ env:
   GOTOOLCHAIN: auto
   # Keep in step with ci.yml.
   TASK_VERSION: v3.54.0
+  KIND_VERSION: v0.29.0
 
 jobs:
   drills:
@@ -49,3 +56,36 @@ jobs:
       - name: Tear down
         if: always()
         run: APILENS_EXAMPLES_API_KEY=unused $COMPOSE down -v --remove-orphans
+
+  kind:
+    name: Runtime resources on kind (limits, OOM kill, restart)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      COMPOSE: docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Task and kind
+        run: |
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          go install "sigs.k8s.io/kind@${KIND_VERSION}"
+          kubectl version --client
+      - name: Start the stack
+        run: task e2e:up
+      - name: Run the kind drill
+        run: task test:kind:drill
+      - name: Dump logs on failure
+        if: failure()
+        run: $COMPOSE logs --no-color --timestamps apilens
+      - name: Tear down
+        if: always()
+        run: |
+          kind delete cluster --name apilens-drill || true
+          $COMPOSE down -v --remove-orphans

@@ -11,6 +11,16 @@
 # <= 128 MiB, no errors, <= 1% missed): a breach is a ::warning:: annotation,
 # not a red build. Shared runners are noisy; add -fail-on-threshold to
 # APPBENCH_REPORT_ARGS only once the numbers have been stable for a while.
+#
+# Runtime resources (M7):
+# - resources-smoke: the example apps with half a core and 256 MiB each
+#   (compose.examples.limits.yaml: gunicorn --preload -w 4, a 2-worker Node
+#   cluster, Spring), then examples/smoke.sh with APILENS_SMOKE_RESOURCES=1:
+#   the heartbeats carry limit_source cgroup_v2, the 0.5-core and 256 MiB
+#   limits, and one container memory figure per container. A failure is red.
+# - sampler-overhead: the TypeScript and Java resources sampler benchmarks
+#   (the Python one runs in sdk-python-bench.yml). A median sample over 1 ms,
+#   or more than 0.1 % of one core at the 15 s interval, is red.
 name: Example apps overhead benchmark
 
 on:
@@ -81,3 +91,84 @@ jobs:
             -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml \
             -f deploy/compose/compose.examples.yaml --profile examples \
             logs --tail 200 apilens example-fastapi example-express example-spring
+
+  resources-smoke:
+    name: Resource-limited examples (cgroup v2 limits in the heartbeats)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      APILENS_EXAMPLES_LIMITS: "1"
+      APILENS_SMOKE_RESOURCES: "1"
+      APILENS_E2E_CLICKHOUSE_HTTP: http://127.0.0.1:8123
+      APILENS_E2E_CLICKHOUSE_USER: apilens
+      APILENS_E2E_CLICKHOUSE_PASSWORD: ci-clickhouse
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Task
+        run: go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+      # An environment of its own, so the smoke reads only this run's heartbeats.
+      - name: Environment name
+        run: echo "APILENS_EXAMPLES_ENVIRONMENT=e2e-resources-$(date +%s)" >> "$GITHUB_ENV"
+      - name: Start the stack and the limited example apps
+        run: task examples:up
+      - name: Smoke (endpoints and runtime resources)
+        run: task examples:smoke
+      - name: Example app logs
+        if: failure()
+        run: |
+          APILENS_EXAMPLES_API_KEY=unused docker compose --env-file deploy/compose/ci.env \
+            -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml \
+            -f deploy/compose/compose.examples.yaml -f deploy/compose/compose.examples.limits.yaml \
+            --profile examples logs --tail 200 apilens example-fastapi example-express example-spring
+
+  sampler-overhead:
+    name: Resources sampler overhead (TypeScript, Java)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - run: pnpm install --frozen-lockfile
+      - name: TypeScript sampler
+        working-directory: packages/sdk-typescript
+        run: |
+          node benchmarks/resources-overhead.mjs --max-sample-ms 1 --max-core-pct 0.1 \
+            --output "$RUNNER_TEMP/resources-overhead-ts.md" --json "$RUNNER_TEMP/resources-overhead-ts.json"
+          cat "$RUNNER_TEMP/resources-overhead-ts.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Java sampler
+        if: success() || failure()
+        working-directory: packages/sdk-java
+        run: |
+          mvn -B -ntp test -Dtest=ResourcesOverheadBench -Dsurefire.failIfNoSpecifiedTests=false \
+            -Dapilens.bench=true -Dapilens.bench.out="$RUNNER_TEMP/resources-overhead-java"
+          cat "$RUNNER_TEMP/resources-overhead-java.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: resources-sampler-overhead
+          path: |
+            ${{ runner.temp }}/resources-overhead-*.md
+            ${{ runner.temp }}/resources-overhead-*.json
+          retention-days: 90
+          if-no-files-found: warn

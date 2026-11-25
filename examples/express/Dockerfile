@@ -17,7 +17,7 @@ COPY examples/express/package.json ./
 # --install-links copies the file: SDK into node_modules so it resolves its
 # express peer dependency from this app.
 RUN npm install --omit=dev --install-links --no-audit --no-fund && npm cache clean --force
-COPY examples/express/server.mjs ./
+COPY examples/express/server.mjs examples/express/cluster.mjs ./
 
 USER 65532:65532
 EXPOSE 3000

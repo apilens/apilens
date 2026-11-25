@@ -66,7 +66,8 @@
               "sdk-reference/exclusions",
               "sdk-reference/delivery",
               "sdk-reference/tracing",
-              "sdk-reference/exceptions"
+              "sdk-reference/exceptions",
+              "sdk-reference/runtime-resources"
             ]
           },
           {
@@ -76,7 +77,8 @@
               "guides/rollout-intake",
               "guides/redaction-manifest",
               "guides/pii-audit",
-              "guides/sdk-runbook"
+              "guides/sdk-runbook",
+              "guides/kubernetes"
             ]
           },
           {

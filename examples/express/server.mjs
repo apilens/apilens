@@ -13,6 +13,12 @@
 //   GET  /boom/handled    error turned into a 500 by error middleware
 //   GET  /boom/logged     error caught and logged (console.error, captureException) -> 200
 //   GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
+//   GET  /leak?mb=N       keep N MiB (default 16, at most 64 per call) allocated
+//                         in this process for good: drives memory and OOM kills
+//   GET  /burn?ms=N       spin the event loop for N ms (default 200, at most 5000)
+//
+// `node cluster.mjs` runs this file in EXAMPLE_CLUSTER_WORKERS (default 2)
+// cluster workers sharing the port; each worker is its own SDK instance.
 //
 // Configuration is environment only:
 //
@@ -201,6 +207,45 @@ app.get("/outbound", async (_req, res) => {
   } catch (err) {
     res.status(502).json({ detail: `outbound call failed: ${err.message}` });
   }
+});
+
+// Runtime-resources drivers (M7): memory that is never freed and CPU spent on
+// purpose, so the resource charts, OOM-kill and restart detection and the
+// limits have something to show (examples/README.md, test/kind).
+const MIB = 1024 * 1024;
+const leaked = [];
+// An integer query parameter in 1..max; absent is the fallback, anything else null.
+const intParam = (value, fallback, max) => {
+  if (value === undefined) {
+    return fallback;
+  }
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
+};
+
+app.get("/leak", (req, res) => {
+  const mb = intParam(req.query.mb, 16, 64);
+  if (mb === null) {
+    res.status(422).json({ detail: "mb must be 1-64" });
+    return;
+  }
+  // Buffer.alloc fills the memory, so every page is resident (RSS).
+  leaked.push(Buffer.alloc(mb * MIB, 1));
+  res.json({ leaked_mb: leaked.reduce((sum, b) => sum + b.length, 0) / MIB, pid: process.pid });
+});
+
+app.get("/burn", (req, res) => {
+  const ms = intParam(req.query.ms, 200, 5000);
+  if (ms === null) {
+    res.status(422).json({ detail: "ms must be 1-5000" });
+    return;
+  }
+  const end = performance.now() + ms;
+  let spins = 0;
+  while (performance.now() < end) {
+    spins += 1;
+  }
+  res.json({ burned_ms: ms, spins, pid: process.pid });
 });
 
 // Error middleware: HandledFailure becomes a JSON 500; anything else falls
