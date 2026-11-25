@@ -69,6 +69,15 @@ class IdentityResolverTest {
   }
 
   @Test
+  void kindSandboxTakesTheContainerIdAndPodUidFromTheTerminationLogMount() {
+    // containerd + cgroup v2: cgroup is 0::/, hostname and resolv.conf come from the pod sandbox.
+    Map<String, Object> got = resolve(Map.of("KUBERNETES_SERVICE_HOST", "10.0.0.1", "POD_NAME", "p"),
+        CgroupReaderTest.CGROUP.resolve("v2_kind_sandbox/root"));
+    assertEquals("k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a", got.get("container_id"));
+    assertEquals("8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b", got.get("pod_uid"));
+  }
+
+  @Test
   void dockerOnALaptopIsBareWithAContainerId() {
     Map<String, Object> got = resolve(Map.of(), CgroupReaderTest.CGROUP.resolve("v1_docker/root"));
     assertEquals(expected("hostname", "fallback-host", "hostname_guess", true, "container_id", ID, "platform", "bare"), got);

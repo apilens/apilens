@@ -21,6 +21,27 @@
       },
       "note": "cgroup namespace: own path is '/', files at the mount root; container id only visible in mountinfo (resolv.conf under containers/<id>, not sandboxes/<id>)."
     },
+    "v2_kind_sandbox": {
+      "limit_source": "cgroup_v2",
+      "container_id": "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a",
+      "cpu": {
+        "limit_cores": 0.5,
+        "usage_us": 123456789,
+        "nr_periods": 1000,
+        "nr_throttled": 180,
+        "throttled_us": 2400000
+      },
+      "memory": {
+        "limit": 536870912,
+        "current": 503316480,
+        "working_set": 419430400,
+        "anon": 398458880,
+        "file": 104857600,
+        "swap": 0,
+        "oom_kill": 1
+      },
+      "note": "containerd + cgroup v2 Kubernetes (kind): own path is '/', hostname and resolv.conf come from the pod sandbox (sandboxes/<id> is per pod, never the container id). The only per-container-start source is kubelet's termination-log mount, root /var/lib/kubelet/pods/<uid>/containers/<name>/<suffix> (new suffix on every container start, shared by every process): container_id = k8s:<uid>/<name>/<suffix>."
+    },
     "v2_unlimited": {
       "limit_source": "cgroup_v2",
       "container_id": null,

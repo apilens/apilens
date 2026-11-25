@@ -75,6 +75,15 @@ describe("identity matrix", () => {
       fileReader(join(CGROUP, "v2_namespaced_limited/root")),
       { container_id: "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e", pod_uid: "8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b" },
     ],
+    [
+      "containerd + cgroup v2 (kind): sandbox hostname, id and pod uid from the termination-log mount",
+      { KUBERNETES_SERVICE_HOST: "10.0.0.1", POD_NAME: "p" },
+      fileReader(join(CGROUP, "v2_kind_sandbox/root")),
+      {
+        container_id: "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a",
+        pod_uid: "8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b",
+      },
+    ],
     ["ecs", { ECS_CONTAINER_METADATA_URI_V4: "http://169.254.170.2/v4/x", AWS_REGION: "eu-west-1" }, none, { platform: "ecs", region: "eu-west-1", hostname_guess: true }],
     ["lambda", { AWS_LAMBDA_FUNCTION_NAME: "fn", AWS_REGION: "us-east-1" }, none, { platform: "lambda", region: "us-east-1" }],
     ["cloud run", { K_SERVICE: "api", K_REVISION: "api-00001" }, none, { platform: "cloud_run" }],

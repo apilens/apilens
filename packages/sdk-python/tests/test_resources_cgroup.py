@@ -48,6 +48,23 @@ def test_mountinfo_container_id_ignores_sandboxes() -> None:
     assert container_id_from_mountinfo(sandbox + "\n" + real) == "b" * 64
 
 
+_TERM = "4 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/containers/app/5f2c9e1a /dev/termination-log rw - ext4 /dev/root rw"
+
+
+def test_mountinfo_termination_log_is_the_fallback() -> None:
+    sandbox = "1 2 259:1 /var/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/" + "a" * 64 + "/hostname /etc/hostname rw - ext4 /dev/root rw"
+    assert container_id_from_mountinfo(sandbox + "\n" + _TERM) == "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a"
+    real = "3 2 259:1 /var/lib/docker/containers/" + "b" * 64 + "/resolv.conf /etc/resolv.conf rw - ext4 /dev/root rw"
+    assert container_id_from_mountinfo(_TERM + "\n" + real) == "b" * 64  # containers/<id> wins
+    # A custom terminationMessagePath mounts the same root elsewhere.
+    custom = _TERM.replace("/dev/termination-log", "/tmp/msg")
+    assert container_id_from_mountinfo(custom) == "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a"
+    # Pod-level kubelet files (etc-hosts, volumes) are not a container start.
+    hosts = "5 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/etc-hosts /etc/hosts rw - ext4 /dev/root rw"
+    vol = "6 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/volumes/kubernetes.io~empty-dir/data /data rw - ext4 /dev/root rw"
+    assert container_id_from_mountinfo(hosts + "\n" + vol + "\n" + sandbox) is None
+
+
 def _copy_case(tmp_path: Path, case: str) -> Path:
     root = tmp_path / case
     shutil.copytree(TESTDATA / case / "root", root)

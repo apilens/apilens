@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import "../../src/node.js";
 import {
   containerIdFromCgroupLine,
+  containerIdFromMountinfo,
   cpusetCount,
   readCgroup,
 } from "../../src/resources/cgroup.js";
@@ -77,6 +78,29 @@ describe("container id table", () => {
       expect(containerIdFromCgroupLine(line)).toBe(want);
     });
   }
+});
+
+describe("containerIdFromMountinfo", () => {
+  const sandbox = `1 2 259:1 /var/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/${"a".repeat(64)}/hostname /etc/hostname rw - ext4 /dev/root rw`;
+  const term =
+    "4 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/containers/app/5f2c9e1a /dev/termination-log rw - ext4 /dev/root rw";
+  const real = `3 2 259:1 /var/lib/docker/containers/${"b".repeat(64)}/resolv.conf /etc/resolv.conf rw - ext4 /dev/root rw`;
+  const k8s = "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a";
+
+  it("never takes a sandbox id", () => {
+    expect(containerIdFromMountinfo(sandbox)).toBeNull();
+  });
+  it("falls back to the termination-log mount, at any mount point", () => {
+    expect(containerIdFromMountinfo(`${sandbox}\n${term}`)).toBe(k8s);
+    expect(containerIdFromMountinfo(term.replace("/dev/termination-log", "/tmp/msg"))).toBe(k8s);
+  });
+  it("prefers a containers/<id> mount", () => {
+    expect(containerIdFromMountinfo(`${term}\n${real}`)).toBe("b".repeat(64));
+  });
+  it("ignores pod-level kubelet files", () => {
+    const hosts = "5 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/etc-hosts /etc/hosts rw - ext4 /dev/root rw";
+    expect(containerIdFromMountinfo(hosts)).toBeNull();
+  });
 });
 
 describe("cpusetCount", () => {
