@@ -1026,7 +1026,8 @@ On ECS one metadata request (1 s timeout) adds the container id.
 - **Policy:** the heartbeat response's `policy.resources` can turn sampling or
   single collectors off and lengthen the interval, never the reverse.
 - **Turn it off:** `captureResources: false`, or env `APILENS_CAPTURE_RESOURCES=false`
-  (no timer, no `identity`, no `resources`); `captureProcessList: false` keeps
+  (no timer, no `resources`; `identity` is still sent, since it is tiny and the
+  server needs it to infer restarts); `captureProcessList: false` keeps
   everything but the process list.
 
 ---

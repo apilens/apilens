@@ -1146,7 +1146,8 @@ latency and errors can be split per instance next to its resources.
   `processes`). It never turns on what local config turned off.
 - **Turn it off:** `capture_resources=False` (env
   `APILENS_CAPTURE_RESOURCES=false`, Django setting of the same name): no
-  thread is started and heartbeats carry no `resources` block.
+  thread is started and heartbeats carry no `resources` block. `identity` is
+  still sent: it is tiny and the server needs it to infer restarts.
 
 **gunicorn `--preload`.** The app is imported once in the master and workers
 are forked from it, sharing its pages copy-on-write. Each worker's RSS counts

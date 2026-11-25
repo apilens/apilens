@@ -1,0 +1,53 @@
+# Resource-limited example apps (M7 runtime resources): layer on top of
+# compose.examples.yaml. Every app gets half a core and 256 MiB, and runs the
+# way production APIs fork workers:
+#
+#   FastAPI  gunicorn --preload -w 4 (uvicorn workers): 4 SDK instances forked
+#            from one master, sharing its pages copy-on-write
+#   Express  node:cluster with 2 workers (examples/express/cluster.mjs)
+#   Spring   one JVM, heap capped at 50 % of the container
+#
+# `APILENS_EXAMPLES_LIMITS=1 task examples:up` adds this file, and
+# `APILENS_SMOKE_RESOURCES=1 task examples:smoke` then checks that the
+# heartbeats carry `resources` with limit_source cgroup_v2, the 0.5-core and
+# 256 MiB limits, and one container memory figure (not four workers' summed).
+#
+# cpus / mem_limit are the Compose spellings of the cgroup v2 cpu.max and
+# memory.max the SDKs read; the deploy.resources.limits of
+# compose.examples.yaml is reset so the two never disagree.
+
+services:
+  example-fastapi:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    deploy: !reset {}
+    command:
+      - gunicorn
+      - main:app
+      - --preload
+      - --workers=4
+      - --worker-class=uvicorn_worker.UvicornWorker
+      - --bind=0.0.0.0:8000
+      - --graceful-timeout=10
+      # The image is read-only; gunicorn's control socket would live in /.gunicorn.
+      - --no-control-socket
+
+  example-express:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    deploy: !reset {}
+    environment:
+      EXAMPLE_CLUSTER_WORKERS: "2"
+    command: ["node", "cluster.mjs"]
+
+  example-spring:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    deploy: !reset {}
+    entrypoint: ["java", "-XX:MaxRAMPercentage=50", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/app.jar"]
+    healthcheck:
+      # Half a core makes Spring Boot start slowly.
+      start_period: 90s

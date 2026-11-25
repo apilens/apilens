@@ -179,7 +179,7 @@ class ResourcesHeartbeatTest {
   }
 
   @Test
-  void captureResourcesOffStartsNoThreadAndSendsNoBlock() throws Exception {
+  void captureResourcesOffStartsNoThreadAndSendsNoBlockButKeepsIdentity() throws Exception {
     try (HeartbeatStub stub = HeartbeatStub.start()) {
       ApiLensConfig config = ApiLensConfig.builder().apiKey("test-key").appId("orders-api").baseUrl(stub.baseUrl())
           .sendMetadata(false).captureResources(false).build();
@@ -188,6 +188,9 @@ class ResourcesHeartbeatTest {
         assertNull(client.resourceSampler());
         assertTrue(HeartbeatStub.await(() -> !stub.heartbeats().isEmpty(), Duration.ofSeconds(5)));
         assertFalse(stub.heartbeats().get(0).body().has("resources"));
+        // identity is tiny and powers restart inference: the kill switch never drops it.
+        assertTrue(stub.heartbeats().get(0).body().has("identity"), stub.heartbeats().get(0).body().toString());
+        assertTrue(stub.heartbeats().get(0).body().at("/identity/process_start_time").isTextual());
         assertTrue(Thread.getAllStackTraces().keySet().stream()
             .noneMatch(t -> t.getName().equals("apilens-resources") && t.isAlive()
                 && client.resourceSampler() != null));

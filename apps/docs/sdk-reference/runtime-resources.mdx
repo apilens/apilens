@@ -1,0 +1,165 @@
+---
+title: "Runtime resources"
+description: "CPU, memory, container limits, runtime internals and restarts for every SDK process: what each SDK collects, what null means, how forked workers are counted, what it costs and how to turn it off."
+---
+
+Every SDK samples the process it runs in and the container around it, and sends the result with the [heartbeat](/ingest/heartbeat#runtime-resources) it already sends about once a minute. That answers the questions request metrics cannot: is this app short of CPU or memory, which instance is the outlier, is memory leaking, did a pod get OOM-killed, and does any of it line up with latency. Request records carry the same `instance_id`, so latency and errors can be split per instance and shown next to its resources.
+
+There is no agent, no sidecar and no new endpoint. The Python, TypeScript and Java SDKs share one wire contract (`resources.v = 1`); only option names differ.
+
+## How it works
+
+1. A sampler takes a sample every **15 seconds**: a background daemon thread in Python and Java, an unref'd timer on the main thread in Node.
+2. Each sample merges into a window: `{min, avg, max, last}` per gauge, deltas for counters (GC collections, OOM kills, throttled time).
+3. Every heartbeat (about once a minute) drains the window into a `resources` block and also sends `identity`: where the process runs.
+4. APILens stores one row per process per heartbeat (30 days, plus an hourly rollup kept 400 days) and the latest snapshot per instance.
+
+The sampler never keeps the process alive, never runs on a request thread in Python or Java, and never throws into your app.
+
+## What is collected
+
+| Block | Python (`apilenss`) | TypeScript (`apilens-js-sdk`) | Java (`apilens-java-sdk`) |
+|---|---|---|---|
+| `process.cpu` | `cores_used`, `pct_of_limit` (`time.process_time()`) | `cores_used`, `pct_of_limit` (`process.cpuUsage()`) | `cores_used`, `pct_of_limit` (`OperatingSystemMXBean`) |
+| `process.memory` | RSS every sample; PSS and USS every 60 s on Linux | RSS every sample; PSS and USS every 60 s on Linux | RSS; PSS and USS every 60 s on Linux |
+| `process.threads`, `fds` | psutil or `/proc/self` | `/proc/self` (Linux) | `/proc/self` (Linux) |
+| `container.cpu` | usage, limit, `throttled_ratio`, `throttled_us` | same | same |
+| `container.memory` | current, working set, anon, file, swap, limit, `oom_kill` | same | same |
+| `runtime` | GC collections, collected, uncollectable and pause per generation; threads; `gil_enabled` | event-loop delay p50/p99/max, event-loop utilization, V8 heap used/total, external, array buffers, GC count and pause | heap and non-heap per pool (used, committed, max), heap after GC, metaspace, direct buffers, threads, GC pause vs concurrent time per collector |
+| `pools` | SQLAlchemy `QueuePool`, Django connections | `pg.Pool`, mysql2 pools | HikariCP (every Spring `DataSource` bean) |
+| `processes` | top 20 of the SDK's own container by RSS | same | same |
+
+The container block comes from the cgroup files the SDK reads itself (cgroup v1 and v2, nested limits resolved), not from Docker, the kubelet or the JDK's container metrics.
+
+## Null is not zero
+
+A value the SDK could not measure is **left out** (null). It is never sent as `0`, because `0` means "measured, and it was zero". Each process also sends a `capabilities` list, so the dashboard can tell "no container" from "a container using nothing".
+
+| You see | It means |
+|---|---|
+| `container.memory.limit` null | No memory limit is set (or a "no limit" sentinel such as cgroup v1's `9223372036854771712`, or a value above the host's memory). |
+| No `container` block | No cgroup to read: a laptop, a bare VM, macOS or Windows. |
+| `process.memory.pss` null | Not Linux, or `/proc/self/smaps_rollup` was not readable (the SDK stops trying after the first permission error). |
+| `capabilities: []` | An edge runtime (Cloudflare Workers, Vercel Edge): nothing can be measured. |
+| `container.memory.oom_kill: 0` | Measured: no OOM kill in this container during the window. |
+
+## Process vs container, and why worker RSS is never summed
+
+There are two scopes:
+
+- **`process`** is the SDK's own process: one gunicorn worker, one Node cluster worker, one JVM.
+- **`container`** is its cgroup, sent with `container_id`. Every worker in the container reports the same container numbers.
+
+APILens keeps **one container series per `container_id`** and never adds workers' memory together. Adding RSS overstates memory whenever workers share pages: gunicorn `--preload`, Celery prefork and Node cluster all fork from a parent and share its pages copy-on-write, and each worker's RSS counts those shared pages in full. PSS splits shared pages between the processes sharing them, which is why a preloaded worker's PSS is well under its RSS.
+
+Measured on the FastAPI example under `gunicorn --preload -w 4` with a 256 MiB limit (`deploy/compose/compose.examples.limits.yaml`):
+
+| | Each of 4 workers | Sum of 4 workers | Container (`memory.current`) |
+|---|---|---|---|
+| RSS | 64 MiB | **258 MiB**, more than the limit | 162 MiB |
+
+The container figure is the number that the OOM killer and kubelet eviction act on: `working_set` is the container's memory minus inactive file cache.
+
+## CPU: two numbers, labelled
+
+- **`cores_used`** is absolute: cores busy over the window. It can exceed 1.
+- **`pct_of_limit`** is the share of the effective limit, 0–100. The limit is the smallest of the cgroup CPU quota, the CPU affinity and the cpuset; without any of them, the host's cores.
+
+**Throttling** (`throttled_ratio`: the share of CFS periods that were throttled; `throttled_us`: time throttled) is reported on its own, because a container can look idle on average while its p99 latency suffers from being throttled in bursts.
+
+## Limits and `limit_source`
+
+Each process says where its limits came from, so a percentage is never read against the wrong denominator.
+
+| `limit_source` | When |
+|---|---|
+| `cgroup_v2` | Linux with the unified hierarchy: Docker, Kubernetes, ECS and Cloud Run on current kernels. |
+| `cgroup_v1` | Linux with the legacy hierarchy (older nodes, some hybrid setups). |
+| `vm` | No cgroup to read on a machine the SDK identifies as a VM: limits are its cores and memory. |
+| `host` | No cgroup to read (macOS, Windows, a bare host): limits are the host's. |
+| `none` | A cgroup was found but no usable limit could be read. |
+| `ecs` | Reserved for limits from ECS task metadata. ECS tasks report their cgroup today. |
+
+## Restarts and OOM kills
+
+A process the OOM killer took cannot report its own death, so APILens infers it from the **next** process in the same pod or container, without polling the kubelet:
+
+| The previous instance | It ends as |
+|---|---|
+| sent a final heartbeat at shutdown | `graceful` |
+| its container reported an `oom_kill` delta around its last heartbeat | `oom` |
+| its last working set was at least 90 % of the memory limit | `suspected_oom` |
+| anything else | `restart` |
+
+`restart`, `oom` and `suspected_oom` are recorded as events for the chart markers. See the [Kubernetes guide](/guides/kubernetes#how-oom-kills-and-restarts-are-detected) for how this plays out on a pod and where it stops.
+
+## Cost
+
+The sampler's budget is **under 0.1 % of one core**. Every SDK measures its own cost (`sampler_cost_us` in the heartbeat) and backs off when it is over budget: Python skips PSS and the process list (flag `sampler_backoff`), TypeScript and Java double their interval (up to 8×).
+
+Benchmarks (`packages/sdk-python/benchmarks/resources_overhead.py`, `packages/sdk-typescript/benchmarks/resources-overhead.mjs`, `packages/sdk-java/.../ResourcesOverheadBench.java`) measure the worst case: every collector on every sample, including the 60-second ones (PSS, heap spaces, the process list). The numbers below come from a Linux container with half a core and 256 MiB (cgroup v2, arm64, a shared 2-vCPU VM), November 2026:
+
+| SDK | CPU per sample, median | p95 | Share of one core at 15 s | Request latency added, sampler 150× faster than production |
+|---|---|---|---|---|
+| Python 3.14 (no psutil) | 0.33 ms | 0.41 ms | 0.0023 % | p50 +0.001 ms, p99 within noise |
+| Node 22 | 0.44 ms | 1.2 ms | 0.0038 % | p50 within noise, p99 +0.2 ms |
+| Java 21 | 0.48 ms | 0.66 ms | 0.0034 % | within noise (own thread) |
+
+- At the production interval one sample every 15 seconds costs about **0.003 % of a core**, some 30× under the budget.
+- Node samples on the event loop, so a sample delays a request that arrives in the same ~0.4 ms. At the production rate that is about one request in 35,000. The Node figure counts the whole process's CPU, V8's GC threads included, so it is an upper bound.
+- Most of the cost is reading `/proc` and `/sys/fs/cgroup` files, which is faster on bare-metal x86 than in this VM.
+- CI runs these benchmarks nightly (`sdk-python-bench.yml`, the `sampler-overhead` job of `examples-bench.yml`) and fails when a median sample costs over 1 ms or the share exceeds 0.1 % of a core.
+
+## Turning it off, and the remote policy
+
+| | Python | TypeScript | Java (Spring property) | Default |
+|---|---|---|---|---|
+| Kill switch | `capture_resources` | `captureResources` | `captureResources` (`apilens.capture-resources`) | on |
+| Sample interval | `resources_interval` (s) | `resourcesIntervalMs` | `resourcesInterval` (`apilens.resources-interval`) | 15 s, the minimum |
+| Process list | `capture_process_list` | `captureProcessList` | `captureProcessList` | on (Linux only) |
+
+The environment variables `APILENS_CAPTURE_RESOURCES`, `APILENS_RESOURCES_INTERVAL` (seconds) and `APILENS_CAPTURE_PROCESS_LIST` work in all three SDKs.
+
+With the kill switch off, no sampler runs and heartbeats carry no `resources` block. They still carry `identity`: it is tiny and the server needs it to infer restarts.
+
+The app's capture policy in APILens (**Project settings**) can also narrow sampling for running apps, without a redeploy: turn it off, lengthen the interval, or switch single collectors off (`process.cpu`, `process.memory`, `process.pss`, `container.cpu`, `container.memory`, `runtime`, `pools`, `processes`). Like every remote policy, it can only **narrow** what the local config allows. It never turns on what the SDK's own config turned off, and it never shortens the interval below the local one.
+
+## Process list privacy
+
+The `processes` list helps find what else is eating the container's memory (a sidecar shell, a stuck child process). It is deliberately small:
+
+- Only `pid`, `ppid`, `comm` (the 15-character process name), CPU % and RSS, for at most 20 processes, largest RSS first.
+- Only processes in the **SDK's own cgroup**: never other containers' or the host's.
+- **Never** command lines, environment variables or working directories. The SDKs do not read `/proc/<pid>/cmdline`, `environ` or `cwd`, so a `--password=...` argument never leaves the host. Ingest drops any other field an SDK might send.
+- Turned off automatically when the process can see the host's PID namespace (flag `host_pid_namespace`), and by `capture_process_list` / `captureProcessList`.
+
+## Platform support
+
+| Platform | CPU | Memory | Container limits | Runtime internals | Process list | Restart / OOM inference |
+|---|---|---|---|---|---|---|
+| Linux, container (Docker, Podman) | yes | RSS, PSS, USS | yes (`cgroup_v2` / `cgroup_v1`) | yes | yes | yes |
+| Linux VM or bare host | yes | RSS, PSS, USS | the process's own cgroup (a systemd unit, usually no limit), else `vm` / `host` | yes | processes in the same cgroup | no: there is no container to restart |
+| macOS | yes | RSS (Python with psutil; none in Java) | no (`host`) | yes | no | no |
+| Windows | yes | RSS (Python with psutil; none in Java) | no (`host`) | yes | no | no |
+| Kubernetes | yes | yes | yes | yes | yes; see [`shareProcessNamespace`](/guides/kubernetes#shareprocessnamespace-and-the-process-list) | from the pod uid and container id; see the [known gap](/guides/kubernetes#known-gap-containerd-on-cgroup-v2) |
+| ECS (EC2 and Fargate) | yes | yes | yes (task cgroup) | yes | yes | yes; one metadata request (1 s) adds the container id and region |
+| Cloud Run, App Engine | during requests | yes | yes | yes | yes | when a container id is found; CPU % is hidden where CPU is only allocated during requests |
+| AWS Lambda | during invocations | yes | as far as the runtime exposes its cgroup | yes | no | no; frozen gaps are flagged `freeze_gap` and dropped |
+| Edge (Cloudflare Workers, Vercel Edge) | no | no | no | no | no | no: sends `capabilities: []` |
+
+**Serverless.** In inline flush mode (Python `mode="inline"`, TypeScript `flushMode: "inline"`) there is no timer or thread: the SDK samples at the end of an invocation when a sample is due. When the wall clock jumps more than twice the interval between two samples, the runtime froze the process between invocations. That window is flagged `freeze_gap` and its CPU is dropped rather than averaged in.
+
+**Workers.** Each forked worker (gunicorn, uWSGI, Celery prefork, Node cluster, PM2) is its own instance with its own sampler. Node `worker_threads` workers do not sample, because the main thread already covers the process.
+
+## Try it
+
+The example apps run with real limits:
+
+```bash
+APILENS_EXAMPLES_LIMITS=1 task examples:up     # 0.5 core and 256 MiB per app
+APILENS_SMOKE_RESOURCES=1 task examples:smoke  # checks limits and one container figure
+curl "http://127.0.0.1:18001/leak?mb=32"       # memory that is never freed
+curl "http://127.0.0.1:18001/burn?ms=2000"     # 2 s of CPU
+```
+
+See [`examples/README.md`](https://github.com/apilens/apilens/blob/v2/examples/README.md#resource-limits-runtime-resources) and the [heartbeat contract](/ingest/heartbeat#runtime-resources) for the exact fields.

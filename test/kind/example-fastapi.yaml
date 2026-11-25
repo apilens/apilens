@@ -1,0 +1,116 @@
+# The FastAPI example app (examples/fastapi) on Kubernetes the way the
+# Kubernetes guide (apps/docs/guides/kubernetes.mdx) recommends: Downward API
+# identity, CPU and memory limits, gunicorn --preload with two workers.
+# test/kind/drill.sh fills in ${APILENS_BASE_URL}, ${APILENS_ENVIRONMENT} and
+# ${EXAMPLE_IMAGE}, and creates the apilens-ingest Secret (key api-key).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apilens-drill
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-fastapi
+  namespace: apilens-drill
+  labels:
+    app: example-fastapi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example-fastapi
+  template:
+    metadata:
+      labels:
+        app: example-fastapi
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: example-fastapi
+          image: ${EXAMPLE_IMAGE}
+          imagePullPolicy: Never
+          command:
+            - gunicorn
+            - main:app
+            - --preload
+            - --workers=2
+            - --worker-class=uvicorn_worker.UvicornWorker
+            - --bind=0.0.0.0:8000
+            - --graceful-timeout=10
+            - --no-control-socket
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Downward API: the SDKs read these first for identity (D7), so
+            # a restart can be tied to its pod without a hostname guess.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: APILENS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: apilens-ingest
+                  key: api-key
+            - name: APILENS_APP_ID
+              value: example-fastapi
+            - name: APILENS_BASE_URL
+              value: ${APILENS_BASE_URL}
+            - name: APILENS_ENVIRONMENT
+              value: ${APILENS_ENVIRONMENT}
+            - name: EXAMPLE_POSTURE
+              value: metadata
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: example-fastapi
+  namespace: apilens-drill
+spec:
+  selector:
+    app: example-fastapi
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
