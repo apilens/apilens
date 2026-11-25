@@ -88,6 +88,20 @@ def test_cgroup_v2_namespace_container_id_from_mountinfo() -> None:
     assert ident["container_id"] == CID
 
 
+def test_kind_sandbox_container_id_and_pod_uid_from_termination_log() -> None:
+    # containerd + cgroup v2: cgroup is 0::/ and hostname/resolv.conf come from
+    # the pod sandbox; the termination-log mount names this container start.
+    ident = _ident({"KUBERNETES_SERVICE_HOST": "x"}, case="v2_kind_sandbox")
+    assert ident["container_id"] == f"k8s:{POD_UID}/app/5f2c9e1a"
+    assert ident["pod_uid"] == POD_UID
+
+
+def test_downward_api_pod_uid_wins_over_the_mount() -> None:
+    other = "11111111-2222-3333-4444-555555555555"
+    ident = _ident({"KUBERNETES_SERVICE_HOST": "x", "POD_UID": other}, case="v2_kind_sandbox")
+    assert ident["pod_uid"] == other
+
+
 def test_hostname_only_is_a_guess() -> None:
     ident = _ident({}, hostname="neels-macbook.local")
     assert ident["hostname"] == "neels-macbook.local"

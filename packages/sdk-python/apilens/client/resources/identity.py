@@ -11,7 +11,10 @@ Downward API env vars, then well-known files, then a guess from the hostname
   marks the platform. Without the Downward API the pod name is the hostname,
   which is wrong under ``hostNetwork``, hence the guess flag.
 * Container id: ``/proc/self/cgroup``, else ``/proc/self/mountinfo`` (all a
-  cgroup v2 namespace shows).
+  cgroup v2 namespace shows): a ``containers/<id>`` mount source, else
+  kubelet's termination-log mount as ``k8s:<pod-uid>/<container>/<suffix>``
+  (containerd + cgroup v2, where hostname and resolv.conf are the pod
+  sandbox's; a sandbox id is per pod and never used).
 * ECS: one fetch of ``ECS_CONTAINER_METADATA_URI_V4`` bounded to 1 s, made on
   the heartbeat thread, never on the request path; a failure is silent.
 * Cloud Run ``K_*``, App Engine ``GAE_*``, Heroku ``DYNO``, fly.io ``FLY_*``,
@@ -196,6 +199,9 @@ def resolve_identity(
             m = _POD_UID_CGROUP.search(reader.cgroup_text)
             if m:
                 uid = m.group(1).replace("_", "-")
+            elif (reader.container_id or "").startswith("k8s:"):
+                # k8s:<pod-uid>/<container>/<suffix> from the termination-log mount.
+                uid = (reader.container_id or "")[4:].split("/", 1)[0]
             else:
                 m = _POD_UID_MOUNT.search(_read(root, "/proc/self/mountinfo") or "")
                 uid = m.group(1) if m else ""

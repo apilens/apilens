@@ -134,18 +134,43 @@ export function containerIdFromCgroupLine(line: string): string | null {
   return found;
 }
 
+/** kubelet's per-container-start file: `…/pods/<uid>/containers/<name>/<suffix>`. */
+const KUBELET_CONTAINER =
+  /\/pods\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/containers\/([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)\/([0-9A-Za-z]+)$/;
+
+/**
+ * `{ podUid, name, suffix }` when a mount root is kubelet's per-container file
+ * (`/dev/termination-log` or the pod's `terminationMessagePath`), else null.
+ */
+export function kubeletContainerFromMountRoot(root: string): { podUid: string; name: string; suffix: string } | null {
+  const m = KUBELET_CONTAINER.exec(root);
+  return m ? { podUid: m[1], name: m[2], suffix: m[3] } : null;
+}
+
 /**
  * The container id in mountinfo (cgroup v2 with a cgroup namespace hides it
  * from /proc/self/cgroup): the runtime bind-mounts files from
  * `…/containers/<id>/` (hostname, resolv.conf). `sandboxes/<id>` is the pod
- * sandbox, not this container.
+ * sandbox (one per pod), never this container.
+ *
+ * Failing that (containerd + cgroup v2 Kubernetes, where hostname and
+ * resolv.conf come from the sandbox), kubelet's termination-log mount: its
+ * root `…/pods/<uid>/containers/<name>/<suffix>` gets a new suffix on every
+ * container start and is shared by every process in it, so the id is
+ * `k8s:<uid>/<name>/<suffix>`.
  */
 export function containerIdFromMountinfo(text: string | null): string | null {
-  for (const line of (text ?? "").split("\n")) {
-    const root = line.trim().split(" ")[3] ?? "";
+  const roots = (text ?? "").split("\n").map((line) => line.trim().split(" ")[3] ?? "");
+  for (const root of roots) {
     const m = /\/(?:containers|overlay-containers)\/([0-9a-f]{64})(?:\/|$)/.exec(root);
     if (m) {
       return m[1];
+    }
+  }
+  for (const root of roots) {
+    const k = kubeletContainerFromMountRoot(unescape(root));
+    if (k) {
+      return `k8s:${k.podUid}/${k.name}/${k.suffix}`;
     }
   }
   return null;
