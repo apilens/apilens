@@ -120,7 +120,7 @@ describe("project settings types match the committed OpenAPI spec", () => {
   it("keeps the environment palette and retention signals of the spec", () => {
     const palette: Environment["color"][] = ["gray", "red", "orange", "yellow", "green", "teal", "blue", "purple"];
     expect(spec.components.schemas.UpdateEnvironmentInputBody.properties?.color.enum).toEqual([...palette, "none"]);
-    const keys: RetentionSignal["key"][] = ["requests", "logs", "spans", "rollups_1m", "rollups_1h", "deploys"];
+    const keys: RetentionSignal["key"][] = ["requests", "logs", "spans", "rollups_1m", "rollups_1h", "resources", "resources_1h", "instance_rollups_1m", "deploys"];
     expect(spec.components.schemas.RetentionSignal.properties?.key.enum).toEqual(keys);
   });
 
