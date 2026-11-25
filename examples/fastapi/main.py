@@ -14,6 +14,9 @@ e2e, failure-drill and benchmark tasks can drive all three SDKs alike:
     GET  /boom/handled    exception turned into a 500 by an exception_handler
     GET  /boom/logged     exception caught and logged (logger.exception) -> 200
     GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
+    GET  /leak?mb=N       keep N MiB (default 16, at most 64 per call) allocated
+                          in this process for good: drives memory and OOM kills
+    GET  /burn?ms=N       spin one core for N ms (default 200, at most 5000)
 
 Configuration is environment only:
 
@@ -30,10 +33,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Annotated
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -213,3 +217,31 @@ async def outbound() -> dict[str, object]:
             status_code=502, detail=f"outbound call failed: {exc}"
         ) from exc
     return {"url": outbound_url, "status": resp.status_code}
+
+
+# Runtime-resources drivers (M7): memory that is never freed and CPU spent on
+# purpose, so the resource charts, the OOM-kill and restart detection and the
+# limits have something to show (examples/README.md, test/kind).
+MIB = 1024 * 1024
+PAGE = 4096
+_leaked: list[bytearray] = []
+
+
+@app.get("/leak")
+def leak(mb: Annotated[int, Query(ge=1, le=64)] = 16) -> dict[str, object]:
+    block = bytearray(mb * MIB)
+    # bytearray(n) is calloc'd: touch every page so it is resident (RSS).
+    block[::PAGE] = b"\x01" * len(range(0, len(block), PAGE))
+    _leaked.append(block)
+    return {"leaked_mb": sum(len(b) for b in _leaked) // MIB, "pid": os.getpid()}
+
+
+@app.get("/burn")
+def burn(ms: Annotated[int, Query(ge=1, le=5000)] = 200) -> dict[str, object]:
+    # A sync endpoint runs in the threadpool: it burns CPU without blocking
+    # the event loop's other requests (they still share the GIL).
+    end = time.perf_counter() + ms / 1000
+    spins = 0
+    while time.perf_counter() < end:
+        spins += 1
+    return {"burned_ms": ms, "spins": spins, "pid": os.getpid()}

@@ -24,6 +24,8 @@ Every app serves the same endpoints:
 | `GET /boom/handled` | exception the framework's own handler turns into a 500 (FastAPI `exception_handler`, Express error middleware, Spring `@ControllerAdvice`) |
 | `GET /boom/logged` | exception (3-level chain) caught and logged (`logger.exception`, `console.error` plus `captureException`, SLF4J `log.error`), 200 |
 | `GET /outbound` | outbound HTTP call (FastAPI → Express → Spring → FastAPI `/orders/7`) |
+| `GET /leak?mb=N` | keeps N MiB (default 16, 1–64 per call, else 422) allocated in the process for good: memory charts, OOM kills |
+| `GET /burn?ms=N` | spins one core for N ms (default 200, 1–5000, else 422): CPU and throttling |
 
 ## Run
 
@@ -58,6 +60,36 @@ APILENS_EXAMPLES_POSTURE=metadata task examples:up
 Inside each container the app reads `EXAMPLE_POSTURE` and the SDK reads the
 usual `APILENS_*` variables, so the same apps run outside compose too, e.g.
 `EXAMPLE_POSTURE=redacted APILENS_API_KEY=... APILENS_APP_ID=example-fastapi uvicorn main:app`.
+
+## Resource limits (runtime resources)
+
+`APILENS_EXAMPLES_LIMITS=1` layers
+[`compose.examples.limits.yaml`](../deploy/compose/compose.examples.limits.yaml):
+every app gets `cpus: 0.5` and `mem_limit: 256m`, and runs the way production
+APIs fork workers.
+
+| App | Process model |
+| --- | --- |
+| FastAPI | `gunicorn --preload -w 4` with uvicorn workers: 4 SDK instances forked from one master |
+| Express | `node cluster.mjs`: a `node:cluster` primary (no SDK) and 2 workers |
+| Spring | one JVM, `-XX:MaxRAMPercentage=50`; past the heap, `/leak` exits the JVM (`ExitOnOutOfMemoryError`) and Docker restarts it |
+
+```bash
+APILENS_EXAMPLES_LIMITS=1 task examples:up
+APILENS_SMOKE_RESOURCES=1 task examples:smoke
+```
+
+With `APILENS_SMOKE_RESOURCES=1` the smoke test also reads ClickHouse
+`app_instance_resources` and checks that every heartbeat says
+`limit_source = cgroup_v2` with a 0.5-core and a 256 MiB limit, that the
+workers are separate instances sharing one `container_id`, and that their
+container memory is one figure for the container (the same on every worker,
+never above the limit) rather than four workers' RSS added up. CI runs this
+as the `resources-smoke` job of `.github/workflows/examples-bench.yml`.
+
+`test/kind/drill.sh` (`task test:kind:drill`) runs the FastAPI app on a kind
+cluster and drives `/leak` into an OOM kill, see the
+[Kubernetes guide](../apps/docs/guides/kubernetes.mdx).
 
 ## e2e
 
