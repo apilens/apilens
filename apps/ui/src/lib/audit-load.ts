@@ -5,7 +5,7 @@ import { getSession } from "@/lib/auth/server";
 import { type ActivityFilters, apiFilters, decodeBound, encodeBound, pageCut } from "./audit";
 import { type AuditAction, type AuditEvent, type AuditScope, identity, isApiError } from "./identity";
 import { type SearchParams, parseTrail, trailCursor } from "./pagination";
-import { isSessionExpired, redirectToRefresh } from "./server-session";
+import { type Authed, isSessionExpired, redirectToRefresh } from "./server-session";
 
 /**
  * A session call for an audit page: the value, `"forbidden"` when the API answers 403 or 404, or
@@ -13,7 +13,7 @@ import { isSessionExpired, redirectToRefresh } from "./server-session";
  */
 export async function auditCaller(next: string) {
   const session = await getSession();
-  return async <T,>(fn: Parameters<typeof session.call<T>>[0]): Promise<T | "forbidden" | null> => {
+  return async <T,>(fn: (options: Authed) => Promise<T>): Promise<T | "forbidden" | null> => {
     try {
       return await session.call(fn);
     } catch (err) {

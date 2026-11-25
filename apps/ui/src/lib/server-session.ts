@@ -142,7 +142,7 @@ function isRejected(err: unknown): boolean {
 /** What happened to the cookie during this request. */
 export type CookieChange = { kind: "none" } | { kind: "set"; value: string; remember: boolean } | { kind: "clear" };
 
-type Authed = CallOptions & { accessToken: string };
+export type Authed = CallOptions & { accessToken: string };
 
 export interface ServerSessionInit {
   /** The decrypted session cookie, or null. */
