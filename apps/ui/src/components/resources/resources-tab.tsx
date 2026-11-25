@@ -22,7 +22,7 @@ import {
   trafficOverlay,
 } from "@/lib/resources";
 import { ObIcon } from "../onboarding/ob";
-import { InstancesTable } from "./instances-table";
+import { FleetTable } from "./fleet-table";
 import { ResourceChart } from "./resource-chart";
 import { ResourcesPicker } from "./resources-picker";
 import "../traffic/traffic.css";
@@ -140,8 +140,8 @@ export function ResourcesTab(p: ResourcesTabProps) {
           </a>
         </Notice>
         <section className="tr-card tr-card--table" aria-labelledby="rs-instances">
-          <h2 id="rs-instances">SDK instances</h2>
-          <InstancesTable project={project} app={slug} instances={instances} events={p.events} now={p.now} />
+          <h2 id="rs-instances">Instances</h2>
+          <FleetTable project={project} app={slug} instances={instances} events={p.events} now={p.now} scopeEnv={state.env} />
         </section>
       </>
     );
@@ -156,8 +156,8 @@ export function ResourcesTab(p: ResourcesTabProps) {
           {state.env || state.instance ? " Widen the environment or instance filter to see other instances." : ""}
         </Notice>
         <section className="tr-card tr-card--table" aria-labelledby="rs-instances">
-          <h2 id="rs-instances">SDK instances</h2>
-          <InstancesTable project={project} app={slug} instances={instances} events={p.events} now={p.now} />
+          <h2 id="rs-instances">Instances</h2>
+          <FleetTable project={project} app={slug} instances={instances} events={p.events} now={p.now} scopeEnv={state.env} />
         </section>
       </>
     );
@@ -166,6 +166,12 @@ export function ResourcesTab(p: ResourcesTabProps) {
   return (
     <>
       {toolbar}
+
+      {/* The answer first: which instance needs a look, then the charts that show how it got there. */}
+      <section className="tr-card tr-card--table" aria-labelledby="rs-instances">
+        <h2 id="rs-instances">Instances</h2>
+        {status === null ? <Failed text="We couldn’t load this app’s instances just now." /> : <FleetTable project={project} app={slug} instances={instances} events={p.events} now={p.now} scopeEnv={state.env} />}
+      </section>
       {p.events === null ? <Failed text={EVENTS_LOAD_FAILED} /> : null}
 
       <section className="tr-card" aria-labelledby="rs-cpu">
@@ -256,10 +262,6 @@ export function ResourcesTab(p: ResourcesTabProps) {
 
       <RuntimePanel runtime={p.runtime} series={p.runtimeSeries} range={state.range} markers={markers} />
 
-      <section className="tr-card tr-card--table" aria-labelledby="rs-instances">
-        <h2 id="rs-instances">SDK instances</h2>
-        {status === null ? <Failed text="We couldn’t load this app’s instances just now." /> : <InstancesTable project={project} app={slug} instances={instances} events={p.events} now={p.now} />}
-      </section>
     </>
   );
 }

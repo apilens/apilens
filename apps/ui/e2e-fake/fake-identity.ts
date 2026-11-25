@@ -812,6 +812,8 @@ let usageError = false;
 //   old-sdk     2 instances on an SDK without resources
 //   serverless  3 Lambda instances
 //   fresh       2 instances started seconds ago: resources reported, no samples in the series yet
+//   multi-vm    3 VMs behind a load balancer, 4 gunicorn workers each; vm-3 takes twice its share
+//               of traffic and is slow; a staging VM alongside
 const MiB = 1024 * 1024;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -1046,6 +1048,31 @@ function resourceScenario(name: string): FakeProc[] {
       });
       return [jvm("jvm-7f1a", "orders-5c6d7e-q1w2e", "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f"), jvm("jvm-8b2c", "orders-5c6d7e-r3t4y", "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a")];
     }
+    case "multi-vm": {
+      const vm = (host: string, zone: string, cpu: number, rss: number, rpm: number, p95: number, err: number) =>
+        [8, 9, 10, 11].map((pid) => ({
+          ...base,
+          ...worker(cpu, rss),
+          id: `${host.slice(-4)}-w${pid}`,
+          pid,
+          platform: "vm",
+          hostname: host,
+          pod_name: "",
+          container_id: "",
+          region: zone,
+          limit_source: "host",
+          cpuLimit: 4,
+          memLimit: 8 * 1024 * MiB,
+          start: 26 * HOUR,
+          req: { rpm: rpm / 4, p95_ms: p95 * (0.9 + 0.2 * noise(host, pid)), error_pct: err },
+        }));
+      return [
+        ...vm("orders-vm-1", "eu-west-1a", 0.12, 210, 410, 142, 0.3),
+        ...vm("orders-vm-2", "eu-west-1b", 0.13, 214, 395, 150, 0.4),
+        ...vm("orders-vm-3", "eu-west-1c", 0.7, 238, 1640, 520, 2.1),
+        ...vm("orders-stg-1", "eu-west-1a", 0.03, 190, 12, 120, 0).map((p) => ({ ...p, env: "staging" })),
+      ];
+    }
     case "old-sdk":
       return ["old-1", "old-2"].map((id, i) => ({
         ...base,
@@ -1108,7 +1135,8 @@ function procAlive(seed: ResourcesSeed, p: FakeProc, t: number): boolean {
 const procAge = (seed: ResourcesSeed, p: FakeProc, t: number) => t - (seed.at - p.start);
 /** The sample index of `t`: one per minute, so curves are stable across reads. */
 const sampleK = (t: number) => Math.floor(t / MIN);
-const containerKey = (p: FakeProc) => p.container_id || `proc:${p.id}`;
+// A VM's workers share the host (and its service cgroup) the way a pod's share its container.
+const containerKey = (p: FakeProc) => p.container_id || (p.platform === "vm" ? `host:${p.hostname}` : `proc:${p.id}`);
 
 /** A container's working set: its processes' RSS less what forked workers share, plus page cache. */
 function containerValues(seed: ResourcesSeed, procs: FakeProc[], t: number) {
