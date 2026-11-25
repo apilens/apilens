@@ -21,6 +21,7 @@ const POLICY = {
   capture_request_body: true,
   capture_response_body: false,
   max_payload_bytes: 1024,
+  resources: { enabled: true, min_interval_s: 30, disabled_collectors: ["processes"] },
 };
 
 type Sent = { url: string; headers: Record<string, string>; body: Record<string, unknown> };
@@ -138,6 +139,7 @@ describe("heartbeat contract", () => {
       captureRequestBody: true,
       captureResponseBody: false,
       maxPayloadBytes: 1024,
+      resources: { enabled: true, minIntervalS: 30, disabledCollectors: ["processes"] },
     });
   });
 
@@ -145,11 +147,15 @@ describe("heartbeat contract", () => {
     const everything = {
       enabled: true, sample_rate: 1, capture_headers: true,
       capture_request_body: true, capture_response_body: true, max_payload_bytes: null,
+      resources: { enabled: true, min_interval_s: 0, disabled_collectors: [] },
     };
     expect(validate({ policy: everything }, responseSchema("/v1/heartbeat", "200"))).toEqual([]);
     const ingest = fakeIngest(ok(everything));
     const client = makeClient(ingest.fetchImpl);
-    await vi.waitFor(() => expect(client.remotePolicy).toEqual({ ...CAPTURE_EVERYTHING }));
+    await vi.waitFor(() => expect(client.remotePolicy).toEqual({
+      ...CAPTURE_EVERYTHING,
+      resources: { enabled: true, minIntervalS: 0, disabledCollectors: [] },
+    }));
   });
 
   it("repeats every interval with one instance id", async () => {

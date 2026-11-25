@@ -29,6 +29,12 @@ public final class ApiLensConfig {
   public static final int UNLIMITED_RETRIES = -1;
   /** Default {@link #maxRetryDuration()}: a failed batch is retried for up to 5 minutes (D7). */
   public static final Duration DEFAULT_MAX_RETRY_DURATION = Duration.ofSeconds(300);
+  /** Env kill switch: {@code APILENS_CAPTURE_RESOURCES=false} never samples runtime resources. */
+  public static final String ENV_CAPTURE_RESOURCES = "APILENS_CAPTURE_RESOURCES";
+  /** Env switch: {@code APILENS_CAPTURE_PROCESS_LIST=false} never lists the container's processes. */
+  public static final String ENV_CAPTURE_PROCESS_LIST = "APILENS_CAPTURE_PROCESS_LIST";
+  /** Default and shortest {@link #resourcesInterval()}. */
+  public static final Duration MIN_RESOURCES_INTERVAL = Duration.ofSeconds(15);
   /** Default {@link #shutdownTimeout()}. */
   public static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
 
@@ -65,6 +71,9 @@ public final class ApiLensConfig {
   private final String metadataPath;
   private final boolean registerShutdownHook;
   private final Duration shutdownTimeout;
+  private final boolean captureResources;
+  private final Duration resourcesInterval;
+  private final boolean captureProcessList;
 
   private ApiLensConfig(Builder builder) {
     this.apiKey = Strings.clean(builder.apiKey);
@@ -103,6 +112,11 @@ public final class ApiLensConfig {
     this.metadataPath = Strings.firstNonBlank(builder.metadataPath, "metadata");
     this.registerShutdownHook = builder.registerShutdownHook;
     this.shutdownTimeout = builder.shutdownTimeout;
+    this.captureResources = builder.captureResources;
+    this.resourcesInterval = builder.resourcesInterval.compareTo(MIN_RESOURCES_INTERVAL) < 0
+        ? MIN_RESOURCES_INTERVAL
+        : builder.resourcesInterval;
+    this.captureProcessList = builder.captureProcessList;
   }
 
   public static Builder builder() {
@@ -157,6 +171,9 @@ public final class ApiLensConfig {
     set(env.integer("APILENS_MAX_RETRIES"), builder::maxRetries);
     set(env.seconds("APILENS_MAX_RETRY_SECONDS"), builder::maxRetryDuration);
     set(env.seconds("APILENS_SHUTDOWN_TIMEOUT"), builder::shutdownTimeout);
+    set(env.bool(ENV_CAPTURE_RESOURCES), builder::captureResources);
+    set(env.seconds("APILENS_RESOURCES_INTERVAL"), builder::resourcesInterval);
+    set(env.bool(ENV_CAPTURE_PROCESS_LIST), builder::captureProcessList);
     return builder;
   }
 
@@ -360,6 +377,29 @@ public final class ApiLensConfig {
     return metadataPath;
   }
 
+  /**
+   * Whether CPU, memory, container and JVM resources are sampled (every {@link
+   * #resourcesInterval()}) and sent in the heartbeat's {@code resources} block. False when the
+   * builder turned it off or env {@code APILENS_CAPTURE_RESOURCES} is false.
+   */
+  public boolean captureResources() {
+    return captureResources && envEnabled(ENV_CAPTURE_RESOURCES);
+  }
+
+  /** Time between two resource samples; at least {@link #MIN_RESOURCES_INTERVAL}. */
+  public Duration resourcesInterval() {
+    return resourcesInterval;
+  }
+
+  /**
+   * Whether the top processes of the SDK's own container (pid, ppid, name, CPU, RSS; never
+   * command lines or environments) are sent with the resources. False when the builder turned
+   * it off or env {@code APILENS_CAPTURE_PROCESS_LIST} is false.
+   */
+  public boolean captureProcessList() {
+    return captureProcessList && envEnabled(ENV_CAPTURE_PROCESS_LIST);
+  }
+
   private static boolean envEnabled(String name) {
     String raw = Strings.clean(System.getenv(name)).toLowerCase(Locale.ROOT);
     return !(raw.equals("false") || raw.equals("0") || raw.equals("no") || raw.equals("off"));
@@ -412,6 +452,9 @@ public final class ApiLensConfig {
     private Duration heartbeatInterval = Duration.ofSeconds(60);
     private boolean sendMetadata = true;
     private String metadataPath = "";
+    private boolean captureResources = true;
+    private Duration resourcesInterval = MIN_RESOURCES_INTERVAL;
+    private boolean captureProcessList = true;
     /** Where the appId fallbacks are read from. */
     private ApiLensEnv env = ApiLensEnv.system();
 
@@ -586,6 +629,24 @@ public final class ApiLensConfig {
 
     public Builder metadataPath(String metadataPath) {
       this.metadataPath = metadataPath;
+      return this;
+    }
+
+    /** Sample runtime resources and send them with the heartbeat; on by default. */
+    public Builder captureResources(boolean captureResources) {
+      this.captureResources = captureResources;
+      return this;
+    }
+
+    /** Time between resource samples; default and minimum 15 seconds (shorter is raised to 15 s). */
+    public Builder resourcesInterval(Duration resourcesInterval) {
+      this.resourcesInterval = resourcesInterval == null ? MIN_RESOURCES_INTERVAL : resourcesInterval;
+      return this;
+    }
+
+    /** List the top processes of the SDK's own container (Linux); on by default. */
+    public Builder captureProcessList(boolean captureProcessList) {
+      this.captureProcessList = captureProcessList;
       return this;
     }
 

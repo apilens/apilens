@@ -174,6 +174,9 @@ public class ApiLensMetadataReporter implements ApplicationListener<ApplicationR
     out.put("custom_ca", !Strings.isBlank(config.caBundlePath()));
     out.put("verify_tls", config.verifyTls());
     out.put("heartbeat_interval", config.heartbeatInterval().toMillis() / 1000.0);
+    out.put("capture_resources", config.captureResources());
+    out.put("resources_interval", config.resourcesInterval().toMillis() / 1000.0);
+    out.put("capture_process_list", config.captureProcessList());
     Map<String, Object> callbacks = new LinkedHashMap<>();
     callbacks.put("mask_request_body", options.maskRequestBody() != null);
     callbacks.put("mask_response_body", options.maskResponseBody() != null);

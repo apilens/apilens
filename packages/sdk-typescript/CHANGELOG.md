@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Runtime resources (M7): every heartbeat carries `identity` (host, container
+  id, Kubernetes pod / namespace / node, platform, region, process start) and
+  `resources` (contract v1): process CPU and memory (RSS, PSS / USS, threads,
+  fds), the container's cgroup v1 / v2 CPU, throttling, memory and OOM kills,
+  event loop delay and utilization, heap and GC, `pg` / mysql2 pools and the
+  top 20 processes of the container (never command lines). Sampled every 15 s
+  from an unref'd timer on the main thread only; edge runtimes send
+  `capabilities: []`; serverless freezes are flagged `freeze_gap`. New options
+  `captureResources` (`APILENS_CAPTURE_RESOURCES`), `resourcesIntervalMs`
+  (`APILENS_RESOURCES_INTERVAL`, seconds) and `captureProcessList`
+  (`APILENS_CAPTURE_PROCESS_LIST`); the heartbeat policy's `resources` can
+  only narrow them.
+- Every request record carries `instance_id`, the heartbeat's process id, so
+  latency and errors split per instance.
 - Database spans: every `pg` and `mysql2` statement run while handling a
   request becomes a `db` child span with `db.system`, `db.operation` and an
   obfuscated `db.statement` (literals replaced by `?`, comments removed, cut to
