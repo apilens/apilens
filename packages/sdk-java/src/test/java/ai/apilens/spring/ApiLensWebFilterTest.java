@@ -109,6 +109,7 @@ class ApiLensWebFilterTest {
       assertEquals(1, records.size());
       JsonNode record = records.get(0);
       assertFalse(record.get("sampled").asBoolean());
+      assertEquals(client.instanceId(), record.get("instance_id").asText(), "D14: per-instance requests");
       assertEquals("", record.get("request_payload").asText());
       assertEquals("", record.get("response_payload").asText());
       assertEquals("", record.get("request_headers").asText());
