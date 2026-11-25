@@ -1,0 +1,160 @@
+---
+title: "Kubernetes"
+description: "Run an instrumented API on Kubernetes so runtime resources are right: Downward API identity, CPU and memory limits, how OOM kills and restarts are detected, and the process list."
+---
+
+The SDKs work on Kubernetes without configuration, but four lines of Downward API and real resource limits make [runtime resources](/sdk-reference/runtime-resources) exact: every instance is tied to its pod, node and namespace, percentages are of the right limit, and an OOM-killed container is recognised as one.
+
+## Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: storefront }
+  template:
+    metadata:
+      labels: { app: storefront }
+    spec:
+      containers:
+        - name: storefront
+          image: ghcr.io/acme/storefront:2026.11.25
+          env:
+            # Identity (read first, before files and the hostname).
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_UID
+              valueFrom: { fieldRef: { fieldPath: metadata.uid } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            # The SDK itself.
+            - name: APILENS_API_KEY
+              valueFrom: { secretKeyRef: { name: apilens-ingest, key: api-key } }
+            - name: APILENS_APP_ID
+              value: storefront
+            - name: APILENS_ENVIRONMENT
+              value: production
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+```
+
+```bash
+kubectl create secret generic apilens-ingest --from-literal=api-key=apl_live_...
+```
+
+The same manifest, with the FastAPI example app and `gunicorn --preload -w 2`, is [`test/kind/example-fastapi.yaml`](https://github.com/apilens/apilens/blob/v2/test/kind/example-fastapi.yaml); the nightly [kind drill](#verify-it-on-kind) applies it.
+
+### What the Downward API gives you
+
+| Env var | Field | Used for |
+|---|---|---|
+| `POD_NAME` | `metadata.name` | `identity.pod_name`, the instance list and chart markers |
+| `POD_NAMESPACE` | `metadata.namespace` | `identity.namespace` |
+| `POD_UID` | `metadata.uid` | `identity.pod_uid`: ties a restarted container to its pod |
+| `NODE_NAME` | `spec.nodeName` | `identity.node_name`: spot a noisy node |
+
+Without them the SDK falls back to well-known files (the service-account namespace file, the pod uid in `/proc/self/cgroup` or `/proc/self/mountinfo`) and then to the hostname, which on Kubernetes is the pod name; a hostname guess is flagged `hostname_guess: true`. `platform: k8s` is detected either way.
+
+### Helm
+
+If your chart exposes extra environment variables (most app charts call it `env` or `extraEnv`), the values look like this:
+
+```yaml
+# values.yaml
+env:
+  - name: POD_NAME
+    valueFrom: { fieldRef: { fieldPath: metadata.name } }
+  - name: POD_NAMESPACE
+    valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+  - name: POD_UID
+    valueFrom: { fieldRef: { fieldPath: metadata.uid } }
+  - name: NODE_NAME
+    valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+  - name: APILENS_API_KEY
+    valueFrom: { secretKeyRef: { name: apilens-ingest, key: api-key } }
+  - name: APILENS_APP_ID
+    value: storefront
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits:   { cpu: 500m, memory: 256Mi }
+```
+
+and the Deployment template passes them through:
+
+```yaml
+          env:
+            {{- toYaml .Values.env | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+```
+
+## Why limits matter
+
+The SDK reads the limits from the container's cgroup (`cpu.max`, `memory.max`; `limit_source: cgroup_v2`).
+
+- **Without a CPU limit**, `pct_of_limit` is a share of the node's cores. A pod busy on 1 core of a 32-core node shows 3 %, and throttling never happens, so there is nothing to warn about.
+- **Without a memory limit**, `container.memory.limit` is null, the working set has no ceiling to compare against, and an OOM kill can only come from the node running out of memory (then the kubelet evicts by priority, not your container's own limit). `suspected_oom` cannot be inferred without a limit.
+- **With limits**, the charts show memory against its ceiling and CPU against its quota, throttling (`throttled_ratio`) becomes visible, and a container that dies near its memory limit is marked as an OOM kill.
+
+A CPU request without a limit is fine for scheduling, but runtime resources will then use the host's cores as the denominator.
+
+## How OOM kills and restarts are detected
+
+A process the OOM killer took cannot report its end. The next process can: when a heartbeat arrives from a **new instance**, APILens ends the open instances it replaces and records why.
+
+| Replacement | Matched by |
+|---|---|
+| A container restart in the same pod (OOM kill, crash, failed liveness probe) | same `pod_uid`, another container id |
+| A dead worker in a live container (a gunicorn worker killed alone) | same container id, the worker silent for 2.5 heartbeat windows (at least 150 s) while a sibling still reports |
+
+The ended instance's reason, in this order:
+
+1. `graceful`: it sent a final heartbeat (a normal shutdown, `kubectl delete pod`, a rollout).
+2. `oom`: its container reported an `oom_kill` delta around its last heartbeat. This needs a surviving process in that cgroup to read the counter, for example a sibling worker when the kernel killed only one worker.
+3. `suspected_oom`: its last stored working set was at least 90 % of the memory limit.
+4. `restart`: anything else.
+
+On cgroup v2 nodes since Kubernetes 1.28 the kubelet sets `memory.oom.group`, so the OOM killer takes **every process** in the container at once. No one is left to read `oom_kill`, and the result is `suspected_oom`, provided a heartbeat stored the high working set before the kill. A leak that goes from 70 % to the limit within one heartbeat interval (about a minute) ends as `restart`.
+
+### Limits of the detection
+
+- **It needs the next process.** The end is recorded when the replacement sends its first heartbeat with `identity`, not at the moment of the kill. A pod that is never replaced (scaled to zero, crash-looping before the SDK starts) leaves its instance open until it goes stale.
+- **`restartCount` is not visible.** The SDK sees its own process, not the pod status, so APILens does not show the kubelet's `restartCount` or `lastState.terminated.reason`. Check those with `kubectl describe pod` when you need the kubelet's view.
+- **Pod replacement is not a restart.** `kubectl delete pod`, a rollout or an eviction creates a new pod with a new `pod_uid`. The old instances end `graceful` when their final heartbeat got out (on `SIGTERM`, within `terminationGracePeriodSeconds`), and otherwise go stale. They are never marked `restart` or `oom`.
+- **The kubelet's eviction is not the OOM killer.** A pod evicted for node memory pressure is a pod replacement too.
+
+### Known gap: containerd on cgroup v2
+
+<Warning>
+Restart and OOM inference keys on the container id. On cgroup v2, containerd gives each container a private cgroup namespace, so `/proc/self/cgroup` reads `0::/`, and recent containerd versions bind-mount `/etc/hostname` and `/etc/resolv.conf` from the pod sandbox, not from a `containers/<id>/` directory. The SDKs then find no container id: identity and limits are still right, but restarts and OOM kills in such a pod are not inferred yet. The kind drill fails on this until the SDKs derive a per-container id another way (for example from the `/dev/termination-log` mount, which is unique per container start).
+</Warning>
+
+## `shareProcessNamespace` and the process list
+
+The `processes` list holds the top 20 processes **in the SDK's own cgroup**: the container's own processes, such as gunicorn's master and workers, or a shell someone opened with `kubectl exec`. It never contains command lines or environment variables.
+
+With `shareProcessNamespace: true`, every container of the pod shares one PID namespace, so the SDK can see the sidecars' processes in `/proc`. It still lists only those in its own cgroup, so a log shipper or a service-mesh proxy in the same pod does not appear in your app's list, and their memory is not in your container's numbers either.
+
+`hostPID: true` exposes the node's processes. The SDK detects the host PID namespace and turns the process list off (flag `host_pid_namespace`). Set `capture_process_list` / `captureProcessList` to false (env `APILENS_CAPTURE_PROCESS_LIST=false`) to turn it off yourself.
+
+## Verify it on kind
+
+[`test/kind/drill.sh`](https://github.com/apilens/apilens/blob/v2/test/kind/drill.sh) (`task test:kind:drill`, nightly in `e2e-drills.yml`) runs the whole story against a local APILens stack:
+
+1. Deploys the FastAPI example with the Downward API, 500m / 256Mi limits and two preloaded gunicorn workers.
+2. Checks that both workers report the pod name and uid, namespace, node, `platform: k8s`, one container id, `limit_source: cgroup_v2`, the 0.5-core and 256 MiB limits, and the same container memory.
+3. Drives `/leak` to 92 % of the limit, waits for a heartbeat to store it, then past the limit. Requires `OOMKilled` from the kubelet and an `oom` or `suspected_oom` event.
+4. SIGKILLs the new container through the node's CRI and requires a `restart` event.
+5. Deletes the pod and requires the old workers to end `graceful`, with no event.
+
+```bash
+task e2e:up
+task test:kind:drill
+```
