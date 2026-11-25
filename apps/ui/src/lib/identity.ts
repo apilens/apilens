@@ -2099,6 +2099,10 @@ export interface AppInstance {
   // Absent from servers before M7; empty strings and nulls when the SDK did not report them.
   /** Operating-system process id; null when the SDK did not send one. */
   pid?: number | null;
+  /** The instance's own reporting state (heartbeat in the last 2 minutes, the last hour, or older). */
+  status?: "reporting" | "stale" | "silent";
+  /** SDK delivery counters as its last heartbeat sent them. */
+  stats?: Record<string, unknown>;
   hostname?: string;
   /** The hostname is the SDK's guess (no Downward API or platform file named it). */
   hostname_guess?: boolean;
@@ -2148,19 +2152,21 @@ export interface InstanceResources {
   /** The share (0 to 1) of CPU periods throttled. */
   throttled_ratio: number | null;
   runtime: InstanceRuntime | null;
-  /** The processes in the instance's container, top 20 by RSS (D8); absent when not reported. */
-  processes?: InstanceProcess[] | null;
 }
 
 /** The runtime headline of an instance's snapshot. */
 export interface InstanceRuntime {
-  event_loop_p99?: number | null;
+  event_loop_p99?: number;
   /** Bytes. */
-  heap_used?: number | null;
-  gc_pause_ms?: number | null;
+  heap_used?: number;
+  gc_pause_ms?: number;
 }
 
-/** One process in an instance's container (D8): never argv, environ or cwd. */
+/**
+ * One process in an instance's container (D8): never argv, environ or cwd. The heartbeat carries
+ * the top 20 (`ResourceProcess`); `GET /apps/{id}/status` does not return them yet, so the drawer
+ * shows them only when a server adds `resources.processes` (the fake does).
+ */
 export interface InstanceProcess {
   pid: number;
   ppid?: number | null;
@@ -2171,17 +2177,17 @@ export interface InstanceProcess {
   rss?: number | null;
 }
 
-/** An instance's last hour of CPU % and memory (bytes of working set), one point per minute. */
+/** An instance's last hour, one point per minute: CPU % of the limit and memory in bytes (its RSS, else its container's working set). */
 export interface InstanceSpark {
-  cpu_pct: (number | null)[] | null;
-  mem: (number | null)[] | null;
+  cpu_pct: (number | null)[];
+  mem: (number | null)[];
 }
 
 /** An instance's requests over the last 15 minutes. */
 export interface InstanceRequests {
   rpm: number;
   p95_ms: number;
-  /** 5xx responses as a percentage (0 to 100). */
+  /** Responses with status 400 or above, as a percentage (0 to 100). */
   error_pct: number;
 }
 
@@ -2226,6 +2232,10 @@ export interface ResourcePoint {
 export interface ResourceSeries {
   metric: ResourceMetric;
   unit: ResourceUnit;
+  range: string;
+  /** The window, bucket-aligned: from inclusive, to exclusive. */
+  from: string;
+  to: string;
   bucket_seconds: number;
   /** The limit in the series' unit (memory limit, CPU limit cores); null without one. */
   limit: number | null;
@@ -2249,6 +2259,7 @@ export type InstanceEventKind = "restart" | "oom" | "suspected_oom" | "oom_kill"
 export interface InstanceEvent {
   kind: InstanceEventKind;
   at: string;
+  environment: string;
   instance_id: string;
   container_id: string;
   pod_name: string;
@@ -2257,6 +2268,10 @@ export interface InstanceEvent {
 
 /** `GET /apps/{id}/instance-events`. */
 export interface InstanceEvents {
+  range: string;
+  from: string;
+  to: string;
+  /** Newest first, at most 1000. */
   events: InstanceEvent[] | null;
 }
 
@@ -2267,6 +2282,8 @@ export interface AppStatus extends AppHealthStatus {
   sdks: AppSdk[] | null;
   /** The 100 most recently seen instances, newest first; absent from older servers. */
   instances?: AppInstance[] | null;
+  /** The cursor of the next page of instances; null on the last page (M7). */
+  next_cursor?: string | null;
 }
 
 // Health checks (#608): active HTTP checks of an app environment (`/projects/{project}/alerts/

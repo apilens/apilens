@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useId, useRef } from "react";
 import { formatLastSeen, instanceRelease, instanceSdk } from "@/lib/apps";
 import { formatBucket } from "@/lib/consumers";
 import { formatBytes } from "@/lib/endpoint-detail";
-import type { AppInstance, InstanceEvent } from "@/lib/identity";
+import type { AppInstance, InstanceEvent, InstanceProcess } from "@/lib/identity";
 import {
   EVENT_LABEL,
   LIMIT_HINT,
@@ -23,6 +23,12 @@ const at = (iso: string | null | undefined) => {
   const t = iso ? Date.parse(iso) : Number.NaN;
   return Number.isNaN(t) ? "" : `${TIME.format(t)} UTC`;
 };
+
+/** The container's processes, when the server sends them on the snapshot (the status API does not yet). */
+function instanceProcesses(i: AppInstance): InstanceProcess[] | null {
+  const list = (i.resources as { processes?: unknown } | null | undefined)?.processes;
+  return Array.isArray(list) ? (list as InstanceProcess[]) : null;
+}
 
 /**
  * One instance in a side panel (M7 #1133): where it runs (platform, pod, namespace, node,
@@ -58,7 +64,7 @@ export function InstanceDrawer({
   const r = i.resources ?? null;
   const where = instanceWhere(i);
   const mine = (events ?? []).filter((e) => e.instance_id === i.instance_id || (!!i.container_id && e.container_id === i.container_id));
-  const processes = r?.processes ?? null;
+  const processes = instanceProcesses(i);
   const serverless = isServerless(i);
 
   const identity: [string, ReactNode][] = [];

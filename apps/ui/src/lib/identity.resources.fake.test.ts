@@ -54,7 +54,8 @@ describe("runtime resources", () => {
     expect(leak?.signals?.[0]).toMatchObject({ kind: "leak" });
     expect(leak?.spark?.cpu_pct).toHaveLength(60);
     expect(leak?.resources?.limit_source).toBe("cgroup_v2");
-    expect(leak?.resources?.processes?.some((p) => p.pid === 9)).toBe(true);
+    // Not in the status contract yet; the fake sends the container's processes for the drawer.
+    expect(((leak?.resources as unknown as { processes: { pid: number }[] }).processes ?? []).some((p) => p.pid === 9)).toBe(true);
     expect(instances.filter((i) => i.ended_reason === "oom")).toHaveLength(2);
     const old = instances.find((i) => i.instance_id === "legacy-0f2b");
     expect(old?.resources).toBeNull();

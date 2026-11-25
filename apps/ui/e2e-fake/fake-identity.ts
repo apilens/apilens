@@ -953,7 +953,7 @@ function resourceScenario(name: string): FakeProc[] {
           pid: 9,
           start: 3 * HOUR - 40_000,
           req: { rpm: 207, p95_ms: 412, error_pct: 1.9 },
-          signals: [{ kind: "noisy", metric: "cpu_pct", value: 2.3, detail: "CPU 46% over the last 15 min, 2.3× the production median of 20% across 3 peers." }],
+          signals: [{ kind: "noisy", metric: "cpu_pct", value: 46, detail: "CPU 46% over the last 15 min, 2.3× the production median of 20% across 3 peers." }],
         },
         {
           ...base,
@@ -1209,7 +1209,7 @@ function resourceSeries(seed: ResourcesSeed | undefined, q: URLSearchParams): Re
     metric === "mem_working_set" ? (limits.length && limits.every((p) => p.memLimit) ? Math.max(...limits.map((p) => p.memLimit as number)) : null)
     : metric === "cpu_cores" ? (limits.length && limits.every((p) => p.cpuLimit) ? Math.max(...limits.map((p) => p.cpuLimit as number)) : null)
     : null;
-  return { metric, unit: RESOURCE_UNIT[metric], bucket_seconds: bs, limit, points };
+  return { metric, unit: RESOURCE_UNIT[metric], range, from: new Date(start).toISOString(), to: new Date(start + points.length * bs * 1000).toISOString(), bucket_seconds: bs, limit, points };
 }
 
 /** The scenario's processes as `GET /apps/{id}/status` lists its instances, newest first. */
@@ -1259,13 +1259,17 @@ function resourceInstances(seed: ResourcesSeed): Record<string, unknown>[] {
             }),
             mem: Array.from({ length: 60 }, (_, m) => {
               const t = now - (59 - m) * MIN;
-              return procAlive(seed, p, t) ? (containerValues(seed, group, t)?.mem_working_set ?? null) : null;
+              // The process's RSS, as the query service sends it.
+              return procAlive(seed, p, t) ? p.rss(procAge(seed, p, t), sampleK(t)) : null;
             }),
           }
         : null;
+      const quiet = now - last;
       return {
         instance_id: p.id,
         environment: p.env,
+        status: quiet < 2 * MIN ? "reporting" : quiet < HOUR ? "stale" : "silent",
+        stats: {},
         sdk_name: p.sdk[0],
         sdk_version: p.sdk[1],
         sdk_latest_version: p.sdk[2],
@@ -1298,22 +1302,25 @@ function resourceInstances(seed: ResourcesSeed): Record<string, unknown>[] {
     .sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
 }
 
-/** `GET /apps/{id}/instance-events`: an ended process's end as a restart or OOM event, in the window. */
-function resourceEvents(seed: ResourcesSeed | undefined, q: URLSearchParams): Record<string, unknown>[] {
-  const span = RESOURCE_SPAN[q.get("range") ?? "24h"] ?? 24 * HOUR;
+/** `GET /apps/{id}/instance-events`: an ended process's end as a restart or OOM event in the window, newest first. */
+function resourceEvents(seed: ResourcesSeed | undefined, q: URLSearchParams): Record<string, unknown> {
+  const range = q.get("range") ?? "24h";
+  const span = RESOURCE_SPAN[range] ?? 24 * HOUR;
   const env = q.get("environment") ?? q.get("env") ?? "";
   const from = Date.now() - span;
-  return (seed?.procs ?? [])
+  const events = (seed?.procs ?? [])
     .filter((p) => p.end !== null && p.ended_reason && p.ended_reason !== "graceful" && (!env || p.env === env) && seed!.at - p.end >= from)
     .map((p) => ({
       kind: p.ended_reason,
       at: new Date(seed!.at - (p.end as number)).toISOString(),
+      environment: p.env,
       instance_id: p.id,
       container_id: p.container_id,
       pod_name: p.pod_name,
-      details: p.ended_reason === "oom" ? { oom_kill: 1, last_mem_pct: 99.2 } : {},
+      details: p.ended_reason === "oom" ? { replaced_by: "", last_seen_at: new Date(seed!.at - (p.end as number) - 15_000).toISOString() } : {},
     }))
-    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return { range, from: new Date(from).toISOString(), to: new Date().toISOString(), events };
 }
 
 function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
@@ -2550,7 +2557,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       instances: [],
       sdks: [],
       sdk_stats: { instances: 0, queued_records: 0, sent_records: 0, failed_batches: 0, dropped_records: 0, drop_counts: {}, ...stats },
-      ...(appResourceSeeds.has(app.id) ? { instances: resourceInstances(appResourceSeeds.get(app.id) as ResourcesSeed) } : {}),
+      ...(appResourceSeeds.has(app.id) ? { instances: resourceInstances(appResourceSeeds.get(app.id) as ResourcesSeed), next_cursor: null } : {}),
       ...appStatuses.get(app.id),
     });
   }
@@ -2564,7 +2571,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!app) return problem(res, 404, "not_found");
     if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
     const seed = appResourceSeeds.get(app.id);
-    if (resourcesPath[2] === "instance-events") return send(res, 200, { events: resourceEvents(seed, url.searchParams) });
+    if (resourcesPath[2] === "instance-events") return send(res, 200, resourceEvents(seed, url.searchParams));
     const series = resourceSeries(seed, url.searchParams);
     if (!series) return problem(res, 422, "invalid_request");
     return send(res, 200, series);

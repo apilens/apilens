@@ -158,8 +158,8 @@ describe("values and axes", () => {
   it("marks restarts, OOM kills and deploys oldest first", () => {
     const m = chartMarkers(
       [
-        { kind: "oom", at: "2026-11-25T09:00:00Z", instance_id: "b1", container_id: "c", pod_name: "pod-b", details: {} },
-        { kind: "restart", at: "2026-11-25T11:00:00Z", instance_id: "a1", container_id: "", pod_name: "", details: null },
+        { kind: "oom", at: "2026-11-25T09:00:00Z", environment: "production", instance_id: "b1", container_id: "c", pod_name: "pod-b", details: {} },
+        { kind: "restart", at: "2026-11-25T11:00:00Z", environment: "production", instance_id: "a1", container_id: "", pod_name: "", details: null },
       ],
       [{ id: "d", deployed_at: "2026-11-25T08:00:00Z", release: "2026.11.25-2", commit: "3f9a2c1d8e" } as never],
     );

@@ -31,7 +31,7 @@ const COLUMNS: readonly { key: InstanceSortKey; label: string; num?: boolean }[]
   { key: "throttled", label: "Throttled", num: true },
   { key: "rpm", label: "Req/min", num: true },
   { key: "p95", label: "p95", num: true },
-  { key: "errors", label: "5xx", num: true },
+  { key: "errors", label: "Errors", num: true },
   { key: "uptime", label: "Uptime", num: true },
   { key: "seen", label: "Last seen", num: true },
 ];
@@ -41,7 +41,7 @@ const DASH = "—";
 /**
  * The SDK instances of an app with their resources and requests (M7 #1132): where each runs (pod
  * or host), CPU and memory now with the last hour as a sparkline, throttling, requests per minute,
- * p95 and 5xx share over the last 15 minutes, and uptime. Badges say how an instance ended
+ * p95 and error share (4xx and 5xx) over the last 15 minutes, and uptime. Badges say how an instance ended
  * (restarted, OOMKilled), what the server noticed (noisy, leaking) and serverless. A value an SDK
  * did not measure reads "—", never 0. Sortable by every column, filtered by environment; instances
  * that ended in the last 24 hours are collapsed under the live ones. A row opens the instance drawer.
@@ -200,7 +200,7 @@ function Row({ i, now, onOpen }: { i: AppInstance; now: number; onOpen: () => vo
       <td className="tr-num" data-label="p95">
         {i.requests && i.requests.rpm > 0 ? formatLatency(i.requests.p95_ms) : DASH}
       </td>
-      <td className="tr-num" data-label="5xx">
+      <td className="tr-num" data-label="Errors" title="Responses with status 400 or above, last 15 minutes">
         {i.requests ? formatResource("percent", i.requests.error_pct) : DASH}
       </td>
       <td className="tr-num" data-label="Uptime">
