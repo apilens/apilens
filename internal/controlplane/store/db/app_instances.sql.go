@@ -241,35 +241,69 @@ func (q *Queries) ListAppInstanceEvents(ctx context.Context, arg ListAppInstance
 
 const listRecentAppInstances = `-- name: ListRecentAppInstances :many
 SELECT environment, instance_id, sdk_name, sdk_version, runtime, release, commit, pid,
-       stats, first_seen_at, last_seen_at
+       stats, first_seen_at, last_seen_at,
+       hostname, hostname_guess, container_id, pod_name, pod_uid, namespace, node_name,
+       platform, region, process_start_time, uptime_s, resources, ended_at, ended_reason
 FROM app_instances
 WHERE app_id = $1
+  AND (
+      $2::timestamptz IS NULL
+      OR last_seen_at < $2::timestamptz
+      OR (last_seen_at = $2::timestamptz
+          AND (environment, instance_id) > ($3::text, $4::text))
+  )
 ORDER BY last_seen_at DESC, environment, instance_id
-LIMIT $2
+LIMIT $5
 `
 
 type ListRecentAppInstancesParams struct {
-	AppID   uuid.UUID
-	MaxRows int32
+	AppID            uuid.UUID
+	AfterSeenAt      *time.Time
+	AfterEnvironment string
+	AfterInstanceID  string
+	MaxRows          int32
 }
 
 type ListRecentAppInstancesRow struct {
-	Environment string
-	InstanceID  string
-	SdkName     string
-	SdkVersion  string
-	Runtime     string
-	Release     string
-	Commit      string
-	Pid         *int64
-	Stats       []byte
-	FirstSeenAt time.Time
-	LastSeenAt  time.Time
+	Environment      string
+	InstanceID       string
+	SdkName          string
+	SdkVersion       string
+	Runtime          string
+	Release          string
+	Commit           string
+	Pid              *int64
+	Stats            []byte
+	FirstSeenAt      time.Time
+	LastSeenAt       time.Time
+	Hostname         string
+	HostnameGuess    bool
+	ContainerID      string
+	PodName          string
+	PodUid           string
+	Namespace        string
+	NodeName         string
+	Platform         string
+	Region           string
+	ProcessStartTime *time.Time
+	UptimeS          *float64
+	Resources        []byte
+	EndedAt          *time.Time
+	EndedReason      string
 }
 
-// The most recently seen instances of an app.
+// The most recently seen instances of an app with where they run, their
+// latest resources snapshot and how they ended. Keyset pages: a cursor is
+// the (last_seen_at, environment, instance_id) of the previous page's last
+// row; a null after_seen_at starts at the newest.
 func (q *Queries) ListRecentAppInstances(ctx context.Context, arg ListRecentAppInstancesParams) ([]ListRecentAppInstancesRow, error) {
-	rows, err := q.db.Query(ctx, listRecentAppInstances, arg.AppID, arg.MaxRows)
+	rows, err := q.db.Query(ctx, listRecentAppInstances,
+		arg.AppID,
+		arg.AfterSeenAt,
+		arg.AfterEnvironment,
+		arg.AfterInstanceID,
+		arg.MaxRows,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +323,20 @@ func (q *Queries) ListRecentAppInstances(ctx context.Context, arg ListRecentAppI
 			&i.Stats,
 			&i.FirstSeenAt,
 			&i.LastSeenAt,
+			&i.Hostname,
+			&i.HostnameGuess,
+			&i.ContainerID,
+			&i.PodName,
+			&i.PodUid,
+			&i.Namespace,
+			&i.NodeName,
+			&i.Platform,
+			&i.Region,
+			&i.ProcessStartTime,
+			&i.UptimeS,
+			&i.Resources,
+			&i.EndedAt,
+			&i.EndedReason,
 		); err != nil {
 			return nil, err
 		}

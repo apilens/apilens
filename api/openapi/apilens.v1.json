@@ -1071,6 +1071,22 @@
             "description": "Commit of the app the instance runs; empty when not configured.",
             "type": "string"
           },
+          "container_id": {
+            "description": "Container (cgroup) the process runs in; workers of one container share it. Empty outside a container.",
+            "type": "string"
+          },
+          "ended_at": {
+            "description": "When the instance ended; null while it is not known to have ended.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ended_reason": {
+            "description": "How it ended: graceful (final heartbeat), restart, oom or suspected_oom (inferred when another process replaced it); empty while not ended.",
+            "type": "string"
+          },
           "environment": {
             "description": "Environment the instance reports from.",
             "type": "string"
@@ -1079,6 +1095,14 @@
             "description": "Time of the instance's first heartbeat.",
             "format": "date-time",
             "type": "string"
+          },
+          "hostname": {
+            "description": "Host name of the process; empty when not sent.",
+            "type": "string"
+          },
+          "hostname_guess": {
+            "description": "True when pod_name is only inferred from the hostname.",
+            "type": "boolean"
           },
           "instance_id": {
             "description": "Instance id the SDK generated for its process.",
@@ -1089,6 +1113,14 @@
             "format": "date-time",
             "type": "string"
           },
+          "namespace": {
+            "description": "Kubernetes namespace; empty when unknown.",
+            "type": "string"
+          },
+          "node_name": {
+            "description": "Kubernetes node; empty when unknown.",
+            "type": "string"
+          },
           "pid": {
             "description": "Operating-system process id; null when the SDK did not send one.",
             "format": "int64",
@@ -1097,9 +1129,41 @@
               "null"
             ]
           },
+          "platform": {
+            "description": "Where the process runs: k8s, ecs, cloud_run, app_engine, heroku, fly, lambda, vm or bare; empty when not sent.",
+            "type": "string"
+          },
+          "pod_name": {
+            "description": "Kubernetes pod name; empty outside Kubernetes.",
+            "type": "string"
+          },
+          "pod_uid": {
+            "description": "Kubernetes pod UID; empty when unknown.",
+            "type": "string"
+          },
+          "process_start_time": {
+            "description": "When the process started; null when not sent.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "region": {
+            "description": "Cloud region; empty when unknown.",
+            "type": "string"
+          },
           "release": {
             "description": "Release of the app the instance runs; empty when not configured.",
             "type": "string"
+          },
+          "requests": {
+            "$ref": "#/components/schemas/InstanceRequests",
+            "description": "Requests the instance served in the last 15 full minutes; null when it served none (or its SDK does not tag requests with instance_id)."
+          },
+          "resources": {
+            "$ref": "#/components/schemas/InstanceResources",
+            "description": "CPU and memory from the last heartbeat with resources; null for an SDK that does not send them."
           },
           "runtime": {
             "description": "Language runtime and version, e.g. python 3.13.1.",
@@ -1121,6 +1185,20 @@
             "description": "SDK version the instance runs.",
             "type": "string"
           },
+          "signals": {
+            "description": "Noisy-instance and memory-leak badges; empty when none.",
+            "items": {
+              "$ref": "#/components/schemas/InstanceSignal"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "spark": {
+            "$ref": "#/components/schemas/InstanceSpark",
+            "description": "The last hour per minute for sparklines."
+          },
           "stats": {
             "additionalProperties": {},
             "description": "SDK counters as the last heartbeat sent them.",
@@ -1134,6 +1212,14 @@
               "silent"
             ],
             "type": "string"
+          },
+          "uptime_s": {
+            "description": "Seconds the process had been up at its last heartbeat; null when not sent.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1150,7 +1236,24 @@
           "pid",
           "stats",
           "first_seen_at",
-          "last_seen_at"
+          "last_seen_at",
+          "hostname",
+          "hostname_guess",
+          "container_id",
+          "pod_name",
+          "pod_uid",
+          "namespace",
+          "node_name",
+          "platform",
+          "region",
+          "process_start_time",
+          "uptime_s",
+          "ended_at",
+          "ended_reason",
+          "resources",
+          "spark",
+          "requests",
+          "signals"
         ],
         "type": "object"
       },
@@ -1564,7 +1667,7 @@
             "description": "The ingest edge's counters of the app for the current UTC day (see /apps/{id}/ingest-stats); left out when the counter store is not configured."
           },
           "instances": {
-            "description": "The 100 most recently seen instances, newest first.",
+            "description": "One page of instances (limit, 100 by default), most recently seen first.",
             "items": {
               "$ref": "#/components/schemas/AppInstance"
             },
@@ -1576,6 +1679,13 @@
           "last_seen_at": {
             "description": "Time of the last heartbeat; null when none arrived.",
             "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "description": "Pass as cursor for the next page of instances; null on the last page.",
             "type": [
               "string",
               "null"
@@ -1613,6 +1723,7 @@
           "last_seen_at",
           "environments",
           "instances",
+          "next_cursor",
           "sdks",
           "sdk_stats"
         ],
@@ -7109,6 +7220,319 @@
         ],
         "type": "object"
       },
+      "InstanceEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "When the event was recorded.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "container_id": {
+            "description": "Container of the instance; empty when unknown.",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": {},
+            "description": "Kind-specific details: count for oom_kill; replaced_by and last_seen_at for the ends.",
+            "type": "object"
+          },
+          "environment": {
+            "description": "Environment of the instance.",
+            "type": "string"
+          },
+          "instance_id": {
+            "description": "The SDK process the event is about (for restarts, the one that ended).",
+            "type": "string"
+          },
+          "kind": {
+            "description": "oom_kill: a live process reported its container's OOM killer fired (details.count); restart: a process ended and was replaced, cause unknown; oom: it ended after its container recorded an OOM kill; suspected_oom: it ended with its container at 90 % or more of its memory limit.",
+            "enum": [
+              "restart",
+              "oom",
+              "suspected_oom",
+              "oom_kill"
+            ],
+            "type": "string"
+          },
+          "pod_name": {
+            "description": "Kubernetes pod of the instance; empty outside Kubernetes.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "at",
+          "environment",
+          "instance_id",
+          "container_id",
+          "pod_name",
+          "details"
+        ],
+        "type": "object"
+      },
+      "InstanceEventsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/InstanceEventsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "events": {
+            "description": "Events of the window, newest first, at most 1000.",
+            "items": {
+              "$ref": "#/components/schemas/InstanceEvent"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "Start of the window (inclusive).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "range": {
+            "description": "Time range of the response.",
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the window (exclusive).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "events"
+        ],
+        "type": "object"
+      },
+      "InstanceRequests": {
+        "additionalProperties": false,
+        "properties": {
+          "error_pct": {
+            "description": "Responses with status 400 or above, percent of requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "p95_ms": {
+            "description": "95th percentile response time, ms (t-digest estimate).",
+            "format": "double",
+            "type": "number"
+          },
+          "rpm": {
+            "description": "Requests per minute.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "rpm",
+          "p95_ms",
+          "error_pct"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "InstanceResources": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_cores": {
+            "description": "CPU cores the process kept busy over the window (can exceed 1).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpu_limit_cores": {
+            "description": "The container's effective CPU limit in cores; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpu_pct": {
+            "description": "The process's CPU over the window as a percent of its effective limit, 0 to 100 (the container's when the process did not report its own).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "limit_source": {
+            "description": "Where the CPU and memory limits come from: cgroup_v2, cgroup_v1, ecs, vm, host or none; empty when the SDK did not say.",
+            "type": "string"
+          },
+          "mem_limit": {
+            "description": "The container's memory limit, bytes; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "mem_pct": {
+            "description": "mem_working_set (else mem_rss) as a percent of mem_limit; null without a limit.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "mem_pss": {
+            "description": "The process's proportional set size, bytes (Linux only).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "mem_rss": {
+            "description": "The process's resident set size at the end of the window, bytes.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "mem_working_set": {
+            "description": "The container's memory working set at the end of the window, bytes (shared by every worker of the container).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/InstanceRuntime",
+            "description": "Runtime headline numbers."
+          },
+          "throttled_ratio": {
+            "description": "Share of the container's CPU periods throttled over the window, 0 to 1.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "limit_source",
+          "cpu_pct",
+          "cpu_cores",
+          "cpu_limit_cores",
+          "mem_working_set",
+          "mem_rss",
+          "mem_pss",
+          "mem_limit",
+          "mem_pct",
+          "throttled_ratio",
+          "runtime"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "InstanceRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "event_loop_p99": {
+            "description": "Node.js event loop delay p99 over the heartbeat window, ms.",
+            "format": "double",
+            "type": "number"
+          },
+          "gc_pause_ms": {
+            "description": "Stop-the-world GC pause over the window, ms (JVM, Node.js; Python summed over generations).",
+            "format": "double",
+            "type": "number"
+          },
+          "heap_used": {
+            "description": "Heap in use (JVM or V8) at the end of the window, bytes.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "InstanceSignal": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "description": "One line for the badge's tooltip: the median it is compared with, or the fit and the time until the memory limit when one is known.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "noisy: CPU or p95 over the last 15 minutes well above the environment's median (at least 3 live instances); leak: memory grew steadily over the last 6 hours.",
+            "enum": [
+              "noisy",
+              "leak"
+            ],
+            "type": "string"
+          },
+          "metric": {
+            "description": "What the signal is on: cpu_pct or p95_ms (noisy); heap_after_gc, heap_used, mem_pss or mem_rss (leak).",
+            "type": "string"
+          },
+          "value": {
+            "description": "noisy: the instance's value (percent or ms); leak: growth in MB (2^20 bytes) per hour.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "metric",
+          "value",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "InstanceSpark": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_pct": {
+            "description": "60 one-minute points of CPU percent of the limit (the process's, else its container's).",
+            "items": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "mem": {
+            "description": "60 one-minute points of memory in bytes: the process's RSS, else its container's working set.",
+            "items": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cpu_pct",
+          "mem"
+        ],
+        "type": "object"
+      },
       "Invitation": {
         "additionalProperties": false,
         "properties": {
@@ -11134,6 +11558,53 @@
         ],
         "type": "object"
       },
+      "ResourcePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "avg": {
+            "description": "Mean over the bucket: per container (container metrics) or process (process metrics) first, then across them; null when nothing reported (a gap, never zero).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "instances": {
+            "description": "Containers (container metrics) or processes (process metrics) that reported in the bucket; 0 for a gap.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "max": {
+            "description": "Highest sample of any container or process in the bucket; null for a gap.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "min": {
+            "description": "Lowest sample of any container or process in the bucket; null for a gap.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "t": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "t",
+          "avg",
+          "min",
+          "max",
+          "instances"
+        ],
+        "type": "object"
+      },
       "ResourcePool": {
         "additionalProperties": false,
         "properties": {
@@ -11218,6 +11689,84 @@
         "required": [
           "pid",
           "comm"
+        ],
+        "type": "object"
+      },
+      "ResourceSeries": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ResourceSeries.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "description": "Width of each bucket, in seconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "description": "Start of the window (inclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "limit": {
+            "description": "The limit of the scope in the series' unit, when known: the container memory limit (memory in bytes), the CPU limit in cores (cpu_cores) or the JVM max heap (heap_used); the highest of the containers or processes in scope, from their latest heartbeat. Null when unknown and for percents and ratios.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "metric": {
+            "description": "The metric of the series.",
+            "type": "string"
+          },
+          "points": {
+            "description": "One point per bucket of the window, oldest first; buckets without heartbeats are null, not zero.",
+            "items": {
+              "$ref": "#/components/schemas/ResourcePoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "description": "Time range of the response.",
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the window (exclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Unit of avg, min, max and limit.",
+            "enum": [
+              "percent",
+              "cores",
+              "bytes",
+              "ms",
+              "ratio",
+              "count"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "unit",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "limit",
+          "points"
         ],
         "type": "object"
       },
@@ -14386,6 +14935,113 @@
         ]
       }
     },
+    "/api/v1/apps/{id}/instance-events": {
+      "get": {
+        "description": "Restarts, OOM kills and suspected OOMs of the app's SDK processes in the window, inferred from heartbeats (a new process in the same container or pod ends the previous one), for markers on the resources charts. An app that is not in the project answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-app-instance-events",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "environment",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of environment, as the traffic operations name it.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Alias of environment, as the traffic operations name it.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceEventsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Restarts and OOM kills of an app's instances",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/apps/{id}/metadata": {
       "get": {
         "description": "Returns the latest metadata report (POST /v1/metadata) of the app per environment: framework, versions and the effective SDK config, so it can be shown next to the remote capture policy (the SDK applies the narrower of the two). The route list is left out. Needs `view` on its project (any member, including viewers). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
@@ -14475,6 +15131,161 @@
         "summary": "Get what an app's SDKs reported on startup",
         "tags": [
           "Projects"
+        ]
+      }
+    },
+    "/api/v1/apps/{id}/resources": {
+      "get": {
+        "description": "One CPU, memory or runtime metric of the app's SDK processes from their heartbeats, per bucket with the mean, lowest and highest value and how many reported. Container metrics (cpu_pct, cpu_cores, mem_working_set, mem_pct, throttled_ratio) are kept once per container, so forked workers of one container are never added up; cpu_pct and cpu_cores fall back to the process's own numbers outside a container. Process metrics are averaged over the processes. Buckets without heartbeats are null (gaps), never zero. Units: cpu_pct, mem_pct percent; cpu_cores cores; mem_*, heap_used bytes; event_loop_p99 and gc_pause (stop-the-world pause per heartbeat window) ms; elu, throttled_ratio 0 to 1; threads, pool_used count. An app that is not in the project answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "get-app-resources",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The metric to read.",
+            "explode": false,
+            "in": "query",
+            "name": "metric",
+            "required": true,
+            "schema": {
+              "description": "The metric to read.",
+              "enum": [
+                "cpu_pct",
+                "cpu_cores",
+                "mem_working_set",
+                "mem_rss",
+                "mem_pss",
+                "mem_pct",
+                "throttled_ratio",
+                "event_loop_p99",
+                "elu",
+                "heap_used",
+                "gc_pause",
+                "threads",
+                "pool_used"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now. Windows longer than 48 hours read the hourly rollup.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now. Windows longer than 48 hours read the hourly rollup.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "environment",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of environment, as the traffic operations name it.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Alias of environment, as the traffic operations name it.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this SDK process (instance_id).",
+            "explode": false,
+            "in": "query",
+            "name": "instance",
+            "schema": {
+              "description": "Only this SDK process (instance_id).",
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this container (container_id).",
+            "explode": false,
+            "in": "query",
+            "name": "container",
+            "schema": {
+              "description": "Only this container (container_id).",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceSeries"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Runtime resources of an app over time",
+        "tags": [
+          "Dashboard"
         ]
       }
     },
@@ -14630,6 +15441,31 @@
             "schema": {
               "description": "The app's id.",
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most instances to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "description": "Most instances to list.",
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "next_cursor of the previous page; empty for the first page.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "next_cursor of the previous page; empty for the first page.",
+              "maxLength": 512,
               "type": "string"
             }
           }
