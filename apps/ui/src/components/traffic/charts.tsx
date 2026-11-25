@@ -7,7 +7,7 @@ import { formatPercent, ratio } from "@/lib/format";
 import { pointX, tooltipText } from "@/lib/chart-hover";
 import { RANGE_LABEL, formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/consumers";
 import type { QueryRange } from "@/lib/identity";
-import { type StatusRow, formatLatency, latencyTop, lineY, linePath, plotWidth } from "@/lib/traffic";
+import { type StatusRow, bandPath, formatLatency, isolatedPoints, latencyTop, lineY, linePath, plotWidth, sparklinePath } from "@/lib/traffic";
 import { ChartAnnounce, ChartTooltip, Crosshair, type TooltipRow } from "../charts/chart-tooltip";
 import { useChartHover } from "../charts/use-chart-hover";
 import { useTimeZone } from "@/lib/time-zone-context";
@@ -103,6 +103,7 @@ export function Plot({
   summary,
   top,
   scale,
+  topLeft,
   hover,
   overlay,
   children,
@@ -116,6 +117,8 @@ export function Plot({
    * 0 are labelled in a gutter left of the plot; pair it with `<TimeAxis inset />`.
    */
   scale?: PlotScale;
+  /** A second axis's top, drawn at the top left (the traffic overlay of the resources charts, M7). */
+  topLeft?: string;
   hover?: PlotHover;
   /** HTML drawn over the plot at width `w` (text the stretched SVG cannot carry: bar labels, marks). */
   overlay?: (w: number) => ReactNode;
@@ -243,6 +246,11 @@ export function Plot({
             {top}
           </span>
         )}
+        {topLeft ? (
+          <span className="tr-axis-top tr-axis-top--left" aria-hidden="true">
+            {topLeft}
+          </span>
+        ) : null}
         <svg viewBox={`0 0 ${w} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${label}. ${summary}`} data-measured={measured ?? undefined}>
           <line className="tr-grid" x1="0" x2={w} y1={0.5} y2={0.5} />
           <line className="tr-grid" x1="0" x2={w} y1={H / 2} y2={H / 2} />
@@ -325,6 +333,60 @@ export function LineMarks({ i, count, w, dots }: { i: number; count: number; w: 
       <Crosshair x={x} height={H} />
       {dots.map((d) => (
         <circle key={d.className} className={`ct-dot tr-dot ${d.className}`} cx={x} cy={d.y} r={3.5} />
+      ))}
+    </g>
+  );
+}
+
+/**
+ * A line with gaps (M7 D9): linePath breaks at null buckets, and a bucket with a value but no
+ * neighbour draws as a dot, so a lone sample between two gaps is still visible.
+ */
+export function GapLine({ values, w, top, className = "tr-line" }: { values: readonly (number | null)[]; w: number; top: number; className?: string }) {
+  const slot = values.length ? w / values.length : w;
+  return (
+    <>
+      <path className={className} d={linePath(values, w, H, top)} />
+      {isolatedPoints(values).map((i) => (
+        <circle key={i} className={`tr-lone ${className}`} cx={i * slot + slot / 2} cy={lineY(values[i] as number, H, top)} r={1.75} />
+      ))}
+    </>
+  );
+}
+
+/** The filled min–max band under an average line (M7 D15), breaking at gaps like the line. */
+export function BandMarks({ min, max, w, top, className = "tr-band" }: { min: readonly (number | null)[]; max: readonly (number | null)[]; w: number; top: number; className?: string }) {
+  return <path className={className} d={bandPath(min, max, w, H, top)} />;
+}
+
+/** A horizontal reference line at `value` (a memory or CPU limit), labelled for sight in the legend. */
+export function LimitLine({ value, w, top }: { value: number; w: number; top: number }) {
+  if (!(value > 0) || value > top) return null;
+  const y = lineY(value, H, top);
+  return <line className="tr-limit" x1={0} x2={w} y1={y} y2={y} />;
+}
+
+/** One vertical event line on a plot: x in viewBox units, the kind picks its color, the label its tooltip. */
+export interface PlotMarker {
+  x: number;
+  kind: string;
+  label: string;
+}
+
+/**
+ * Event markers (M7: restarts, OOM kills, deploys): a vertical line per event with a small cap,
+ * colored by kind and named by a <title>. The hovered bucket's tooltip names the events in it too,
+ * so the keyboard and touch read them without hitting a 1px line.
+ */
+export function Markers({ markers }: { markers: readonly PlotMarker[] }) {
+  return (
+    <g className="tr-markers" aria-hidden="true">
+      {markers.map((m, k) => (
+        <g key={`${m.kind}-${k}`} className={`tr-marker tr-marker--${m.kind}`}>
+          <title>{m.label}</title>
+          <line x1={m.x} x2={m.x} y1={0} y2={H} />
+          <rect x={m.x - 3} y={-3} width={6} height={6} rx={1} />
+        </g>
       ))}
     </g>
   );
@@ -508,12 +570,30 @@ export interface SparkPoint {
  * value of `values[i]`, formatted by the caller (formatCount, formatLatency…) so the server can
  * pass it.
  */
-export function Sparkline({ values, hover }: { values: readonly number[]; hover?: { label: string; range: QueryRange; points: readonly SparkPoint[] } }) {
+export function Sparkline({
+  values,
+  hover,
+  top,
+}: {
+  /** Null values are gaps (M7): the line breaks there. Only a gapless line can take `hover`. */
+  values: readonly (number | null)[];
+  hover?: { label: string; range: QueryRange; points: readonly SparkPoint[] };
+  /** A fixed scale top (100 for a percentage) instead of the largest value. */
+  top?: number;
+}) {
   if (values.length === 0) return <span className="tr-spark" aria-hidden="true" />;
-  if (hover && hover.points.length === values.length) return <HoverSparkline values={values} {...hover} />;
+  const gapless = values.every((v): v is number => v !== null && v !== undefined);
+  if (hover && gapless && top === undefined && hover.points.length === values.length) return <HoverSparkline values={values} {...hover} />;
+  if (!gapless || top !== undefined) {
+    return (
+      <svg className="tr-spark" viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
+        <path d={sparklinePath(values, SPARK_W, SPARK_H, top)} />
+      </svg>
+    );
+  }
   return (
     <svg className="tr-spark" viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <polyline points={sparklinePoints(values, SPARK_W, SPARK_H)} />
+      <polyline points={sparklinePoints(values as readonly number[], SPARK_W, SPARK_H)} />
     </svg>
   );
 }

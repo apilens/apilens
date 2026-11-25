@@ -2136,6 +2136,184 @@ export interface AppInstance {
   commit: string;
   first_seen_at: string;
   last_seen_at: string;
+  // M7 (#1124): where the process runs, how it ended, its latest resources and request stats.
+  // Absent from servers before M7; empty strings and nulls when the SDK did not report them.
+  /** Operating-system process id; null when the SDK did not send one. */
+  pid?: number | null;
+  /** The instance's own reporting state (heartbeat in the last 2 minutes, the last hour, or older). */
+  status?: "reporting" | "stale" | "silent";
+  /** SDK delivery counters as its last heartbeat sent them. */
+  stats?: Record<string, unknown>;
+  hostname?: string;
+  /** The hostname is the SDK's guess (no Downward API or platform file named it). */
+  hostname_guess?: boolean;
+  container_id?: string;
+  pod_name?: string;
+  pod_uid?: string;
+  namespace?: string;
+  node_name?: string;
+  /** Where the process runs: `k8s`, `ecs`, `cloud_run`, `app_engine`, `heroku`, `fly`, `lambda`, `vm`, `bare`; empty when unknown. */
+  platform?: string;
+  region?: string;
+  process_start_time?: string | null;
+  uptime_s?: number | null;
+  /** When the process ended; null while it runs. */
+  ended_at?: string | null;
+  ended_reason?: InstanceEndedReason;
+  /** The latest resources snapshot; null for an SDK too old to sample resources (or sampling off). */
+  resources?: InstanceResources | null;
+  /** The last hour, one point per minute (60 points), null where no heartbeat landed. */
+  spark?: InstanceSpark | null;
+  /** Request stats of the last 15 minutes; null when the SDK does not tag requests with the instance. */
+  requests?: InstanceRequests | null;
+  /** Server-side signals (#1125): a noisy instance, a memory leak. */
+  signals?: InstanceSignal[] | null;
+}
+
+/** How an instance ended: empty while it runs. */
+export type InstanceEndedReason = "" | "graceful" | "restart" | "oom" | "suspected_oom";
+
+/** Where an instance's CPU and memory limit came from (D2). */
+export type LimitSource = "cgroup_v2" | "cgroup_v1" | "ecs" | "vm" | "host" | "none" | "";
+
+/** The latest resources of one instance (`AppInstance.resources`); null fields were not measured. */
+export interface InstanceResources {
+  limit_source: LimitSource;
+  /** CPU as a percentage (0 to 100) of the limit, or of the host's cores without one. */
+  cpu_pct: number | null;
+  cpu_cores: number | null;
+  cpu_limit_cores: number | null;
+  /** Bytes. */
+  mem_working_set: number | null;
+  mem_rss: number | null;
+  mem_pss: number | null;
+  mem_limit: number | null;
+  /** The working set as a percentage (0 to 100) of the memory limit. */
+  mem_pct: number | null;
+  /** The share (0 to 1) of CPU periods throttled. */
+  throttled_ratio: number | null;
+  runtime: InstanceRuntime | null;
+}
+
+/** The runtime headline of an instance's snapshot. */
+export interface InstanceRuntime {
+  event_loop_p99?: number;
+  /** Bytes. */
+  heap_used?: number;
+  gc_pause_ms?: number;
+}
+
+/**
+ * One process in an instance's container (D8): never argv, environ or cwd. The heartbeat carries
+ * the top 20 (`ResourceProcess`); `GET /apps/{id}/status` does not return them yet, so the drawer
+ * shows them only when a server adds `resources.processes` (the fake does).
+ */
+export interface InstanceProcess {
+  pid: number;
+  ppid?: number | null;
+  /** `/proc/<pid>/comm`, at most 15 characters. */
+  comm: string;
+  cpu_pct?: number | null;
+  /** Bytes. */
+  rss?: number | null;
+}
+
+/** An instance's last hour, one point per minute: CPU % of the limit and memory in bytes (its RSS, else its container's working set). */
+export interface InstanceSpark {
+  cpu_pct: (number | null)[];
+  mem: (number | null)[];
+}
+
+/** An instance's requests over the last 15 minutes. */
+export interface InstanceRequests {
+  rpm: number;
+  p95_ms: number;
+  /** Responses with status 400 or above, as a percentage (0 to 100). */
+  error_pct: number;
+}
+
+/** A signal on an instance: `noisy` (an outlier against its peers) or `leak` (memory grows; value in MB/h). */
+export interface InstanceSignal {
+  kind: "noisy" | "leak";
+  metric: string;
+  value: number;
+  detail: string;
+}
+
+/** A metric of `GET /apps/{id}/resources`. */
+export type ResourceMetric =
+  | "cpu_pct"
+  | "cpu_cores"
+  | "mem_working_set"
+  | "mem_rss"
+  | "mem_pss"
+  | "mem_pct"
+  | "throttled_ratio"
+  | "event_loop_p99"
+  | "elu"
+  | "heap_used"
+  | "gc_pause"
+  | "threads"
+  | "pool_used";
+
+/** The unit a resources series is in: percent is 0 to 100, ratio 0 to 1. */
+export type ResourceUnit = "percent" | "cores" | "bytes" | "ms" | "ratio" | "count";
+
+/** One bucket of a resources series: null values are a gap (no heartbeat landed), never zero. */
+export interface ResourcePoint {
+  t: string;
+  avg: number | null;
+  min: number | null;
+  max: number | null;
+  /** Instances (or containers, for container metrics) behind the bucket. */
+  instances: number;
+}
+
+/** `GET /apps/{id}/resources` (#1123): one metric over a window, an average with a min–max band. */
+export interface ResourceSeries {
+  metric: ResourceMetric;
+  unit: ResourceUnit;
+  range: string;
+  /** The window, bucket-aligned: from inclusive, to exclusive. */
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  /** The limit in the series' unit (memory limit, CPU limit cores); null without one. */
+  limit: number | null;
+  points: ResourcePoint[] | null;
+}
+
+/** The scope of a resources read. */
+export interface ResourceQuery {
+  metric: ResourceMetric;
+  range?: QueryRange;
+  /** Empty means every environment. */
+  environment?: string;
+  instance?: string;
+  container?: string;
+}
+
+/** What an instance event says happened: inferred restarts and OOM kills (D10). */
+export type InstanceEventKind = "restart" | "oom" | "suspected_oom" | "oom_kill";
+
+/** One event of `GET /apps/{id}/instance-events` (#1126). */
+export interface InstanceEvent {
+  kind: InstanceEventKind;
+  at: string;
+  environment: string;
+  instance_id: string;
+  container_id: string;
+  pod_name: string;
+  details: Record<string, unknown> | null;
+}
+
+/** `GET /apps/{id}/instance-events`. */
+export interface InstanceEvents {
+  range: string;
+  from: string;
+  to: string;
+  /** Newest first, at most 1000. */
+  events: InstanceEvent[] | null;
 }
 
 /** `GET /apps/{id}/status?project=` (#582) as the Apps overview (#591) and an app's page (#995) read it: also per environment, per SDK and per instance. */
@@ -2145,6 +2323,8 @@ export interface AppStatus extends AppHealthStatus {
   sdks: AppSdk[] | null;
   /** The 100 most recently seen instances, newest first; absent from older servers. */
   instances?: AppInstance[] | null;
+  /** The cursor of the next page of instances; null on the last page (M7). */
+  next_cursor?: string | null;
 }
 
 // Health checks (#608): active HTTP checks of an app environment (`/projects/{project}/alerts/
@@ -2872,6 +3052,24 @@ export function createClient(config: ClientConfig) {
       request<AppIngestStats>("GET", `/apps/${seg(appId)}/ingest-stats`, { ...o, query: { project: projectSlug, days } }),
     appHealthStatus: (projectSlug: string, appId: string, o: Authed) =>
       request<AppStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
+    // query: runtime resources (M7): series (#1123) and restarts / OOM kills (#1126) -------
+    appResources: (projectSlug: string, appId: string, q: ResourceQuery, o: Authed) =>
+      request<ResourceSeries>("GET", `/apps/${seg(appId)}/resources`, {
+        ...o,
+        query: {
+          project: projectSlug,
+          metric: q.metric,
+          range: q.range,
+          environment: q.environment || undefined,
+          instance: q.instance || undefined,
+          container: q.container || undefined,
+        },
+      }),
+    instanceEvents: (projectSlug: string, appId: string, q: { range?: QueryRange; environment?: string }, o: Authed) =>
+      request<InstanceEvents>("GET", `/apps/${seg(appId)}/instance-events`, {
+        ...o,
+        query: { project: projectSlug, range: q.range, environment: q.environment || undefined },
+      }),
     projectUsage: (projectSlug: string, days: number, o: Authed) =>
       request<ProjectUsage>("GET", `/projects/${seg(projectSlug)}/usage`, { ...o, query: { days } }),
 

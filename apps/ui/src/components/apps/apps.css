@@ -132,3 +132,11 @@
 @media (max-width: 760px) {
   .ap-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The app page's tabs (M7 #1128): links kept in the URL, the selected one underlined. */
+.ap-tabs { display: flex; gap: 2px; margin: 0 0 var(--space-6); border-bottom: 1px solid var(--border); }
+.ap-tabs a { margin-bottom: -1px; padding: 10px 12px 9px; border-bottom: 2px solid transparent; font: 500 14px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
+.ap-tabs a:hover { color: var(--ink); }
+.ap-tabs a[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent-ink); }
+.ap-tabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; border-radius: var(--radius-sm); }
+.ap-facts + .ap-tabs { margin-top: calc(-1 * var(--space-2)); }

@@ -25,10 +25,15 @@ import {
 import { RANGE_LABEL, formatCount } from "@/lib/consumers";
 import { endpointPageHref } from "@/lib/endpoint-detail";
 import { formatPercent, ratio } from "@/lib/format";
-import type { AppStatus, DeployChange, EndpointTraffic, NamedApp, TrafficSummary } from "@/lib/identity";
+import type { AppStatus, DeployChange, EndpointTraffic, InstanceEvent, NamedApp, TrafficSummary } from "@/lib/identity";
 import { projectSectionHref } from "@/lib/project-settings";
 import { formatLatency } from "@/lib/traffic";
+import { APP_TABPANEL_ID, type AppTab, appTabId } from "@/lib/resources";
 import { ObIcon } from "../onboarding/ob";
+import { InstancesTable } from "../resources/instances-table";
+import { ResourceTiles } from "../resources/resource-tiles";
+import { ResourcesTab, type ResourcesTabProps } from "../resources/resources-tab";
+import { AppTabs } from "./app-tabs";
 import "../traffic/traffic.css";
 import "./apps.css";
 
@@ -47,6 +52,12 @@ export interface AppDetailProps {
   now: number;
   /** The user's time zone. */
   tz: string;
+  /** The open tab (`?tab=`, M7 #1128). */
+  tab?: AppTab;
+  /** The instances' restarts and OOM kills (for the instance drawer); null when unreadable. */
+  events?: InstanceEvent[] | null;
+  /** The Resources tab's reads; only loaded when it is open. */
+  resources?: Omit<ResourcesTabProps, "project" | "app" | "status" | "deploys" | "events" | "now"> | null;
 }
 
 /**
@@ -56,9 +67,8 @@ export interface AppDetailProps {
  * instances and the deploys of the last 7 days. An app that has sent nothing yet shows how to set
  * up the SDK instead.
  */
-export function AppDetailView({ project, projectName, slug, app, status, summary, endpoints, deploys, now, tz }: AppDetailProps) {
+export function AppDetailView({ project, projectName, slug, app, status, summary, endpoints, deploys, now, tz, tab = "overview", events = null, resources = null }: AppDetailProps) {
   const title = app?.name ?? slug;
-  const range = RANGE_LABEL[APPS_RANGE];
   return (
     <div className="page ap ap-detail">
       <header className="pagehead">
@@ -78,12 +88,43 @@ export function AppDetailView({ project, projectName, slug, app, status, summary
         <SetupState project={project} app={app} />
       ) : (
         <>
+          <AppTabs project={project} app={app.slug} tab={tab} />
+          <div id={APP_TABPANEL_ID} role="tabpanel" aria-labelledby={appTabId(tab)}>
+            {tab === "resources" && resources ? (
+              <ResourcesTab project={project} app={app} status={status} deploys={deploys} events={events} now={now} {...resources} />
+            ) : (
+              <Overview project={project} slug={slug} app={app} status={status} summary={summary} endpoints={endpoints} deploys={deploys} events={events} now={now} tz={tz} />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Overview({
+  project,
+  slug,
+  app,
+  status,
+  summary,
+  endpoints,
+  deploys,
+  events,
+  now,
+  tz,
+}: Pick<AppDetailProps, "project" | "slug" | "status" | "summary" | "endpoints" | "deploys" | "now" | "tz"> & { app: NamedApp; events: InstanceEvent[] | null }) {
+  const range = RANGE_LABEL[APPS_RANGE];
+  return (
+        <>
           <section aria-labelledby="ap-d-traffic">
             <h2 id="ap-d-traffic" className="ap-d-h">
               Last {range}
             </h2>
             {summary === null ? <Failed text={TRAFFIC_LOAD_FAILED} href={appHref(project, slug)} /> : <Tiles summary={summary} />}
           </section>
+
+          <ResourceTiles project={project} app={app.slug} status={status} />
 
           <section className="tr-card tr-card--table" aria-labelledby="ap-d-endpoints">
             <h2 id="ap-d-endpoints">Top endpoints</h2>
@@ -100,7 +141,16 @@ export function AppDetailView({ project, projectName, slug, app, status, summary
 
           <section className="tr-card tr-card--table" aria-labelledby="ap-d-instances">
             <h2 id="ap-d-instances">SDK instances</h2>
-            {status === null ? <Failed text={STATUS_LOAD_FAILED} href={appHref(project, slug)} /> : <Instances status={status} now={now} />}
+            {status === null ? (
+              <Failed text={STATUS_LOAD_FAILED} href={appHref(project, slug)} />
+            ) : (
+              <InstancesTable project={project} app={app.slug} instances={(status.instances ?? []).slice(0, APP_INSTANCES_SHOWN)} events={events} now={now} />
+            )}
+            {status && (status.instances ?? []).length > APP_INSTANCES_SHOWN ? (
+              <p className="tr-cap">
+                The {APP_INSTANCES_SHOWN} most recently seen of {formatCount((status.instances ?? []).length)} instances are listed.
+              </p>
+            ) : null}
           </section>
 
           <section className="tr-card tr-card--table" aria-labelledby="ap-d-deploys">
@@ -117,8 +167,6 @@ export function AppDetailView({ project, projectName, slug, app, status, summary
             )}
           </section>
         </>
-      )}
-    </div>
   );
 }
 
@@ -255,52 +303,6 @@ function EndpointsTable({ project, app, endpoints }: { project: string; app: Nam
         ))}
       </tbody>
     </table>
-  );
-}
-
-function Instances({ status, now }: { status: AppStatus; now: number }) {
-  const all = status.instances ?? [];
-  if (all.length === 0) {
-    return (
-      <p className="tr-empty" role="status">
-        No SDK instance has sent a heartbeat yet.
-      </p>
-    );
-  }
-  const shown = all.slice(0, APP_INSTANCES_SHOWN);
-  return (
-    <>
-      <table className="tr-table" aria-label="SDK instances">
-        <thead>
-          <tr>
-            <th scope="col">Instance</th>
-            <th scope="col">Environment</th>
-            <th scope="col">SDK</th>
-            <th scope="col">Runtime</th>
-            <th scope="col">Release</th>
-            <th scope="col">Last seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((i) => (
-            <tr key={i.instance_id} className="tr-row">
-              <td data-label="Instance">
-                <code className="ap-mono">{i.instance_id}</code>
-              </td>
-              <td data-label="Environment">{i.environment || "–"}</td>
-              <td data-label="SDK">
-                <code className="ap-mono">{instanceSdk(i)}</code>
-                {i.sdk_outdated && i.sdk_latest_version ? <span className="ap-update"> Update available: {i.sdk_latest_version}</span> : null}
-              </td>
-              <td data-label="Runtime">{i.runtime || "–"}</td>
-              <td data-label="Release">{instanceRelease(i) || "–"}</td>
-              <td data-label="Last seen">{formatLastSeen(i.last_seen_at, now).replace(/^Last seen /, "")}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {all.length > shown.length ? <p className="tr-cap">The {shown.length} most recently seen of {formatCount(all.length)} instances are listed.</p> : null}
-    </>
   );
 }
 
