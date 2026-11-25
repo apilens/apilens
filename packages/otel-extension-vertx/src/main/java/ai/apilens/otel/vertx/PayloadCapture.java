@@ -12,6 +12,7 @@ import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.context.propagation.TextMapSetter;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServerRequest;
@@ -45,7 +46,7 @@ public final class PayloadCapture {
           "(?i).*\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|html?|txt|wasm)$");
 
   private static final Tracer TRACER =
-      GlobalOpenTelemetry.getTracer("ai.apilens.vertx-http2", "0.3.0");
+      GlobalOpenTelemetry.getTracer("ai.apilens.vertx-http2", "0.4.0");
 
   /** Keyed by the server response; weak so an exchange that never ends cannot leak. */
   private static final Map<Object, Exchange> EXCHANGES =
@@ -80,7 +81,17 @@ public final class PayloadCapture {
     }
   }
 
+  static final class HeadersSetter implements TextMapSetter<MultiMap> {
+    @Override
+    public void set(MultiMap carrier, String key, String value) {
+      if (carrier != null) {
+        carrier.set(key, value);
+      }
+    }
+  }
+
   private static final HeadersGetter GETTER = new HeadersGetter();
+  private static final HeadersSetter SETTER = new HeadersSetter();
 
   private PayloadCapture() {}
 
@@ -199,6 +210,55 @@ public final class PayloadCapture {
     EXCHANGES.put(
         response, new Exchange(span, json(headers), textual(contentType, true), true));
     return parent.with(span).makeCurrent();
+  }
+
+  /**
+   * HTTP/2 request data or end: the request's span current again while Vert.x runs the handlers
+   * waiting on the body (a POST's route handler runs only once the body has arrived).
+   */
+  public static Object h2Resume(Object response) {
+    Exchange ex = response == null ? null : EXCHANGES.get(response);
+    if (ex == null || !ex.owned) {
+      return null;
+    }
+    return Context.current().with(ex.span).makeCurrent();
+  }
+
+  /**
+   * An event bus message is sent: the sender's trace goes with it as a traceparent header, so the
+   * consumer's work (a query in another verticle, a service proxy call) joins the request's
+   * trace. Messages sent outside any trace are left alone.
+   */
+  public static void busSend(Object sendContext) {
+    if (!(sendContext instanceof io.vertx.core.eventbus.impl.SendContext)) {
+      return;
+    }
+    Context current = Context.current();
+    if (!Span.fromContext(current).getSpanContext().isValid()) {
+      return;
+    }
+    io.vertx.core.eventbus.impl.MessageImpl<?, ?> message =
+        ((io.vertx.core.eventbus.impl.SendContext<?>) sendContext).message;
+    if (message != null) {
+      GlobalOpenTelemetry.getPropagators().getTextMapPropagator().inject(current, message.headers(), SETTER);
+    }
+  }
+
+  /** An event bus message is handed to its consumer: the trace it carries is current meanwhile. */
+  public static Object busReceive(Object message) {
+    if (!(message instanceof io.vertx.core.eventbus.impl.MessageImpl)) {
+      return null;
+    }
+    MultiMap headers = ((io.vertx.core.eventbus.impl.MessageImpl<?, ?>) message).headers();
+    if (headers == null || headers.get("traceparent") == null) {
+      return null;
+    }
+    Context ctx =
+        GlobalOpenTelemetry.getPropagators().getTextMapPropagator().extract(Context.root(), headers, GETTER);
+    if (!Span.fromContext(ctx).getSpanContext().isValid()) {
+      return null;
+    }
+    return ctx.makeCurrent();
   }
 
   public static void h2Exit(Object scope) {

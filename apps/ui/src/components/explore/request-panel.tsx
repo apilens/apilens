@@ -273,7 +273,7 @@ export function RequestPanel({
           ) : tab === "timeline" ? (
             <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
           ) : tab === "services" ? (
-            <ServicesTab key={id} request={load.data.request} spans={load.data.spans ?? []} />
+            <ServicesTab key={id} project={project} request={load.data.request} spans={load.data.spans ?? []} />
           ) : (
             <RawTab data={load.data} />
           )}

@@ -4,11 +4,12 @@
 // tree read left to right (each service under the one that called it), every node carrying how
 // its caller's calls went: count, failures, latency and what was called. Built from the trace's
 // spans by serviceMap (lib/service-map.ts).
+import Link from "next/link";
 import { useMemo } from "react";
 import type { RequestDetail, TraceSpan } from "@/lib/identity";
 import { type MapEdge, type MapNode, type NodeKind, serviceMap } from "@/lib/service-map";
 import { formatLatency } from "@/lib/traffic";
-import { useAppName } from "./app-names";
+import { useAppIdByService, useAppName } from "./app-names";
 
 const KIND_LABEL: Record<NodeKind, string> = {
   client: "Caller",
@@ -19,6 +20,25 @@ const KIND_LABEL: Record<NodeKind, string> = {
   rpc: "RPC",
   other: "Peer",
 };
+
+/** How far either side of the request the trace's calls are looked for. */
+const TRACE_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Explore narrowed to the API calls of one trace (and of one app, when given), over the hour
+ * either side of the request: every call a request led to shares its trace id.
+ */
+export function traceCallsHref(project: string, traceId: string, at: string, appId?: string | null): string {
+  const t = Date.parse(at);
+  const p = new URLSearchParams();
+  if (Number.isFinite(t)) {
+    p.set("from", new Date(t - TRACE_WINDOW_MS).toISOString());
+    p.set("to", new Date(t + TRACE_WINDOW_MS).toISOString());
+  }
+  p.append("filter", `trace_id:eq:${traceId}`);
+  if (appId) p.append("filter", `app:eq:${appId}`);
+  return `/project/${encodeURIComponent(project)}/explore?${p.toString()}`;
+}
 
 /** The most-called operations shown under a node; the rest fold into "+N more". */
 const OPS_SHOWN = 3;
@@ -68,8 +88,15 @@ function toTree(nodes: MapNode[], edges: MapEdge[]): TreeNode[] {
   return roots;
 }
 
-export function ServicesTab({ request, spans }: { request: RequestDetail; spans: TraceSpan[] }) {
+export function ServicesTab({ project, request, spans }: { project: string; request: RequestDetail; spans: TraceSpan[] }) {
   const appName = useAppName(request.app_id);
+  const appIdOf = useAppIdByService();
+  // A service of the trace that is an app of the project opens its own API calls of the trace.
+  const callsHref = (n: MapNode): string | null => {
+    if (!request.trace_id || n.kind !== "service" || n.self) return null;
+    const id = appIdOf(n.name);
+    return id ? traceCallsHref(project, request.trace_id, request.timestamp, id) : null;
+  };
   const map = useMemo(
     () =>
       serviceMap(spans, {
@@ -98,11 +125,18 @@ export function ServicesTab({ request, spans }: { request: RequestDetail; spans:
             {map.edges.length} {map.edges.length === 1 ? "connection" : "connections"}
           </span>
           {failed ? <span className="rd-block__meta svc-bad">{failed} failed</span> : null}
+          {request.trace_id ? (
+            <span className="rd-block__actions">
+              <Link className="svc-link" href={traceCallsHref(project, request.trace_id, request.timestamp)}>
+                All API calls of this trace →
+              </Link>
+            </span>
+          ) : null}
         </header>
         {!request.trace_id ? <p className="rd-empty">This request was not traced, so only its caller is shown.</p> : null}
         <ul className="svc-tree" aria-label="Service map">
           {tree.map((t) => (
-            <Branch key={t.node.id} t={t} />
+            <Branch key={t.node.id} t={t} href={callsHref} />
           ))}
         </ul>
         <p className="svc-legend">
@@ -113,14 +147,14 @@ export function ServicesTab({ request, spans }: { request: RequestDetail; spans:
   );
 }
 
-function Branch({ t }: { t: TreeNode }) {
+function Branch({ t, href }: { t: TreeNode; href: (n: MapNode) => string | null }) {
   return (
     <li className="svc-branch">
-      <NodeCard t={t} />
+      <NodeCard t={t} href={href(t.node)} />
       {t.children.length ? (
         <ul className="svc-tree svc-tree--sub">
           {t.children.map((c) => (
-            <Branch key={c.node.id} t={c} />
+            <Branch key={c.node.id} t={c} href={href} />
           ))}
         </ul>
       ) : null}
@@ -128,7 +162,7 @@ function Branch({ t }: { t: TreeNode }) {
   );
 }
 
-function NodeCard({ t }: { t: TreeNode }) {
+function NodeCard({ t, href }: { t: TreeNode; href: string | null }) {
   const { node: n, edge: e } = t;
   const bad = Boolean(e?.errors);
   const avg = e && e.calls ? e.totalMs / e.calls : 0;
@@ -141,6 +175,11 @@ function NodeCard({ t }: { t: TreeNode }) {
           {n.name}
         </span>
         {n.detail && n.detail !== n.name && n.detail !== "HTTP" ? <span className="svc-card__detail">{n.detail}</span> : null}
+        {href ? (
+          <Link className="svc-link svc-card__open" href={href}>
+            Open its API calls →
+          </Link>
+        ) : null}
       </div>
       {e ? (
         <div className="svc-card__stats">

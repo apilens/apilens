@@ -22,6 +22,21 @@ export function AppNamesProvider({ apps, children }: { apps: readonly NamedApp[]
   );
 }
 
+/**
+ * A lookup of app ids by what a trace names a service: an app's slug or name (OpenTelemetry's
+ * service.name is the app's slug when APILens created the app from it). Null for none.
+ */
+export function useAppIdByService(): (service: string) => string | null {
+  const names = useContext(AppNames);
+  const slugs = useContext(AppSlugs);
+  return useMemo(() => {
+    const ids = new Map<string, string>();
+    for (const [id, name] of names) ids.set(name.toLowerCase(), id);
+    for (const [id, slug] of slugs) ids.set(slug.toLowerCase(), id);
+    return (service: string) => ids.get(service.toLowerCase()) ?? null;
+  }, [names, slugs]);
+}
+
 /** The slug of app `id`, or null when the project's apps do not list it (or no id). */
 export function useAppSlug(id: string | undefined): string | null {
   const slugs = useContext(AppSlugs);

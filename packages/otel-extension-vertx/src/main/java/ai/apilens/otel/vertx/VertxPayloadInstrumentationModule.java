@@ -45,7 +45,8 @@ public final class VertxPayloadInstrumentationModule extends InstrumentationModu
     return Arrays.asList(
         "ai.apilens.otel.vertx.PayloadCapture",
         "ai.apilens.otel.vertx.PayloadCapture$Exchange",
-        "ai.apilens.otel.vertx.PayloadCapture$HeadersGetter");
+        "ai.apilens.otel.vertx.PayloadCapture$HeadersGetter",
+        "ai.apilens.otel.vertx.PayloadCapture$HeadersSetter");
   }
 
   @Override
@@ -55,8 +56,69 @@ public final class VertxPayloadInstrumentationModule extends InstrumentationModu
         new ResponseInstrumentation(),
         new Http2RequestInstrumentation(),
         new Http2ResponseInstrumentation(),
+        new EventBusSendInstrumentation(),
+        new EventBusReceiveInstrumentation(),
         new MotadataLoggerInstrumentation(),
         new MotadataErrorResponseInstrumentation());
+  }
+
+  /**
+   * The event bus carries no trace: a request's work handed to another verticle (Motadata's
+   * database and cache services, service proxies) started traces of its own. Each message sent
+   * within a trace carries it as a traceparent header ...
+   */
+  static final class EventBusSendInstrumentation implements TypeInstrumentation {
+    @Override
+    public ElementMatcher<TypeDescription> typeMatcher() {
+      return named("io.vertx.core.eventbus.impl.EventBusImpl");
+    }
+
+    @Override
+    public void transform(TypeTransformer transformer) {
+      transformer.applyAdviceToMethod(
+          named("sendOrPubInternal")
+              .and(takesArguments(1))
+              .and(takesArgument(0, named("io.vertx.core.eventbus.impl.SendContext"))),
+          getClass().getName() + "$SendAdvice");
+    }
+
+    @SuppressWarnings("unused")
+    public static final class SendAdvice {
+      @Advice.OnMethodEnter(suppress = Throwable.class)
+      public static void onEnter(@Advice.Argument(0) Object sendContext) {
+        PayloadCapture.busSend(sendContext);
+      }
+    }
+  }
+
+  /** ... and its consumer (a reply handler too) runs with that trace current. */
+  static final class EventBusReceiveInstrumentation implements TypeInstrumentation {
+    @Override
+    public ElementMatcher<TypeDescription> typeMatcher() {
+      return named("io.vertx.core.eventbus.impl.HandlerRegistration");
+    }
+
+    @Override
+    public void transform(TypeTransformer transformer) {
+      transformer.applyAdviceToMethod(
+          named("dispatch")
+              .and(takesArguments(3))
+              .and(takesArgument(1, named("io.vertx.core.eventbus.impl.MessageImpl"))),
+          getClass().getName() + "$DispatchAdvice");
+    }
+
+    @SuppressWarnings("unused")
+    public static final class DispatchAdvice {
+      @Advice.OnMethodEnter(suppress = Throwable.class)
+      public static Object onEnter(@Advice.Argument(1) Object message) {
+        return PayloadCapture.busReceive(message);
+      }
+
+      @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+      public static void onExit(@Advice.Enter Object scope) {
+        PayloadCapture.h2Exit(scope);
+      }
+    }
   }
 
   /**
@@ -206,6 +268,24 @@ public final class VertxPayloadInstrumentationModule extends InstrumentationModu
       transformer.applyAdviceToMethod(
           named("handleData").and(takesArgument(0, named("io.vertx.core.buffer.Buffer"))),
           getClass().getName() + "$DataAdvice");
+      transformer.applyAdviceToMethod(
+          named("handleData")
+              .and(takesArgument(0, named("io.vertx.core.buffer.Buffer")))
+              .or(named("handleTrailers").and(takesArguments(1))),
+          getClass().getName() + "$ResumeAdvice");
+    }
+
+    @SuppressWarnings("unused")
+    public static final class ResumeAdvice {
+      @Advice.OnMethodEnter(suppress = Throwable.class)
+      public static Object onEnter(@Advice.FieldValue("response") Object response) {
+        return PayloadCapture.h2Resume(response);
+      }
+
+      @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+      public static void onExit(@Advice.Enter Object scope) {
+        PayloadCapture.h2Exit(scope);
+      }
     }
 
     @SuppressWarnings("unused")

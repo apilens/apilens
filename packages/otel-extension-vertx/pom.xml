@@ -6,7 +6,7 @@
 
   <groupId>ai.apilens</groupId>
   <artifactId>apilens-otel-extension-vertx</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
   <name>APILens OpenTelemetry extension: Vert.x payloads</name>
   <description>
     OpenTelemetry Java agent extension that records Vert.x 5 HTTP request and response

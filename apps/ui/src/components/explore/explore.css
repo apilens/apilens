@@ -1019,3 +1019,7 @@ span.rd-j-tog { cursor: default; }
 .svc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 12px 0 0; font: 400 11.5px/16px var(--font-sans); color: var(--ink-muted); }
 .svc-dot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 2px; }
 .svc-dot:first-child { margin-left: 0; }
+.svc-link { font: 500 12px/18px var(--font-sans); color: var(--accent-ink); text-decoration: none; white-space: nowrap; }
+.svc-link:hover { text-decoration: underline; }
+.svc-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 4px; }
+.svc-card__open { margin-left: auto; }
