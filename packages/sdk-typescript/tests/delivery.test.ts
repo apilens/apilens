@@ -3,6 +3,8 @@
  * retry classification with Retry-After and jitter, drop reasons, stats().
  * Ports packages/sdk-python/tests/test_queue_bounds.py with a fake fetch.
  */
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { gunzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -95,7 +97,15 @@ describe("byte-bounded queue", () => {
     const n = 10_000;
     const recordBytes = estimateRecordBytes(record("x".repeat(64 * KB)));
 
-    const before = process.memoryUsage().heapUsed;
+    // Measure what is retained, not garbage the collector has yet to reach
+    // (its timing shifts with every module loaded before this test).
+    setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc") as () => void;
+    const retained = (): number => {
+      gc();
+      return process.memoryUsage().heapUsed;
+    };
+    const before = retained();
     let peak = before;
     for (let i = 0; i < n; i += 1) {
       // Buffer-backed strings are flat (not shared rope nodes), so the
@@ -103,13 +113,13 @@ describe("byte-bounded queue", () => {
       client.captureRecord(record(Buffer.alloc(64 * KB, String(i % 10)).toString()));
       expect(client.queuedBytes).toBeLessThanOrEqual(maxBytes);
       if (i % 500 === 0) {
-        peak = Math.max(peak, process.memoryUsage().heapUsed);
+        peak = Math.max(peak, retained());
       }
     }
-    peak = Math.max(peak, process.memoryUsage().heapUsed);
+    peak = Math.max(peak, retained());
 
     // Unbounded this would retain ~640 MB; the queue holds at most 8 MB.
-    expect(peak - before).toBeLessThan(160 * MB);
+    process.stderr.write("PEAK " + (peak - before) / MB + "\n"); expect(peak - before).toBeLessThan(160 * MB);
 
     const kept = client.queue.length;
     expect(kept).toBe(Math.floor(maxBytes / recordBytes));

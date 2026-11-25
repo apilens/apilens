@@ -13,6 +13,7 @@ import { exceptionContent, truncateHeadTail } from "./exception.js";
 import { SpanRecorder } from "./spans.js";
 import { currentTraceContext, runWithoutTrace } from "./trace.js";
 import { gzipText, processEnv, processObject, randomUUID, runtimeName } from "./runtime.js";
+import { RESOURCES_INTERVAL_MS, RESOURCES_MIN_INTERVAL_MS, RuntimeResources } from "./resources/index.js";
 import {
   applyRemotePolicy,
   narrowPayloadBytes,
@@ -134,6 +135,9 @@ type RequiredConfig = {
   sendHeartbeat: boolean;
   heartbeatIntervalMs: number;
   sendMetadata: boolean;
+  captureResources: boolean;
+  resourcesIntervalMs: number;
+  captureProcessList: boolean;
   environment: string;
   release: string;
   commit: string;
@@ -810,6 +814,8 @@ class ApiLensClient {
   /** Inline flush mode: when the next heartbeat is due (epoch ms). */
   private nextInlineHeartbeatAt = 0;
   private metadataLogged = new Set<number>();
+  /** Runtime resources (M7): the sampler and identity heartbeats carry. */
+  public readonly resources: RuntimeResources;
 
   constructor(config: ApiLensClientConfig = {}) {
     if (ApiLensClient.instance) {
@@ -836,6 +842,13 @@ class ApiLensClient {
       sendHeartbeat: config.sendHeartbeat !== false,
       heartbeatIntervalMs: toNumber(config.heartbeatIntervalMs, HEARTBEAT_INTERVAL_MS),
       sendMetadata: config.sendMetadata !== false,
+      captureResources: config.captureResources !== false,
+      // At least 15 s: shorter windows cost more than they tell.
+      resourcesIntervalMs: Math.max(
+        toNumber(config.resourcesIntervalMs, RESOURCES_INTERVAL_MS),
+        RESOURCES_MIN_INTERVAL_MS,
+      ),
+      captureProcessList: config.captureProcessList !== false,
       environment: String(config.environment || "production"),
       release: String(config.release || "").trim() || detectRelease(),
       commit: String(config.commit || "").trim() || detectCommit(),
@@ -890,6 +903,13 @@ class ApiLensClient {
     }
 
     this.queue = [];
+    this.resources = new RuntimeResources({
+      captureResources: this.config.captureResources,
+      intervalMs: this.config.resourcesIntervalMs,
+      captureProcessList: this.config.captureProcessList,
+      inline: this.config.flushMode === "inline",
+      fetchImpl: this.config.fetchImpl,
+    });
     // An empty appId is the project's default app; its heartbeats carry app_id "".
     this.heartbeatApps.set(`${this.config.appId}\0${this.config.environment}`, {
       appId: this.config.appId,
@@ -1044,12 +1064,19 @@ class ApiLensClient {
   }
 
   public start(): void {
-    // Inline mode runs no timers: flushInline() does this work per request.
+    // Inline mode runs no timers: flushInline() does this work per request
+    // (resources are sampled there too, at the end of each invocation).
     if (this.config.flushMode === "inline") {
+      if (this.isEnabled() && this.heartbeatsEnabled()) {
+        this.resources.start();
+      }
       return;
     }
     if (this.isEnabled()) {
       this.startHeartbeats();
+      if (this.heartbeatsEnabled()) {
+        this.resources.start();
+      }
     }
     if (this.flushIntervalId || !this.isEnabled()) {
       return;
@@ -1072,6 +1099,7 @@ class ApiLensClient {
 
   public stop(): void {
     this.stopHeartbeats();
+    this.resources.stop();
     if (!this.flushIntervalId) {
       return;
     }
@@ -1106,6 +1134,8 @@ class ApiLensClient {
     // Records carry release/commit themselves so a batch can straddle a
     // deploy; fill them in here too for callers that build records directly.
     this.stampRelease(record);
+    // Which process served it, so latency splits per instance (D14).
+    record.instance_id = this.instanceId;
 
     // The remote policy only narrows: it can drop the record, sample it out
     // or strip detail, never add any back.
@@ -1360,6 +1390,10 @@ class ApiLensClient {
         tasks.push(this.sendMetadata(payload));
       }
     }
+    if (this.config.flushMode === "inline") {
+      // Serverless: sample at the end of the invocation, with the flush.
+      this.resources.sampleIfDue();
+    }
     if (
       this.config.flushMode === "inline" &&
       this.heartbeatsEnabled() &&
@@ -1506,6 +1540,13 @@ class ApiLensClient {
     if (final) {
       body.final = true;
     }
+    const { identity, resources } = this.resources.heartbeatFields();
+    if (identity) {
+      body.identity = identity;
+    }
+    if (resources) {
+      body.resources = resources;
+    }
     return body;
   }
 
@@ -1625,6 +1666,7 @@ class ApiLensClient {
       return;
     }
     this.remotePolicyState = policy;
+    this.resources.applyPolicy(policy.resources);
   }
 
   private logHeartbeatFailure(error: IngestError): void {

@@ -70,6 +70,8 @@ export type ApiLensRecord = {
   trace_id: string;
   span_id: string;
   sampled: boolean;
+  /** The SDK process that served the request (its heartbeat `instance_id`). */
+  instance_id?: string;
 };
 
 /** One span, as sent to `POST /v1/traces` (`{"spans": [...]}`). */
@@ -244,6 +246,21 @@ export type ApiLensClientConfig = {
   sendMetadata?: boolean;
   /** Path of the metadata endpoint, relative to `baseUrl` (default `metadata`). */
   metadataPath?: string;
+  /**
+   * Sample CPU, memory, the container's cgroup and runtime health (event
+   * loop, heap, GC, DB pools) and send them in every heartbeat (default
+   * true). `APILENS_CAPTURE_RESOURCES=false` also turns it off. The remote
+   * policy can only narrow it.
+   */
+  captureResources?: boolean;
+  /** Milliseconds between resource samples (default and minimum 15 000). */
+  resourcesIntervalMs?: number;
+  /**
+   * Include the top 20 processes of the same container (pid, ppid, name,
+   * CPU, RSS; never command lines or environments) in the heartbeat; Linux
+   * only, off by itself on a host PID namespace (default true).
+   */
+  captureProcessList?: boolean;
 };
 
 export type ApiLensDropReason =
