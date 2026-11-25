@@ -48,6 +48,9 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `send_heartbeat` | `True` | Send a heartbeat on start, every `heartbeat_interval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. |
 | `heartbeat_interval` | `60.0` | Seconds between heartbeats (minimum 10). |
 | `app_id` | `""` | App to send heartbeats for when the client is used without a middleware (middlewares register their own). |
+| `capture_resources` | `True` | Sample runtime resources (process CPU and memory, container cgroup CPU/memory/limits, GC, DB pools, the container's top processes) on a daemon thread and send them in each heartbeat's `resources` block. Env `APILENS_CAPTURE_RESOURCES`. The remote policy can only narrow it. See [Runtime resources](#runtime-resources). |
+| `resources_interval` | `15.0` | Seconds between resource samples (minimum 15). A remote `min_interval_s` can lengthen it, never shorten it. Env `APILENS_RESOURCES_INTERVAL`. |
+| `capture_process_list` | `True` | Include the top 20 processes of the SDK's own container by RSS (`pid`, `ppid`, `comm`, CPU, RSS; never command lines or environments), every 60 s, Linux only. Env `APILENS_CAPTURE_PROCESS_LIST`. |
 | `release` / `commit` | `""` | Deploy correlation stamped on every record. Empty auto-detects from `APILENS_RELEASE` / `APILENS_COMMIT` (also `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`). |
 | `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot (e.g. to export to Prometheus). Exceptions are ignored. |
 | `user_agent` | `"apilenss/<version>"` | `User-Agent` header the SDK sends to ingest. |
@@ -138,6 +141,9 @@ parsed values as a dict.
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
 | `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
+| `APILENS_CAPTURE_RESOURCES` | `capture_resources` | bool | `true` |
+| `APILENS_RESOURCES_INTERVAL` | `resources_interval` | float (seconds, minimum 15) | `15.0` |
+| `APILENS_CAPTURE_PROCESS_LIST` | `capture_process_list` | bool | `true` |
 
 `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` add to the patterns
 passed in code. `APILENS_CAPTURE_SPANS=false`, `APILENS_CAPTURE_IP=false` and
@@ -222,6 +228,81 @@ failed batch stays queued for the next invocation. The Django middleware does no
 (`with ApiLensClient(...) as client:`) or call `client.shutdown(flush=True)` before
 exit. In Kubernetes, `terminationGracePeriodSeconds` (default 30 s) must exceed
 `shutdown_timeout` plus your app's own shutdown time.
+
+## Runtime resources
+
+Every heartbeat also says where the process runs (`identity`) and how much CPU
+and memory it and its container used since the previous heartbeat
+(`resources`). The SDK samples every `resources_interval` seconds (default 15)
+on a daemon thread and each heartbeat sends the window's `{min, avg, max,
+last}` per value. Request records carry the process's `instance_id`, so
+latency and errors can be split per instance next to its resources.
+
+| Block | What | Source |
+|---|---|---|
+| `process.cpu` | Cores busy (`cores_used`, can exceed 1) and `pct_of_limit` of the effective limit (cgroup quota, CPU affinity, cpuset, else host cores) | `time.process_time()` deltas |
+| `process.memory` | RSS; PSS and USS every 60 s on Linux | psutil, else `/proc/self/statm`; `/proc/self/smaps_rollup` |
+| `process.threads` / `fds` | OS threads, open file descriptors | psutil or `/proc/self` |
+| `container` | cgroup CPU, limit and throttling; memory current, working set, anon, file, swap, limit and OOM kills | cgroup v1 or v2, nested limits resolved |
+| `runtime.python` | GC collections, collected, uncollectable and pause time per generation; Python threads; `gil_enabled` | `gc.get_stats()`, `gc.callbacks` |
+| `pools` | SQLAlchemy `QueuePool` (used, idle, max, waiters) and Django open connections per alias | discovered once the app uses them |
+| `processes` | Top 20 processes of the SDK's own container by RSS: `pid`, `ppid`, `comm`, CPU %, RSS | `/proc/<pid>/stat`, `comm`, `cgroup` (Linux) |
+
+- **Never 0 for unknown.** A value the SDK cannot measure is left out (null),
+  never sent as `0`. On macOS without psutil there is no current RSS (the peak
+  `ru_maxrss` is never reported as current) and no container block at all.
+- **psutil is optional.** `pip install 'apilenss[resources]'` adds it; on Linux
+  `/proc` covers everything without it.
+- **Containers.** Every worker of a container sends the same `container`
+  numbers with its `container_id`; APILens keeps one series per container and
+  never adds the workers' RSS together.
+- **Process list privacy.** Only `/proc/<pid>/stat`, `comm` and `cgroup` are
+  read: never `cmdline`, `environ` or `cwd`, so a `--password=...` argument
+  never leaves the host. Only processes in the SDK's own cgroup are listed,
+  and the list turns itself off (flag `host_pid_namespace`) when the process
+  sees the host's PID namespace. `capture_process_list=False` turns it off.
+- **Safety.** Each collector is isolated: its errors are counted and it is
+  turned off after 5 failures in a row. The thread is a daemon, a real OS
+  thread under gevent/eventlet, restarted in forked children, and measures its
+  own cost (`sampler_cost_us`): above 0.1 % of one core it skips PSS and the
+  process list (flag `sampler_backoff`).
+- **Remote policy.** The heartbeat's `policy.resources` can turn sampling off
+  (`enabled: false`), lengthen the interval (`min_interval_s`) or turn
+  collectors off (`disabled_collectors`: `process.cpu`, `process.memory`,
+  `process.pss`, `container.cpu`, `container.memory`, `runtime`, `pools`,
+  `processes`). It never turns on what local config turned off.
+- **Turn it off:** `capture_resources=False` (env
+  `APILENS_CAPTURE_RESOURCES=false`, Django setting of the same name): no
+  thread is started and heartbeats carry no `resources` block.
+
+**gunicorn `--preload`.** The app is imported once in the master and workers
+are forked from it, sharing its pages copy-on-write. Each worker's RSS counts
+those shared pages in full, so adding workers' RSS overstates memory; PSS
+splits shared pages between the processes sharing them, which is why a
+preloaded worker shows PSS well under its RSS. Each worker gets its own
+`instance_id` and its own sampler (restarted after the fork); the container
+block (cgroup memory) is the number to watch for the whole container.
+
+```bash
+gunicorn app:app --preload --workers 4   # each worker: pss < rss
+```
+
+**Celery.** The prefork pool forks worker processes: each is its own instance
+with its own sampler, started when it first records a request or heartbeat.
+Tasks that never use the SDK client send nothing.
+
+**Serverless (Lambda, Cloud Run) and `mode="inline"`.** There is no sampler
+thread: the SDK samples at the end of an invocation (on `flush()`) when one is
+due and sends it with that flush's heartbeat; the window is flagged
+`serverless`. When the wall clock jumps over twice the interval between two
+samples (the runtime froze the process between invocations) the window is
+flagged `freeze_gap` and CPU is re-baselined instead of reported diluted.
+
+**Django `runserver`.** The autoreloader's watcher parent never samples; only
+the child that serves requests (`RUN_MAIN=true`) does.
+
+The wire contract is in [Heartbeat: runtime resources](/ingest/heartbeat#runtime-resources).
+
 
 ## What's on the wire
 
