@@ -58,6 +58,7 @@
 .tr-plot { position: relative; width: 100%; }
 .tr-plot svg { display: block; width: 100%; height: 160px; overflow: visible; }
 .tr-axis-top { position: absolute; top: -24px; right: 0; font: 400 11px/14px var(--font-mono); color: var(--ink-muted); }
+.tr-axis-top--left { right: auto; left: 0; }
 .tr-axis-x { display: flex; justify-content: space-between; margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
 .tr-grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .tr-base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -84,6 +85,34 @@
 .tr-fill-5xx { fill: var(--error); background: var(--error); }
 .tr-fill-line { background: var(--accent); height: 2px; border-radius: 1px; }
 .tr-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+/* Resources charts (M7 D15): the band is the accent at low opacity under its average line; gaps
+   break both. The traffic overlay is muted ink on its own axis; limits are dashed; markers are
+   colored by kind (OOM error, restart warn, deploy info) and named in the legend and tooltip. */
+.tr-band { fill: var(--accent); opacity: .18; stroke: none; pointer-events: none; }
+.tr-lone { fill: var(--accent); stroke: none; pointer-events: none; }
+.tr-line--overlay { fill: none; stroke: var(--ink-muted); stroke-width: 1.5; stroke-dasharray: 3 3; stroke-linejoin: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.tr-lone.tr-line--overlay { fill: var(--ink-muted); stroke: none; }
+.tr-line--alt { fill: none; stroke: var(--info); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.tr-lone.tr-line--alt { fill: var(--info); stroke: none; }
+.tr-limit { stroke: var(--error); stroke-width: 1; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.tr-marker line { stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.tr-marker--oom line { stroke: var(--error); } .tr-marker--oom rect { fill: var(--error); }
+.tr-marker--restart line { stroke: var(--warn); } .tr-marker--restart rect { fill: var(--warn); }
+.tr-marker--deploy line { stroke: var(--info); stroke-dasharray: 2 3; } .tr-marker--deploy rect { fill: var(--info); }
+.tr-fill-band { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.tr-fill-overlay { height: 0; border-top: 2px dashed var(--ink-muted); border-radius: 0; background: none; }
+.tr-fill-alt { background: var(--info); height: 2px; border-radius: 1px; }
+.tr-fill-limit { height: 0; border-top: 2px dashed var(--error); border-radius: 0; background: none; }
+.tr-fill-oom { background: var(--error); width: 3px; height: 12px; border-radius: 1px; }
+.tr-fill-restart { background: var(--warn); width: 3px; height: 12px; border-radius: 1px; }
+.tr-fill-deploy { background: var(--info); width: 3px; height: 12px; border-radius: 1px; }
+.ct-tip__swatch.tr-fill-band { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.ct-tip__swatch.tr-fill-overlay { background: var(--ink-muted); }
+.ct-tip__swatch.tr-fill-oom { background: var(--error); }
+.ct-tip__swatch.tr-fill-restart { background: var(--warn); }
+.ct-tip__swatch.tr-fill-deploy { background: var(--info); }
+.tr-spark path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
 /* Endpoints table: the endpoint link covers its row, so the whole row opens the detail. */
 .tr-table { width: 100%; border-collapse: collapse; font: 400 13px/20px var(--font-sans); color: var(--ink); }
