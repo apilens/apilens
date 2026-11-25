@@ -383,7 +383,10 @@ type Querier interface {
 	ListPurgeExportFiles(ctx context.Context, projectID uuid.UUID) ([]string, error)
 	// Every API key of the project, revoked ones included.
 	ListPurgeKeyIDs(ctx context.Context, projectID uuid.UUID) ([]uuid.UUID, error)
-	// The most recently seen instances of an app.
+	// The most recently seen instances of an app with where they run, their
+	// latest resources snapshot and how they ended. Keyset pages: a cursor is
+	// the (last_seen_at, environment, instance_id) of the previous page's last
+	// row; a null after_seen_at starts at the newest.
 	ListRecentAppInstances(ctx context.Context, arg ListRecentAppInstancesParams) ([]ListRecentAppInstancesRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
 	// the relationships the outbox relay leaves behind once it has applied every

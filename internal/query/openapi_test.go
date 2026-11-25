@@ -23,7 +23,7 @@ var documentedOperations = []string{
 	"list-saved-views", "get-saved-view", "create-saved-view", "update-saved-view", "delete-saved-view",
 	"list-consumers", "get-consumer", "list-consumer-group-traffic", "list-anonymous-callers",
 	"list-errors", "get-error-statuses", "get-error-status",
-	"get-app-status", "get-app-ingest-stats", "get-ingest-status", "list-deploys", "list-deploy-changes", "get-deploy", "get-deploy-comparison",
+	"get-app-status", "get-app-resources", "list-app-instance-events", "get-app-ingest-stats", "get-ingest-status", "list-deploys", "list-deploy-changes", "get-deploy", "get-deploy-comparison",
 	"get-project-retention",
 }
 
