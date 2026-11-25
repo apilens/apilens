@@ -22,7 +22,7 @@ from typing import Literal
 
 from .._version import __version__
 from ._env import apply_env_defaults, parse_mode
-from ._policy import ALLOW_ALL, DISABLED, Policy, parse_policy
+from ._policy import ALLOW_ALL, DISABLED, Policy, ResourcesPolicy, parse_policy
 from ._routes import cap_routes
 from ._sanitize import mask_log_attributes, mask_log_text
 from ._stats import ClientStats
@@ -153,6 +153,25 @@ HEARTBEAT_MIN_INTERVAL_SECONDS = 10.0
 # Env kill switch: APILENS_SEND_HEARTBEAT=false never sends a heartbeat.
 ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT"
 SDK_NAME = "apilenss"
+
+# Runtime resources (M7, ``apilens.client.resources``): sampled on a daemon
+# thread every ``resources_interval`` seconds, drained into each heartbeat.
+RESOURCES_MIN_INTERVAL_SECONDS = 15.0
+
+
+def _django_autoreload_parent() -> bool:
+    """``manage.py runserver``'s watcher parent: it only restarts the child
+    (which runs with ``RUN_MAIN=true``) and serves nothing, so it never
+    samples resources."""
+    import sys
+
+    argv = sys.argv
+    return (
+        len(argv) > 1
+        and argv[1] == "runserver"
+        and "--noreload" not in argv
+        and os.environ.get("RUN_MAIN") != "true"
+    )
 
 
 def env_send_heartbeat_enabled() -> bool:
@@ -474,6 +493,18 @@ class ApiLensConfig:
     # snapshot every ``flush_interval`` (e.g. to export to Prometheus/StatsD).
     # Exceptions it raises are logged at DEBUG and ignored.
     on_stats: Callable[[ClientStats], None] | None = None
+    # Runtime resources (M7): CPU, memory, container limits, GC, DB pools and
+    # the container's top processes, sampled every ``resources_interval``
+    # seconds (minimum 15) on a daemon thread and sent in each heartbeat's
+    # ``resources`` block. Env APILENS_CAPTURE_RESOURCES /
+    # APILENS_RESOURCES_INTERVAL / APILENS_CAPTURE_PROCESS_LIST. The remote
+    # policy can only narrow these (turn sampling or collectors off, lengthen
+    # the interval).
+    capture_resources: bool = True
+    resources_interval: float = 15.0
+    # The process list (top 20 by RSS in the SDK's own container: pid, ppid,
+    # comm, CPU, RSS; never command lines or environments).
+    capture_process_list: bool = True
     user_agent: str = f"apilenss/{__version__}"
 
     def __post_init__(self) -> None:
@@ -528,6 +559,10 @@ class ApiLensClient:
         if config.heartbeat_interval < HEARTBEAT_MIN_INTERVAL_SECONDS:
             raise ValueError(
                 f"heartbeat_interval must be >= {HEARTBEAT_MIN_INTERVAL_SECONDS:g} seconds"
+            )
+        if config.resources_interval < RESOURCES_MIN_INTERVAL_SECONDS:
+            raise ValueError(
+                f"resources_interval must be >= {RESOURCES_MIN_INTERVAL_SECONDS:g} seconds"
             )
 
         self.config = config
@@ -586,6 +621,9 @@ class ApiLensClient:
         # Inline mode: one caller at a time sends the due heartbeats / stats
         # after a flush (concurrent requests would otherwise duplicate them).
         self._inline_upkeep_lock = threading.Lock()
+        # Runtime resources: one sampler per client, ``None`` when off.
+        self._resources = self._build_resources()
+        self._identity: tuple[int, dict] | None = None
         self._new_instance()
         if config.app_id:
             self.register_app(config.app_id)
@@ -599,7 +637,32 @@ class ApiLensClient:
         delivers synchronously."""
         return self.config.mode == MODE_INLINE
 
+    def _build_resources(self):
+        cfg = self.config
+        if not (cfg.enabled and cfg.capture_resources) or _django_autoreload_parent():
+            return None
+        try:
+            from .resources import ResourceSampler
+
+            return ResourceSampler(
+                interval=cfg.resources_interval,
+                capture_process_list=cfg.capture_process_list,
+                serverless=self.inline,
+            )
+        except Exception:
+            logger.debug("API Lens could not set up resource sampling", exc_info=True)
+            return None
+
+    @property
+    def resources(self):
+        """The :class:`~apilens.client.resources.ResourceSampler`, or ``None``
+        when ``capture_resources`` is off."""
+        return self._resources
+
     def start(self) -> None:
+        if self._resources is not None:
+            # Inline mode starts no thread: ``flush()`` samples when one is due.
+            self._resources.start()
         if self.inline:
             # Serverless: never start a thread the runtime may freeze.
             return
@@ -624,6 +687,8 @@ class ApiLensClient:
 
         self._stop.set()
         self._wakeup.set()
+        if self._resources is not None:
+            self._resources.stop()
 
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
@@ -732,6 +797,24 @@ class ApiLensClient:
     def _check_fork(self) -> None:
         if os.getpid() != self._pid:
             self._new_instance()
+            self._after_fork()
+
+    def _after_fork(self) -> None:
+        """A forked child (gunicorn ``--preload``, Celery prefork): threads do
+        not survive ``fork()``, so restart the ones the parent was running."""
+        try:
+            if self._resources is not None:
+                self._resources.ensure_running()
+            if (
+                self._thread is not None
+                and not self.inline
+                and self.config.enabled
+                and not self._stop.is_set()
+            ):
+                self._thread = None
+                self.start()
+        except Exception:  # pragma: no cover - never break the request path
+            logger.debug("API Lens could not restart its threads after fork", exc_info=True)
 
     @property
     def instance_id(self) -> str:
@@ -771,6 +854,8 @@ class ApiLensClient:
             if key in self._heartbeat_due:
                 return
             self._heartbeat_due[key] = 0.0
+        if self._resources is not None:
+            self._resources.register(key)
         if self._heartbeats_enabled():
             self._wakeup.set()
 
@@ -824,6 +909,12 @@ class ApiLensClient:
             body["commit"] = self.config.commit
         if final:
             body["final"] = True
+        identity = self._process_identity()
+        if identity:
+            body["identity"] = identity
+        resources = self._resources_block(app_id, environment or self.config.environment)
+        if resources:
+            body["resources"] = resources
         snapshot = self._drop_snapshot(app_id)
         if snapshot:
             dropped: dict[str, dict[str, int]] = {}
@@ -832,6 +923,60 @@ class ApiLensClient:
                 by_reason[reason] = by_reason.get(reason, 0) + n
             body["dropped"] = dropped
         return body, snapshot
+
+    def _process_identity(self) -> dict:
+        """The heartbeat ``identity``, resolved once per process (and again
+        in a forked child). Runs on the heartbeat path, never per request."""
+        pid = os.getpid()
+        cached = self._identity
+        if cached is not None and cached[0] == pid:
+            return cached[1]
+        try:
+            from .resources import resolve_identity
+            from .resources.process import load_psutil
+
+            sampler = self._resources
+            reader = sampler.ctx.cgroup if sampler is not None else None
+            identity = resolve_identity(cgroup=reader, psutil=load_psutil())
+        except Exception:
+            logger.debug("API Lens could not resolve the process identity", exc_info=True)
+            identity = {}
+        self._identity = (pid, identity)
+        return identity
+
+    def _resources_block(self, app_id: str, environment: str) -> dict | None:
+        sampler = self._resources
+        if sampler is None:
+            return None
+        try:
+            block = sampler.drain((app_id, environment))
+        except Exception:  # pragma: no cover - drain never raises
+            logger.debug("API Lens could not drain resources", exc_info=True)
+            return None
+        if block is None or not self.policy(app_id).resources.enabled:
+            return None
+        return block
+
+    def _sync_resources_policy(self) -> None:
+        """Hand the sampler the narrowest resources policy of the apps that
+        still want resources (one sampler serves every app of the process)."""
+        sampler = self._resources
+        if sampler is None:
+            return
+        policies = [p.resources for p in self._policies.values()]
+        if not policies:
+            return
+        active = [p for p in policies if p.enabled]
+        if not active:
+            sampler.apply_policy(ResourcesPolicy(enabled=False))
+            return
+        sampler.apply_policy(
+            ResourcesPolicy(
+                enabled=True,
+                min_interval_s=max(p.min_interval_s for p in active),
+                disabled_collectors=frozenset().union(*(p.disabled_collectors for p in active)),
+            )
+        )
 
     def send_heartbeat(self, *, final: bool = False) -> bool:
         """Send a heartbeat for every registered app now; ``True`` when all
@@ -902,6 +1047,7 @@ class ApiLensClient:
                 # Copy-on-write so request threads read a consistent dict.
                 self._policies = {**self._policies, app_id: parsed}
         if parsed != previous:
+            self._sync_resources_policy()
             logger.info("API Lens capture policy for app %r is now %s", app_id, parsed.to_dict())
 
     def _log_heartbeat_failure(self, exc: _IngestError) -> None:
@@ -1071,6 +1217,8 @@ class ApiLensClient:
         if not self._capture_allowed(record):
             return
         self._stamp_release(record)
+        # Through the property: a forked worker gets (and stamps) its own id.
+        record.instance_id = self.instance_id
         self._enqueue(self._queue, record)
 
     def capture_many(self, records: list[RequestRecord]) -> None:
@@ -1356,6 +1504,13 @@ class ApiLensClient:
                     self._report_stats()
                 except Exception:  # pragma: no cover
                     logger.debug("API Lens stats reporting failed", exc_info=True)
+                if self._resources is not None:
+                    # Serverless: sample at the end of the invocation, when
+                    # one is due, and send it with the heartbeat below.
+                    try:
+                        self._resources.maybe_sample()
+                    except Exception:  # pragma: no cover
+                        logger.debug("API Lens resource sample failed", exc_info=True)
                 self._safe_heartbeat()
             finally:
                 self._inline_upkeep_lock.release()
