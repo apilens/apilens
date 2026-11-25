@@ -146,12 +146,93 @@ export function plotWidth(measured: number | null | undefined): number | null {
 
 /**
  * The `d` of an SVG path drawing `values` as a line in a `width` × `height` box, one point at the
- * centre of each bucket, scaled against `top` (0 at the baseline). Empty without values.
+ * centre of each bucket, scaled against `top` (0 at the baseline). A null value is a gap (no data
+ * for the bucket, M7 D9): the line breaks there and starts again after it, never drawn through 0.
+ * Empty without values.
  */
-export function linePath(values: readonly number[], width: number, height: number, top: number): string {
+export function linePath(values: readonly (number | null)[], width: number, height: number, top: number): string {
   if (values.length === 0) return "";
   const slot = width / values.length;
-  return values.map((v, i) => `${i === 0 ? "M" : "L"}${round(i * slot + slot / 2)},${round(lineY(v, height, top))}`).join("");
+  let d = "";
+  let pen = false;
+  values.forEach((v, i) => {
+    if (v === null || v === undefined) {
+      pen = false;
+      return;
+    }
+    d += `${pen ? "L" : "M"}${round(i * slot + slot / 2)},${round(lineY(v, height, top))}`;
+    pen = true;
+  });
+  return d;
+}
+
+/**
+ * The `d` of the filled band between `min` and `max` (M7 D15: an average line with a min–max band),
+ * at the same bucket centres as linePath. Each run of buckets with both bounds is one closed shape;
+ * a gap (either bound null) ends it. A run of one bucket is a sliver a quarter slot either side, so
+ * a lone sample still shows its spread.
+ */
+export function bandPath(min: readonly (number | null)[], max: readonly (number | null)[], width: number, height: number, top: number): string {
+  const n = Math.min(min.length, max.length);
+  if (n === 0) return "";
+  const slot = width / n;
+  const x = (i: number) => i * slot + slot / 2;
+  let d = "";
+  let run: number[] = [];
+  const flush = () => {
+    if (run.length === 1) {
+      const i = run[0];
+      const hi = round(lineY(max[i] as number, height, top));
+      const lo = round(lineY(min[i] as number, height, top));
+      d += `M${round(x(i) - slot / 4)},${hi}L${round(x(i) + slot / 4)},${hi}L${round(x(i) + slot / 4)},${lo}L${round(x(i) - slot / 4)},${lo}Z`;
+    } else if (run.length > 1) {
+      d += run.map((i, k) => `${k === 0 ? "M" : "L"}${round(x(i))},${round(lineY(max[i] as number, height, top))}`).join("");
+      d += [...run].reverse().map((i) => `L${round(x(i))},${round(lineY(min[i] as number, height, top))}`).join("");
+      d += "Z";
+    }
+    run = [];
+  };
+  for (let i = 0; i < n; i++) {
+    const lo = min[i];
+    const hi = max[i];
+    if (lo === null || lo === undefined || hi === null || hi === undefined) flush();
+    else run.push(i);
+  }
+  flush();
+  return d;
+}
+
+/** The buckets with a value but no neighbour with one: linePath leaves them as a bare move, so charts draw a dot. */
+export function isolatedPoints(values: readonly (number | null)[]): number[] {
+  const has = (i: number) => i >= 0 && i < values.length && values[i] !== null && values[i] !== undefined;
+  return values.flatMap((_, i) => (has(i) && !has(i - 1) && !has(i + 1) ? [i] : []));
+}
+
+/**
+ * A sparkline's `d` for values that may have gaps: point i at i × width / (n − 1) (the "point"
+ * layout, like sparklinePoints), scaled against `top` (default: the largest value), breaking at
+ * nulls. Empty when nothing has a value.
+ */
+export function sparklinePath(values: readonly (number | null)[], width: number, height: number, top?: number): string {
+  const known = values.filter((v): v is number => v !== null && v !== undefined);
+  if (known.length === 0) return "";
+  const max = top !== undefined && top > 0 ? top : Math.max(...known, 0);
+  const step = values.length > 1 ? width / (values.length - 1) : 0;
+  const y = (v: number) => (max > 0 ? height - 1 - (Math.min(v, max) / max) * (height - 2) : height - 1);
+  let d = "";
+  let pen = false;
+  values.forEach((v, i) => {
+    if (v === null || v === undefined) {
+      pen = false;
+      return;
+    }
+    // A lone point draws as a zero-length stroke, which round caps show as a dot.
+    const next = values[i + 1];
+    const lone = !pen && (next === null || next === undefined);
+    d += `${pen ? "L" : "M"}${round(i * step)},${round(y(v))}${lone ? "h0" : ""}`;
+    pen = true;
+  });
+  return d;
 }
 
 /** The y where linePath draws `v` in a box `height` tall scaled against `top` (clamped to the box). */
