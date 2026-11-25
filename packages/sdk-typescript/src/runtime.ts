@@ -15,10 +15,14 @@ type BuiltinName =
   | "async_hooks"
   | "crypto"
   | "diagnostics_channel"
+  | "fs"
   | "http"
   | "https"
   | "module"
+  | "os"
   | "path"
+  | "perf_hooks"
+  | "worker_threads"
   | "zlib";
 
 const registered = new Map<BuiltinName, unknown>();
