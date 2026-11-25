@@ -3,7 +3,7 @@
 // The form's checks, the narrower-of-the-two rule the page shows per environment, and the
 // sentences shown for the server's error codes. The server stays the authority; these checks only
 // spare a round trip. Pure; safe in Client Components and Server Actions alike.
-import type { CapturePolicy, PutCapturePolicyRequest } from "./identity";
+import type { CapturePolicy, CaptureResourcesPolicy, PutCapturePolicyRequest } from "./identity";
 import { formatPercent } from "./format";
 
 /** The section of project settings that edits capture policies. */
@@ -30,6 +30,9 @@ export const DEFAULT_POLICY: PutCapturePolicyRequest = {
   capture_response_body: true,
   max_payload_bytes: null,
 };
+
+/** Runtime resources of a never-saved policy: sampled every 15 s, nothing switched off. */
+export const DEFAULT_RESOURCES: CaptureResourcesPolicy = { enabled: true, min_interval_s: 15, disabled_collectors: [] };
 
 /** The form's values as typed: the sample rate in percent and the cap in bytes, both as text. */
 export interface PolicyDraft {

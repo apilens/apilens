@@ -12,6 +12,9 @@ type RetentionConfig struct {
 	Spans     int `koanf:"spans"`      // api_spans
 	Rollups1m int `koanf:"rollups_1m"` // api_requests_1m
 	Rollups1h int `koanf:"rollups_1h"` // api_requests_1h
+	// Runtime resources (M7): per-heartbeat rows and their hourly rollup.
+	Resources   int `koanf:"resources"`    // app_instance_resources
+	Resources1h int `koanf:"resources_1h"` // app_instance_resources_1h
 }
 
 // RetentionBound is the default and the allowed range of one retention key,
@@ -30,6 +33,8 @@ var RetentionBounds = []RetentionBound{
 	{Key: "spans", Default: 90, Min: 1, Max: 3650},
 	{Key: "rollups_1m", Default: 30, Min: 1, Max: 400},
 	{Key: "rollups_1h", Default: 400, Min: 30, Max: 3650},
+	{Key: "resources", Default: 30, Min: 7, Max: 400},
+	{Key: "resources_1h", Default: 400, Min: 30, Max: 3650},
 }
 
 // Days returns the configured period of a retention key (see
@@ -46,6 +51,10 @@ func (r RetentionConfig) Days(key string) int {
 		return r.Rollups1m
 	case "rollups_1h":
 		return r.Rollups1h
+	case "resources":
+		return r.Resources
+	case "resources_1h":
+		return r.Resources1h
 	}
 	return 0
 }

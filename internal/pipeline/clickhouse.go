@@ -19,7 +19,7 @@ func ClickHouseInserters(conn driver.Conn) Inserters {
 					r.StatusCode, r.ResponseTimeMs, r.RequestSize, r.ResponseSize, r.IPAddress, r.UserAgent,
 					r.ConsumerID, r.ConsumerName, r.ConsumerGroup, r.RequestPayload, r.ResponsePayload,
 					r.RequestHeaders, r.ResponseHeaders, r.BaseURL, r.TraceID, r.SpanID, r.Release, r.Commit,
-					boolUInt8(r.Sampled), nonNilMap(r.Attributes), validationErrorsJSON(r.ValidationErrors))
+					boolUInt8(r.Sampled), nonNilMap(r.Attributes), validationErrorsJSON(r.ValidationErrors), r.InstanceID)
 			})
 		},
 		Logs: func(ctx context.Context, rows []LogRow) error {
@@ -42,6 +42,14 @@ func ClickHouseInserters(conn driver.Conn) Inserters {
 				return b.Append(r.ProjectID, r.AppID, r.Environment, r.Release, r.Commit, r.URL, r.DeployedAt)
 			})
 		},
+		Resources: func(ctx context.Context, rows []ResourceRow) error {
+			return insertBatch(ctx, conn, insertResources, rows, func(b driver.Batch, r ResourceRow) error {
+				return b.Append(r.ProjectID, r.AppID, r.Environment, r.InstanceID, r.Timestamp, r.WindowS, r.Samples,
+					r.ContainerID, r.Hostname, r.PodName, r.Namespace, r.NodeName, r.Platform, r.LimitSource,
+					r.SDKName, r.Runtime, r.Release, nonNilFloatMap(r.Metrics), nonNilStrings(r.Capabilities),
+					nonNilStrings(r.Flags), r.Processes, r.Pools)
+			})
+		},
 	}
 }
 
@@ -49,14 +57,17 @@ const (
 	insertRequests = `INSERT INTO api_requests (project_id, app_id, environment, timestamp, method, path, raw_path,
 		status_code, response_time_ms, request_size, response_size, ip_address, user_agent, consumer_id,
 		consumer_name, consumer_group, request_payload, response_payload, request_headers, response_headers,
-		base_url, trace_id, span_id, release, commit, sampled, attributes, validation_errors)`
+		base_url, trace_id, span_id, release, commit, sampled, attributes, validation_errors, instance_id)`
 	insertLogs = `INSERT INTO api_logs (project_id, app_id, environment, timestamp, level, message, logger_name,
 		endpoint_method, endpoint_path, status_code, consumer_id, consumer_name, consumer_group, trace_id, span_id,
 		payload, attributes, release, commit)`
 	insertSpans = `INSERT INTO api_spans (project_id, app_id, environment, timestamp, trace_id, span_id,
 		parent_span_id, name, kind, service_name, duration_ms, status, status_code, attributes, release, commit,
 		status_message, events.time, events.name, events.attributes, links)`
-	insertDeploys = `INSERT INTO api_deploys (project_id, app_id, environment, release, commit, url, deployed_at)`
+	insertDeploys   = `INSERT INTO api_deploys (project_id, app_id, environment, release, commit, url, deployed_at)`
+	insertResources = `INSERT INTO app_instance_resources (project_id, app_id, environment, instance_id, ts, window_s,
+		samples, container_id, hostname, pod_name, namespace, node_name, platform, limit_source, sdk_name, runtime,
+		release, metrics, capabilities, flags, processes, pools)`
 )
 
 func insertBatch[T any](ctx context.Context, conn driver.Conn, query string, rows []T, appendRow func(driver.Batch, T) error) error {
@@ -93,6 +104,20 @@ func spanEventColumns(events []SpanEventRow) ([]time.Time, []string, []map[strin
 		times[i], names[i], attrs[i] = ev.Time, ev.Name, nonNilMap(ev.Attributes)
 	}
 	return times, names, attrs
+}
+
+func nonNilFloatMap(m map[string]float64) map[string]float64 {
+	if m == nil {
+		return map[string]float64{}
+	}
+	return m
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func nonNilLinks(l []SpanLink) []SpanLink {

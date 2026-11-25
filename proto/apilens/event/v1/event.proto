@@ -46,6 +46,10 @@ message RequestEvent {
   map<string, string> attributes = 27;
   // Structured framework validation errors of a 422 (at most 20).
   repeated ValidationError validation_errors = 28;
+  // The SDK process that served the request (heartbeat instance_id), for
+  // per-instance latency next to its runtime resources (M7). Empty from
+  // older SDKs.
+  string instance_id = 29;
 }
 
 // ValidationError is one field error of a rejected request, e.g.

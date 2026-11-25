@@ -802,6 +802,7 @@ function capturePolicyOf(app: { id: string; slug: string }): Record<string, unkn
     capture_request_body: true,
     capture_response_body: true,
     max_payload_bytes: null,
+    resources: { enabled: true, min_interval_s: 15, disabled_collectors: [] },
     updated_at: null,
     updated_by: null,
     ...capturePolicies.get(app.id),
@@ -1892,6 +1893,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         ...Object.fromEntries(flags.map((f) => [f, body[f]])),
         sample_rate: rate,
         max_payload_bytes: cap,
+        // Omitted keeps the stored resources, like the server.
+        ...(body.resources ? { resources: body.resources } : {}),
         updated_at: new Date().toISOString(),
         updated_by: user,
       });
@@ -3950,6 +3953,9 @@ function measuredRetention(): Record<string, unknown>[] {
     { key: "spans", label: "Spans", period_days: 90, configurable: true, covers: "Trace spans: the waterfall in request detail." },
     { key: "rollups_1m", label: "Per-minute metrics", period_days: 30, configurable: true, covers: "Per-minute traffic, error and latency aggregates behind short-range charts." },
     { key: "rollups_1h", label: "Hourly metrics", period_days: 400, configurable: true, covers: "Hourly traffic, error and latency aggregates behind long-range charts." },
+    { key: "resources", label: "Runtime resources", period_days: 30, configurable: true, covers: "Per-minute CPU, memory and runtime health of each SDK process and its container." },
+    { key: "resources_1h", label: "Hourly runtime resources", period_days: 400, configurable: true, covers: "Hourly CPU, memory and runtime aggregates behind long-range resource charts." },
+    { key: "instance_rollups_1m", label: "Per-instance request metrics", period_days: 30, configurable: false, covers: "Per-minute traffic, error and latency of each SDK process, next to its runtime resources." },
     { key: "deploys", label: "Deploys", period_days: 400, configurable: false, covers: "Deploy markers on charts and the deploy comparison." },
   ];
 }

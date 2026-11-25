@@ -10,16 +10,19 @@ WHERE a.id = @id AND a.deleted_at IS NULL AND p.deleted_at IS NULL;
 -- The capture policy row of an active app; no row means capture everything.
 SELECT cp.app_id, cp.enabled, cp.sample_rate::float8 AS sample_rate,
        cp.capture_headers, cp.capture_request_body, cp.capture_response_body,
-       cp.max_payload_bytes, cp.updated_at, cp.updated_by
+       cp.max_payload_bytes, cp.updated_at, cp.updated_by,
+       cp.resources_enabled, cp.resources_min_interval_s, cp.resources_disabled
 FROM capture_policies cp
 JOIN apps a ON a.id = cp.app_id
 WHERE cp.app_id = @app_id AND a.deleted_at IS NULL;
 
 -- name: UpsertCapturePolicy :one
 INSERT INTO capture_policies (app_id, enabled, sample_rate, capture_headers, capture_request_body,
-                              capture_response_body, max_payload_bytes, updated_at, updated_by)
+                              capture_response_body, max_payload_bytes, updated_at, updated_by,
+                              resources_enabled, resources_min_interval_s, resources_disabled)
 VALUES (@app_id, @enabled, @sample_rate::float8, @capture_headers, @capture_request_body,
-        @capture_response_body, sqlc.narg(max_payload_bytes)::integer, now(), @updated_by)
+        @capture_response_body, sqlc.narg(max_payload_bytes)::integer, now(), @updated_by,
+        @resources_enabled, @resources_min_interval_s, @resources_disabled::text[])
 ON CONFLICT (app_id)
 DO UPDATE SET enabled               = EXCLUDED.enabled,
               sample_rate           = EXCLUDED.sample_rate,
@@ -28,10 +31,14 @@ DO UPDATE SET enabled               = EXCLUDED.enabled,
               capture_response_body = EXCLUDED.capture_response_body,
               max_payload_bytes     = EXCLUDED.max_payload_bytes,
               updated_at            = now(),
-              updated_by            = EXCLUDED.updated_by
+              updated_by            = EXCLUDED.updated_by,
+              resources_enabled        = EXCLUDED.resources_enabled,
+              resources_min_interval_s = EXCLUDED.resources_min_interval_s,
+              resources_disabled       = EXCLUDED.resources_disabled
 RETURNING app_id, enabled, sample_rate::float8 AS sample_rate,
           capture_headers, capture_request_body, capture_response_body,
-          max_payload_bytes, updated_at, updated_by;
+          max_payload_bytes, updated_at, updated_by,
+          resources_enabled, resources_min_interval_s, resources_disabled;
 
 -- name: ListAppMetadata :many
 -- The latest metadata report of an active app per environment, without the

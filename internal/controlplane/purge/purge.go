@@ -339,6 +339,7 @@ var postgresDeletes = []struct {
 	{"capture_policies", (*db.Queries).PurgeProjectCapturePolicies},
 	{"endpoint_settings", (*db.Queries).PurgeProjectEndpointSettings},
 	{"app_metadata", (*db.Queries).PurgeProjectAppMetadata},
+	{"app_instance_events", (*db.Queries).PurgeProjectAppInstanceEvents},
 	{"app_instances", (*db.Queries).PurgeProjectAppInstances},
 	{"app_aliases", (*db.Queries).PurgeProjectAppAliases},
 	{"saved_views", (*db.Queries).PurgeProjectSavedViews},

@@ -37,7 +37,7 @@ func TestModifyTTL(t *testing.T) {
 }
 
 // TestSignalsMatchSchema keeps the catalogue in step with the TTLs the
-// ClickHouse schema ends up with (the CREATE in 00001, then any later
+// ClickHouse schema ends up with (the CREATE in 00001 or a later migration, then any later
 // migration's MODIFY TTL) and with the retention.* defaults.
 func TestSignalsMatchSchema(t *testing.T) {
 	raw, err := os.ReadFile("../migrations/clickhouse/00001_telemetry.sql")
@@ -66,6 +66,11 @@ func TestSignalsMatchSchema(t *testing.T) {
 	for _, s := range Signals {
 		re := regexp.MustCompile(`(?s)CREATE TABLE IF NOT EXISTS ` + s.Table + `\s*\(.*?TTL ` + regexp.QuoteMeta(s.TimeExpr) + ` \+ INTERVAL (\d+) DAY`)
 		m := re.FindSubmatch(raw)
+		for _, up := range ups { // a table created by a later migration (M7 resources)
+			if m == nil {
+				m = re.FindSubmatch(up)
+			}
+		}
 		if m == nil {
 			t.Errorf("%s: no TTL on %s in the schema", s.Key, s.TimeExpr)
 			continue

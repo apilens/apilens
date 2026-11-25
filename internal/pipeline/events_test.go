@@ -18,6 +18,7 @@ func TestRequestEventRoundTrip(t *testing.T) {
 		StatusCode: 503, ResponseTimeMs: 12.5, RequestSize: 10, ResponseSize: 20, TraceID: "4bf92f3577b34da6a3ce929d0e0e4736",
 		Release: "v1", ConsumerID: "user-1", Sampled: true, Attributes: map[string]string{"tenant.id": "acme"},
 		ValidationErrors: []ValidationError{{Loc: "body.email", Msg: "field required", Type: "missing"}},
+		InstanceID:       "4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e",
 	}
 	b, err := proto.Marshal(&eventv1.RequestBatch{Events: []*eventv1.RequestEvent{row.Event()}})
 	if err != nil {

@@ -41,17 +41,31 @@ type ProjectAuthorizer interface {
 // CapturePolicy is the remote capture policy of an app, sent to its SDKs on
 // heartbeat.
 type CapturePolicy struct {
-	AppID               string     `json:"app_id" format:"uuid" doc:"The app's id."`
-	App                 string     `json:"app" doc:"The app's slug."`
-	Project             string     `json:"project" doc:"The slug of the app's project."`
-	Enabled             bool       `json:"enabled" doc:"Whether the app's SDKs capture at all; false tells them to stop sending records."`
-	SampleRate          float64    `json:"sample_rate" minimum:"0" maximum:"1" doc:"Fraction of requests the SDKs keep, from 0 to 1."`
-	CaptureHeaders      bool       `json:"capture_headers" doc:"Whether request and response headers are captured."`
-	CaptureRequestBody  bool       `json:"capture_request_body" doc:"Whether request bodies are captured."`
-	CaptureResponseBody bool       `json:"capture_response_body" doc:"Whether response bodies are captured."`
-	MaxPayloadBytes     *int       `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means no cap beyond the SDK's own."`
-	UpdatedAt           *time.Time `json:"updated_at" required:"true" nullable:"true" doc:"When the policy was last saved; null if it never was (the app captures everything)."`
-	UpdatedBy           *string    `json:"updated_by" required:"true" nullable:"true" format:"uuid" doc:"The user who last saved the policy; null if it never was saved or that user is gone."`
+	AppID               string          `json:"app_id" format:"uuid" doc:"The app's id."`
+	App                 string          `json:"app" doc:"The app's slug."`
+	Project             string          `json:"project" doc:"The slug of the app's project."`
+	Enabled             bool            `json:"enabled" doc:"Whether the app's SDKs capture at all; false tells them to stop sending records."`
+	SampleRate          float64         `json:"sample_rate" minimum:"0" maximum:"1" doc:"Fraction of requests the SDKs keep, from 0 to 1."`
+	CaptureHeaders      bool            `json:"capture_headers" doc:"Whether request and response headers are captured."`
+	CaptureRequestBody  bool            `json:"capture_request_body" doc:"Whether request bodies are captured."`
+	CaptureResponseBody bool            `json:"capture_response_body" doc:"Whether response bodies are captured."`
+	MaxPayloadBytes     *int            `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means no cap beyond the SDK's own."`
+	Resources           ResourcesPolicy `json:"resources" doc:"Runtime resources sampling of the app's SDKs. It can only narrow what an SDK's local config allows."`
+	UpdatedAt           *time.Time      `json:"updated_at" required:"true" nullable:"true" doc:"When the policy was last saved; null if it never was (the app captures everything)."`
+	UpdatedBy           *string         `json:"updated_by" required:"true" nullable:"true" format:"uuid" doc:"The user who last saved the policy; null if it never was saved or that user is gone."`
+}
+
+// ResourcesPolicy narrows runtime resources sampling (M7): it can turn it
+// off, lengthen the interval or switch collectors off, never widen what the
+// SDK's local config allows.
+type ResourcesPolicy struct {
+	Enabled            bool     `json:"enabled" doc:"False tells the SDKs to stop sampling CPU, memory and runtime health."`
+	MinIntervalS       int      `json:"min_interval_s" minimum:"15" maximum:"600" doc:"Shortest sampling interval the SDKs may use, in seconds."`
+	DisabledCollectors []string `json:"disabled_collectors" maxItems:"8" uniqueItems:"true" enum:"process.cpu,process.memory,process.pss,container.cpu,container.memory,runtime,pools,processes" doc:"Collectors the SDKs must skip."`
+}
+
+func toResourcesPolicy(r capture.ResourcesPolicy) ResourcesPolicy {
+	return ResourcesPolicy{Enabled: r.Enabled, MinIntervalS: r.MinIntervalS, DisabledCollectors: r.Disabled.Names()}
 }
 
 // CapturePolicyOutput is the response of the capture policy operations.
@@ -92,12 +106,13 @@ type CaptureAppInput struct {
 type PutCapturePolicyInput struct {
 	CaptureAppInput
 	Body struct {
-		Enabled             bool    `json:"enabled" doc:"Whether the app's SDKs capture at all."`
-		SampleRate          float64 `json:"sample_rate" minimum:"0" maximum:"1" doc:"Fraction of requests the SDKs keep, from 0 to 1, at most 4 decimal places."`
-		CaptureHeaders      bool    `json:"capture_headers" doc:"Whether request and response headers are captured."`
-		CaptureRequestBody  bool    `json:"capture_request_body" doc:"Whether request bodies are captured."`
-		CaptureResponseBody bool    `json:"capture_response_body" doc:"Whether response bodies are captured."`
-		MaxPayloadBytes     *int    `json:"max_payload_bytes,omitempty" minimum:"1" maximum:"1048576" nullable:"true" doc:"Cap on each captured body in bytes (1 to 1048576); omitted or null means no cap beyond the SDK's own."`
+		Enabled             bool             `json:"enabled" doc:"Whether the app's SDKs capture at all."`
+		SampleRate          float64          `json:"sample_rate" minimum:"0" maximum:"1" doc:"Fraction of requests the SDKs keep, from 0 to 1, at most 4 decimal places."`
+		CaptureHeaders      bool             `json:"capture_headers" doc:"Whether request and response headers are captured."`
+		CaptureRequestBody  bool             `json:"capture_request_body" doc:"Whether request bodies are captured."`
+		CaptureResponseBody bool             `json:"capture_response_body" doc:"Whether response bodies are captured."`
+		MaxPayloadBytes     *int             `json:"max_payload_bytes,omitempty" minimum:"1" maximum:"1048576" nullable:"true" doc:"Cap on each captured body in bytes (1 to 1048576); omitted or null means no cap beyond the SDK's own."`
+		Resources           *ResourcesPolicy `json:"resources,omitempty" doc:"Runtime resources sampling; omitted keeps the stored setting."`
 	}
 }
 
@@ -215,6 +230,7 @@ func toCapturePolicy(s capture.Stored) CapturePolicy {
 		CaptureRequestBody:  s.Policy.CaptureRequestBody,
 		CaptureResponseBody: s.Policy.CaptureResponseBody,
 		MaxPayloadBytes:     s.Policy.MaxPayloadBytes,
+		Resources:           toResourcesPolicy(s.Policy.Resources),
 	}
 	if s.UpdatedAt != nil {
 		t := s.UpdatedAt.UTC()
@@ -253,14 +269,29 @@ func (c *CapturePolicies) put(ctx context.Context, in *PutCapturePolicyInput) (*
 	if err != nil {
 		return nil, err
 	}
-	s, err := c.svc.Put(ctx, uid, app, capture.Policy{
+	pol := capture.Policy{
 		Enabled:             in.Body.Enabled,
 		SampleRate:          in.Body.SampleRate,
 		CaptureHeaders:      in.Body.CaptureHeaders,
 		CaptureRequestBody:  in.Body.CaptureRequestBody,
 		CaptureResponseBody: in.Body.CaptureResponseBody,
 		MaxPayloadBytes:     in.Body.MaxPayloadBytes,
-	})
+	}
+	if r := in.Body.Resources; r != nil {
+		set, bad := capture.ParseCollectors(r.DisabledCollectors)
+		if bad != "" {
+			return nil, c.problem(ctx, "put capture policy", &capture.InvalidError{Field: "resources.disabled_collectors", Reason: "unknown collector " + bad})
+		}
+		pol.Resources = capture.ResourcesPolicy{Enabled: r.Enabled, MinIntervalS: r.MinIntervalS, Disabled: set}
+	} else {
+		// A client that does not know resources (an older UI) keeps them.
+		cur, err := c.svc.Get(ctx, app)
+		if err != nil {
+			return nil, c.problem(ctx, "put capture policy", err)
+		}
+		pol.Resources = cur.Policy.Resources
+	}
+	s, err := c.svc.Put(ctx, uid, app, pol)
 	if err != nil {
 		return nil, c.problem(ctx, "put capture policy", err)
 	}

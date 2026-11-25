@@ -116,7 +116,7 @@ func TestRetention(t *testing.T) {
 		out := map[string]int{}
 		for _, s := range r.Signals {
 			out[s.Key] = s.PeriodDays
-			if s.Label == "" || s.Covers == "" || s.Configurable != (s.Key != "deploys") {
+			if s.Label == "" || s.Covers == "" || s.Configurable != (s.Key != "deploys" && s.Key != "instance_rollups_1m") {
 				t.Errorf("signal %+v: want label, covers, configurable unless deploys", s)
 			}
 		}
@@ -124,7 +124,8 @@ func TestRetention(t *testing.T) {
 	}
 
 	// Defaults: the periods the schema was created with.
-	want := map[string]int{"requests": 90, "logs": 90, "spans": 90, "rollups_1m": 30, "rollups_1h": 400, "deploys": 400}
+	want := map[string]int{"requests": 90, "logs": 90, "spans": 90, "rollups_1m": 30, "rollups_1h": 400,
+		"resources": 30, "resources_1h": 400, "instance_rollups_1m": 30, "deploys": 400}
 	if got := periods(); !maps.Equal(got, want) {
 		t.Fatalf("default retention = %v, want %v", got, want)
 	}

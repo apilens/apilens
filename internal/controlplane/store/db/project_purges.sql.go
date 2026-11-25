@@ -296,6 +296,18 @@ func (q *Queries) PurgeProjectAppAliases(ctx context.Context, projectID uuid.UUI
 	return result.RowsAffected(), nil
 }
 
+const purgeProjectAppInstanceEvents = `-- name: PurgeProjectAppInstanceEvents :execrows
+DELETE FROM app_instance_events WHERE project_id = $1
+`
+
+func (q *Queries) PurgeProjectAppInstanceEvents(ctx context.Context, projectID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeProjectAppInstanceEvents, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeProjectAppInstances = `-- name: PurgeProjectAppInstances :execrows
 DELETE FROM app_instances WHERE project_id = $1
 `

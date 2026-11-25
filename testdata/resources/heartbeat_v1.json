@@ -1,0 +1,86 @@
+{
+  "app_id": "storefront",
+  "environment": "production",
+  "instance_id": "4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e",
+  "sdk_name": "apilenss",
+  "sdk_version": "0.6.0",
+  "runtime": "python 3.13.1",
+  "release": "2026.11.25",
+  "commit": "9f2c1ab",
+  "pid": 4242,
+  "uptime_s": 3600.5,
+  "final": false,
+  "stats": {"queued_records": 0, "sent_batches": 12},
+  "identity": {
+    "hostname": "storefront-7d9c8b6f5-x2k4q",
+    "hostname_guess": false,
+    "container_id": "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+    "pod_name": "storefront-7d9c8b6f5-x2k4q",
+    "pod_uid": "8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b",
+    "namespace": "shop",
+    "node_name": "gke-prod-pool-1-a1b2c3",
+    "platform": "k8s",
+    "region": "europe-west1",
+    "process_start_time": "2026-11-25T08:00:00Z"
+  },
+  "resources": {
+    "v": 1,
+    "window_s": 60,
+    "n": 4,
+    "sampler_cost_us": 180,
+    "capabilities": ["process.cpu", "process.memory", "process.pss", "container.cpu", "container.memory", "runtime.python", "pools", "processes"],
+    "limit_source": "cgroup_v2",
+    "process": {
+      "cpu": {
+        "cores_used": {"min": 0.12, "avg": 0.31, "max": 0.62, "last": 0.28},
+        "pct_of_limit": {"min": 12, "avg": 31, "max": 62, "last": 28}
+      },
+      "memory": {
+        "rss": {"min": 201326592, "avg": 203423744, "max": 205520896, "last": 205520896},
+        "pss": {"min": 125829120, "avg": 126877696, "max": 127926272, "last": 127926272},
+        "uss": {"min": 94371840, "avg": 95420416, "max": 96468992, "last": 96468992}
+      },
+      "threads": {"min": 8, "avg": 8, "max": 9, "last": 8},
+      "fds": {"min": 31, "avg": 32, "max": 34, "last": 32}
+    },
+    "container": {
+      "container_id": "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+      "cpu": {
+        "cores_used": {"min": 0.4, "avg": 0.82, "max": 0.99, "last": 0.75},
+        "pct_of_limit": {"min": 40, "avg": 82, "max": 99, "last": 75},
+        "limit_cores": 1,
+        "throttled_ratio": 0.18,
+        "throttled_us": 2400000
+      },
+      "memory": {
+        "current": {"min": 503316480, "avg": 515899392, "max": 528482304, "last": 528482304},
+        "working_set": {"min": 419430400, "avg": 425721856, "max": 432013312, "last": 432013312},
+        "anon": {"min": 398458880, "avg": 402653184, "max": 406847488, "last": 406847488},
+        "file": {"min": 104857600, "avg": 113246208, "max": 121634816, "last": 121634816},
+        "swap": {"min": 0, "avg": 0, "max": 0, "last": 0},
+        "limit": 536870912,
+        "oom_kill": 0
+      }
+    },
+    "runtime": {
+      "python": {
+        "gc": [
+          {"generation": 0, "collections": 41, "collected": 1830, "uncollectable": 0, "pause_ms_sum": 6.2, "pause_ms_max": 0.9},
+          {"generation": 1, "collections": 3, "collected": 210, "uncollectable": 0, "pause_ms_sum": 2.1, "pause_ms_max": 1.1},
+          {"generation": 2, "collections": 0, "collected": 0, "uncollectable": 0, "pause_ms_sum": 0, "pause_ms_max": 0}
+        ],
+        "threads": {"min": 6, "avg": 6, "max": 7, "last": 6},
+        "gil_enabled": true
+      }
+    },
+    "pools": [
+      {"name": "default", "kind": "sqlalchemy", "used": {"min": 1, "avg": 2.5, "max": 5, "last": 3}, "idle": 2, "max": 10, "pending": {"min": 0, "avg": 0, "max": 1, "last": 0}}
+    ],
+    "processes": [
+      {"pid": 1, "ppid": 0, "comm": "gunicorn", "cpu_pct": 0.4, "rss": 62914560},
+      {"pid": 4242, "ppid": 1, "comm": "gunicorn", "cpu_pct": 31, "rss": 205520896},
+      {"pid": 4243, "ppid": 1, "comm": "gunicorn", "cpu_pct": 27, "rss": 199229440}
+    ],
+    "flags": []
+  }
+}

@@ -127,6 +127,41 @@ func TestCapturePolicy(t *testing.T) {
 		t.Fatalf("resolver = %+v", pol)
 	}
 
+	// Runtime resources (M7): a PUT that names them narrows sampling; one
+	// that leaves them out (an older UI) keeps what is stored.
+	if d := decode[CapturePolicy](t, f.api.Get(path, as(users["viewer"]))); !d.Resources.Enabled || d.Resources.MinIntervalS != 15 ||
+		len(d.Resources.DisabledCollectors) != 0 {
+		t.Fatalf("default resources = %+v", d.Resources)
+	}
+	resp = f.api.Put(path, as(users["owner"]), map[string]any{
+		"enabled": true, "sample_rate": 1, "capture_headers": true, "capture_request_body": true, "capture_response_body": true,
+		"resources": map[string]any{"enabled": true, "min_interval_s": 60, "disabled_collectors": []string{"processes", "process.pss"}},
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("resources put: %d %s", resp.Code, resp.Body)
+	}
+	resp = f.api.Put(path, as(users["owner"]), map[string]any{
+		"enabled": true, "sample_rate": 0.5, "capture_headers": true, "capture_request_body": true, "capture_response_body": true,
+	})
+	if got := decode[CapturePolicy](t, resp); got.SampleRate != 0.5 || got.Resources.MinIntervalS != 60 ||
+		strings.Join(got.Resources.DisabledCollectors, ",") != "process.pss,processes" {
+		t.Fatalf("resources after a put without them = %+v", got.Resources)
+	}
+	pol, err = capture.NewResolver(db.New(f.pool), time.Minute).Policy(f.ctx, appID)
+	if err != nil || pol.Resources.MinIntervalS != 60 || strings.Join(pol.Resources.Disabled.Names(), ",") != "process.pss,processes" {
+		t.Fatalf("resolver resources = %+v, %v", pol.Resources, err)
+	}
+	for name, res := range map[string]map[string]any{
+		"interval too short": {"enabled": true, "min_interval_s": 5, "disabled_collectors": []string{}},
+		"unknown collector":  {"enabled": true, "min_interval_s": 15, "disabled_collectors": []string{"cmdline"}},
+	} {
+		if resp := f.api.Put(path, as(users["owner"]), map[string]any{
+			"enabled": true, "sample_rate": 1, "capture_headers": true, "capture_request_body": true, "capture_response_body": true, "resources": res,
+		}); resp.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: %d %s", name, resp.Code, resp.Body)
+		}
+	}
+
 	// Refusals.
 	expectProblem(t, "too precise", f.api.Put(path, as(users["owner"]), map[string]any{
 		"enabled": true, "sample_rate": 0.12345, "capture_headers": true, "capture_request_body": true, "capture_response_body": true,

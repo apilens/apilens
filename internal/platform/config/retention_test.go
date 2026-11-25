@@ -10,7 +10,7 @@ func TestRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := cfg.Retention; r != (RetentionConfig{Requests: 90, Logs: 90, Spans: 90, Rollups1m: 30, Rollups1h: 400}) {
+	if r := cfg.Retention; r != (RetentionConfig{Requests: 90, Logs: 90, Spans: 90, Rollups1m: 30, Rollups1h: 400, Resources: 30, Resources1h: 400}) {
 		t.Fatalf("default retention = %+v", r)
 	}
 	cfg, err = Load("", []string{kekEnv, "APILENS_RETENTION__LOGS=7", "APILENS_RETENTION__ROLLUPS_1H=730"}, nil)
@@ -31,6 +31,7 @@ func TestRetentionValidation(t *testing.T) {
 		{"APILENS_RETENTION__SPANS=4000", "retention.spans 4000: want 1 to 3650 days"},
 		{"APILENS_RETENTION__ROLLUPS_1M=401", "retention.rollups_1m 401: want 1 to 400 days"},
 		{"APILENS_RETENTION__ROLLUPS_1H=7", "retention.rollups_1h 7: want 30 to 3650 days"},
+		{"APILENS_RETENTION__RESOURCES=3", "retention.resources 3: want 7 to 400 days"},
 	} {
 		_, err := Load("", []string{kekEnv, tt.env}, nil)
 		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {

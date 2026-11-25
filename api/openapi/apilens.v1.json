@@ -1885,6 +1885,20 @@
         ],
         "type": "object"
       },
+      "CPUUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "cores_used": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "CPU cores busy (can exceed 1)"
+          },
+          "pct_of_limit": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Percent of the effective CPU limit, 0 to 100"
+          }
+        },
+        "type": "object"
+      },
       "CapturePolicy": {
         "additionalProperties": false,
         "properties": {
@@ -1934,6 +1948,10 @@
             "description": "The slug of the app's project.",
             "type": "string"
           },
+          "resources": {
+            "$ref": "#/components/schemas/ResourcesPolicy",
+            "description": "Runtime resources sampling of the app's SDKs. It can only narrow what an SDK's local config allows."
+          },
           "sample_rate": {
             "description": "Fraction of requests the SDKs keep, from 0 to 1.",
             "format": "double",
@@ -1968,6 +1986,7 @@
           "capture_request_body",
           "capture_response_body",
           "max_payload_bytes",
+          "resources",
           "updated_at",
           "updated_by"
         ],
@@ -2666,6 +2685,99 @@
           "new",
           "returning"
         ],
+        "type": "object"
+      },
+      "ContainerCPU": {
+        "additionalProperties": false,
+        "properties": {
+          "cores_used": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "limit_cores": {
+            "description": "Effective CPU limit in cores; null when there is none",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pct_of_limit": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "throttled_ratio": {
+            "description": "Share of CFS periods in the window that were throttled",
+            "format": "double",
+            "maximum": 1,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "throttled_us": {
+            "description": "Microseconds throttled in the window",
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ContainerMemory": {
+        "additionalProperties": false,
+        "properties": {
+          "anon": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "current": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "file": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "limit": {
+            "description": "Memory limit in bytes; null when there is none",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "oom_kill": {
+            "description": "OOM kills in the cgroup during the window (memory.events oom_kill delta)",
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "swap": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "working_set": {
+            "$ref": "#/components/schemas/Gauge"
+          }
+        },
+        "type": "object"
+      },
+      "ContainerResources": {
+        "additionalProperties": false,
+        "properties": {
+          "container_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "cpu": {
+            "$ref": "#/components/schemas/ContainerCPU"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/ContainerMemory"
+          }
+        },
         "type": "object"
       },
       "ContextOrg": {
@@ -6046,6 +6158,70 @@
         },
         "type": "object"
       },
+      "GCPauses": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pause_ms_max": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pause_ms_sum": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "Gauge": {
+        "additionalProperties": false,
+        "properties": {
+          "avg": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "last": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "min": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "HandoffBody": {
         "additionalProperties": false,
         "properties": {
@@ -6413,6 +6589,14 @@
             ],
             "type": "string"
           },
+          "final": {
+            "description": "True on the last heartbeat of a process that is shutting down cleanly",
+            "type": "boolean"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Identity",
+            "description": "Where the process runs (host, container, Kubernetes pod). Sent by SDKs with runtime resources."
+          },
           "instance_id": {
             "description": "Stable id of the SDK process, generated once per process start",
             "examples": [
@@ -6441,6 +6625,10 @@
             ],
             "type": "string"
           },
+          "resources": {
+            "$ref": "#/components/schemas/Resources",
+            "description": "CPU, memory and runtime health of the process and its container over the heartbeat window (contract v1). At most 32 KiB. A missing value means it could not be measured, never zero."
+          },
           "runtime": {
             "description": "Language runtime and version",
             "examples": [
@@ -6464,6 +6652,15 @@
             "additionalProperties": {},
             "description": "SDK counters since start (records queued, sent, dropped). At most 16 KiB.",
             "type": "object"
+          },
+          "uptime_s": {
+            "description": "Seconds since the SDK process started",
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "required": [
@@ -6520,6 +6717,10 @@
               "null"
             ]
           },
+          "resources": {
+            "$ref": "#/components/schemas/HeartbeatResourcesPolicy",
+            "description": "Runtime resources sampling. It only narrows the SDK's local config: an SDK never turns on what its own config turned off."
+          },
           "sample_rate": {
             "description": "Fraction of requests to keep, from 0 to 1.",
             "format": "double",
@@ -6534,8 +6735,98 @@
           "capture_headers",
           "capture_request_body",
           "capture_response_body",
-          "max_payload_bytes"
+          "max_payload_bytes",
+          "resources"
         ],
+        "type": "object"
+      },
+      "HeartbeatResourcesPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled_collectors": {
+            "description": "Collectors the SDK must skip: process.cpu, process.memory, process.pss, container.cpu, container.memory, runtime, pools, processes.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "False tells the SDK to stop sampling resources.",
+            "type": "boolean"
+          },
+          "min_interval_s": {
+            "description": "Shortest sampling interval the SDK may use, in seconds; an SDK configured with a longer one keeps it.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "min_interval_s",
+          "disabled_collectors"
+        ],
+        "type": "object"
+      },
+      "Identity": {
+        "additionalProperties": false,
+        "properties": {
+          "container_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "hostname": {
+            "maxLength": 253,
+            "type": "string"
+          },
+          "hostname_guess": {
+            "description": "True when the pod name is only inferred from the hostname",
+            "type": "boolean"
+          },
+          "namespace": {
+            "maxLength": 253,
+            "type": "string"
+          },
+          "node_name": {
+            "maxLength": 253,
+            "type": "string"
+          },
+          "platform": {
+            "enum": [
+              "k8s",
+              "ecs",
+              "cloud_run",
+              "app_engine",
+              "heroku",
+              "fly",
+              "lambda",
+              "vm",
+              "bare"
+            ],
+            "type": "string"
+          },
+          "pod_name": {
+            "maxLength": 253,
+            "type": "string"
+          },
+          "pod_uid": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "process_start_time": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "region": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Incident": {
@@ -7089,6 +7380,146 @@
           "email",
           "name"
         ],
+        "type": "object"
+      },
+      "JVMCollector": {
+        "additionalProperties": false,
+        "properties": {
+          "concurrent_ms": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "count": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "examples": [
+              "G1 Young Generation"
+            ],
+            "maxLength": 64,
+            "type": "string"
+          },
+          "pause_ms": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "JVMMemoryPool": {
+        "additionalProperties": false,
+        "properties": {
+          "committed": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "examples": [
+              "G1 Old Gen"
+            ],
+            "maxLength": 64,
+            "type": "string"
+          },
+          "used": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "JVMRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "direct_buffers": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "gc": {
+            "items": {
+              "$ref": "#/components/schemas/JVMCollector"
+            },
+            "maxItems": 16,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "heap_after_gc": {
+            "description": "Heap used right after the last full or old collection (leak trend)",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "heap_committed": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "heap_max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "heap_used": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "metaspace": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "non_heap_used": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "pools": {
+            "items": {
+              "$ref": "#/components/schemas/JVMMemoryPool"
+            },
+            "maxItems": 32,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "threads": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Platform threads"
+          },
+          "virtual_threads": {
+            "$ref": "#/components/schemas/Gauge"
+          }
+        },
         "type": "object"
       },
       "JoinableOrg": {
@@ -7969,6 +8400,34 @@
         ],
         "type": "object"
       },
+      "NodeRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "array_buffers": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "elu": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Event loop utilization, 0 to 1"
+          },
+          "event_loop_delay_ms": {
+            "$ref": "#/components/schemas/Percentiles"
+          },
+          "external": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "gc": {
+            "$ref": "#/components/schemas/GCPauses"
+          },
+          "heap_total": {
+            "$ref": "#/components/schemas/Gauge"
+          },
+          "heap_used": {
+            "$ref": "#/components/schemas/Gauge"
+          }
+        },
+        "type": "object"
+      },
       "NotificationChannel": {
         "additionalProperties": false,
         "properties": {
@@ -8652,6 +9111,33 @@
         ],
         "type": "object"
       },
+      "Percentiles": {
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p50": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p99": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Point": {
         "additionalProperties": false,
         "properties": {
@@ -8962,6 +9448,44 @@
         "required": [
           "code"
         ],
+        "type": "object"
+      },
+      "ProcessMemory": {
+        "additionalProperties": false,
+        "properties": {
+          "pss": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Proportional set size, bytes (shared pages split between sharers)"
+          },
+          "rss": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Resident set size, bytes"
+          },
+          "uss": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Unique set size, bytes"
+          }
+        },
+        "type": "object"
+      },
+      "ProcessResources": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/CPUUsage"
+          },
+          "fds": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Open file descriptors"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/ProcessMemory"
+          },
+          "threads": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "OS threads of the process"
+          }
+        },
         "type": "object"
       },
       "Project": {
@@ -9357,6 +9881,10 @@
               "null"
             ]
           },
+          "resources": {
+            "$ref": "#/components/schemas/ResourcesPolicy",
+            "description": "Runtime resources sampling; omitted keeps the stored setting."
+          },
           "sample_rate": {
             "description": "Fraction of requests the SDKs keep, from 0 to 1, at most 4 decimal places.",
             "format": "double",
@@ -9529,6 +10057,87 @@
           "client_id",
           "domains"
         ],
+        "type": "object"
+      },
+      "PythonGC": {
+        "additionalProperties": false,
+        "properties": {
+          "collected": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "collections": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "generation": {
+            "format": "int64",
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pause_ms_max": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pause_ms_sum": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "uncollectable": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "generation"
+        ],
+        "type": "object"
+      },
+      "PythonRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "gc": {
+            "items": {
+              "$ref": "#/components/schemas/PythonGC"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "gil_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "threads": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Python threads (threading.active_count)"
+          }
+        },
         "type": "object"
       },
       "QuotaUsage": {
@@ -10525,6 +11134,243 @@
         ],
         "type": "object"
       },
+      "ResourcePool": {
+        "additionalProperties": false,
+        "properties": {
+          "idle": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "kind": {
+            "examples": [
+              "sqlalchemy"
+            ],
+            "maxLength": 32,
+            "type": "string"
+          },
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "examples": [
+              "default"
+            ],
+            "maxLength": 64,
+            "type": "string"
+          },
+          "pending": {
+            "$ref": "#/components/schemas/Gauge",
+            "description": "Callers waiting for a connection"
+          },
+          "used": {
+            "$ref": "#/components/schemas/Gauge"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "ResourceProcess": {
+        "additionalProperties": false,
+        "properties": {
+          "comm": {
+            "description": "Process name (/proc/\u003cpid\u003e/comm)",
+            "maxLength": 15,
+            "type": "string"
+          },
+          "cpu_pct": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pid": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ppid": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rss": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "pid",
+          "comm"
+        ],
+        "type": "object"
+      },
+      "Resources": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "description": "What this process can measure, e.g. process.cpu, container.memory; empty on edge runtimes",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "container": {
+            "$ref": "#/components/schemas/ContainerResources"
+          },
+          "flags": {
+            "description": "Conditions of the window, e.g. freeze_gap, serverless, host_pid_namespace",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "limit_source": {
+            "description": "Where CPU and memory limits come from",
+            "enum": [
+              "cgroup_v2",
+              "cgroup_v1",
+              "ecs",
+              "vm",
+              "host",
+              "none"
+            ],
+            "type": "string"
+          },
+          "n": {
+            "description": "Samples taken in the window",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pools": {
+            "items": {
+              "$ref": "#/components/schemas/ResourcePool"
+            },
+            "maxItems": 10,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "process": {
+            "$ref": "#/components/schemas/ProcessResources"
+          },
+          "processes": {
+            "description": "Top processes in the same container by RSS",
+            "items": {
+              "$ref": "#/components/schemas/ResourceProcess"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeResources"
+          },
+          "sampler_cost_us": {
+            "description": "Mean CPU microseconds one sample cost",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "v": {
+            "description": "Contract version; this edge reads 1",
+            "examples": [
+              1
+            ],
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "window_s": {
+            "description": "Seconds the window covers",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "v"
+        ],
+        "type": "object"
+      },
+      "ResourcesPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled_collectors": {
+            "description": "Collectors the SDKs must skip.",
+            "items": {
+              "enum": [
+                "process.cpu",
+                "process.memory",
+                "process.pss",
+                "container.cpu",
+                "container.memory",
+                "runtime",
+                "pools",
+                "processes"
+              ],
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "enabled": {
+            "description": "False tells the SDKs to stop sampling CPU, memory and runtime health.",
+            "type": "boolean"
+          },
+          "min_interval_s": {
+            "description": "Shortest sampling interval the SDKs may use, in seconds.",
+            "format": "int64",
+            "maximum": 600,
+            "minimum": 15,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "min_interval_s",
+          "disabled_collectors"
+        ],
+        "type": "object"
+      },
       "RestoreBody": {
         "additionalProperties": false,
         "properties": {
@@ -10625,6 +11471,9 @@
               "spans",
               "rollups_1m",
               "rollups_1h",
+              "resources",
+              "resources_1h",
+              "instance_rollups_1m",
               "deploys"
             ],
             "type": "string"
@@ -10866,6 +11715,21 @@
           "rotated_from",
           "rotated_to"
         ],
+        "type": "object"
+      },
+      "RuntimeResources": {
+        "additionalProperties": false,
+        "properties": {
+          "jvm": {
+            "$ref": "#/components/schemas/JVMRuntime"
+          },
+          "node": {
+            "$ref": "#/components/schemas/NodeRuntime"
+          },
+          "python": {
+            "$ref": "#/components/schemas/PythonRuntime"
+          }
+        },
         "type": "object"
       },
       "SDKDroppedRecords": {

@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/apilens/apilens/internal/controlplane/capture"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/pipeline"
 	"github.com/apilens/apilens/internal/platform/server"
 )
 
@@ -75,6 +77,10 @@ type Heartbeat struct {
 	Commit      string                      `json:"commit,omitempty" doc:"VCS commit of the app being monitored" example:"9f2c1ab"`
 	PID         *int64                      `json:"pid,omitempty" doc:"OS process id" example:"4242"`
 	Stats       map[string]any              `json:"stats,omitempty" doc:"SDK counters since start (records queued, sent, dropped). At most 16 KiB."`
+	UptimeS     *float64                    `json:"uptime_s,omitempty" nullable:"true" minimum:"0" doc:"Seconds since the SDK process started"`
+	Final       bool                        `json:"final,omitempty" doc:"True on the last heartbeat of a process that is shutting down cleanly"`
+	Identity    *Identity                   `json:"identity,omitempty" doc:"Where the process runs (host, container, Kubernetes pod). Sent by SDKs with runtime resources."`
+	Resources   *Resources                  `json:"resources,omitempty" doc:"CPU, memory and runtime health of the process and its container over the heartbeat window (contract v1). At most 32 KiB. A missing value means it could not be measured, never zero."`
 	Dropped     map[string]map[string]int64 `json:"dropped,omitempty" doc:"Records dropped since the previous heartbeat answered 200, per signal (requests, spans, logs) and reason (queue_full, retries_exhausted, ...). The SDK resets them on 200 and adds them to the next heartbeat otherwise. Shown per app and hour in Ingest health; other signals are ignored. At most 32 reasons per signal; reasons are lowercase letters, digits, '_', '.' or '-', up to 64 characters; counts are not negative." example:"{\"requests\":{\"queue_full\":3},\"spans\":{\"retries_exhausted\":12}}"`
 }
 
@@ -82,12 +88,20 @@ type Heartbeat struct {
 // heartbeat. SDKs apply it until the next heartbeat; an app without a saved
 // policy gets capture-everything.
 type HeartbeatPolicy struct {
-	Enabled             bool    `json:"enabled" doc:"False tells the SDK to stop sending records (heartbeats continue)."`
-	SampleRate          float64 `json:"sample_rate" minimum:"0" maximum:"1" doc:"Fraction of requests to keep, from 0 to 1."`
-	CaptureHeaders      bool    `json:"capture_headers" doc:"Whether request and response headers are captured."`
-	CaptureRequestBody  bool    `json:"capture_request_body" doc:"Whether request bodies are captured."`
-	CaptureResponseBody bool    `json:"capture_response_body" doc:"Whether response bodies are captured."`
-	MaxPayloadBytes     *int    `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means no cap beyond the SDK's own."`
+	Enabled             bool                     `json:"enabled" doc:"False tells the SDK to stop sending records (heartbeats continue)."`
+	SampleRate          float64                  `json:"sample_rate" minimum:"0" maximum:"1" doc:"Fraction of requests to keep, from 0 to 1."`
+	CaptureHeaders      bool                     `json:"capture_headers" doc:"Whether request and response headers are captured."`
+	CaptureRequestBody  bool                     `json:"capture_request_body" doc:"Whether request bodies are captured."`
+	CaptureResponseBody bool                     `json:"capture_response_body" doc:"Whether response bodies are captured."`
+	MaxPayloadBytes     *int                     `json:"max_payload_bytes" required:"true" nullable:"true" doc:"Cap on each captured body in bytes; null means no cap beyond the SDK's own."`
+	Resources           HeartbeatResourcesPolicy `json:"resources" doc:"Runtime resources sampling. It only narrows the SDK's local config: an SDK never turns on what its own config turned off."`
+}
+
+// HeartbeatResourcesPolicy is the resources part of the heartbeat policy.
+type HeartbeatResourcesPolicy struct {
+	Enabled            bool     `json:"enabled" doc:"False tells the SDK to stop sampling resources."`
+	MinIntervalS       int      `json:"min_interval_s" doc:"Shortest sampling interval the SDK may use, in seconds; an SDK configured with a longer one keeps it."`
+	DisabledCollectors []string `json:"disabled_collectors" doc:"Collectors the SDK must skip: process.cpu, process.memory, process.pss, container.cpu, container.memory, runtime, pools, processes."`
 }
 
 // HeartbeatAccepted is the response of POST /v1/heartbeat.
@@ -103,6 +117,11 @@ func toHeartbeatPolicy(p capture.Policy) HeartbeatPolicy {
 		CaptureRequestBody:  p.CaptureRequestBody,
 		CaptureResponseBody: p.CaptureResponseBody,
 		MaxPayloadBytes:     p.MaxPayloadBytes,
+		Resources: HeartbeatResourcesPolicy{
+			Enabled:            p.Resources.Enabled,
+			MinIntervalS:       p.Resources.MinIntervalS,
+			DisabledCollectors: p.Resources.Disabled.Names(),
+		},
 	}
 }
 
@@ -147,6 +166,18 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, errValidation("pid must not be negative"))
 		return
 	}
+	if body.UptimeS != nil && (!finite(*body.UptimeS) || *body.UptimeS < 0) {
+		body.UptimeS = nil
+	}
+	var part struct {
+		Resources json.RawMessage `json:"resources"`
+	}
+	_ = json.Unmarshal(raw, &part) // raw already decoded once above
+	sample, hasResources, aerr := flattenResources(body.Resources, part.Resources)
+	if aerr != nil {
+		e.fail(w, signal, aerr)
+		return
+	}
 	drops, aerr := sdkDrops(body.Dropped)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
@@ -178,6 +209,11 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := e.now().UTC()
+	ident := sanitizeIdentity(body.Identity, now)
+	var snapshot []byte
+	if hasResources {
+		snapshot = resourceSnapshot(sample)
+	}
 	err := e.heartbeats.UpsertAppInstance(r.Context(), db.UpsertAppInstanceParams{
 		AppID:       appID,
 		Environment: env,
@@ -191,12 +227,30 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		Pid:         body.PID,
 		Stats:       statsJSON,
 		SeenAt:      now,
+
+		Hostname:         ident.Hostname,
+		HostnameGuess:    ident.HostnameGuess,
+		ContainerID:      cmp.Or(ident.ContainerID, sample.ContainerID),
+		PodName:          ident.PodName,
+		PodUid:           ident.PodUID,
+		Namespace:        ident.Namespace,
+		NodeName:         ident.NodeName,
+		Platform:         ident.Platform,
+		Region:           ident.Region,
+		ProcessStartTime: ident.ProcessStartTime,
+		UptimeS:          body.UptimeS,
+		Resources:        snapshot,
+		Final:            body.Final,
 	})
 	if err != nil {
 		e.logger.Error("store heartbeat", "error", err)
 		e.fail(w, signal, errUnavailable("Could not store heartbeat, retry later"))
 		return
 	}
+	if hasResources {
+		e.submitResources(r.Context(), p.ProjectID, appID, env, instance, now, body, ident, sample)
+	}
+	e.inferLifecycle(r.Context(), p.ProjectID, appID, env, instance, now, ident, sample)
 	if e.heartbeatCache != nil {
 		if err := e.heartbeatCache.Touch(r.Context(), appID, env, now); err != nil {
 			e.logger.Warn("heartbeat last-seen cache unavailable", "error", err)
@@ -219,6 +273,70 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	e.records.WithLabelValues(signal, "accepted").Inc()
 	e.batches.WithLabelValues(signal, "200").Inc()
 	writeJSON(w, http.StatusOK, HeartbeatAccepted{Policy: toHeartbeatPolicy(pol)})
+}
+
+// submitResources writes the heartbeat's resources to ClickHouse. The
+// heartbeat's job is liveness and the capture policy, so a sink that cannot
+// take the row is logged and counted, never a failed heartbeat.
+func (e *Edge) submitResources(ctx context.Context, project, app uuid.UUID, env, instance string, at time.Time, body Heartbeat, ident Identity, s ResourceSample) {
+	if e.sink == nil {
+		return
+	}
+	row := pipeline.ResourceRow{
+		ProjectID:    project,
+		AppID:        app,
+		Environment:  env,
+		InstanceID:   instance,
+		Timestamp:    at,
+		WindowS:      float32(s.WindowS),
+		Samples:      s.Samples,
+		ContainerID:  cmp.Or(s.ContainerID, ident.ContainerID),
+		Hostname:     ident.Hostname,
+		PodName:      ident.PodName,
+		Namespace:    ident.Namespace,
+		NodeName:     ident.NodeName,
+		Platform:     ident.Platform,
+		LimitSource:  s.LimitSource,
+		SDKName:      truncate(strings.TrimSpace(body.SDKName), maxSDKNameChars),
+		Runtime:      truncate(strings.TrimSpace(body.Runtime), maxRuntimeChars),
+		Release:      truncate(strings.TrimSpace(body.Release), maxReleaseChars),
+		Metrics:      s.Metrics,
+		Capabilities: s.Capabilities,
+		Flags:        s.Flags,
+		Processes:    s.Processes,
+		Pools:        s.Pools,
+	}
+	if err := e.sink.SubmitResources(ctx, []pipeline.ResourceRow{row}); err != nil {
+		e.records.WithLabelValues("resources", "failed").Inc()
+		e.logger.Warn("store heartbeat resources", "app_id", app, "error", err)
+		return
+	}
+	e.records.WithLabelValues("resources", "accepted").Inc()
+}
+
+// resourceSnapshot is the latest resources of an instance as stored in
+// app_instances.resources: the flattened metrics plus the lists.
+func resourceSnapshot(s ResourceSample) []byte {
+	raw := func(v string) json.RawMessage {
+		if v == "" {
+			return nil
+		}
+		return json.RawMessage(v)
+	}
+	b, err := json.Marshal(struct {
+		LimitSource  string             `json:"limit_source,omitempty"`
+		ContainerID  string             `json:"container_id,omitempty"`
+		WindowS      float64            `json:"window_s,omitempty"`
+		Capabilities []string           `json:"capabilities"`
+		Flags        []string           `json:"flags"`
+		Metrics      map[string]float64 `json:"metrics"`
+		Processes    json.RawMessage    `json:"processes,omitempty"`
+		Pools        json.RawMessage    `json:"pools,omitempty"`
+	}{s.LimitSource, s.ContainerID, s.WindowS, s.Capabilities, s.Flags, s.Metrics, raw(s.Processes), raw(s.Pools)})
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // allowHeartbeat enforces HeartbeatMinInterval per instance. It fails open:

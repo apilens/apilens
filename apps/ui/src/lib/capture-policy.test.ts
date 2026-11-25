@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POLICY,
+  DEFAULT_RESOURCES,
   captureError,
   capturePath,
   checkDraft,
@@ -21,6 +22,7 @@ const stored = (over: Partial<CapturePolicy> = {}): CapturePolicy => ({
   app: "shop",
   project: "shop",
   ...DEFAULT_POLICY,
+  resources: DEFAULT_RESOURCES,
   updated_at: null,
   updated_by: null,
   ...over,

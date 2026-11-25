@@ -22,6 +22,7 @@ func (r RequestRow) Event() *eventv1.RequestEvent {
 		ResponsePayload: r.ResponsePayload, RequestHeaders: r.RequestHeaders, ResponseHeaders: r.ResponseHeaders,
 		BaseUrl: r.BaseURL, TraceId: r.TraceID, SpanId: r.SpanID, Release: r.Release, Commit: r.Commit,
 		Sampled: proto.Bool(r.Sampled), Attributes: r.Attributes, ValidationErrors: validationErrorEvents(r.ValidationErrors),
+		InstanceId: r.InstanceID,
 	}
 }
 
@@ -41,7 +42,7 @@ func RequestRowFromEvent(e *eventv1.RequestEvent) (RequestRow, error) {
 		BaseURL: e.GetBaseUrl(), TraceID: e.GetTraceId(), SpanID: e.GetSpanId(), Release: e.GetRelease(), Commit: e.GetCommit(),
 		// Unset (older producers) means sampled.
 		Sampled: e.Sampled == nil || e.GetSampled(), Attributes: e.GetAttributes(),
-		ValidationErrors: validationErrorRows(e.GetValidationErrors()),
+		ValidationErrors: validationErrorRows(e.GetValidationErrors()), InstanceID: e.GetInstanceId(),
 	}, nil
 }
 
