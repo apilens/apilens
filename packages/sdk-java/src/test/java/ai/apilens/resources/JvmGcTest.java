@@ -24,7 +24,7 @@ class JvmGcTest {
   static {
     COLLECTORS.put("G1 Young Generation", new Object[] {Kind.PAUSE, false});
     COLLECTORS.put("G1 Old Generation", new Object[] {Kind.PAUSE, true});
-    COLLECTORS.put("G1 Concurrent GC", new Object[] {Kind.CONCURRENT, true});
+    COLLECTORS.put("G1 Concurrent GC", new Object[] {Kind.PAUSE, true}); // Remark/Cleanup pauses
     COLLECTORS.put("ZGC", new Object[] {Kind.CONCURRENT, true});
     COLLECTORS.put("ZGC Cycles", new Object[] {Kind.CONCURRENT, true});
     COLLECTORS.put("ZGC Pauses", new Object[] {Kind.PAUSE, false});

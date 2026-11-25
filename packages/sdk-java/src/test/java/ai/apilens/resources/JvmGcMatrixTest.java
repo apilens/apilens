@@ -55,7 +55,7 @@ class JvmGcMatrixTest {
       assertTrue(gc.stream().anyMatch(c -> ((Number) c.get("count")).longValue() > 0), "collections seen: " + gc);
       for (Map<String, Object> collector : gc) {
         String name = ((String) collector.get("name")).toLowerCase(Locale.ROOT);
-        boolean concurrent = name.contains("cycles") || name.contains("concurrent") || name.equals("zgc");
+        boolean concurrent = name.contains("cycles") || name.equals("zgc");
         assertTrue(collector.containsKey(concurrent ? "concurrent_ms" : "pause_ms"), collector.toString());
         assertFalse(collector.containsKey(concurrent ? "pause_ms" : "concurrent_ms"), collector.toString());
       }

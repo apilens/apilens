@@ -75,15 +75,16 @@ final class GcTracker {
 
   /**
    * Pause or concurrent, by bean name. "Cycles" beans (ZGC, generational ZGC Minor/Major,
-   * Shenandoah) and G1's "Concurrent GC" bean time concurrent work; every other bean (G1
-   * Young/Old Generation, ZGC/Shenandoah "Pauses", Parallel {@code PS *}, Serial {@code Copy} /
+   * Shenandoah) time concurrent work; every other bean (G1 Young/Old Generation, G1's "Concurrent
+   * GC" bean, which times the Remark/Cleanup stop-the-world pauses on JDK 20+, ZGC/Shenandoah
+   * "Pauses", Parallel {@code PS *}, Serial {@code Copy} /
    * {@code MarkSweepCompact}, OpenJ9 {@code scavenge} / {@code global} / {@code partial gc})
    * times stop-the-world pauses.
    */
   static Kind classify(String name) {
     String lower = name.toLowerCase(Locale.ROOT);
     // "ZGC" alone is the single cycle-time bean of JDK 11-16.
-    if (lower.contains("cycles") || lower.contains("concurrent") || lower.equals("zgc")) {
+    if (lower.contains("cycles") || lower.equals("zgc")) {
       return Kind.CONCURRENT;
     }
     return Kind.PAUSE;

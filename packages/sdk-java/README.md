@@ -924,7 +924,7 @@ platform (`k8s`, `ecs`, `cloud_run`, `app_engine`, `heroku`, `fly`, `lambda`,
 | `process.cpu` | `cores_used` and `pct_of_limit` | `OperatingSystemMXBean.getProcessCpuTime()` deltas; the limit is the container quota, else the CPUs the process may use |
 | `process.memory`, `threads`, `fds` | RSS, PSS/USS (once a minute), OS threads, open descriptors | `/proc/self/status`, `smaps_rollup`, `fd` (Linux; null elsewhere) |
 | `container` | CPU used, limit, throttling; memory current, working set, anon, file, swap, limit, OOM kills | cgroup v1/v2 files read directly (not the JDK's container metrics) |
-| `runtime.jvm` | heap used/committed/max, heap after the last old/full GC, non-heap, metaspace, direct buffers, threads, every memory pool, GC per collector | platform MXBeans and GC notifications; `pause_ms` is stop-the-world time, `concurrent_ms` the time of concurrent cycles (ZGC, Shenandoah, G1 concurrent) |
+| `runtime.jvm` | heap used/committed/max, heap after the last old/full GC, non-heap, metaspace, direct buffers, threads, every memory pool, GC per collector | platform MXBeans and GC notifications; `pause_ms` is stop-the-world time, `concurrent_ms` the time of concurrent cycles (ZGC, Shenandoah); G1's Concurrent GC bean times Remark/Cleanup pauses, so it counts as `pause_ms` |
 | `pools` | HikariCP active, idle, max and threads waiting | every Spring `DataSource` bean, unwrapped from proxies; `client.registerDataSource(name, ds)` without Spring |
 | `processes` | top 20 by RSS in the SDK's own cgroup: pid, ppid, name, CPU %, RSS | `/proc`; never `cmdline` or `environ`; off when the host's PID namespace is visible |
 
