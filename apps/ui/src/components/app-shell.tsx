@@ -9,6 +9,7 @@ import { viewLabel } from "@/lib/nav-sections";
 import { resolveTimeZone } from "@/lib/time-zone";
 import { TimeZoneProvider } from "@/lib/time-zone-context";
 import { PausedBanner } from "./paused-banner";
+import { homeView } from "@/lib/landing";
 import { ScopeSwitcher } from "./scope-switcher";
 import { useOpenIncidents } from "./sidebar";
 import { Rail, useRailMode } from "./shell/rail";
@@ -130,7 +131,7 @@ export function AppShell({
             </main>
           </div>
 
-          <ScopeSwitcher orgs={context.orgs} open={switcher} onClose={() => setSwitcher(false)} orgSlug={org.slug} projectSlug={capsProject?.slug} />
+          <ScopeSwitcher orgs={context.orgs} open={switcher} onClose={() => setSwitcher(false)} orgSlug={org.slug} projectSlug={capsProject?.slug} view={homeView(context)} />
         </div>
       </OpenIncidentsContext.Provider>
     </TimeZoneProvider>

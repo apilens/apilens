@@ -45,6 +45,21 @@ for (const provider of ["GitHub", "Google"] as const) {
   });
 }
 
+test("unticking keep me signed in gives a 24-hour session", async ({ page }) => {
+  await page.goto("/sign-in?next=%2Fproject%2Facme%2Frequests");
+  await page.getByRole("checkbox", { name: /Keep me signed in/ }).uncheck();
+  const button = providerButton(page, "GitHub");
+  expect(new URL((await button.getAttribute("href")) ?? "").searchParams.get("remember")).toBe("false");
+
+  await button.click();
+  await page.getByRole("link", { name: "Authorize" }).click();
+  await page.waitForURL((url) => url.pathname === "/project/acme/requests");
+  const cookie = await sessionCookie(page);
+  const left = (cookie?.expires ?? 0) - Date.now() / 1000;
+  expect(left).toBeGreaterThan(24 * 3600 - 300);
+  expect(left).toBeLessThan(24 * 3600 + 300);
+});
+
 test("a new user from /sign-up goes to onboarding", async ({ page }) => {
   await page.goto("/sign-up");
   await providerButton(page, "GitHub").click();

@@ -22,10 +22,12 @@ import {
 } from "@/lib/remembered-account";
 import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
 import { SIGN_IN_NOTICES, type SignInNotice } from "@/lib/sign-in-notice";
+import { pathWithRemember, withRemember } from "@/lib/keep-signed-in";
 import { ssoRequiredMatch } from "@/lib/sso";
 import { AltLink } from "./alt-method";
 import { ObIcon, ObShell, describedBy } from "./ob";
 import { SignInNoticeBanner } from "./sign-in-notice";
+import { KeepSignedIn } from "./keep-signed-in";
 import { SSOButton, SSOLink, useSSOLookup } from "./sso";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
@@ -92,6 +94,10 @@ export function SignIn({
     setDeviceRead(true);
   }, []);
   const [touched, setTouched] = useState(false);
+  const [remember, setRemember] = useState(true);
+  // Read by the autofill request, which starts before the box can change.
+  const rememberRef = useRef(remember);
+  rememberRef.current = remember;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [limitedUntil, setLimitedUntil] = useState<number | null>(null);
@@ -157,7 +163,7 @@ export function SignIn({
     autofill.current = ctl;
     void (async () => {
       if (!(await conditionalMediationAvailable()) || ctl.signal.aborted) return;
-      const res = await signInWithPasskey({ mediation: "conditional", signal: ctl.signal, next });
+      const res = await signInWithPasskey({ mediation: "conditional", signal: ctl.signal, next, remember: () => rememberRef.current });
       if (ctl.signal.aborted) return;
       if (res.ok) return signedIn(res);
       // Only a passkey the user picked from the autofill (unknown, or it failed) says anything and
@@ -193,7 +199,7 @@ export function SignIn({
   const sendCode = async (address: string) => {
     const res = await startEmail({ email: address, intent: "signin", next });
     if (res.kind === "sent") {
-      router.push(res.next);
+      router.push(pathWithRemember(res.next, remember));
       return; // keep the loading state until /verify replaces this page
     }
     setBusy(false);
@@ -233,12 +239,12 @@ export function SignIn({
     // 1. An enforced domain never gets a code or a passkey prompt (the lookup may still be pending).
     const found = await sso.resolve(address);
     if (found.kind === "match" && found.match.enforced) {
-      window.location.assign(found.match.startUrl);
+      window.location.assign(withRemember(found.match.startUrl, remember));
       return;
     }
     // 2. The passkey this device last signed in with.
     if (passkeyFirst) {
-      const res = await signInWithPasskey({ mediation: "optional", email: address, next });
+      const res = await signInWithPasskey({ mediation: "optional", email: address, next, remember });
       if (res.ok) return signedIn(res, address);
       if (res.code === "passkey_unknown") {
         // Gone from the account: forget the shortcut (no sign-in happened, so keep its "last used")
@@ -265,7 +271,7 @@ export function SignIn({
     stopAutofill();
     setPasskeyBusy(true);
     setError(null);
-    const res = await signInWithPasskey({ mediation: "optional", email: address ?? undefined, next });
+    const res = await signInWithPasskey({ mediation: "optional", email: address ?? undefined, next, remember });
     if (res.ok) return signedIn(res, address ?? undefined);
     setPasskeyBusy(false);
     const problem = passkeyError(res.code);
@@ -290,7 +296,7 @@ export function SignIn({
     // The passkey autofill stays on: a lookup does not compete with it, and leaving the page ends it.
     setSsoBusy(true);
     setError(null);
-    const problem = await sso.go(address);
+    const problem = await sso.go(address, remember);
     if (problem === null) return; // navigating to the identity provider
     setSsoBusy(false);
     if (!address) setTouched(true);
@@ -395,9 +401,10 @@ export function SignIn({
             <span>We’ll email you a 6-digit code. There’s no password to remember.</span>
           )}
         </div>
+        <KeepSignedIn checked={remember} onChange={setRemember} disabled={busy} />
         <div style={{ marginTop: 18 }}>
           {enforced && sso.match ? (
-            <SSOLink match={sso.match} primary />
+            <SSOLink match={sso.match} remember={remember} primary />
           ) : (
             <button ref={continueButton} type="submit" className={`ah-btn ah-btn--primary au-btn-full${busy ? " is-loading" : ""}${limited ? " is-disabled" : ""}`} disabled={busy || limited} aria-busy={busy || undefined}>
               Continue
@@ -407,7 +414,7 @@ export function SignIn({
         </div>
         {sso.match && !enforced ? (
           <div style={{ marginTop: 10 }}>
-            <SSOLink match={sso.match} />
+            <SSOLink match={sso.match} remember={remember} />
           </div>
         ) : null}
       </form>
@@ -424,7 +431,7 @@ export function SignIn({
               ) : m === "sso" ? (
                 <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} />
               ) : m === "email" ? null : (
-                <AltLink key={m} method={m} href={oauth?.[m] ?? "/sign-in"} />
+                <AltLink key={m} method={m} href={withRemember(oauth?.[m] ?? "/sign-in", remember)} />
               ),
             )}
           </div>

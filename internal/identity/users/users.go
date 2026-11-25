@@ -58,6 +58,9 @@ const OnboardingPath = "/onboarding/about"
 // onboarding.step for a new user.
 const OnboardingStepAbout = "about"
 
+// OnboardingStepDone is the step stored once onboarding is complete.
+const OnboardingStepDone = "done"
+
 // ErrInvalidSource means FindOrCreateByVerifiedEmail was called with an
 // unknown Source.
 var ErrInvalidSource = errors.New("users: invalid sign-in source")
@@ -163,6 +166,19 @@ func (s *Service) findOrCreate(ctx context.Context, email string, source Source)
 		return db.User{}, false, err
 	}
 	return user, created, nil
+}
+
+// CompleteOnboarding marks user's onboarding done, for users who need none
+// (an SSO sign-in that already made them a member).
+func (s *Service) CompleteOnboarding(ctx context.Context, user uuid.UUID) error {
+	patch, err := json.Marshal(map[string]any{"step": OnboardingStepDone, "completed_at": time.Now().UTC().Format(time.RFC3339)})
+	if err != nil {
+		return fmt.Errorf("users: onboarding patch: %w", err)
+	}
+	if _, err := s.q.UpdateUserOnboarding(ctx, db.UpdateUserOnboardingParams{Patch: patch, ID: user}); err != nil {
+		return fmt.Errorf("users: complete onboarding: %w", err)
+	}
+	return nil
 }
 
 // inTx runs fn in a transaction whose audit events commit with it.

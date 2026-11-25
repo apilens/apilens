@@ -314,7 +314,13 @@ func signedInUser(ctx context.Context) (uuid.UUID, error) {
 // orgProblem maps a read/update/delete error of orgs.Service to a problem.
 func (o *Orgs) orgProblem(ctx context.Context, op string, err error) error {
 	var notAllowed *orgs.DomainNotAllowedError
+	var notVerified *orgs.DomainNotVerifiedError
+	var taken *orgs.DomainTakenError
 	switch {
+	case errors.As(err, &notVerified):
+		return identity.Err(identity.CodeDomainNotVerified)
+	case errors.As(err, &taken):
+		return identity.Err(identity.CodeDomainTaken)
 	case errors.Is(err, orgs.ErrNotFound):
 		return identity.Err(identity.CodeNotFound)
 	case errors.Is(err, orgs.ErrForbidden):

@@ -81,6 +81,8 @@ type SSOUsers interface {
 	FindOrCreateSSO(ctx context.Context, email string) (user db.User, created bool, err error)
 	TOTPConfirmed(ctx context.Context, user uuid.UUID) (bool, error)
 	TouchLastLogin(ctx context.Context, user uuid.UUID) error
+	// CompleteOnboarding marks the user's onboarding done.
+	CompleteOnboarding(ctx context.Context, user uuid.UUID) error
 }
 
 // SSOMemberships adds the user of an SSO sign-in to the organization;
@@ -437,7 +439,7 @@ func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugR
 	if d.Users == nil || d.Memberships == nil || d.Sessions == nil || d.PreAuth == nil || d.Handoff == nil || d.Audit == nil {
 		return nil, failure(CodeInternal, "not_configured", errors.New("sso sign-in collaborators not set"))
 	}
-	user, created, err := d.Users.FindOrCreateSSO(ctx, email)
+	user, _, err := d.Users.FindOrCreateSSO(ctx, email)
 	if err != nil {
 		return nil, failure(CodeInternal, "find_or_create_user", err)
 	}
@@ -448,8 +450,15 @@ func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugR
 		return nil, failure(CodeInternal, "join_org", err)
 	}
 	next := st.Next
-	if created && (next == "" || next == "/") {
-		next = users.OnboardingPath
+	// The provider vouched for them and they belong to the organization, so
+	// there is nothing to onboard. The membership is already committed: a
+	// failed save must not refuse the sign-in, or a retry would no longer
+	// count as new and they would be stuck in onboarding for good.
+	if err := d.Users.CompleteOnboarding(ctx, user.ID); err != nil {
+		s.logger.WarnContext(ctx, "sso: could not finish onboarding", "error", err, "user_id", user.ID.String())
+	}
+	if next == "" {
+		next = "/"
 	}
 	amr := []string{token.AMRSSO}
 
@@ -464,6 +473,7 @@ func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugR
 		}
 		s.touchConnection(ctx, conn)
 		res := NewSignInTwoFactor(pre, next)
+		res.Remember = st.Remember
 		return &res, nil
 	}
 
@@ -503,6 +513,7 @@ func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugR
 		}
 	}
 	res := NewSignInSession(t, next, s.now())
+	res.Remember = st.Remember
 	return &res, nil
 }
 

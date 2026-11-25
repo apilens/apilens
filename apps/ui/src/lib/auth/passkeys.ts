@@ -163,11 +163,12 @@ const isAbort = (err: unknown, signal?: AbortSignal) =>
 /**
  * Runs one passkey sign-in. `email` (optional) narrows the browser's choice to that account's
  * passkeys; `next` is where to land; `remember` asks for the long session (as "Keep me signed in"
- * does). Never throws: a dismissed sheet or an aborted `signal` is
+ * does) and may be a callback, read when the credential comes back, so an autofill request started
+ * on load still follows a box the user changed since. Never throws: a dismissed sheet or an aborted `signal` is
  * `{ok: false, code: "cancelled"}`, transport failures are `network_error`.
  */
 export async function signInWithPasskey(
-  input: { mediation: PasskeyMediation; signal?: AbortSignal; email?: string; next?: string; remember?: boolean },
+  input: { mediation: PasskeyMediation; signal?: AbortSignal; email?: string; next?: string; remember?: boolean | (() => boolean) },
   env: PasskeyEnv = browserEnv(),
 ): Promise<PasskeyResult> {
   const { mediation, signal } = input;
@@ -192,7 +193,7 @@ export async function signInWithPasskey(
 
     const body: Json = { challenge_id: challengeId, credential: assertionToJSON(credential) };
     if (input.next) body.next = input.next;
-    if (input.remember !== undefined) body.remember = input.remember;
+    if (input.remember !== undefined) body.remember = typeof input.remember === "function" ? input.remember() : input.remember;
     const verified = await post(env, "/api/auth/passkeys/login/verify", body, signal);
     if (verified.status < 300 && verified.data.ok === true && sameOrigin(verified.data.next)) {
       const signedInAs = verified.data.email;

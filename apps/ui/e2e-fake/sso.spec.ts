@@ -94,6 +94,23 @@ test("sign-in: a failed lookup still never sends a code; sso_required shows the 
   await expect(page).toHaveURL(/\/sign-in/);
 });
 
+test("sign-in: unticking keep me signed in reaches the SSO session", async ({ page }) => {
+  await page.goto("/sign-in");
+  await page.getByLabel("Work email").fill("ada@acme.example.com");
+  await page.getByRole("checkbox", { name: /Keep me signed in/ }).uncheck();
+  const link = ssoLink(page, "Acme");
+  await expect(link).toBeVisible();
+  expect(new URL((await link.getAttribute("href")) ?? "").searchParams.get("remember")).toBe("false");
+
+  await link.click();
+  await page.getByRole("link", { name: "Sign in" }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith("/auth/") && url.pathname !== "/sign-in");
+  const cookie = (await page.context().cookies()).find((c) => c.name === SESSION_COOKIE);
+  const left = (cookie?.expires ?? 0) - Date.now() / 1000;
+  expect(left).toBeGreaterThan(24 * 3600 - 300);
+  expect(left).toBeLessThan(24 * 3600 + 300);
+});
+
 test("sign-in: ?error=sso_required shows the banner", async ({ page }) => {
   await page.goto("/sign-in?error=sso_required");
   await expect(page.getByRole("status")).toContainText("Your organization requires single sign-on.");
@@ -127,7 +144,9 @@ test("sign-up: an enforced domain replaces Continue with the org's SSO and sends
 
   await link.click();
   await page.getByRole("link", { name: "Sign in" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
+  // An SSO user is already a member: they land in the app, not in onboarding.
+  await page.waitForURL((url) => url.pathname !== "/sign-up" && !url.pathname.startsWith("/auth/"));
+  expect(new URL(page.url()).pathname).not.toBe("/onboarding/about");
   expect(await sessionCookie(page)).toBeTruthy();
   expect(emailStarts).toHaveLength(0);
 });

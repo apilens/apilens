@@ -614,7 +614,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	a.useSessionAuth()
 	identity.Register(a.server.API())
 	identity.RegisterJWKS(a.server.Mux(), signingKeys, a.logger)
-	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
+	identity.RegisterProviders(a.server.API(), a.cfg.Identity, identitydb.New(a.pool))
 	limiter, err := a.rateLimiter()
 	if err != nil {
 		return nil, err
@@ -672,9 +672,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		PreAuth:  identity.NewValkeyPreAuthStore(a.valkey),
 		Audit:    audit.New(a.pool),
 	}, limiter, a.logger).Register(a.server.API())
-	// Until memberships exist (#276) no user owns an organization, so
-	// nothing blocks a deletion.
-	accounts := account.New(a.pool, account.NoMemberships{})
+	accounts := account.New(a.pool, orgs.NewOwnership(a.pool))
 	identity.NewAccount(accounts, a.logger).Register(a.server.API())
 	identity.NewOnboarding(accounts, a.logger).Register(a.server.API())
 	kek, err := a.cfg.Identity.KEK()

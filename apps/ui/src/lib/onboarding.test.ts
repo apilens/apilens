@@ -118,7 +118,7 @@ describe("onboardingDecision", () => {
   it("a finished user goes to their project", () => {
     expect(onboardingDecision(ctx({ step: "invite", completed: true }, [ACME]), "about")).toEqual({
       kind: "redirect",
-      location: "/project/shop/incidents",
+      location: "/project/shop/traffic",
     });
   });
 
@@ -167,7 +167,7 @@ describe("requireOnboardingStep", () => {
 
   it("finished → the project", async () => {
     getContext.mockResolvedValue(ctx({ step: null, completed: true }, [ACME]));
-    await expect(requireOnboardingStep("about")).rejects.toEqual(new Redirect("/project/shop/incidents"));
+    await expect(requireOnboardingStep("about")).rejects.toEqual(new Redirect("/project/shop/traffic"));
   });
 
   it("ahead of the saved step → the saved step", async () => {
@@ -229,7 +229,7 @@ describe("/onboarding/* pages", () => {
 
   it("redirect when the page is not allowed", async () => {
     getContext.mockResolvedValue(ctx({ step: "invite", completed: true }, [ACME]));
-    await expect(JoinPage()).rejects.toEqual(new Redirect("/project/shop/incidents"));
+    await expect(JoinPage()).rejects.toEqual(new Redirect("/project/shop/traffic"));
   });
 });
 

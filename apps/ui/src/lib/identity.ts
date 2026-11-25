@@ -442,6 +442,8 @@ export interface SessionBundle {
   user: User;
   /** Post-sign-in destination stored with the email token / OAuth state, when any. */
   next?: string | null;
+  /** The remember choice, echoed by OAuth and SSO handoffs. */
+  remember?: boolean;
 }
 
 /** Second factor required (#251, #269): exchange `pre_auth_token` at `POST /auth/2fa/exchange`. */
@@ -449,6 +451,7 @@ export interface TwoFactorRequired {
   status: "2fa_required";
   pre_auth_token: string;
   next?: string | null;
+  remember?: boolean;
 }
 
 /** Result of a first-factor sign-in (email code, magic link, OAuth/SSO handoff). */

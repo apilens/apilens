@@ -91,6 +91,8 @@ describe("deleteConfirmed", () => {
 describe("orgSettingsError", () => {
   it("explains the server's codes", () => {
     expect(orgSettingsError("domain_not_allowed")).toMatch(/Public email domains/);
+    expect(orgSettingsError("domain_not_verified")).toMatch(/your own email domain/i);
+    expect(orgSettingsError("domain_taken")).toMatch(/another organization/i);
     expect(orgSettingsError("forbidden")).toMatch(/permission/);
     expect(orgSettingsError("something_new")).toMatch(/Something went wrong/);
   });

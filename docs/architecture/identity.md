@@ -50,6 +50,7 @@ change to one of them updates this page in the same pull request.
 | M4: `auth_time` and the recent sign-in rule (#793), re-authentication without signing out (#797) | done |
 | M4: emails to project admins about sensitive changes (#798) | done |
 | M4: project lifecycle: pause (#792), slug rename (#794), delete and restore (#795), purge (#796); see [`project-lifecycle.md`](project-lifecycle.md) | done |
+| Phase A auth fixes: one "keep me signed in" for the code, OAuth, SSO and passkeys (their handoffs echo `remember`; the magic link still always takes the long session, Phase B), `providers.sso` follows the connections, account deletion blocked while sole owner (`orgs.Ownership`), join domains and SSO connection domains must be the admin's own verified domain (or one the organization already allows) and listed by no other organization, Traffic as the default home, create organization and project pages | done |
 
 ## Components
 
@@ -906,6 +907,8 @@ Rules:
 | `recovery_not_ready` | 409 Conflict | Account recovery is still in its waiting period. Try again in {retry_after} seconds, or cancel it if you didn't ask for it. |
 | `slug_immutable` | 409 Conflict | This URL can't be changed yet. |
 | `domain_not_allowed` | 400 Bad Request | Public email domains like gmail.com can't be added. Use your company's domain. |
+| `domain_not_verified` | 422 Unprocessable Entity | A domain can only be added by a member whose own verified email is at it. |
+| `domain_taken` | 409 Conflict | Another active organization already allows joining with this domain. |
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |

@@ -278,14 +278,24 @@ func (s *SSOConnections) Put(ctx context.Context, user uuid.UUID, slug string, s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	org, orgSlug, err := ownerOrg(ctx, q, user, slug, true)
+	member, err := lockMember(ctx, q, user, slug)
 	if err != nil {
 		return SSOConnection{}, false, err
 	}
+	if member.Role != RoleOwner {
+		return SSOConnection{}, false, ErrForbidden
+	}
+	org, orgSlug := member.ID, member.Slug
 	cur, err := q.GetOrgSSOConnection(ctx, org)
 	exists := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return SSOConnection{}, false, fmt.Errorf("orgs: get sso connection: %w", err)
+	}
+	if err := q.LockSSOEnforcement(ctx); err != nil {
+		return SSOConnection{}, false, fmt.Errorf("orgs: lock sso enforcement: %w", err)
+	}
+	if err := checkSSODomains(ctx, q, user, org, member.AllowedDomains, cur.Domains, domains); err != nil {
+		return SSOConnection{}, false, err
 	}
 
 	secret := cur.ClientSecretEnc
@@ -303,16 +313,6 @@ func (s *SSOConnections) Put(ctx context.Context, user uuid.UUID, slug string, s
 	}
 
 	if set.Enforce {
-		if err := q.LockSSOEnforcement(ctx); err != nil {
-			return SSOConnection{}, false, fmt.Errorf("orgs: lock sso enforcement: %w", err)
-		}
-		taken, err := q.EnforcedSSODomainsOfOtherOrgs(ctx, db.EnforcedSSODomainsOfOtherOrgsParams{OrgID: org, Domains: domains})
-		if err != nil {
-			return SSOConnection{}, false, fmt.Errorf("orgs: check sso domains: %w", err)
-		}
-		if len(taken) > 0 {
-			return SSOConnection{}, false, &SSODomainTakenError{Domains: taken}
-		}
 		if !exists || !cur.Enforce {
 			// Turning enforcement on: the owner must have proved the
 			// connection works for them, or they could lock everyone out.

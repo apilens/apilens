@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -22,7 +23,6 @@ import (
 	"github.com/apilens/apilens/internal/identity/audit"
 	idkeys "github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/identity/store/db"
-	"github.com/apilens/apilens/internal/identity/users"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
@@ -53,9 +53,19 @@ func (f *fakeSSOConns) TouchOrgSSOLastLogin(_ context.Context, org uuid.UUID) er
 
 // fakeSSOUsers is an in-memory SSOUsers keyed by email.
 type fakeSSOUsers struct {
-	byEmail map[string]db.User
-	totp    map[uuid.UUID]bool
-	touched []uuid.UUID
+	byEmail     map[string]db.User
+	totp        map[uuid.UUID]bool
+	touched     []uuid.UUID
+	completed   []uuid.UUID
+	completeErr error
+}
+
+func (f *fakeSSOUsers) CompleteOnboarding(_ context.Context, id uuid.UUID) error {
+	if f.completeErr != nil {
+		return f.completeErr
+	}
+	f.completed = append(f.completed, id)
+	return nil
 }
 
 func (f *fakeSSOUsers) FindOrCreateSSO(_ context.Context, email string) (db.User, bool, error) {
@@ -271,7 +281,7 @@ func TestSSOCallbackSignsInAndJoins(t *testing.T) {
 	h.idp.Grant("c1", ssoGrant(f, "Ada@Acme.Example.com"))
 
 	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
-	if res.AccessToken != "access-token" || res.User == nil || res.User.Email != "ada@acme.example.com" || res.Next != users.OnboardingPath {
+	if res.AccessToken != "access-token" || res.User == nil || res.User.Email != "ada@acme.example.com" || res.Next != "/" {
 		t.Fatalf("handoff = %+v", res)
 	}
 	if !slices.Equal(h.sessions.metas[0].AMR, []string{"sso"}) || !h.sessions.remember[0] {
@@ -301,6 +311,68 @@ func TestSSOCallbackSignsInAndJoins(t *testing.T) {
 	}
 }
 
+func TestSSONewMemberSkipsOnboarding(t *testing.T) {
+	h := newSSOHarness(t)
+	f, _ := h.begin(t, "acme", "")
+	h.idp.Grant("c1", ssoGrant(f, "new@acme.example.com"))
+
+	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
+	user := h.users.byEmail["new@acme.example.com"]
+	if res.Next != "/" {
+		t.Fatalf("next = %q, want / (they already belong to the organization)", res.Next)
+	}
+	if !slices.Equal(h.users.completed, []uuid.UUID{user.ID}) {
+		t.Fatalf("completed onboarding for %v, want %v", h.users.completed, user.ID)
+	}
+}
+
+func TestSSOOnboardingSurvivesAFailedSave(t *testing.T) {
+	h := newSSOHarness(t)
+	h.users.completeErr = errors.New("db down")
+	f, _ := h.begin(t, "acme", "")
+	h.idp.Grant("c1", ssoGrant(f, "new@acme.example.com"))
+
+	// The membership is already committed, so a failed onboarding save must not
+	// refuse the sign-in: the user would land back on /sign-in and, on retry, no
+	// longer count as new.
+	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
+	if res.AccessToken == "" || res.Next != "/" {
+		t.Fatalf("handoff = %+v", res)
+	}
+}
+
+func TestSSOReturningMemberCompletesOnboarding(t *testing.T) {
+	h := newSSOHarness(t)
+	u := db.User{ID: uuid.New(), Email: "member@acme.example.com"}
+	h.users.byEmail[u.Email] = u
+	// They are already a member (a previous sign-in joined them) but their
+	// onboarding was never finished.
+	h.members.members[[2]uuid.UUID{h.org, u.ID}] = "viewer"
+	f, _ := h.begin(t, "acme", "")
+	h.idp.Grant("c1", ssoGrant(f, u.Email))
+
+	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
+	if res.Next != "/" {
+		t.Fatalf("next = %q, want / for a member", res.Next)
+	}
+	if !slices.Contains(h.users.completed, u.ID) {
+		t.Fatalf("completed = %v, want it to include the member", h.users.completed)
+	}
+}
+
+func TestSSOKeepsTheRequestedNext(t *testing.T) {
+	h := newSSOHarness(t)
+	u := db.User{ID: uuid.New(), Email: "old@acme.example.com"}
+	h.users.byEmail[u.Email] = u
+	f, _ := h.begin(t, "acme", "next=%2Fprojects")
+	h.idp.Grant("c1", ssoGrant(f, u.Email))
+
+	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
+	if res.Next != "/projects" {
+		t.Fatalf("next = %q, want the page they asked for", res.Next)
+	}
+}
+
 func TestSSOCallbackTwoFactor(t *testing.T) {
 	h := newSSOHarness(t)
 	u := db.User{ID: uuid.New(), Email: "ada@acme.example.com"}
@@ -319,6 +391,36 @@ func TestSSOCallbackTwoFactor(t *testing.T) {
 	}
 	if len(h.sessions.metas) != 0 || h.members.joins != 1 {
 		t.Fatalf("sessions = %d joins = %d", len(h.sessions.metas), h.members.joins)
+	}
+}
+
+func TestSSOCallbackHandoffCarriesRemember(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		remember  bool
+		twoFactor bool
+	}{
+		{"remember", true, false},
+		{"no remember", false, false},
+		{"remember with 2fa", true, true},
+		{"no remember with 2fa", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newSSOHarness(t)
+			u := db.User{ID: uuid.New(), Email: "ada@acme.example.com"}
+			h.users.byEmail[u.Email] = u
+			h.users.totp[u.ID] = tc.twoFactor
+			f, _ := h.begin(t, "acme", fmt.Sprintf("remember=%t", tc.remember))
+			h.idp.Grant("c1", ssoGrant(f, u.Email))
+
+			res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
+			if (res.Status == TwoFactorRequiredStatus) != tc.twoFactor {
+				t.Fatalf("handoff status = %q", res.Status)
+			}
+			if res.Remember != tc.remember {
+				t.Fatalf("handoff remember = %v, want %v", res.Remember, tc.remember)
+			}
+		})
 	}
 }
 

@@ -32,6 +32,16 @@ export function orgHref(slug: string, section: OrgSection = ""): string {
   return section ? `${ORG_ROOT}/${seg(slug)}/${section}` : `${ORG_ROOT}/${seg(slug)}`;
 }
 
+/** `/organizations/new`: create an organization (the scope menu and the organizations list). */
+export function newOrgHref(): string {
+  return "/organizations/new";
+}
+
+/** `/org/<slug>/projects/new`: create a project in that organization. */
+export function newProjectHref(org: string): string {
+  return `${ORG_ROOT}/${seg(org)}/projects/new`;
+}
+
 /** The organization pages that are Organization settings (its rail item is on for each). */
 export const ORG_SETTINGS_ROUTES: readonly OrgSection[] = ["general", "sso", "audit"];
 

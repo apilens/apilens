@@ -21,6 +21,10 @@ describe("ssoStartHref", () => {
     });
   });
 
+  it("carries an unticked keep-me-signed-in as remember=false", () => {
+    expect(new URL(ssoStartHref(START, { remember: false }) ?? "").searchParams.get("remember")).toBe("false");
+  });
+
   it("only sets remember without other options", () => {
     expect(ssoStartHref(START)).toBe(`${START}?remember=true`);
   });

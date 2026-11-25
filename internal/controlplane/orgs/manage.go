@@ -141,6 +141,11 @@ func (s *Service) Update(ctx context.Context, user uuid.UUID, slug string, u Upd
 	if u.Slug != nil && *u.Slug != cur.Slug {
 		return Detail{}, ErrSlugImmutable
 	}
+	if u.AllowedDomains != nil {
+		if err := checkDomains(ctx, q, user, cur.ID, cur.AllowedDomains, params.AllowedDomains); err != nil {
+			return Detail{}, err
+		}
+	}
 	params.ID = cur.ID
 	o, err := q.UpdateOrganization(ctx, params)
 	if err != nil {

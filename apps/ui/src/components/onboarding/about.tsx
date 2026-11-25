@@ -10,7 +10,6 @@ import { useOnboardingContinue } from "./progress";
 const PICKS: { id: HomeScreen; t: string; s: string }[] = [
   { id: "endpoints", t: "Slow or failing endpoints", s: "Every API, with its latency and error rate" },
   { id: "requests", t: "Requests across services", s: "One request, followed through every service" },
-  { id: "exceptions", t: "Exceptions", s: "Grouped, with the request that caused each one" },
 ];
 
 /**

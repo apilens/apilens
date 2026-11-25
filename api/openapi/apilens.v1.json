@@ -11559,6 +11559,10 @@
             "description": "Opaque refresh token. It is single-use: every refresh returns a new one, and presenting a used one again revokes the session.",
             "type": "string"
           },
+          "remember": {
+            "description": "The remember choice of an OAuth or SSO sign-in, echoed in its handoff so the UI sets a matching cookie.",
+            "type": "boolean"
+          },
           "status": {
             "description": "Present only as \"2fa_required\": exchange pre_auth_token with a TOTP or backup code at POST /api/v1/auth/2fa/exchange.",
             "enum": [
@@ -11570,6 +11574,9 @@
             "$ref": "#/components/schemas/AuthUser"
           }
         },
+        "required": [
+          "remember"
+        ],
         "type": "object"
       },
       "SizeBucket": {

@@ -119,13 +119,13 @@ test("the home screen pick is saved and stays selected after a refresh", async (
   const picks = page.getByRole("radiogroup", { name: "Home screen" });
   await expect(picks.getByRole("radio", { name: /^Slow or failing endpoints/ })).toHaveAttribute("aria-checked", "true");
 
-  await picks.getByRole("radio", { name: /^Exceptions/ }).click();
+  await picks.getByRole("radio", { name: /^Requests across services/ }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/join");
 
   await page.goto("/onboarding/about");
   await page.reload();
-  await expect(picks.getByRole("radio", { name: /^Exceptions/ })).toHaveAttribute("aria-checked", "true");
+  await expect(picks.getByRole("radio", { name: /^Requests across services/ })).toHaveAttribute("aria-checked", "true");
   await expect(picks.getByRole("radio", { name: /^Slow or failing endpoints/ })).toHaveAttribute("aria-checked", "false");
 });
 

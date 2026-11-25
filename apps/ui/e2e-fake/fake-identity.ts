@@ -330,6 +330,7 @@ interface SSOState {
   org: string;
   next: string;
   loginHint: string;
+  remember: boolean;
 }
 const ssoStates = new Map<string, SSOState>();
 
@@ -1520,7 +1521,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (next === null) return problem(res, 400, "invalid_request");
       const state = token();
       const loginHint = q.get("login_hint") ?? "";
-      ssoStates.set(state, { org, next, loginHint });
+      ssoStates.set(state, { org, next, loginHint, remember: q.get("remember") === "true" });
       const authorize = new URLSearchParams({
         response_type: "code",
         client_id: `apilens-${org}`,
@@ -1536,7 +1537,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     ssoStates.delete(state);
     if (!st || st.org !== org) return redirect(res, `${UI_URL}/sign-in?error=oauth_state_mismatch`);
     if (q.get("error")) return redirect(res, `${UI_URL}/sign-in?error=oauth_denied`);
-    const code = issueHandoff(st.next === "/" ? "/onboarding/about" : st.next);
+    // An SSO sign-in joins the organization, so even a new user skips onboarding.
+    const code = issueHandoff(st.next === "" ? "/" : st.next);
+    // Like identity, the handoff echoes the remember choice of the start URL.
+    Object.assign(handoffs.get(code) as object, { remember: st.remember });
     return redirect(res, `${UI_URL}/auth/callback?${new URLSearchParams({ code })}`);
   }
 
@@ -1593,6 +1597,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     // Every fake sign-in is a new user: identity sends them to onboarding unless `next` says otherwise.
     const code = issueHandoff(st.next === "/" ? "/onboarding/about" : st.next);
+    // Like identity, the handoff echoes the remember choice of the start URL.
+    Object.assign(handoffs.get(code) as object, { remember: st.remember });
     return redirect(res, `${UI_URL}/auth/callback?${new URLSearchParams({ code })}`);
   }
 

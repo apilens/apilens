@@ -137,7 +137,7 @@ test("sign-up → verify → organization → project → key → first event �
 
   // Done: onboarding finishes on the project's home view and its pages no longer apply.
   await page.getByRole("button", { name: "Open project" }).click();
-  await at(page, `/project/${projectSlug}/incidents`);
+  await at(page, `/project/${projectSlug}/traffic`);
   await page.goto("/onboarding/invite");
   await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));
 });

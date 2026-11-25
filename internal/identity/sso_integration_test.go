@@ -26,7 +26,6 @@ import (
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
-	"github.com/apilens/apilens/internal/identity/users"
 	"github.com/apilens/apilens/internal/platform/cache"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/jobs"
@@ -160,7 +159,8 @@ func TestSSOIntegration(t *testing.T) {
 		f := begin(t, "remember=true")
 		idp.Grant("c1", ssoGrant(f, "Ada@ACME.example.com"))
 		res := redeem(t, callback(t, url.Values{"code": {"c1"}, "state": {f.state}}))
-		if res.AccessToken == "" || res.RefreshToken == "" || res.Next != users.OnboardingPath {
+		// The connection joined them, so there is nothing to onboard.
+		if res.AccessToken == "" || res.RefreshToken == "" || res.Next != "/" {
 			t.Fatalf("handoff = %+v", res)
 		}
 		if ada, err = q.GetUserByEmail(ctx, "ada@acme.example.com"); err != nil {

@@ -12,6 +12,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const anySSOConnection = `-- name: AnySSOConnection :one
+SELECT EXISTS (
+    SELECT 1 FROM org_sso_connections c
+    JOIN organizations o ON o.id = c.org_id
+    WHERE o.deleted_at IS NULL
+)
+`
+
+// Whether any active organization has an SSO connection, so the sign-in
+// page shows its SSO button.
+func (q *Queries) AnySSOConnection(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, anySSOConnection)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getOrgSSOConnection = `-- name: GetOrgSSOConnection :one
 SELECT org_id, issuer, client_id, client_secret_enc, domains, enforce, default_role, created_at, updated_at, last_login_at FROM org_sso_connections
 WHERE org_id = $1

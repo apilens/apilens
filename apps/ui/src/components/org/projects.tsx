@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { projectHref } from "@/lib/routes";
+import { canCreateProject } from "@/lib/project-create";
+import { newProjectHref, projectHref } from "@/lib/routes";
 import { type ContextOrg, plural, projectRoleLabel } from "@/lib/scope";
 import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
@@ -8,18 +9,41 @@ import "./org.css";
 /**
  * `/org/<org>` (Supabase's organization home): the organization's projects you can see, one card
  * each with its name, slug, app count and your role; a card opens the project on `view` (your
- * home view). An organization without any shows an empty state instead.
+ * home view). An organization without any shows an empty state that leads to the create page,
+ * when the user's role may create one.
  */
 export function OrgProjects({ org, view }: { org: ContextOrg; view: string }) {
   const projects = org.projects;
+  const canCreate = canCreateProject(org.role);
   return (
     <div className="page os org-page">
-      <PageHeader title="Projects" lead={`The projects in ${org.name} that you can open.`} />
+      <PageHeader
+        title="Projects"
+        lead={`The projects in ${org.name} that you can open.`}
+        actions={
+          canCreate ? (
+            <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newProjectHref(org.slug)}>
+              New project
+            </Link>
+          ) : undefined
+        }
+      />
 
       {projects.length === 0 ? (
         <div className="org-empty">
           <p className="org-empty__t">No projects in {org.name} yet</p>
-          <p className="org-empty__p">Projects you create or are given access to in this organization show up here.</p>
+          <p className="org-empty__p">
+            {canCreate
+              ? "Create your first project to start monitoring an API."
+              : "Projects you are given access to in this organization show up here."}
+          </p>
+          {canCreate ? (
+            <p className="org-empty__p">
+              <Link className="ah-btn ah-btn--primary" href={newProjectHref(org.slug)}>
+                Create your first project
+              </Link>
+            </p>
+          ) : null}
         </div>
       ) : (
         <>

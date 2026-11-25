@@ -109,6 +109,11 @@ describe("oauthStartUrl / oauthStartLinks", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({ next: "/acme/requests?range=7d", intent: "login", remember: "true" });
   });
 
+  it("carries an unticked keep-me-signed-in as remember=false", () => {
+    const url = new URL(oauth.oauthStartUrl("https://api.example.com", "google", { remember: false }));
+    expect(url.searchParams.get("remember")).toBe("false");
+  });
+
   it.each(["//evil.example", "/\\evil.example", "https://evil.example/x", "javascript:alert(1)", "evil", `/${"a".repeat(600)}`])(
     "drops an off-origin next (%s)",
     (next) => {
@@ -146,6 +151,26 @@ describe("GET /auth/callback", () => {
       expect(text).not.toContain(secret);
       expect(location).not.toContain(secret);
     }
+  });
+
+  it("follows the handoff's remember: false gives a 24-hour session", async () => {
+    replies["POST /api/v1/auth/handoff"] = () => ({ status: 200, body: { ...BUNDLE, remember: false } });
+    const { setCookies } = await callback({ code: CODE });
+    const opened = await session.open(cookieValue(setCookies, session.SESSION_COOKIE_NAME));
+    expect(opened).toMatchObject({ remember: false });
+    const cookie = setCookies.find((c) => c.startsWith(`${session.SESSION_COOKIE_NAME}=`)) ?? "";
+    expect(cookie).toMatch(/Max-Age=86400/i);
+  });
+
+  it("2FA keeps the handoff's remember: false in the pre-auth cookie", async () => {
+    replies["POST /api/v1/auth/handoff"] = () => ({
+      status: 200,
+      body: { status: "2fa_required", pre_auth_token: PRE_AUTH, next: "/acme", remember: false },
+    });
+    const { setCookies } = await callback({ code: CODE });
+    const value = cookieValue(setCookies, routes.PRE_AUTH_COOKIE_NAME);
+    const req = new NextRequest(`${PUBLIC_URL}/auth/2fa`, { headers: { cookie: `${routes.PRE_AUTH_COOKIE_NAME}=${value}` } });
+    expect(routes.readPreAuth(req)).toMatchObject({ token: PRE_AUTH, remember: false });
   });
 
   it("a new user goes where identity points them (onboarding)", async () => {

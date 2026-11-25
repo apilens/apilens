@@ -81,10 +81,12 @@ test("tab order reaches the form before the brand panel", async ({ page }) => {
   }
 });
 
-test("sign-in tab order: email, Continue, then the other methods", async ({ page }) => {
+test("sign-in tab order: email, keep me signed in, Continue, then the other methods", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, "/sign-in", "Welcome back");
   await expect(page.getByLabel("Work email")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("checkbox", { name: /Keep me signed in/ })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Continue" })).toBeFocused();
   await page.keyboard.press("Tab");

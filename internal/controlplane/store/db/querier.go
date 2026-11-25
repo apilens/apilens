@@ -104,9 +104,6 @@ type Querier interface {
 	// Ends the grace period of a project being purged early (the operator
 	// command), so it can no longer be restored half-purged.
 	EndProjectGrace(ctx context.Context, id uuid.UUID) error
-	// The domains among @domains that another active organization enforces SSO
-	// for. A domain is enforced by at most one organization.
-	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
 	// Creates an environment's monitor on first sight (up, never checked) and
 	// locks it for the transaction that records a check, so two runs cannot
 	// step it at once.
@@ -500,6 +497,9 @@ type Querier interface {
 	// Whether a member of the organization (with an account that is not
 	// deleted) uses the address; citext compares it case-insensitively.
 	OrgMemberEmailExists(ctx context.Context, arg OrgMemberEmailExistsParams) (bool, error)
+	// The active organization other than @org_id that already allows joining
+	// with a domain (lower-case, no "@"). Returns pgx.ErrNoRows when it is free.
+	OrganizationClaimingDomain(ctx context.Context, arg OrganizationClaimingDomainParams) (uuid.UUID, error)
 	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Age of the oldest unprocessed row, 0 when the outbox is drained.
 	OutboxLagSeconds(ctx context.Context) (float64, error)
@@ -584,6 +584,10 @@ type Querier interface {
 	// Revokes the address's pending invitation to the organization, if any, so
 	// a new one can replace it.
 	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
+	// The domains among @domains that another active organization's SSO
+	// connection lists, enforcing or not. A connection signs in anyone at its
+	// domains, so a domain belongs to one organization.
+	SSODomainsOfOtherOrgs(ctx context.Context, arg SSODomainsOfOtherOrgsParams) ([]string, error)
 	// Soft-deletes the project and schedules its purge grace_seconds from now
 	// (0: at once). The slug stays reserved until the purge (projects_slug_reserved).
 	ScheduleProjectDeletion(ctx context.Context, arg ScheduleProjectDeletionParams) (ScheduleProjectDeletionRow, error)
@@ -604,6 +608,10 @@ type Querier interface {
 	// monitor if the job has not checked it yet.
 	SetUptimeMonitorMuted(ctx context.Context, arg SetUptimeMonitorMutedParams) (UptimeMonitor, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
+	// The active organizations where the user is the only owner with a live
+	// account, so deleting their account would leave the organization without
+	// one. Read by the identity account service before a deletion.
+	SoleOwnedOrganizations(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	// Starts the purge of a project, or resumes it, and returns the next step.
 	StartProjectPurge(ctx context.Context, projectID uuid.UUID) (string, error)
 	// Moves a queued (or retried, still running) export to running. No row

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_VIEW } from "./data";
 import { ApiError, type ContextOrg, type UserContext } from "./identity";
-import { HOME_SCREEN_VIEW, homeView, landingFor, onboardingPath, orgLanding, projectHasData, sdkSetupPath } from "./landing";
+import { HOME_SCREEN_CHOICES, HOME_SCREEN_VIEW, homeView, landingFor, onboardingPath, orgLanding, projectHasData, sdkSetupPath } from "./landing";
 
 class Redirect extends Error {
   constructor(readonly location: string) {
@@ -77,12 +77,22 @@ describe("landingFor", () => {
   it.each([
     ["endpoints", "traffic"],
     ["requests", "explore"],
-    ["exceptions", "errors"],
+    // Errors is "Coming soon": the Exceptions pick opens Traffic until it ships.
+    ["exceptions", "traffic"],
   ] as const)("home screen %s opens %s", (home, view) => {
     expect(HOME_SCREEN_VIEW[home]).toBe(view);
     expect(homeView(ctx({}, { home }))).toBe(view);
     expect(landingFor(ctx({}, { home }))).toBe(`/project/billing/${view}`);
     expect(landingFor(ctx({}, { home }), true)).toBe(`/project/billing/${view}`);
+  });
+
+  it("the default home view is a live page, never a Coming soon one", () => {
+    expect(HOME_VIEW).toBe("traffic");
+    expect(homeView(ctx())).toBe("traffic");
+  });
+
+  it("offers only home screens whose page is live", () => {
+    expect(HOME_SCREEN_CHOICES.map((c) => c.id)).toEqual(["endpoints", "requests"]);
   });
 
   it("an unknown home preference opens the default view", () => {
@@ -191,8 +201,8 @@ describe("/ (app/page.tsx)", () => {
   });
 
   it("the data check failing falls back to the home view", async () => {
-    getContext.mockResolvedValue(ctx({}, { home: "exceptions" }));
+    getContext.mockResolvedValue(ctx({}, { home: "requests" }));
     listManagedApps.mockRejectedValue(new ApiError({ status: 403, code: "forbidden" }));
-    await expect(Home()).rejects.toEqual(new Redirect("/project/billing/errors"));
+    await expect(Home()).rejects.toEqual(new Redirect("/project/billing/explore"));
   });
 });

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -27,7 +28,7 @@ type ProvidersOutput struct {
 
 // ProvidersFor derives the enabled sign-in methods from cfg. Email and
 // passkeys are built in; Google and GitHub follow their client IDs. SSO is
-// not available yet.
+// set per request by RegisterProviders.
 func ProvidersFor(cfg config.IdentityConfig) AuthProviders {
 	return AuthProviders{
 		Email:    true,
@@ -37,9 +38,16 @@ func ProvidersFor(cfg config.IdentityConfig) AuthProviders {
 	}
 }
 
-// RegisterProviders mounts the public GET /api/v1/auth/providers.
-func RegisterProviders(api huma.API, cfg config.IdentityConfig) {
-	providers := ProvidersFor(cfg)
+// SSOAvailability reports whether any organization signs in with SSO;
+// *db.Queries satisfies it.
+type SSOAvailability interface {
+	AnySSOConnection(ctx context.Context) (bool, error)
+}
+
+// RegisterProviders mounts the public GET /api/v1/auth/providers. sso may be
+// nil (SSO is then never offered); a failed lookup answers sso false.
+func RegisterProviders(api huma.API, cfg config.IdentityConfig, sso SSOAvailability) {
+	base := ProvidersFor(cfg)
 	huma.Register(api, Operation(api, huma.Operation{
 		OperationID: "list-auth-providers",
 		Method:      http.MethodGet,
@@ -47,7 +55,15 @@ func RegisterProviders(api huma.API, cfg config.IdentityConfig) {
 		Summary:     "Enabled sign-in methods",
 		Description: "Public. Lists which sign-in methods this deployment offers so the sign-in page shows only working buttons.",
 		Tags:        []string{server.TagAuth},
-	}), func(context.Context, *struct{}) (*ProvidersOutput, error) {
+	}), func(ctx context.Context, _ *struct{}) (*ProvidersOutput, error) {
+		providers := base
+		if sso != nil {
+			found, err := sso.AnySSOConnection(ctx)
+			if err != nil {
+				slog.WarnContext(ctx, "auth providers: sso lookup failed", "error", err)
+			}
+			providers.SSO = err == nil && found
+		}
 		return &ProvidersOutput{Body: providers}, nil
 	})
 }

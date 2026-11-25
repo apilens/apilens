@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useId, useState } from "react";
-import { orgHref } from "@/lib/routes";
+import { newOrgHref, orgHref } from "@/lib/routes";
 import { type ContextOrg, orgMark, plural, roleLabel } from "@/lib/scope";
 import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
@@ -27,7 +27,15 @@ export function Organizations({ orgs }: { orgs: ContextOrg[] }) {
   const shown = matchOrgs(orgs, q);
   return (
     <div className="page os org-page org-page--all">
-      <PageHeader title="Your organizations" lead={`${plural(orgs.length, "organization")} you belong to, with your role in each.`} />
+      <PageHeader
+        title="Your organizations"
+        lead={`${plural(orgs.length, "organization")} you belong to, with your role in each.`}
+        actions={
+          <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newOrgHref()}>
+            New organization
+          </Link>
+        }
+      />
 
       <div className="org-tools">
         <label className="org-search" htmlFor={searchId}>

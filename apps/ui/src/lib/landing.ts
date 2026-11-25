@@ -20,14 +20,14 @@ export function onboardingPath(step: string | null | undefined): string {
 export const HOME_SCREEN_VIEW: Readonly<Record<HomeScreen, ViewSlug>> = {
   endpoints: "traffic",
   requests: "explore",
-  exceptions: "errors",
+  // Errors is "Coming soon": until it ships, Exceptions opens Traffic.
+  exceptions: "traffic",
 };
 
 /** The home screens as Account settings offers them, in onboarding's order and words. */
 export const HOME_SCREEN_CHOICES: readonly { id: HomeScreen; label: string; help: string }[] = [
   { id: "endpoints", label: "Slow or failing endpoints", help: "Every API, with its latency and error rate. Opens Traffic." },
   { id: "requests", label: "Requests across services", help: "One request, followed through every service. Opens Explore." },
-  { id: "exceptions", label: "Exceptions", help: "Grouped, with the request that caused each one. Opens Errors." },
 ];
 
 /** The view a project opens on: the one the user's home screen maps to, else the default. */

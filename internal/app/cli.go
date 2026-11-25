@@ -652,7 +652,7 @@ func runOpenAPI(stdout io.Writer) error {
 	server.RegisterMeta(srv.API(), nil)
 	query.Register(srv.API(), nil, nil) // handlers are never invoked; only the schema is read
 	identity.Register(srv.API())
-	identity.RegisterProviders(srv.API(), config.IdentityConfig{})
+	identity.RegisterProviders(srv.API(), config.IdentityConfig{}, nil)
 	identity.NewOAuth(config.IdentityConfig{}, identity.NewValkeyOAuthStateStore(nil), nil, nil).Register(srv.API())
 	identity.NewHandoff(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
 	identity.NewSessions(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())

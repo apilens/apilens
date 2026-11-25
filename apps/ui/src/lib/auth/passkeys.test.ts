@@ -135,6 +135,23 @@ describe("signInWithPasskey", () => {
     expect(verify).toMatchObject({ challenge_id: "ch_1", next: "/acme/requests", credential: { id: "AQI", type: "public-key" } });
   });
 
+  it("reads a remember callback when the credential is picked, not when the request starts", async () => {
+    let remember = true;
+    const { e, fetchMock } = env(
+      [
+        { status: 200, body: OPTIONS },
+        { status: 200, body: { ok: true, next: "/" } },
+      ],
+      async () => {
+        // The user unticks "keep me signed in" while the autofill sheet is open.
+        remember = false;
+        return fakeAssertion();
+      },
+    );
+    await signInWithPasskey({ mediation: "conditional", remember: () => remember }, e);
+    expect(bodyOf(fetchMock.mock.calls[1])).toMatchObject({ remember: false });
+  });
+
   it("asks for fully discoverable options without an email, passing conditional mediation and the signal", async () => {
     const ctl = new AbortController();
     const { e, fetchMock, get } = env(

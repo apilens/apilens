@@ -19,6 +19,9 @@ type Querier interface {
 	// (the name at the time) stays so org and project history stays readable.
 	// Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 	AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// Whether any active organization has an SSO connection, so the sign-in
+	// page shows its SSO button.
+	AnySSOConnection(ctx context.Context) (bool, error)
 	// The database's current time: an export ends there, on the clock that
 	// stamps created_at, so a skewed app clock cannot cut or extend it.
 	AuditClock(ctx context.Context) (time.Time, error)

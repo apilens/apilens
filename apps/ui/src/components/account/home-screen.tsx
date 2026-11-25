@@ -25,7 +25,11 @@ export function PreferencesSettings({ home }: { home: HomeScreen | null }) {
 function HomeScreenCard({ initial }: { initial: HomeScreen | null }) {
   const id = useId();
   const [saved, setSaved] = useState<HomeScreen | null>(initial);
-  const [selected, setSelected] = useState<HomeScreen | null>(initial);
+  // A stored screen whose page is not live any more (Exceptions, while Errors
+  // is "Coming soon") shows the choice it now opens, so a radio is always on.
+  const [selected, setSelected] = useState<HomeScreen | null>(
+    initial && HOME_SCREEN_CHOICES.some((c) => c.id === initial) ? initial : initial ? HOME_SCREEN_CHOICES[0].id : null,
+  );
   const [status, setStatus] = useState<Status>(null);
   const [pending, start] = useTransition();
   const dirty = selected !== null && selected !== saved;

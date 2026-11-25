@@ -49,8 +49,8 @@ export const VIEWS = [
   { slug: "deploys", label: "Deploys", section: "Catalog" },
   { slug: "access", label: "Access", section: "Configure" },
 ] as const;
-/** Where a project opens. */
-export const HOME_VIEW = "incidents";
+/** Where a project opens. Incidents and Errors are "Coming soon", so Traffic. */
+export const HOME_VIEW = "traffic";
 export const SECTIONS = ["Monitor", "Catalog", "Configure"] as const;
 export type Section = (typeof SECTIONS)[number];
 /** Primary rail areas (Sentry-style): icon + short label; each opens its first page. */

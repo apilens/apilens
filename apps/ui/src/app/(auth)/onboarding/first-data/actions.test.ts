@@ -35,7 +35,7 @@ describe("openProject", () => {
     updateOnboarding.mockResolvedValue({});
     await expect(openProject("checkout")).rejects.toThrow("NEXT_REDIRECT");
     expect(updateOnboarding.mock.calls[0][0]).toEqual({ completed: true });
-    expect(redirect).toHaveBeenCalledWith("/project/checkout/incidents");
+    expect(redirect).toHaveBeenCalledWith("/project/checkout/traffic");
   });
 
   it("opens the view the user picked as home", async () => {

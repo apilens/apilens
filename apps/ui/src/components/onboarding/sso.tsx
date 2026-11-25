@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { withRemember } from "@/lib/keep-signed-in";
 import {
   SSO_LOOKUP_FAILED,
   SSO_NEEDS_EMAIL,
@@ -71,11 +72,11 @@ export function useSSOLookup(email: string | null, next?: string) {
    * the sentence to show when it cannot (no address, no SSO for the domain, lookup failed).
    */
   const go = useCallback(
-    async (addr: string | null): Promise<string | null> => {
+    async (addr: string | null, keepSignedIn = true): Promise<string | null> => {
       if (!addr) return SSO_NEEDS_EMAIL;
       const res = await resolve(addr);
       if (res.kind === "match") {
-        window.location.assign(res.match.startUrl);
+        window.location.assign(withRemember(res.match.startUrl, keepSignedIn));
         return null;
       }
       return res.kind === "none" ? SSO_NOT_SET_UP : SSO_LOOKUP_FAILED;
@@ -91,9 +92,9 @@ export function useSSOLookup(email: string | null, next?: string) {
  * "Continue with <org> SSO": a plain link to identity's SSO start (a full-page navigation). The
  * primary action when the organization enforces SSO, otherwise a secondary button.
  */
-export function SSOLink({ match, primary }: { match: SSOMatch; primary?: boolean }) {
+export function SSOLink({ match, primary, remember = true }: { match: SSOMatch; primary?: boolean; remember?: boolean }) {
   return (
-    <a className={`ah-btn ${primary ? "ah-btn--primary" : "ah-btn--secondary"} au-btn-full`} href={match.startUrl} data-sso={match.enforced ? "enforced" : "available"}>
+    <a className={`ah-btn ${primary ? "ah-btn--primary" : "ah-btn--secondary"} au-btn-full`} href={withRemember(match.startUrl, remember)} data-sso={match.enforced ? "enforced" : "available"}>
       <ObIcon name="lock" />
       {ssoLabel(match.orgName)}
     </a>

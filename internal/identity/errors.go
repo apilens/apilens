@@ -110,6 +110,14 @@ const (
 	// CodeDomainNotAllowed: an allowed domain is a public email provider
 	// (gmail.com, outlook.com, …) that anyone can hold an address at.
 	CodeDomainNotAllowed ErrCode = "domain_not_allowed"
+
+	// CodeDomainNotVerified: a domain was added that the acting user's own
+	// verified email is not at.
+	CodeDomainNotVerified ErrCode = "domain_not_verified"
+
+	// CodeDomainTaken: another organization already allows joining with
+	// this domain.
+	CodeDomainTaken ErrCode = "domain_taken"
 	// CodeLastOwner: the change would leave the organization without an
 	// owner; make someone else an owner first.
 	CodeLastOwner ErrCode = "last_owner"
@@ -206,6 +214,8 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeRecoveryNotReady:      {http.StatusConflict, "Recovery not ready", "Account recovery is still in its waiting period. Try again after it ends."},
 	CodeSlugImmutable:         {http.StatusConflict, "Slug cannot be changed", "This slug cannot be changed."},
 	CodeDomainNotAllowed:      {http.StatusBadRequest, "Domain not allowed", "Public email domains cannot be claimed by an organization."},
+	CodeDomainNotVerified:     {http.StatusUnprocessableEntity, "Domain not verified", "You can only allow joining with a domain your own verified email is at."},
+	CodeDomainTaken:           {http.StatusConflict, "Domain taken", "Another organization already allows joining with this domain."},
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},

@@ -4,8 +4,14 @@
 
 /** Where a sign-in that answered `2fa_required` continues (the pre-auth token waits in its cookie). */
 export const TWO_FACTOR_PATH = "/auth/2fa";
-/** Where a first sign-up lands when the caller asked for nowhere in particular. */
-export const NEW_USER_PATH = "/onboarding/about";
+/**
+ * What `/verify` asks identity to land on. Nothing of its own: identity sends a brand-new user to
+ * onboarding and everyone else to their last project, so a sign-up code typed by someone who
+ * already has an account signs them in instead of restarting onboarding.
+ */
+export function verifyNext(asked: string | undefined): string | undefined {
+  return asked;
+}
 /** Wrong guesses identity tolerates per emailed code (`emailauth.MaxAttempts`). */
 export const MAX_CODE_ATTEMPTS = 5;
 

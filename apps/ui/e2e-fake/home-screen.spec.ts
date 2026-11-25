@@ -34,28 +34,28 @@ test.afterAll(async () => {
 test("the home screen persists and decides where / opens", async ({ page }) => {
   await seedShop(true);
   await signIn(page, PAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Preferences" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Preferences" })).toBeVisible();
   const card = page.getByRole("form", { name: "Home screen" });
   const save = card.getByRole("button", { name: "Save" });
   await expect(save).toBeDisabled();
 
-  await card.getByRole("radio", { name: /^Exceptions/ }).check();
+  await card.getByRole("radio", { name: /^Requests across services/ }).check();
   await save.click();
   await expect(card.getByRole("status")).toHaveText("Home screen saved.");
   await expect(save).toBeDisabled();
 
   await page.reload();
-  await expect(page.getByRole("form", { name: "Home screen" }).getByRole("radio", { name: /^Exceptions/ })).toBeChecked();
+  await expect(page.getByRole("form", { name: "Home screen" }).getByRole("radio", { name: /^Requests across services/ })).toBeChecked();
 
   await page.goto("/");
-  await page.waitForURL((url) => url.pathname === "/project/shop/errors");
+  await page.waitForURL((url) => url.pathname === "/project/shop/explore");
 
   await page.goto(PAGE);
-  await page.getByRole("radio", { name: /^Requests across services/ }).check();
+  await page.getByRole("radio", { name: /^Slow or failing endpoints/ }).check();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Home screen saved." })).toBeVisible();
   await page.goto("/");
-  await page.waitForURL((url) => url.pathname === "/project/shop/explore");
+  await page.waitForURL((url) => url.pathname === "/project/shop/traffic");
 });
 
 test("a project with no ingested data opens SDK setup", async ({ page }) => {

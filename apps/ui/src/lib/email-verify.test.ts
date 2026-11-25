@@ -4,6 +4,7 @@ import {
   countdown,
   twoFactorPath,
   verifyEmailCode,
+  verifyNext,
   verifyErrorMessage,
   verifyRateLimitMessage,
   wrongCodeMessage,
@@ -113,5 +114,15 @@ describe("copy", () => {
   it("builds the 2FA path", () => {
     expect(twoFactorPath(null)).toBe("/auth/2fa");
     expect(twoFactorPath("/orgs?x=1")).toBe("/auth/2fa?next=%2Forgs%3Fx%3D1");
+  });
+});
+
+describe("verifyNext", () => {
+  it("leaves the landing to identity when the page asked for none", () => {
+    expect(verifyNext(undefined)).toBeUndefined();
+  });
+
+  it("keeps the page's next", () => {
+    expect(verifyNext("/invite/abc")).toBe("/invite/abc");
   });
 });

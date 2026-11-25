@@ -397,6 +397,7 @@ func (o *OAuth) signInUser(ctx context.Context, ext ExternalIdentity, st OAuthSt
 			return nil, failure(CodeInternal, "issue_pre_auth", err)
 		}
 		res := NewSignInTwoFactor(pre, next)
+		res.Remember = st.Remember
 		return &res, nil
 	}
 
@@ -423,6 +424,7 @@ func (o *OAuth) signInUser(ctx context.Context, ext ExternalIdentity, st OAuthSt
 		o.logger.ErrorContext(ctx, "oauth callback: audit", "error", err, "user_id", user.ID)
 	}
 	res := NewSignInSession(t, next, o.now())
+	res.Remember = st.Remember
 	return &res, nil
 }
 

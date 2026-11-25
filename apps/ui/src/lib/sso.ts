@@ -13,8 +13,6 @@
 //
 // Client-safe: no server imports. The Route Handler shares {@link ssoStartHref}.
 
-/** Same as social sign-in (`OAUTH_REMEMBER`): an SSO sign-in has no form to ask on. */
-export const SSO_REMEMBER = true;
 
 export const SSO_LOOKUP_PATH = "/api/auth/sso/lookup";
 
@@ -34,7 +32,7 @@ export type SSOLookupResult = { kind: "match"; match: SSOMatch } | { kind: "none
  * which the provider pre-fills). Null unless `startUrl` is an absolute http(s) URL, so a bad
  * answer can never become a `javascript:` link.
  */
-export function ssoStartHref(startUrl: unknown, opts: { email?: string; next?: string } = {}): string | null {
+export function ssoStartHref(startUrl: unknown, opts: { email?: string; next?: string; remember?: boolean } = {}): string | null {
   if (typeof startUrl !== "string" || startUrl === "") return null;
   let url: URL;
   try {
@@ -44,7 +42,7 @@ export function ssoStartHref(startUrl: unknown, opts: { email?: string; next?: s
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (opts.next) url.searchParams.set("next", opts.next);
-  url.searchParams.set("remember", String(SSO_REMEMBER));
+  url.searchParams.set("remember", String(opts.remember ?? true));
   if (opts.email) url.searchParams.set("login_hint", opts.email);
   return url.href;
 }
