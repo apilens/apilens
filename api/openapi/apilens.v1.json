@@ -492,6 +492,14 @@
             "readOnly": true,
             "type": "string"
           },
+          "aggregation": {
+            "description": "How a resource gauge combines over the app's instances; max for the other metrics.",
+            "enum": [
+              "max",
+              "avg"
+            ],
+            "type": "string"
+          },
           "app_id": {
             "format": "uuid",
             "type": "string"
@@ -570,7 +578,14 @@
               "p75",
               "p95",
               "apdex",
-              "unique_consumers"
+              "unique_consumers",
+              "cpu_pct_of_limit",
+              "memory_pct_of_limit",
+              "cpu_throttled_ratio",
+              "event_loop_p99_ms",
+              "gc_pause_pct",
+              "oom_kills",
+              "restarts"
             ],
             "type": "string"
           },
@@ -611,6 +626,7 @@
           "metric",
           "condition",
           "threshold",
+          "aggregation",
           "window_s",
           "every_s",
           "cron",
@@ -635,6 +651,14 @@
             ],
             "format": "uri",
             "readOnly": true,
+            "type": "string"
+          },
+          "aggregation": {
+            "description": "How a resource gauge (cpu_pct_of_limit, memory_pct_of_limit, cpu_throttled_ratio, event_loop_p99_ms, gc_pause_pct) combines over the app's instances (containers count once): max, the worst instance's peak, or avg, the instances' average. Omitted means max; avg is refused for the other metrics.",
+            "enum": [
+              "max",
+              "avg"
+            ],
             "type": "string"
           },
           "channel_ids": {
@@ -689,7 +713,7 @@
             "$ref": "#/components/schemas/AlertFilters"
           },
           "metric": {
-            "description": "What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "description": "What the rule aggregates over its window. Over requests: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers. Over the SDKs' runtime resources (filters do not apply): CPU % of the limit (the container's, else the process's), container memory working set % of its limit, CPU throttled ratio (0 to 1), Node.js event-loop delay p99 in ms, GC pause % of the time, OOM kills and restarts (counts, each container once). A resource metric has no data, never 0, over a window without resource heartbeats that measured it.",
             "enum": [
               "traffic",
               "errors",
@@ -702,7 +726,14 @@
               "p75",
               "p95",
               "apdex",
-              "unique_consumers"
+              "unique_consumers",
+              "cpu_pct_of_limit",
+              "memory_pct_of_limit",
+              "cpu_throttled_ratio",
+              "event_loop_p99_ms",
+              "gc_pause_pct",
+              "oom_kills",
+              "restarts"
             ],
             "type": "string"
           },
@@ -727,7 +758,7 @@
             "type": "integer"
           },
           "threshold": {
-            "description": "Not negative; at most 1 for the error rates and apdex.",
+            "description": "Not negative; at most 1 for the error rates, apdex and cpu_throttled_ratio, at most 100 for the percents (cpu_pct_of_limit, memory_pct_of_limit, gc_pause_pct).",
             "format": "double",
             "type": "number"
           },
@@ -3085,6 +3116,14 @@
             "readOnly": true,
             "type": "string"
           },
+          "aggregation": {
+            "description": "How a resource gauge (cpu_pct_of_limit, memory_pct_of_limit, cpu_throttled_ratio, event_loop_p99_ms, gc_pause_pct) combines over the app's instances (containers count once): max, the worst instance's peak, or avg, the instances' average. Omitted means max; avg is refused for the other metrics.",
+            "enum": [
+              "max",
+              "avg"
+            ],
+            "type": "string"
+          },
           "app_id": {
             "description": "The app whose requests the rule counts; it never changes.",
             "format": "uuid",
@@ -3142,7 +3181,7 @@
             "$ref": "#/components/schemas/AlertFilters"
           },
           "metric": {
-            "description": "What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "description": "What the rule aggregates over its window. Over requests: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers. Over the SDKs' runtime resources (filters do not apply): CPU % of the limit (the container's, else the process's), container memory working set % of its limit, CPU throttled ratio (0 to 1), Node.js event-loop delay p99 in ms, GC pause % of the time, OOM kills and restarts (counts, each container once). A resource metric has no data, never 0, over a window without resource heartbeats that measured it.",
             "enum": [
               "traffic",
               "errors",
@@ -3155,7 +3194,14 @@
               "p75",
               "p95",
               "apdex",
-              "unique_consumers"
+              "unique_consumers",
+              "cpu_pct_of_limit",
+              "memory_pct_of_limit",
+              "cpu_throttled_ratio",
+              "event_loop_p99_ms",
+              "gc_pause_pct",
+              "oom_kills",
+              "restarts"
             ],
             "type": "string"
           },
@@ -3180,7 +3226,7 @@
             "type": "integer"
           },
           "threshold": {
-            "description": "Not negative; at most 1 for the error rates and apdex.",
+            "description": "Not negative; at most 1 for the error rates, apdex and cpu_throttled_ratio, at most 100 for the percents (cpu_pct_of_limit, memory_pct_of_limit, gc_pause_pct).",
             "format": "double",
             "type": "number"
           },

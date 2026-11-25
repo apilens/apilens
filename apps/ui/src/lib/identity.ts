@@ -1464,7 +1464,14 @@ export type AlertMetric =
   | "p75"
   | "p95"
   | "apdex"
-  | "unique_consumers";
+  | "unique_consumers"
+  | "cpu_pct_of_limit"
+  | "memory_pct_of_limit"
+  | "cpu_throttled_ratio"
+  | "event_loop_p99_ms"
+  | "gc_pause_pct"
+  | "oom_kills"
+  | "restarts";
 /** How the value compares to the threshold for the rule to breach. */
 export type AlertCondition = "gt" | "gte" | "lt" | "lte";
 /** Where a rule stands after its latest evaluation. */

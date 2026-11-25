@@ -121,9 +121,10 @@ type AlertRule struct {
 	Environment   string          `json:"environment"`
 	Name          string          `json:"name"`
 	Description   string          `json:"description"`
-	Metric        string          `json:"metric" enum:"traffic,errors,error_rate,server_errors,server_error_rate,client_errors,client_error_rate,p50,p75,p95,apdex,unique_consumers"`
+	Metric        string          `json:"metric" enum:"traffic,errors,error_rate,server_errors,server_error_rate,client_errors,client_error_rate,p50,p75,p95,apdex,unique_consumers,cpu_pct_of_limit,memory_pct_of_limit,cpu_throttled_ratio,event_loop_p99_ms,gc_pause_pct,oom_kills,restarts"`
 	Condition     string          `json:"condition" enum:"gt,gte,lt,lte"`
 	Threshold     float64         `json:"threshold"`
+	Aggregation   string          `json:"aggregation" enum:"max,avg" doc:"How a resource gauge combines over the app's instances; max for the other metrics."`
 	WindowS       int32           `json:"window_s"`
 	EveryS        *int32          `json:"every_s" required:"true" nullable:"true" doc:"Evaluation frequency in seconds; null when cron is set."`
 	Cron          *string         `json:"cron" required:"true" nullable:"true" doc:"Evaluation schedule (five cron fields, UTC); null when every_s is set."`
@@ -146,9 +147,10 @@ type AlertRuleBody struct {
 	Environment   string       `json:"environment" minLength:"1" maxLength:"64" doc:"The environment whose requests the rule counts."`
 	Name          string       `json:"name" minLength:"1" maxLength:"128" doc:"Display name; surrounding spaces are dropped."`
 	Description   string       `json:"description,omitempty" maxLength:"1024"`
-	Metric        string       `json:"metric" enum:"traffic,errors,error_rate,server_errors,server_error_rate,client_errors,client_error_rate,p50,p75,p95,apdex,unique_consumers" doc:"What the rule aggregates over its window: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers."`
+	Metric        string       `json:"metric" enum:"traffic,errors,error_rate,server_errors,server_error_rate,client_errors,client_error_rate,p50,p75,p95,apdex,unique_consumers,cpu_pct_of_limit,memory_pct_of_limit,cpu_throttled_ratio,event_loop_p99_ms,gc_pause_pct,oom_kills,restarts" doc:"What the rule aggregates over its window. Over requests: request count, error count and rate (4xx + 5xx), server error (5xx) count and rate, client error (4xx) count and rate (rates 0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers. Over the SDKs' runtime resources (filters do not apply): CPU % of the limit (the container's, else the process's), container memory working set % of its limit, CPU throttled ratio (0 to 1), Node.js event-loop delay p99 in ms, GC pause % of the time, OOM kills and restarts (counts, each container once). A resource metric has no data, never 0, over a window without resource heartbeats that measured it."`
 	Condition     string       `json:"condition" enum:"gt,gte,lt,lte" doc:"How the value compares to threshold for the rule to breach."`
-	Threshold     float64      `json:"threshold" doc:"Not negative; at most 1 for the error rates and apdex."`
+	Threshold     float64      `json:"threshold" doc:"Not negative; at most 1 for the error rates, apdex and cpu_throttled_ratio, at most 100 for the percents (cpu_pct_of_limit, memory_pct_of_limit, gc_pause_pct)."`
+	Aggregation   string       `json:"aggregation,omitempty" required:"false" enum:"max,avg" doc:"How a resource gauge (cpu_pct_of_limit, memory_pct_of_limit, cpu_throttled_ratio, event_loop_p99_ms, gc_pause_pct) combines over the app's instances (containers count once): max, the worst instance's peak, or avg, the instances' average. Omitted means max; avg is refused for the other metrics."`
 	WindowS       int32        `json:"window_s" minimum:"60" maximum:"86400" multipleOf:"60" doc:"The trailing window the metric is aggregated over, in whole minutes."`
 	EveryS        *int32       `json:"every_s,omitempty" required:"false" minimum:"60" maximum:"86400" doc:"Evaluation frequency in seconds. Exactly one of every_s and cron."`
 	Cron          *string      `json:"cron,omitempty" required:"false" minLength:"1" maxLength:"128" doc:"Evaluation schedule: five cron fields (minute hour day-of-month month day-of-week, UTC) or a descriptor such as @hourly. Exactly one of every_s and cron."`
@@ -451,7 +453,7 @@ func (s *Service) createAlertRule(ctx context.Context, in *createAlertRuleInput)
 			ID: id, ProjectID: project, AppID: appID, Environment: v.environment, Name: v.name, Description: v.description,
 			Metric: v.metric, Condition: v.condition, Threshold: v.threshold, WindowS: v.windowS, EveryS: v.everyS, Cron: v.cron,
 			NotifyAfterS: v.notifyAfterS, ResolveAfterS: v.resolveAfterS, Filters: v.filters, ChannelIds: v.channelIDs,
-			Enabled: v.enabled, CreatedBy: user,
+			Enabled: v.enabled, CreatedBy: user, Aggregation: &v.aggregation,
 		})
 		if err != nil {
 			return nil, internalError("create alert rule", err)
@@ -485,7 +487,7 @@ func (s *Service) updateAlertRule(ctx context.Context, in *updateAlertRuleInput)
 			ID: cur.ID, ProjectID: project, Environment: v.environment, Name: v.name, Description: v.description,
 			Metric: v.metric, Condition: v.condition, Threshold: v.threshold, WindowS: v.windowS, EveryS: v.everyS, Cron: v.cron,
 			NotifyAfterS: v.notifyAfterS, ResolveAfterS: v.resolveAfterS, Filters: v.filters, ChannelIds: v.channelIDs,
-			Enabled: v.enabled,
+			Enabled: v.enabled, Aggregation: &v.aggregation,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, huma.Error404NotFound("alert rule not found")
@@ -581,6 +583,7 @@ func (s *Service) checkRuleApp(ctx context.Context, project, app uuid.UUID) erro
 type validRule struct {
 	environment, name, description string
 	metric, condition              string
+	aggregation                    string
 	threshold                      float64
 	windowS                        int32
 	everyS                         *int32
@@ -644,6 +647,23 @@ func checkRuleFields(b AlertRuleBody) (validRule, error) {
 	if (m.IsRate() || m == alerts.MetricApdex) && b.Threshold > 1 {
 		return v, bad("threshold of " + b.Metric + " must be between 0 and 1")
 	}
+	if m.IsPercent() && b.Threshold > 100 {
+		return v, bad("threshold of " + b.Metric + " must be between 0 and 100")
+	}
+	v.aggregation = string(alerts.AggregationMax)
+	switch a := alerts.Aggregation(b.Aggregation); {
+	case a == "":
+	case !a.Valid():
+		return v, bad("unknown aggregation")
+	case a == alerts.AggregationAvg && !m.IsGauge():
+		return v, bad("aggregation avg applies only to the resource gauges")
+	default:
+		v.aggregation = string(a)
+	}
+	if m.IsResource() && (strings.TrimSpace(b.Filters.Consumer) != "" ||
+		strings.TrimSpace(b.Filters.Group) != "" || strings.TrimSpace(b.Filters.Endpoint) != "") {
+		return v, bad("filters do not apply to the resource metric " + b.Metric)
+	}
 	if b.WindowS < 60 || b.WindowS > 86400 || b.WindowS%60 != 0 {
 		return v, bad("window_s must be whole minutes from 60 to 86400")
 	}
@@ -699,7 +719,8 @@ func checkRuleFilters(f AlertFilters) ([]byte, error) {
 func toAlertRule(r db.AlertRule, st *db.AlertRuleState) AlertRule {
 	out := AlertRule{
 		ID: r.ID.String(), AppID: r.AppID.String(), Environment: r.Environment, Name: r.Name, Description: r.Description,
-		Metric: r.Metric, Condition: r.Condition, Threshold: r.Threshold, WindowS: r.WindowS, EveryS: r.EveryS, Cron: r.Cron,
+		Metric: r.Metric, Condition: r.Condition, Threshold: r.Threshold, Aggregation: r.Aggregation,
+		WindowS: r.WindowS, EveryS: r.EveryS, Cron: r.Cron,
 		NotifyAfterS: r.NotifyAfterS, ResolveAfterS: r.ResolveAfterS, Enabled: r.Enabled,
 		ChannelIDs: make([]string, 0, len(r.ChannelIds)), CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
 	}

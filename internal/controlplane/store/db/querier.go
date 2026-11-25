@@ -28,6 +28,10 @@ type Querier interface {
 	// The project's keys that still work: not revoked and not expired
 	// (ingest.max_keys_per_project counts these).
 	CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (int32, error)
+	// The restarts of an app in a window, for the restarts alert metric:
+	// restart, oom and suspected_oom events, with the workers of one container
+	// ended by the same heartbeat (same container_id and at) counted once.
+	CountAppInstanceRestarts(ctx context.Context, arg CountAppInstanceRestartsParams) (int64, error)
 	// Owners whose account is not deleted: a deleted owner cannot act for the
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)

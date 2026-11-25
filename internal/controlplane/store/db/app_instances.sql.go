@@ -12,6 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const countAppInstanceRestarts = `-- name: CountAppInstanceRestarts :one
+SELECT count(DISTINCT (container_id, at))::bigint
+FROM app_instance_events
+WHERE app_id = $1
+  AND environment = $2
+  AND kind IN ('restart', 'oom', 'suspected_oom')
+  AND at >= $3 AND at < $4
+`
+
+type CountAppInstanceRestartsParams struct {
+	AppID       uuid.UUID
+	Environment string
+	Since       time.Time
+	Until       time.Time
+}
+
+// The restarts of an app in a window, for the restarts alert metric:
+// restart, oom and suspected_oom events, with the workers of one container
+// ended by the same heartbeat (same container_id and at) counted once.
+func (q *Queries) CountAppInstanceRestarts(ctx context.Context, arg CountAppInstanceRestartsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAppInstanceRestarts,
+		arg.AppID,
+		arg.Environment,
+		arg.Since,
+		arg.Until,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const endReplacedInstances = `-- name: EndReplacedInstances :many
 WITH p AS (
     SELECT $4::timestamptz AS now, $5::text AS pod_uid, $6::text AS container_id
