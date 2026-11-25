@@ -38,6 +38,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [SDK health & stats](#sdk-health--stats)
 - [App metadata](#app-metadata)
 - [Heartbeat](#heartbeat)
+- [Runtime resources](#runtime-resources)
 - [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
 - [Network requirements](#network-requirements)
@@ -60,6 +61,15 @@ Framework extras pull in the matching web framework if you don't already depend 
 ```bash
 pip install 'apilenss[fastapi]'     # or [flask] / [django] / [starlette] / [litestar] / [blacksheep]
 pip install 'apilenss[all]'         # everything
+```
+
+Runtime resources work without extra dependencies (they read `/proc` and the
+cgroup files on Linux). The optional `resources` extra adds
+[psutil](https://pypi.org/project/psutil/), which fills in process RSS, thread
+and fd counts on macOS and other non-Linux systems:
+
+```bash
+pip install 'apilenss[resources]'
 ```
 
 Requires Python 3.10+. The only hard dependencies are `opentelemetry-api` and
@@ -527,6 +537,9 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `send_heartbeat` | `True` | Send `POST /v1/heartbeat` on start, every `heartbeat_interval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
 | `heartbeat_interval` | `60.0` | Seconds between heartbeats. Minimum 10 (ingest answers 429 to faster ones). |
 | `app_id` | `""` | App to send heartbeats for when the client is used without a middleware (middlewares register their own `app_id`). |
+| `capture_resources` | `True` | Sample runtime resources (process CPU and memory, container cgroup CPU/memory/limits, GC, DB pools, the container's top processes) on a daemon thread and send them in each heartbeat's `resources` block. Env `APILENS_CAPTURE_RESOURCES`. The remote policy can only narrow it. See [Runtime resources](#runtime-resources). |
+| `resources_interval` | `15.0` | Seconds between resource samples (minimum 15). A remote `min_interval_s` can lengthen it, never shorten it. Env `APILENS_RESOURCES_INTERVAL`. |
+| `capture_process_list` | `True` | Include the top 20 processes of the SDK's own container by RSS (`pid`, `ppid`, `comm`, CPU, RSS; never command lines or environments), every 60 s, Linux only. Env `APILENS_CAPTURE_PROCESS_LIST`. |
 | `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot, e.g. to export to Prometheus or StatsD. Exceptions are logged at DEBUG and ignored. See [SDK health & stats](#sdk-health--stats). |
 | `retry_backoff_base` / `retry_backoff_max` | `0.25` / `5.0` | Base and ceiling, in seconds, of the exponential retry backoff. |
 | `mask_log_record` | `None` | `(LogRecord) -> LogRecord \| None` applied to every log record (auto error-trace logs) before it is queued: edit and return it, or return `None` to drop it. Built-in `key=value` masking runs afterwards; a callback that raises drops the record. |
@@ -779,6 +792,9 @@ parsed values as a dict.
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
 | `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
+| `APILENS_CAPTURE_RESOURCES` | `capture_resources` | bool | `true` |
+| `APILENS_RESOURCES_INTERVAL` | `resources_interval` | float (seconds, minimum 15) | `15.0` |
+| `APILENS_CAPTURE_PROCESS_LIST` | `capture_process_list` | bool | `true` |
 
 `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` add to the patterns
 passed in code. `APILENS_CAPTURE_SPANS=false`, `APILENS_CAPTURE_IP=false` and
@@ -823,6 +839,9 @@ the setting wins when both are set.
 | `APILENS_SAMPLE_ON_RESPONSE` | `None` | Response-stage sampling callback (callable or dotted path), see [sampling](#sampling). An unimportable path raises at startup. |
 | `APILENS_FLUSH_ON_SHUTDOWN` | `True` | Flush the queue from `atexit` when the process exits. The env var of the same name set to `false` also disables it. |
 | `APILENS_SHUTDOWN_TIMEOUT` | `5.0` | Upper bound, in seconds, on the shutdown flush. |
+| `APILENS_CAPTURE_RESOURCES` | `True` | Sample runtime resources into the heartbeat (see [Runtime resources](#runtime-resources)). |
+| `APILENS_RESOURCES_INTERVAL` | `15.0` | Seconds between resource samples (minimum 15). |
+| `APILENS_CAPTURE_PROCESS_LIST` | `True` | Include the container's top 20 processes (no command lines). |
 
 **Local development:** point the SDK at a local ingest with
 `APILENS_BASE_URL=http://localhost:8000/api/v1` (or the `base_url` kwarg), and set
@@ -1057,7 +1076,8 @@ minutes), and answers with the app's remote capture policy.
 - **Body:** `app_id`, `environment`, `instance_id` (a UUID, new per process
   start and per forked worker), `sdk_name`, `sdk_version`, `runtime`
   (`python 3.13.1`), `pid`, `uptime_s`, `release`, `commit`, and
-  `stats` (the [`client.stats()`](#sdk-health--stats) snapshot). Never the API key.
+  `stats` (the [`client.stats()`](#sdk-health--stats) snapshot), plus `identity`
+  and `resources` (see [Runtime resources](#runtime-resources)). Never the API key.
 - **Policy:** the response's `policy` (set per app in the dashboard) is
   applied to every request from then on, so capture can be turned down
   without a deploy. `client.policy("orders-api")` returns the immutable
@@ -1079,6 +1099,83 @@ minutes), and answers with the app's remote capture policy.
   `APILENS_SEND_HEARTBEAT=false`.
 
 The full contract is in the ingest docs (`apps/docs/ingest/heartbeat.mdx`).
+
+---
+
+## Runtime resources
+
+Every heartbeat also says where the process runs (`identity`) and how much CPU
+and memory it and its container used since the previous heartbeat
+(`resources`). The SDK samples every `resources_interval` seconds (default 15)
+on a daemon thread and each heartbeat sends the window's `{min, avg, max,
+last}` per value. Request records carry the process's `instance_id`, so
+latency and errors can be split per instance next to its resources.
+
+| Block | What | Source |
+|---|---|---|
+| `process.cpu` | Cores busy (`cores_used`, can exceed 1) and `pct_of_limit` of the effective limit (cgroup quota, CPU affinity, cpuset, else host cores) | `time.process_time()` deltas |
+| `process.memory` | RSS; PSS and USS every 60 s on Linux | psutil, else `/proc/self/statm`; `/proc/self/smaps_rollup` |
+| `process.threads` / `fds` | OS threads, open file descriptors | psutil or `/proc/self` |
+| `container` | cgroup CPU, limit and throttling; memory current, working set, anon, file, swap, limit and OOM kills | cgroup v1 or v2, nested limits resolved |
+| `runtime.python` | GC collections, collected, uncollectable and pause time per generation; Python threads; `gil_enabled` | `gc.get_stats()`, `gc.callbacks` |
+| `pools` | SQLAlchemy `QueuePool` (used, idle, max, waiters) and Django open connections per alias | discovered once the app uses them |
+| `processes` | Top 20 processes of the SDK's own container by RSS: `pid`, `ppid`, `comm`, CPU %, RSS | `/proc/<pid>/stat`, `comm`, `cgroup` (Linux) |
+
+- **Never 0 for unknown.** A value the SDK cannot measure is left out (null),
+  never sent as `0`. On macOS without psutil there is no current RSS (the peak
+  `ru_maxrss` is never reported as current) and no container block at all.
+- **psutil is optional.** `pip install 'apilenss[resources]'` adds it; on Linux
+  `/proc` covers everything without it.
+- **Containers.** Every worker of a container sends the same `container`
+  numbers with its `container_id`; APILens keeps one series per container and
+  never adds the workers' RSS together.
+- **Process list privacy.** Only `/proc/<pid>/stat`, `comm` and `cgroup` are
+  read: never `cmdline`, `environ` or `cwd`, so a `--password=...` argument
+  never leaves the host. Only processes in the SDK's own cgroup are listed,
+  and the list turns itself off (flag `host_pid_namespace`) when the process
+  sees the host's PID namespace. `capture_process_list=False` turns it off.
+- **Safety.** Each collector is isolated: its errors are counted and it is
+  turned off after 5 failures in a row. The thread is a daemon, a real OS
+  thread under gevent/eventlet, restarted in forked children, and measures its
+  own cost (`sampler_cost_us`): above 0.1 % of one core it skips PSS and the
+  process list (flag `sampler_backoff`).
+- **Remote policy.** The heartbeat's `policy.resources` can turn sampling off
+  (`enabled: false`), lengthen the interval (`min_interval_s`) or turn
+  collectors off (`disabled_collectors`: `process.cpu`, `process.memory`,
+  `process.pss`, `container.cpu`, `container.memory`, `runtime`, `pools`,
+  `processes`). It never turns on what local config turned off.
+- **Turn it off:** `capture_resources=False` (env
+  `APILENS_CAPTURE_RESOURCES=false`, Django setting of the same name): no
+  thread is started and heartbeats carry no `resources` block.
+
+**gunicorn `--preload`.** The app is imported once in the master and workers
+are forked from it, sharing its pages copy-on-write. Each worker's RSS counts
+those shared pages in full, so adding workers' RSS overstates memory; PSS
+splits shared pages between the processes sharing them, which is why a
+preloaded worker shows PSS well under its RSS. Each worker gets its own
+`instance_id` and its own sampler (restarted after the fork); the container
+block (cgroup memory) is the number to watch for the whole container.
+
+```bash
+gunicorn app:app --preload --workers 4   # each worker: pss < rss
+```
+
+**Celery.** The prefork pool forks worker processes: each is its own instance
+with its own sampler, started when it first records a request or heartbeat.
+Tasks that never use the SDK client send nothing.
+
+**Serverless (Lambda, Cloud Run) and `mode="inline"`.** There is no sampler
+thread: the SDK samples at the end of an invocation (on `flush()`) when one is
+due and sends it with that flush's heartbeat; the window is flagged
+`serverless`. When the wall clock jumps over twice the interval between two
+samples (the runtime froze the process between invocations) the window is
+flagged `freeze_gap` and CPU is re-baselined instead of reported diluted.
+
+**Django `runserver`.** The autoreloader's watcher parent never samples; only
+the child that serves requests (`RUN_MAIN=true`) does.
+
+The wire contract is in the ingest docs (`apps/docs/ingest/heartbeat.mdx`,
+"Runtime resources").
 
 ---
 

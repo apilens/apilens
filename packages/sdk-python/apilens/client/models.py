@@ -44,6 +44,10 @@ class RequestRecord:
     # Django Ninja 422, Litestar 400): ``[{loc, msg, type}]``, at most 20,
     # ``loc`` dotted. Sent only when non-empty.
     validation_errors: list[dict[str, str]] | None = None
+    # The SDK process that served the request (its heartbeat ``instance_id``,
+    # new per process start and per forked worker), so latency, throughput
+    # and errors can be split per instance. Stamped by the client.
+    instance_id: str = ""
 
     def to_wire(self) -> dict[str, object]:
         ts = self.timestamp
@@ -91,6 +95,8 @@ class RequestRecord:
         # sampled-in records stay byte-identical to SDKs without sampling.
         if not self.sampled:
             wire["sampled"] = False
+        if self.instance_id:
+            wire["instance_id"] = self.instance_id
         if self.attributes:
             wire["attributes"] = dict(self.attributes)
         if self.validation_errors:

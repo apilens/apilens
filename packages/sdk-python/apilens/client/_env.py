@@ -126,6 +126,9 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "batch_size": parse_int,
     "flush_interval": parse_float,
     "mode": parse_mode,
+    "capture_resources": parse_bool,
+    "resources_interval": parse_float,
+    "capture_process_list": parse_bool,
 }
 
 #: Options whose env var is merged by the component that owns it rather than

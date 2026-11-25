@@ -168,6 +168,9 @@ def _get_client_from_settings() -> ApiLensClient:
         capture_ip=bool(_setting(settings, "CAPTURE_IP", True, env)),
         anonymize_ip=bool(_setting(settings, "ANONYMIZE_IP", False, env)),
         mask_log_record=_resolve_body_masker(settings, "APILENS_MASK_LOG_RECORD"),
+        capture_resources=bool(_setting(settings, "CAPTURE_RESOURCES", True, env)),
+        resources_interval=float(_setting(settings, "RESOURCES_INTERVAL", 15.0, env)),
+        capture_process_list=bool(_setting(settings, "CAPTURE_PROCESS_LIST", True, env)),
     )
     _client_singleton = ApiLensClient(cfg)
     return _client_singleton

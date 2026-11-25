@@ -20,6 +20,45 @@ from dataclasses import dataclass
 from typing import Any
 
 
+#: Collector names the remote ``policy.resources.disabled_collectors`` may list.
+RESOURCE_COLLECTORS = frozenset(
+    {
+        "process.cpu",
+        "process.memory",
+        "process.pss",
+        "container.cpu",
+        "container.memory",
+        "runtime",
+        "pools",
+        "processes",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ResourcesPolicy:
+    """The ``policy.resources`` part: runtime resources sampling (M7).
+
+    It only narrows the local ``capture_resources`` / ``resources_interval``:
+    ``enabled=False`` stops sampling, ``min_interval_s`` lengthens the
+    interval (the effective one is ``max(local, min_interval_s)``) and
+    ``disabled_collectors`` turns collectors off. Absent: no restriction."""
+
+    enabled: bool = True
+    min_interval_s: float = 0.0
+    disabled_collectors: frozenset[str] = frozenset()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "min_interval_s": self.min_interval_s,
+            "disabled_collectors": sorted(self.disabled_collectors),
+        }
+
+
+NO_RESOURCES_RESTRICTION = ResourcesPolicy()
+
+
 @dataclass(frozen=True, slots=True)
 class Policy:
     """One app's capture policy. Every field only ever narrows local config."""
@@ -33,6 +72,7 @@ class Policy:
     capture_response_body: bool = True
     # Upper bound on each captured body, in bytes; ``None`` means no remote cap.
     max_payload_bytes: int | None = None
+    resources: ResourcesPolicy = NO_RESOURCES_RESTRICTION
 
     def cap_sample_rate(self, local: float) -> float:
         """The effective sample rate: the lower of ``local`` and the remote rate."""
@@ -52,6 +92,7 @@ class Policy:
             "capture_request_body": self.capture_request_body,
             "capture_response_body": self.capture_response_body,
             "max_payload_bytes": self.max_payload_bytes,
+            "resources": self.resources.to_dict(),
         }
 
 
@@ -65,6 +106,7 @@ DISABLED = Policy(
     capture_request_body=False,
     capture_response_body=False,
     max_payload_bytes=0,
+    resources=ResourcesPolicy(enabled=False),
 )
 
 
@@ -86,6 +128,28 @@ def _cap(value: Any) -> int | None:
     return max(0, int(value))
 
 
+def _interval(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 0.0
+    return max(0.0, float(value))
+
+
+def parse_resources_policy(data: Any) -> ResourcesPolicy:
+    """The ``policy.resources`` object; anything unusable (absent, not an
+    object, unknown collector names) imposes no restriction."""
+    if not isinstance(data, dict):
+        return NO_RESOURCES_RESTRICTION
+    names = data.get("disabled_collectors")
+    disabled = frozenset(
+        n for n in (names if isinstance(names, list) else []) if isinstance(n, str) and n in RESOURCE_COLLECTORS
+    )
+    return ResourcesPolicy(
+        enabled=_flag(data.get("enabled")),
+        min_interval_s=_interval(data.get("min_interval_s")),
+        disabled_collectors=disabled,
+    )
+
+
 def parse_policy(data: Any) -> Policy | None:
     """The :class:`Policy` in a heartbeat response's ``policy`` object, or
     ``None`` when it is not an object (the caller keeps the previous one).
@@ -99,6 +163,7 @@ def parse_policy(data: Any) -> Policy | None:
         capture_request_body=_flag(data.get("capture_request_body")),
         capture_response_body=_flag(data.get("capture_response_body")),
         max_payload_bytes=_cap(data.get("max_payload_bytes")),
+        resources=parse_resources_policy(data.get("resources")),
     )
 
 
