@@ -364,8 +364,39 @@ function Marked({ text }: { text: string }) {
  * its facts after middots (`Headers · 9`, `Body · 260 B · application/json`) and its actions on
  * the right, then the content. Blocks are 16px apart with a hairline between them.
  */
-function Block({ title, meta = [], actions, tone, children }: { title: string; meta?: (string | null | undefined | false)[]; actions?: ReactNode; tone?: "error"; children: ReactNode }) {
+function Block({
+  title,
+  meta = [],
+  actions,
+  tone,
+  collapsible = false,
+  children,
+}: {
+  title: string;
+  meta?: (string | null | undefined | false)[];
+  actions?: ReactNode;
+  tone?: "error";
+  /** Open by default; its header folds it away and opens it again. */
+  collapsible?: boolean;
+  children: ReactNode;
+}) {
   const facts = meta.filter((m): m is string => Boolean(m));
+  if (collapsible) {
+    return (
+      <details className={`rd-block rd-block--fold${tone ? ` rd-block--${tone}` : ""}`} open aria-label={title}>
+        <summary className="rd-block__h">
+          <span className="rd-block__chev" aria-hidden="true" />
+          <h3 className="rd-block__title">{title}</h3>
+          {facts.map((m) => (
+            <span key={m} className="rd-block__meta">
+              {m}
+            </span>
+          ))}
+        </summary>
+        {children}
+      </details>
+    );
+  }
   return (
     <section className={`rd-block${tone ? ` rd-block--${tone}` : ""}`} aria-label={title}>
       <header className="rd-block__h">
@@ -523,7 +554,7 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
 
   return (
     <div className="rd-blocks">
-      <Block title="Overview">
+      <Block title="Overview" collapsible>
         <dl className="exd-dl">
           <Field label="Route" copy={r.path} actions={[...fa("path", r.path), { label: "Open endpoint", href: endpointHref(project, { method: r.method, path: r.path }, { range: "24h" }) }]}>
             <code>
@@ -576,17 +607,16 @@ function RequestTab({ data, project, api }: { data: RequestDetailRead; project: 
 function ResponseTab({ data, project, api }: { data: RequestDetailRead; project: string; api: FilterApi }) {
   const r = data.request;
   const appSlug = useAppSlug(r.app_id);
-  const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
-  const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
   const excs = useMemo(() => exceptionLogs(data.logs ?? []), [data.logs]);
-  const summary = errorSummary(r, excInfo);
+  // The exceptions are in full in the Exceptions tab below; the Error block only points there.
+  const summary = errorSummary(r, null);
   const validation = r.validation_errors ?? [];
   // The Body block shows the response body; the Error block repeats it only when that block can't.
   const bodyBelow = !isSampledOut(r) && Boolean(r.response_body);
 
   return (
     <div className="rd-blocks">
-      <Block title="Overview">
+      <Block title="Overview" collapsible>
         <dl className="exd-dl">
           <Field label="Status" copy={String(r.status_code)} actions={filterActions(api, "status", String(r.status_code))}>
             <span className={`exl-status exl-status--${statusClass(r.status_code)}`}>{statusText(r.status_code)}</span>
@@ -602,6 +632,11 @@ function ResponseTab({ data, project, api }: { data: RequestDetailRead; project:
           <div className="exd-error">
             <p className="exd-error__title">{summary.title}</p>
             {summary.detail ? <p className="exd-error__detail">{summary.detail}</p> : null}
+            {excs.length ? (
+              <p className="exd-error__detail">
+                {excs.length === 1 ? "1 exception was" : `${excs.length} exceptions were`} raised: see Exceptions below.
+              </p>
+            ) : null}
             {summary.body && !bodyBelow ? <ErrorBody text={r.response_body} start={summary.body} more={summary.more} /> : null}
           </div>
         </Block>
@@ -736,9 +771,9 @@ function HeadersBodyTabs({
           exceptions?.length ? (
             <div className="rd-excs">
               {exceptions.map((l, i) => (
-                <ExceptionView
+                <ExceptionCard
                   key={`${l.timestamp}-${i}`}
-                  label={exceptions.length > 1 ? `Exception ${i + 1} of ${exceptions.length}` : "Exception"}
+                  index={exceptions.length > 1 ? `${i + 1}/${exceptions.length}` : null}
                   payload={l.payload || l.message}
                   type={l.attributes?.["exception.type"]}
                   message={l.attributes?.["exception.message"]}
@@ -1346,6 +1381,99 @@ function ExceptionView({
         parsed.blocks.map((b, i) => <ExceptionBlockView key={i} block={b} open={i === 0} />)
       )}
     </section>
+  );
+}
+
+/**
+ * One exception in the Response tab's Exceptions: its type and message once, as the card's head
+ * (with Copy), the raised exception's frames under it, then each cause folded. Runs of library
+ * frames between the app's own fold into one "N library frames" line.
+ */
+function ExceptionCard({ index, payload, type, message }: { index: string | null; payload: string; type?: string; message?: string }) {
+  const parsed = useMemo(() => parseException(payload), [payload]);
+  const [raised, ...causes] = parsed.blocks;
+  const shownType = type || raised?.type || "";
+  const shownMessage = message ?? raised?.message ?? "";
+  return (
+    <article className="rd-xcard" aria-label={`Exception${index ? ` ${index}` : ""}: ${shownType}`}>
+      <header className="rd-xcard__h">
+        {index ? <span className="rd-xcard__n">{index}</span> : null}
+        <div className="rd-xcard__what">
+          {shownType ? <code className="rd-xcard__type">{shownType}</code> : null}
+          {shownMessage ? <p className="rd-xcard__msg">{shownMessage}</p> : null}
+        </div>
+        <SectionCopy text={() => payload} what="the full exception" disabled={!payload} />
+      </header>
+      {parsed.truncated !== null ? (
+        <Notice>
+          {parsed.truncated.toLocaleString("en-US")} chars were cut from the middle of this exception to fit the 64 KiB limit. The start and the root cause are kept.
+        </Notice>
+      ) : null}
+      {parsed.format === "raw" || !raised ? (
+        payload ? <pre className="rd-xcard__raw">{payload}</pre> : null
+      ) : (
+        <>
+          <Frames frames={raised.frames} />
+          {causes.map((b, i) => (
+            <details key={i} className="rd-xcause">
+              <summary>
+                <span className="rd-xcause__label">{b.label}</span>
+                <code className="rd-xcard__type">{b.type}</code>
+                {b.message ? <span className="rd-xcause__msg">{b.message}</span> : null}
+              </summary>
+              <Frames frames={b.frames} />
+            </details>
+          ))}
+        </>
+      )}
+    </article>
+  );
+}
+
+/** A block's frames, with each run of two or more library frames folded until asked for. */
+function Frames({ frames }: { frames: StackFrame[] }) {
+  const [shown, setShown] = useState<Set<number>>(new Set());
+  if (!frames.length) return <p className="rd-empty rd-xcard__none">No frames were reported for this exception.</p>;
+  const anyApp = frames.some((f) => f.inApp);
+  const out: ReactNode[] = [];
+  for (let i = 0; i < frames.length; ) {
+    let j = i;
+    while (j < frames.length && !frames[j].inApp && !frames[j].note) j++;
+    const run = j - i;
+    // Library frames fold only around the app's own; a stack of only library frames stays whole.
+    if (anyApp && run >= 2 && !shown.has(i)) {
+      const at = i;
+      out.push(
+        <li key={`fold-${at}`} className="rd-frame rd-frame--fold">
+          <button type="button" onClick={() => setShown((m) => new Set(m).add(at))}>
+            {run} library frames
+          </button>
+        </li>,
+      );
+      i = j;
+      continue;
+    }
+    const end = run > 0 ? j : i + 1;
+    for (let k = i; k < end; k++) out.push(<CardFrame key={k} frame={frames[k]} />);
+    i = end;
+  }
+  return <ol className="rd-frames rd-xcard__frames">{out}</ol>;
+}
+
+/**
+ * One frame on one line: the function, then where it is, muted. Only the file's name and line are
+ * shown (a Java frame's function already names its package and class); the full location is its title.
+ */
+function CardFrame({ frame: f }: { frame: StackFrame }) {
+  if (f.note) return <li className="rd-frame rd-frame--note">{f.note}</li>;
+  const file = f.file.split("/").pop() ?? f.file;
+  const where = f.line !== null ? `${file}:${f.line}` : file;
+  return (
+    <li className={`rd-cframe${f.inApp ? " is-app" : ""}`} title={frameLocation(f)}>
+      <span className="rd-cframe__fn">{f.fn || where}</span>
+      {f.fn && where ? <span className="rd-cframe__at">{where}</span> : null}
+      {f.code ? <code className="rd-cframe__code">{f.code}</code> : null}
+    </li>
   );
 }
 

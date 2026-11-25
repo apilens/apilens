@@ -208,7 +208,7 @@ export function parseNode(text: string): ExceptionBlock[] {
 const JAVA_FRAME = /^\s+at (?:[\w.$-]+\/)*([\w$.<>]+)\.([\w$<>-]+)\((.*?)\)$/;
 const JAVA_CAUSE = /^\s*Caused by: (.*)$/;
 const JAVA_SUPPRESSED = /^\s*Suppressed: (.*)$/;
-const JAVA_LIBRARY = /^(java|javax|jakarta|jdk|sun|com\.sun|kotlin|kotlinx|scala|org\.springframework|org\.apache|org\.eclipse|org\.hibernate|io\.netty|reactor|io\.micrometer|com\.fasterxml|ai\.apilens)\./;
+const JAVA_LIBRARY = /^(java|javax|jakarta|jdk|sun|com\.sun|kotlin|kotlinx|scala|org\.springframework|org\.apache|org\.eclipse|org\.hibernate|io\.netty|io\.vertx|io\.opentelemetry|io\.undertow|io\.grpc|io\.micrometer|io\.reactivex|reactor|com\.fasterxml|com\.google|com\.zaxxer|net\.bytebuddy|org\.glassfish|org\.jboss|org\.slf4j|ch\.qos|okhttp3|ai\.apilens)\./;
 
 function javaFrame(line: string): StackFrame | null {
   const m = line.match(JAVA_FRAME);
