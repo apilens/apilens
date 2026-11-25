@@ -31,10 +31,11 @@ import (
 
 type discardSink struct{}
 
-func (discardSink) SubmitRequests(context.Context, []pipeline.RequestRow) error { return nil }
-func (discardSink) SubmitLogs(context.Context, []pipeline.LogRow) error         { return nil }
-func (discardSink) SubmitSpans(context.Context, []pipeline.SpanRow) error       { return nil }
-func (discardSink) SubmitDeploys(context.Context, []pipeline.DeployRow) error   { return nil }
+func (discardSink) SubmitRequests(context.Context, []pipeline.RequestRow) error   { return nil }
+func (discardSink) SubmitLogs(context.Context, []pipeline.LogRow) error           { return nil }
+func (discardSink) SubmitSpans(context.Context, []pipeline.SpanRow) error         { return nil }
+func (discardSink) SubmitDeploys(context.Context, []pipeline.DeployRow) error     { return nil }
+func (discardSink) SubmitResources(context.Context, []pipeline.ResourceRow) error { return nil }
 
 // TestHeartbeatThenAppStatus runs the whole path against real Postgres and
 // Valkey: an SDK heartbeat is stored, rate-limited per instance, mirrored to
@@ -117,7 +118,7 @@ func TestHeartbeatThenAppStatus(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("heartbeat = %d %s", code, body)
 	}
-	want := `{"policy":{"enabled":false,"sample_rate":0.5,"capture_headers":true,"capture_request_body":false,"capture_response_body":true,"max_payload_bytes":2048}}`
+	want := `{"policy":{"enabled":false,"sample_rate":0.5,"capture_headers":true,"capture_request_body":false,"capture_response_body":true,"max_payload_bytes":2048,"resources":{"enabled":true,"min_interval_s":15,"disabled_collectors":[]}}}`
 	if strings.TrimSpace(body) != want {
 		t.Errorf("heartbeat body = %s, want %s", body, want)
 	}

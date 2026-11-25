@@ -51,6 +51,8 @@ describe("RETENTION_LIMITS", () => {
       spans: { default: 90, min: 1, max: 3650 },
       rollups_1m: { default: 30, min: 1, max: 400 },
       rollups_1h: { default: 400, min: 30, max: 3650 },
+      resources: { default: 30, min: 7, max: 400 },
+      resources_1h: { default: 400, min: 30, max: 3650 },
     });
   });
 });

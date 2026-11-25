@@ -88,7 +88,7 @@ func (s *Service) Get(ctx context.Context, app App) (Stored, error) {
 	}
 	return Stored{
 		App:       app,
-		Policy:    fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes),
+		Policy:    withResources(fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes), row.ResourcesEnabled, row.ResourcesMinIntervalS, row.ResourcesDisabled),
 		UpdatedAt: &row.UpdatedAt,
 		UpdatedBy: row.UpdatedBy,
 	}, nil
@@ -121,26 +121,29 @@ func (s *Service) Put(ctx context.Context, actor uuid.UUID, app App, pol Policy)
 	var previous any
 	switch {
 	case err == nil:
-		previous = policyValues(fromRow(prev.Enabled, prev.SampleRate, prev.CaptureHeaders, prev.CaptureRequestBody, prev.CaptureResponseBody, prev.MaxPayloadBytes))
+		previous = policyValues(withResources(fromRow(prev.Enabled, prev.SampleRate, prev.CaptureHeaders, prev.CaptureRequestBody, prev.CaptureResponseBody, prev.MaxPayloadBytes), prev.ResourcesEnabled, prev.ResourcesMinIntervalS, prev.ResourcesDisabled))
 	case errors.Is(err, pgx.ErrNoRows):
 		previous = policyValues(Default())
 	default:
 		return Stored{}, fmt.Errorf("capture: get policy: %w", err)
 	}
 	row, err := q.UpsertCapturePolicy(ctx, db.UpsertCapturePolicyParams{
-		AppID:               app.ID,
-		Enabled:             pol.Enabled,
-		SampleRate:          pol.SampleRate,
-		CaptureHeaders:      pol.CaptureHeaders,
-		CaptureRequestBody:  pol.CaptureRequestBody,
-		CaptureResponseBody: pol.CaptureResponseBody,
-		MaxPayloadBytes:     maxBytes,
-		UpdatedBy:           &actor,
+		AppID:                 app.ID,
+		Enabled:               pol.Enabled,
+		SampleRate:            pol.SampleRate,
+		CaptureHeaders:        pol.CaptureHeaders,
+		CaptureRequestBody:    pol.CaptureRequestBody,
+		CaptureResponseBody:   pol.CaptureResponseBody,
+		MaxPayloadBytes:       maxBytes,
+		UpdatedBy:             &actor,
+		ResourcesEnabled:      pol.Resources.Enabled,
+		ResourcesMinIntervalS: int32(max(pol.Resources.MinIntervalS, ResourcesMinIntervalS)), //nolint:gosec // Validate bounds it to 15..600.
+		ResourcesDisabled:     pol.Resources.Disabled.Names(),
 	})
 	if err != nil {
 		return Stored{}, fmt.Errorf("capture: upsert policy: %w", err)
 	}
-	saved := fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes)
+	saved := withResources(fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes), row.ResourcesEnabled, row.ResourcesMinIntervalS, row.ResourcesDisabled)
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
 		User:    &actor,
 		Actor:   &actor,
@@ -221,6 +224,24 @@ func fromRow(enabled bool, rate float64, headers, reqBody, respBody bool, maxByt
 	return p
 }
 
+// withResources sets the resources part of a stored policy. Unknown stored
+// collector names (from a newer release) are ignored, and an interval
+// outside the bounds is pulled back into them.
+func withResources(p Policy, enabled bool, minInterval int32, disabled []string) Policy {
+	var set CollectorSet
+	for _, n := range disabled {
+		if c, bad := ParseCollectors([]string{n}); bad == "" {
+			set |= c
+		}
+	}
+	p.Resources = ResourcesPolicy{
+		Enabled:      enabled,
+		MinIntervalS: min(max(int(minInterval), ResourcesMinIntervalS), ResourcesMaxIntervalS),
+		Disabled:     set,
+	}
+	return p
+}
+
 // policyValues is a policy as audit changes record it.
 func policyValues(p Policy) map[string]any {
 	m := map[string]any{
@@ -230,6 +251,11 @@ func policyValues(p Policy) map[string]any {
 		"capture_request_body":  p.CaptureRequestBody,
 		"capture_response_body": p.CaptureResponseBody,
 		"max_payload_bytes":     nil,
+		"resources": map[string]any{
+			"enabled":             p.Resources.Enabled,
+			"min_interval_s":      p.Resources.MinIntervalS,
+			"disabled_collectors": p.Resources.Disabled.Names(),
+		},
 	}
 	if p.MaxPayloadBytes != nil {
 		m["max_payload_bytes"] = *p.MaxPayloadBytes

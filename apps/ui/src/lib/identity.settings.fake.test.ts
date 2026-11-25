@@ -193,6 +193,9 @@ describe("retention and usage", () => {
       ["spans", 90, true],
       ["rollups_1m", 30, true],
       ["rollups_1h", 400, true],
+      ["resources", 30, true],
+      ["resources_1h", 400, true],
+      ["instance_rollups_1m", 30, false],
       ["deploys", 400, false],
     ]);
     await post("/__fake/retention", { signals: [{ key: "requests", label: "Requests", period_days: 30, covers: "", configurable: true }] });

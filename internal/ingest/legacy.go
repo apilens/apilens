@@ -43,6 +43,8 @@ type requestRecord struct {
 	Sampled          *bool                      `json:"sampled"`
 	Attributes       map[string]json.RawMessage `json:"attributes"`
 	ValidationErrors json.RawMessage            `json:"validation_errors"`
+	// M7: the SDK process that served the request (its heartbeat instance_id).
+	InstanceID string `json:"instance_id"`
 }
 
 type logRecord struct {
@@ -212,6 +214,7 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 			Sampled:          sampled(rec.Sampled),
 			Attributes:       attributesN(rec.Attributes, maxRequestAttributes),
 			ValidationErrors: requestValidationErrors(rec.StatusCode, rec.ValidationErrors, rec.ResponsePayload),
+			InstanceID:       truncate(strings.TrimSpace(rec.InstanceID), maxInstanceIDChars),
 		})
 	}
 	if err := e.sink.SubmitRequests(r.Context(), rows); err != nil {

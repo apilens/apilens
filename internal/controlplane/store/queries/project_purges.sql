@@ -105,6 +105,9 @@ DELETE FROM endpoint_settings WHERE app_id IN (SELECT a.id FROM apps a WHERE a.p
 -- name: PurgeProjectAppMetadata :execrows
 DELETE FROM app_metadata WHERE project_id = @project_id;
 
+-- name: PurgeProjectAppInstanceEvents :execrows
+DELETE FROM app_instance_events WHERE project_id = @project_id;
+
 -- name: PurgeProjectAppInstances :execrows
 DELETE FROM app_instances WHERE project_id = @project_id;
 

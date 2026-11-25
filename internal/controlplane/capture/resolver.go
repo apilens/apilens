@@ -74,7 +74,7 @@ func (r *Resolver) load(ctx context.Context, appID uuid.UUID) (Policy, error) {
 	case err != nil:
 		return Policy{}, fmt.Errorf("capture: get policy: %w", err)
 	default:
-		p = fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes)
+		p = withResources(fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes), row.ResourcesEnabled, row.ResourcesMinIntervalS, row.ResourcesDisabled)
 	}
 	r.mu.Lock()
 	r.cache[appID] = cachedPolicy{policy: p, loadedAt: r.now()}

@@ -1,0 +1,3 @@
+nr_periods 2000
+nr_throttled 20
+throttled_time 1500000000

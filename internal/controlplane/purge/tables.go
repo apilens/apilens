@@ -16,4 +16,8 @@ var ClickHouseTables = []string{
 	"api_requests_1m", // per-minute rollups
 	"api_requests_1h", // per-hour rollups
 	"api_consumers",   // consumers seen
+	// runtime resources (M7)
+	"app_instance_resources",    // per-heartbeat CPU, memory and runtime
+	"app_instance_resources_1h", // their hourly rollup
+	"api_requests_instance_1m",  // per-instance request rollups
 }

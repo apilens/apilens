@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 )
 
 const (
@@ -32,11 +33,68 @@ type Policy struct {
 	// MaxPayloadBytes caps each captured body; nil means the server default,
 	// DefaultMaxPayloadBytes.
 	MaxPayloadBytes *int
+	// Resources narrows the SDKs' runtime resources sampling (M7).
+	Resources ResourcesPolicy
+}
+
+// Runtime resources sampling bounds (seconds): SDKs sample every 15 s by
+// default; a policy may ask for up to 10 minutes between samples.
+const (
+	ResourcesMinIntervalS = 15
+	ResourcesMaxIntervalS = 600
+)
+
+// ResourceCollectors are the runtime resources collectors a policy can turn
+// off, in a fixed order (CollectorSet bit i is ResourceCollectors[i]).
+var ResourceCollectors = []string{
+	"process.cpu", "process.memory", "process.pss", "container.cpu",
+	"container.memory", "runtime", "pools", "processes",
+}
+
+// CollectorSet is a set of ResourceCollectors. It is a bitmask so Policy
+// stays comparable.
+type CollectorSet uint16
+
+// ParseCollectors returns the set of names, or the first unknown name.
+func ParseCollectors(names []string) (CollectorSet, string) {
+	var c CollectorSet
+	for _, n := range names {
+		i := slices.Index(ResourceCollectors, n)
+		if i < 0 {
+			return 0, n
+		}
+		c |= 1 << i
+	}
+	return c, ""
+}
+
+// Names lists the set in ResourceCollectors order; never nil.
+func (c CollectorSet) Names() []string {
+	out := []string{}
+	for i, n := range ResourceCollectors {
+		if c&(1<<i) != 0 {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// ResourcesPolicy can only narrow runtime resources sampling, never widen
+// what an SDK's local config allows.
+type ResourcesPolicy struct {
+	// Enabled false tells the SDKs to stop sampling resources.
+	Enabled bool
+	// MinIntervalS is the shortest sampling interval the SDKs may use; 0
+	// stored as ResourcesMinIntervalS.
+	MinIntervalS int
+	// Disabled are the collectors the SDKs must skip.
+	Disabled CollectorSet
 }
 
 // Default is the policy of an app with no stored row: capture everything.
 func Default() Policy {
-	return Policy{Enabled: true, SampleRate: 1, CaptureHeaders: true, CaptureRequestBody: true, CaptureResponseBody: true}
+	return Policy{Enabled: true, SampleRate: 1, CaptureHeaders: true, CaptureRequestBody: true, CaptureResponseBody: true,
+		Resources: ResourcesPolicy{Enabled: true, MinIntervalS: ResourcesMinIntervalS}}
 }
 
 // ErrInvalid is wrapped by every *InvalidError.
@@ -66,6 +124,10 @@ func (p Policy) Validate(limit int) error {
 	}
 	if p.MaxPayloadBytes != nil && (*p.MaxPayloadBytes < 1 || *p.MaxPayloadBytes > limit) {
 		return &InvalidError{Field: "max_payload_bytes", Reason: fmt.Sprintf("must be between 1 and %d", limit)}
+	}
+	// 0 is unset: the default interval.
+	if i := p.Resources.MinIntervalS; i != 0 && (i < ResourcesMinIntervalS || i > ResourcesMaxIntervalS) {
+		return &InvalidError{Field: "resources.min_interval_s", Reason: fmt.Sprintf("must be between %d and %d", ResourcesMinIntervalS, ResourcesMaxIntervalS)}
 	}
 	return nil
 }

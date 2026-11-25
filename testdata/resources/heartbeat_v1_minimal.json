@@ -1,0 +1,52 @@
+{
+  "app_id": "storefront",
+  "environment": "development",
+  "instance_id": "0e8f2b7c-1a3d-4c5e-8f9a-0b1c2d3e4f5a",
+  "sdk_name": "apilens-js-sdk",
+  "sdk_version": "0.2.0",
+  "runtime": "node 22.11.0",
+  "pid": 51234,
+  "uptime_s": 75,
+  "identity": {
+    "hostname": "neels-macbook.local",
+    "hostname_guess": true,
+    "platform": "bare",
+    "process_start_time": "2026-11-25T09:58:45Z"
+  },
+  "resources": {
+    "v": 1,
+    "window_s": 60,
+    "n": 4,
+    "sampler_cost_us": 95,
+    "capabilities": ["process.cpu", "process.memory", "runtime.node"],
+    "limit_source": "host",
+    "process": {
+      "cpu": {
+        "cores_used": {"min": 0.01, "avg": 0.04, "max": 0.11, "last": 0.02},
+        "pct_of_limit": {"min": 0.1, "avg": 0.4, "max": 1.1, "last": 0.2}
+      },
+      "memory": {
+        "rss": {"min": 88080384, "avg": 89128960, "max": 90177536, "last": 90177536},
+        "pss": null,
+        "uss": null
+      },
+      "threads": null,
+      "fds": null
+    },
+    "container": null,
+    "runtime": {
+      "node": {
+        "event_loop_delay_ms": {"p50": 10.1, "p99": 14.6, "max": 32.4},
+        "elu": {"min": 0.01, "avg": 0.03, "max": 0.09, "last": 0.02},
+        "heap_used": {"min": 31457280, "avg": 32505856, "max": 33554432, "last": 33554432},
+        "heap_total": {"min": 41943040, "avg": 41943040, "max": 41943040, "last": 41943040},
+        "external": null,
+        "array_buffers": null,
+        "gc": {"count": 7, "pause_ms_sum": 4.8, "pause_ms_max": 1.9}
+      }
+    },
+    "pools": null,
+    "processes": null,
+    "flags": []
+  }
+}

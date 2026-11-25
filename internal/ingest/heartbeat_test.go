@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -103,7 +105,7 @@ func TestHeartbeatStoresInstanceAndReturnsDefaultPolicy(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
 	}
-	want := `{"policy":{"enabled":true,"sample_rate":1,"capture_headers":true,"capture_request_body":true,"capture_response_body":true,"max_payload_bytes":null}}`
+	want := `{"policy":{"enabled":true,"sample_rate":1,"capture_headers":true,"capture_request_body":true,"capture_response_body":true,"max_payload_bytes":null,"resources":{"enabled":true,"min_interval_s":15,"disabled_collectors":[]}}}`
 	if got := strings.TrimSpace(rec.Body.String()); got != want {
 		t.Errorf("body = %s, want %s", got, want)
 	}
@@ -240,5 +242,121 @@ func TestHeartbeatUnavailable(t *testing.T) {
 	rec := post(t, newHeartbeatEdge(t, &fakeHeartbeats{}, nil, src), "/v1/heartbeat", body, nil)
 	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("policy error: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// newResourcesEdge is newHeartbeatEdge with access to the sink and a clock
+// after the fixtures' process start.
+func newResourcesEdge(t *testing.T, store HeartbeatStore) (http.Handler, *fakeSink) {
+	t.Helper()
+	cfg := config.IngestConfig{MaxBodyBytes: 1 << 20, MaxRecordsPerRequest: 1000}
+	sink := &fakeSink{}
+	e := New(fakeVerifier{}, fakeApps{}, sink, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	e.now = func() time.Time { return time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC) }
+	e.WithHeartbeat(store, nil)
+	mux := http.NewServeMux()
+	e.Register(mux)
+	return mux, sink
+}
+
+func fixture(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "resources", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestHeartbeatStoresResourcesAndIdentity(t *testing.T) {
+	store := &fakeHeartbeats{}
+	h, sink := newResourcesEdge(t, store)
+	rec := post(t, h, "/v1/heartbeat", fixture(t, "heartbeat_v1.json"), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if len(sink.resources) != 1 {
+		t.Fatalf("resource rows = %d, want 1", len(sink.resources))
+	}
+	row := sink.resources[0]
+	if row.InstanceID != "4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e" || row.ProjectID != testProject || row.AppID != testApp ||
+		row.Environment != "production" || row.Platform != "k8s" || row.PodName == "" || row.LimitSource != "cgroup_v2" {
+		t.Fatalf("row = %+v", row)
+	}
+	if row.Metrics["container.memory.working_set.max"] != 432013312 || row.SDKName != "apilenss" || row.Samples != 4 {
+		t.Fatalf("row metrics = %+v", row)
+	}
+	if len(store.rows) != 1 {
+		t.Fatal("no instance upsert")
+	}
+	up := store.rows[0]
+	if up.PodName != "storefront-7d9c8b6f5-x2k4q" || up.Namespace != "shop" || up.ContainerID == "" || up.ProcessStartTime == nil ||
+		up.UptimeS == nil || *up.UptimeS != 3600.5 || up.Final {
+		t.Fatalf("upsert = %+v", up)
+	}
+	var snap struct {
+		LimitSource string             `json:"limit_source"`
+		Metrics     map[string]float64 `json:"metrics"`
+		Processes   []map[string]any   `json:"processes"`
+	}
+	if err := json.Unmarshal(up.Resources, &snap); err != nil {
+		t.Fatalf("snapshot %s: %v", up.Resources, err)
+	}
+	if snap.LimitSource != "cgroup_v2" || snap.Metrics["process.cpu.pct_of_limit.avg"] != 31 || len(snap.Processes) != 3 {
+		t.Fatalf("snapshot = %s", up.Resources)
+	}
+}
+
+func TestHeartbeatWithoutResourcesKeepsOldBehaviour(t *testing.T) {
+	store := &fakeHeartbeats{}
+	h, sink := newResourcesEdge(t, store)
+	if rec := post(t, h, "/v1/heartbeat", validHeartbeat, nil); rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if len(sink.resources) != 0 {
+		t.Fatalf("old SDK heartbeat wrote %d resource rows", len(sink.resources))
+	}
+	if up := store.rows[0]; up.Resources != nil || up.Platform != "" || up.Final {
+		t.Fatalf("upsert = %+v", up)
+	}
+}
+
+func TestHeartbeatFinalEndsInstance(t *testing.T) {
+	store := &fakeHeartbeats{}
+	h, _ := newResourcesEdge(t, store)
+	if rec := post(t, h, "/v1/heartbeat", `{"app_id":"storefront","instance_id":"i","final":true,"uptime_s":-3}`, nil); rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if up := store.rows[0]; !up.Final || up.UptimeS != nil {
+		t.Fatalf("upsert = %+v (negative uptime must be dropped)", up)
+	}
+}
+
+func TestHeartbeatResourcesRejectsAndIgnores(t *testing.T) {
+	store := &fakeHeartbeats{}
+	h, sink := newResourcesEdge(t, store)
+	big := `{"app_id":"storefront","instance_id":"i","resources":{"v":1,"flags":["` + strings.Repeat("x", maxResourcesSize) + `"]}}`
+	if rec := post(t, h, "/v1/heartbeat", big, nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("oversize resources: status %d", rec.Code)
+	}
+	// A future contract version is ignored, the heartbeat still counts.
+	if rec := post(t, h, "/v1/heartbeat", `{"app_id":"storefront","instance_id":"j","resources":{"v":2,"whatever":1}}`, nil); rec.Code != http.StatusOK {
+		t.Fatalf("v2 resources: status %d: %s", rec.Code, rec.Body)
+	}
+	// An SDK that sends argv or environment by mistake never gets it stored.
+	leak := `{"app_id":"storefront","instance_id":"k","resources":{"v":1,"processes":[{"pid":9,"comm":"python","cmdline":"python app.py --password=s3cr3t","environ":{"DB_PASSWORD":"s3cr3t"}}]}}`
+	if rec := post(t, h, "/v1/heartbeat", leak, nil); rec.Code != http.StatusOK {
+		t.Fatalf("leak: status %d", rec.Code)
+	}
+	if len(sink.resources) != 1 {
+		t.Fatalf("resource rows = %d, want 1 (only the v1 block with processes)", len(sink.resources))
+	}
+	if p := sink.resources[0].Processes; strings.Contains(p, "s3cr3t") || p != `[{"pid":9,"comm":"python"}]` {
+		t.Fatalf("processes stored as %s", p)
+	}
+	for _, up := range store.rows {
+		if strings.Contains(string(up.Resources), "s3cr3t") {
+			t.Fatalf("snapshot leaked argv: %s", up.Resources)
+		}
 	}
 }

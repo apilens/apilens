@@ -36,6 +36,9 @@ func (s *recordingSink) SubmitRequests(_ context.Context, rows []pipeline.Reques
 func (s *recordingSink) SubmitLogs(context.Context, []pipeline.LogRow) error       { return nil }
 func (s *recordingSink) SubmitSpans(context.Context, []pipeline.SpanRow) error     { return nil }
 func (s *recordingSink) SubmitDeploys(context.Context, []pipeline.DeployRow) error { return nil }
+func (s *recordingSink) SubmitResources(context.Context, []pipeline.ResourceRow) error {
+	return nil
+}
 
 // A project created through the API accepts events straight away with the
 // project's ingest key and app_id = the project slug, as the onboarding

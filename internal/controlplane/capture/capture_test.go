@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -129,5 +130,34 @@ func TestResolverErrorWithoutCache(t *testing.T) {
 	store := &fakeStore{err: errors.New("db down")}
 	if _, err := NewResolver(store, time.Minute).Policy(context.Background(), uuid.New()); err == nil {
 		t.Fatal("want error with nothing cached")
+	}
+}
+
+func TestResourcesPolicy(t *testing.T) {
+	if d := Default().Resources; !d.Enabled || d.MinIntervalS != ResourcesMinIntervalS || d.Disabled != 0 {
+		t.Fatalf("default resources = %+v", d)
+	}
+	set, bad := ParseCollectors([]string{"processes", "process.pss"})
+	if bad != "" || !slices.Equal(set.Names(), []string{"process.pss", "processes"}) {
+		t.Fatalf("parse = %v %q", set.Names(), bad)
+	}
+	if _, bad := ParseCollectors([]string{"cmdline"}); bad != "cmdline" {
+		t.Fatalf("unknown collector accepted")
+	}
+	if (CollectorSet(0)).Names() == nil {
+		t.Fatal("Names must never be nil (JSON [])")
+	}
+	for _, i := range []int{1, 14, 601} {
+		p := Default()
+		p.Resources.MinIntervalS = i
+		var inv *InvalidError
+		if err := p.Validate(DefaultMaxPayloadBytesLimit); !errors.As(err, &inv) || inv.Field != "resources.min_interval_s" {
+			t.Errorf("interval %d: %v", i, err)
+		}
+	}
+	// Stored rows are clamped and unknown collectors (a newer release) dropped.
+	p := withResources(Default(), false, 5, []string{"runtime", "future.collector"})
+	if p.Resources.Enabled || p.Resources.MinIntervalS != ResourcesMinIntervalS || !slices.Equal(p.Resources.Disabled.Names(), []string{"runtime"}) {
+		t.Fatalf("withResources = %+v", p.Resources)
 	}
 }

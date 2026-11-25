@@ -1852,9 +1852,29 @@ export interface CapturePolicy {
   default_max_payload_bytes?: number;
   /** Read-only: the largest `max_payload_bytes` the server accepts (operator-set, 1 MiB by default). Absent from older servers. */
   max_payload_bytes_limit?: number;
+  /** Runtime resources sampling (M7); only narrows what the SDK's own config allows. */
+  resources: CaptureResourcesPolicy;
   /** Null when the policy was never saved (the app captures everything). */
   updated_at: string | null;
   updated_by: string | null;
+}
+
+/** A collector of runtime resources a policy can switch off. */
+export type ResourceCollector =
+  | "process.cpu"
+  | "process.memory"
+  | "process.pss"
+  | "container.cpu"
+  | "container.memory"
+  | "runtime"
+  | "pools"
+  | "processes";
+
+export interface CaptureResourcesPolicy {
+  enabled: boolean;
+  /** 15 to 600 seconds. */
+  min_interval_s: number;
+  disabled_collectors: ResourceCollector[];
 }
 
 export type PutCapturePolicyRequest = Pick<
@@ -2052,7 +2072,16 @@ export interface UpdateEnvironmentRequest {
 }
 
 /** A telemetry signal with its own retention (`RetentionSignal.key`). */
-export type RetentionSignalKey = "requests" | "logs" | "spans" | "rollups_1m" | "rollups_1h" | "deploys";
+export type RetentionSignalKey =
+  | "requests"
+  | "logs"
+  | "spans"
+  | "rollups_1m"
+  | "rollups_1h"
+  | "resources"
+  | "resources_1h"
+  | "instance_rollups_1m"
+  | "deploys";
 
 /** How long one signal is kept (`RetentionSignal`, #753 D10); read-only in the UI. */
 export interface RetentionSignal {

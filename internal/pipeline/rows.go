@@ -37,6 +37,9 @@ type RequestRow struct {
 	SpanID          string
 	Release         string
 	Commit          string
+	// InstanceID is the SDK process (heartbeat instance_id); "" from
+	// older SDKs.
+	InstanceID string
 	// Sampled is false when the SDK sampled the request out: the base
 	// record still counts in metrics but carries no headers or bodies.
 	// Producers must set it; the zero value means "sampled out".
@@ -113,6 +116,34 @@ type SpanEventRow struct {
 type SpanLink struct {
 	TraceID string `ch:"trace_id"`
 	SpanID  string `ch:"span_id"`
+}
+
+// ResourceRow is one SDK heartbeat's runtime resources (table
+// app_instance_resources, M7). Metrics holds the measured values by dotted
+// name; a metric that was not measured is absent, never zero.
+type ResourceRow struct {
+	ProjectID    uuid.UUID
+	AppID        uuid.UUID
+	Environment  string
+	InstanceID   string
+	Timestamp    time.Time
+	WindowS      float32
+	Samples      uint32
+	ContainerID  string
+	Hostname     string
+	PodName      string
+	Namespace    string
+	NodeName     string
+	Platform     string
+	LimitSource  string
+	SDKName      string
+	Runtime      string
+	Release      string
+	Metrics      map[string]float64
+	Capabilities []string
+	Flags        []string
+	Processes    string // JSON array, "" when not sent
+	Pools        string // JSON array, "" when not sent
 }
 
 // DeployRow is one deploy/release event (table api_deploys). AppID is the

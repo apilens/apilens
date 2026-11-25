@@ -20,7 +20,7 @@ const RetentionPath = server.APIPrefix + "/projects/{" + authz.ParamProject + "}
 
 // RetentionSignal is how long one kind of telemetry is kept.
 type RetentionSignal struct {
-	Key          string `json:"key" enum:"requests,logs,spans,rollups_1m,rollups_1h,deploys" doc:"Signal identifier; for a configurable signal also the retention.* config key."`
+	Key          string `json:"key" enum:"requests,logs,spans,rollups_1m,rollups_1h,resources,resources_1h,instance_rollups_1m,deploys" doc:"Signal identifier; for a configurable signal also the retention.* config key."`
 	Label        string `json:"label" doc:"Human name of the signal."`
 	PeriodDays   int    `json:"period_days" doc:"Days the data is kept before ClickHouse deletes it, as the table TTL enforces it now."`
 	Covers       string `json:"covers" doc:"What the signal holds and which screens read it."`

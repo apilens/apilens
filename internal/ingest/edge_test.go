@@ -72,12 +72,13 @@ func staticResolve(c catalog.Caller, idents []string, known map[string]uuid.UUID
 }
 
 type fakeSink struct {
-	mu       sync.Mutex
-	err      error
-	requests []pipeline.RequestRow
-	logs     []pipeline.LogRow
-	spans    []pipeline.SpanRow
-	deploys  []pipeline.DeployRow
+	mu        sync.Mutex
+	err       error
+	requests  []pipeline.RequestRow
+	logs      []pipeline.LogRow
+	spans     []pipeline.SpanRow
+	deploys   []pipeline.DeployRow
+	resources []pipeline.ResourceRow
 }
 
 func (s *fakeSink) SubmitRequests(_ context.Context, rows []pipeline.RequestRow) error {
@@ -117,6 +118,16 @@ func (s *fakeSink) SubmitDeploys(_ context.Context, rows []pipeline.DeployRow) e
 		return s.err
 	}
 	s.deploys = append(s.deploys, rows...)
+	return nil
+}
+
+func (s *fakeSink) SubmitResources(_ context.Context, rows []pipeline.ResourceRow) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	s.resources = append(s.resources, rows...)
 	return nil
 }
 
@@ -469,5 +480,21 @@ func TestEveryRouteGuards(t *testing.T) {
 func TestAPIErrorString(t *testing.T) {
 	if got := errValidation("bad %s", "x").Error(); got != "422 validation_error: bad x" {
 		t.Fatalf("Error() = %q", got)
+	}
+}
+
+// M7: a request names the SDK process that served it; older SDKs send none.
+func TestRequestsInstanceID(t *testing.T) {
+	sink := &fakeSink{}
+	body := strings.Replace(validRequest, `"release":"v1.2.3"`, `"release":"v1.2.3","instance_id":"  4b0c7a8e-2f0d  "`, 1)
+	if rec := post(t, newEdge(t, fakeVerifier{}, sink), "/v1/requests", body, nil); rec.Code != http.StatusOK {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	if got := sink.requests[0].InstanceID; got != "4b0c7a8e-2f0d" {
+		t.Fatalf("instance_id = %q", got)
+	}
+	sink = &fakeSink{}
+	if rec := post(t, newEdge(t, fakeVerifier{}, sink), "/v1/requests", validRequest, nil); rec.Code != http.StatusOK || sink.requests[0].InstanceID != "" {
+		t.Fatalf("old SDK: %d instance_id=%q", rec.Code, sink.requests[0].InstanceID)
 	}
 }
