@@ -66,6 +66,9 @@ describe("loadEnvConfig", () => {
       "APILENS_CAPTURE_SPANS",
       "APILENS_BATCH_SIZE",
       "APILENS_FLUSH_INTERVAL",
+      "APILENS_CAPTURE_RESOURCES",
+      "APILENS_RESOURCES_INTERVAL",
+      "APILENS_CAPTURE_PROCESS_LIST",
     ]);
   });
 

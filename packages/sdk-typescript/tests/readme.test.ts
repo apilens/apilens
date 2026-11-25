@@ -33,9 +33,25 @@ const RENAMED: Record<string, string> = {
   retry_backoff_base: "retryBackoffBaseMs",
   retry_backoff_max: "retryBackoffMaxMs",
   shutdown_timeout: "shutdownTimeoutMs",
+  resources_interval: "resourcesIntervalMs",
   spans_path: "tracesPath",
   mode: "flushMode",
 };
+
+/**
+ * Runtime resources options (M7). The Python SDK adds them in its own PR, so
+ * the order check leaves them out on both sides; each SDK documents them.
+ */
+const M7_NAMES = new Set([
+  "captureResources",
+  "resourcesIntervalMs",
+  "captureProcessList",
+  "APILENS_CAPTURE_RESOURCES",
+  "APILENS_RESOURCES_INTERVAL",
+  "APILENS_CAPTURE_PROCESS_LIST",
+]);
+
+const notM7 = (name: string): boolean => !M7_NAMES.has(name);
 
 function camel(name: string): string {
   return RENAMED[name] ?? name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -78,6 +94,14 @@ function names(rows: Row[], map: (name: string) => string = (n) => n): string[] 
 }
 
 describe("README option tables match the Python SDK", () => {
+  it("documents the runtime resources options and variables", () => {
+    const options = names(table(tsReadme, "### Client options"), optionName);
+    const vars = names(table(tsReadme, "### Environment variables"));
+    for (const name of M7_NAMES) {
+      expect(name.startsWith("APILENS_") ? vars : options, name).toContain(name);
+    }
+  });
+
   const pairs: Array<[string, string]> = [
     ["### `ApiLensConfig`", "### Client options"],
     ["### Middleware options", "### Middleware options"],
@@ -87,7 +111,9 @@ describe("README option tables match the Python SDK", () => {
     it(`${tsHeading} lists every Python option, camelCased, in order`, () => {
       const python = names(table(pyReadme, pyHeading), camel);
       const js = names(table(tsReadme, tsHeading), optionName);
-      expect(js).toEqual(python);
+      expect(js.filter(notM7)).toEqual(python.filter(notM7));
+      // Whatever M7 option Python documents, the JS README documents too.
+      expect(js).toEqual(expect.arrayContaining(python.filter((n) => !notM7(n))));
     });
 
     it(`${tsHeading}: every option documented as supported exists in the types`, () => {
@@ -120,7 +146,8 @@ describe("README option tables match the Python SDK", () => {
     const js = names(table(tsReadme, "### Environment variables")).filter((n) =>
       n.startsWith("APILENS_"),
     );
-    expect(js).toEqual(python);
+    expect(js.filter(notM7)).toEqual(python.filter(notM7));
+    expect(js).toEqual(expect.arrayContaining(python.filter((n) => !notM7(n))));
   });
 
   it("every variable the loader reads is documented with its option", () => {

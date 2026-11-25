@@ -4,7 +4,8 @@
  *
  * `pg` and `mysql2` are patched once per process on their connection
  * prototype (`Client.prototype.query`, `Connection.prototype.query` /
- * `execute`), so pools and `mysql2/promise` are covered too. Prisma has no
+ * `execute`), so pools and `mysql2/promise` are covered too; pools are also
+ * reported in the heartbeat (`pools`, see resources/pools.ts). Prisma has no
  * prototype to patch: `instrumentPrisma(prisma)` returns a client extended
  * with a `$allOperations` hook, which the app uses in place of the original.
  *
@@ -16,6 +17,7 @@
 import type * as nodeModule from "node:module";
 import type * as nodePath from "node:path";
 
+import { type PoolKind, trackPool } from "./resources/pools.js";
 import { builtin, processObject } from "./runtime.js";
 import { currentTraceContext, generateSpanId, type TraceContext } from "./trace.js";
 
@@ -282,15 +284,44 @@ function patchMethod(proto: unknown, method: string, system: string): boolean {
   return true;
 }
 
+const POOL_TRACKED = Symbol.for("apilens.poolTracked");
+
+/**
+ * Wrap a pool's checkout method so the pool is reported in the heartbeat's
+ * `pools` (C6) from its first use on. The original runs untouched.
+ */
+function patchPoolTracking(proto: unknown, method: string, kind: PoolKind): boolean {
+  if (!proto || (typeof proto !== "object" && typeof proto !== "function")) {
+    return false;
+  }
+  const target = proto as Record<string, unknown>;
+  const current = target[method] as (QueryFn & { [POOL_TRACKED]?: boolean }) | undefined;
+  if (typeof current !== "function") {
+    return false;
+  }
+  if (current[POOL_TRACKED]) {
+    return true;
+  }
+  const wrapped = function apilensPoolCheckout(this: unknown, ...args: unknown[]): unknown {
+    trackPool(this, kind);
+    return current.apply(this, args);
+  };
+  Object.defineProperty(wrapped, POOL_TRACKED, { value: true });
+  target[method] = wrapped;
+  return true;
+}
+
 /**
  * Trace statements run through `pg` (the module `require("pg")` returns):
- * `Client#query`, which `Pool#query` uses too. Idempotent; never throws.
- * Returns true when the module was patched.
+ * `Client#query`, which `Pool#query` uses too, and report `pg.Pool`s
+ * (`Pool#connect`) in the heartbeat. Idempotent; never throws. Returns true
+ * when the module was patched.
  */
 export function instrumentPg(pg: unknown): boolean {
   try {
-    const Client = (pg as { Client?: { prototype?: unknown } } | undefined)?.Client;
-    return patchMethod(Client?.prototype, "query", "postgresql");
+    const mod = pg as { Client?: { prototype?: unknown }; Pool?: { prototype?: unknown } } | undefined;
+    patchPoolTracking(mod?.Pool?.prototype, "connect", "pg");
+    return patchMethod(mod?.Client?.prototype, "query", "postgresql");
   } catch {
     return false;
   }
@@ -304,7 +335,10 @@ export function instrumentPg(pg: unknown): boolean {
  */
 export function instrumentMysql2(mysql2: unknown): boolean {
   try {
-    const Connection = (mysql2 as { Connection?: { prototype?: unknown } } | undefined)?.Connection;
+    const mod = mysql2 as { Connection?: { prototype?: unknown }; Pool?: { prototype?: unknown } } | undefined;
+    // Pool#query / #execute check out through getConnection, promise pools too.
+    patchPoolTracking(mod?.Pool?.prototype, "getConnection", "mysql2");
+    const Connection = mod?.Connection;
     const query = patchMethod(Connection?.prototype, "query", "mysql");
     const execute = patchMethod(Connection?.prototype, "execute", "mysql");
     return query || execute;
