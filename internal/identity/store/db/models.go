@@ -48,6 +48,7 @@ type AlertRule struct {
 	CreatedBy     *uuid.UUID
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	Aggregation   string
 }
 
 type AlertRuleState struct {
@@ -118,19 +119,46 @@ type AppAlias struct {
 }
 
 type AppInstance struct {
+	AppID            uuid.UUID
+	Environment      string
+	InstanceID       string
+	ProjectID        uuid.UUID
+	SdkName          string
+	SdkVersion       string
+	Runtime          string
+	Release          string
+	Commit           string
+	Pid              *int64
+	Stats            []byte
+	FirstSeenAt      time.Time
+	LastSeenAt       time.Time
+	Hostname         string
+	HostnameGuess    bool
+	ContainerID      string
+	PodName          string
+	PodUid           string
+	Namespace        string
+	NodeName         string
+	Platform         string
+	Region           string
+	ProcessStartTime *time.Time
+	UptimeS          *float64
+	Resources        []byte
+	EndedAt          *time.Time
+	EndedReason      string
+}
+
+type AppInstanceEvent struct {
+	ID          int64
+	ProjectID   uuid.UUID
 	AppID       uuid.UUID
 	Environment string
 	InstanceID  string
-	ProjectID   uuid.UUID
-	SdkName     string
-	SdkVersion  string
-	Runtime     string
-	Release     string
-	Commit      string
-	Pid         *int64
-	Stats       []byte
-	FirstSeenAt time.Time
-	LastSeenAt  time.Time
+	ContainerID string
+	PodName     string
+	Kind        string
+	At          time.Time
+	Details     []byte
 }
 
 type AppMetadatum struct {
@@ -190,15 +218,18 @@ type BackupCode struct {
 }
 
 type CapturePolicy struct {
-	AppID               uuid.UUID
-	Enabled             bool
-	SampleRate          pgtype.Numeric
-	CaptureHeaders      bool
-	CaptureRequestBody  bool
-	CaptureResponseBody bool
-	MaxPayloadBytes     *int32
-	UpdatedAt           time.Time
-	UpdatedBy           *uuid.UUID
+	AppID                 uuid.UUID
+	Enabled               bool
+	SampleRate            pgtype.Numeric
+	CaptureHeaders        bool
+	CaptureRequestBody    bool
+	CaptureResponseBody   bool
+	MaxPayloadBytes       *int32
+	UpdatedAt             time.Time
+	UpdatedBy             *uuid.UUID
+	ResourcesEnabled      bool
+	ResourcesMinIntervalS int32
+	ResourcesDisabled     []string
 }
 
 type EndpointSetting struct {

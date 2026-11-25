@@ -45,22 +45,26 @@ func (q *Queries) GetCaptureApp(ctx context.Context, id uuid.UUID) (GetCaptureAp
 const getCapturePolicy = `-- name: GetCapturePolicy :one
 SELECT cp.app_id, cp.enabled, cp.sample_rate::float8 AS sample_rate,
        cp.capture_headers, cp.capture_request_body, cp.capture_response_body,
-       cp.max_payload_bytes, cp.updated_at, cp.updated_by
+       cp.max_payload_bytes, cp.updated_at, cp.updated_by,
+       cp.resources_enabled, cp.resources_min_interval_s, cp.resources_disabled
 FROM capture_policies cp
 JOIN apps a ON a.id = cp.app_id
 WHERE cp.app_id = $1 AND a.deleted_at IS NULL
 `
 
 type GetCapturePolicyRow struct {
-	AppID               uuid.UUID
-	Enabled             bool
-	SampleRate          float64
-	CaptureHeaders      bool
-	CaptureRequestBody  bool
-	CaptureResponseBody bool
-	MaxPayloadBytes     *int32
-	UpdatedAt           time.Time
-	UpdatedBy           *uuid.UUID
+	AppID                 uuid.UUID
+	Enabled               bool
+	SampleRate            float64
+	CaptureHeaders        bool
+	CaptureRequestBody    bool
+	CaptureResponseBody   bool
+	MaxPayloadBytes       *int32
+	UpdatedAt             time.Time
+	UpdatedBy             *uuid.UUID
+	ResourcesEnabled      bool
+	ResourcesMinIntervalS int32
+	ResourcesDisabled     []string
 }
 
 // The capture policy row of an active app; no row means capture everything.
@@ -77,6 +81,9 @@ func (q *Queries) GetCapturePolicy(ctx context.Context, appID uuid.UUID) (GetCap
 		&i.MaxPayloadBytes,
 		&i.UpdatedAt,
 		&i.UpdatedBy,
+		&i.ResourcesEnabled,
+		&i.ResourcesMinIntervalS,
+		&i.ResourcesDisabled,
 	)
 	return i, err
 }
@@ -132,9 +139,11 @@ func (q *Queries) ListAppMetadata(ctx context.Context, appID uuid.UUID) ([]ListA
 
 const upsertCapturePolicy = `-- name: UpsertCapturePolicy :one
 INSERT INTO capture_policies (app_id, enabled, sample_rate, capture_headers, capture_request_body,
-                              capture_response_body, max_payload_bytes, updated_at, updated_by)
+                              capture_response_body, max_payload_bytes, updated_at, updated_by,
+                              resources_enabled, resources_min_interval_s, resources_disabled)
 VALUES ($1, $2, $3::float8, $4, $5,
-        $6, $7::integer, now(), $8)
+        $6, $7::integer, now(), $8,
+        $9, $10, $11::text[])
 ON CONFLICT (app_id)
 DO UPDATE SET enabled               = EXCLUDED.enabled,
               sample_rate           = EXCLUDED.sample_rate,
@@ -143,33 +152,43 @@ DO UPDATE SET enabled               = EXCLUDED.enabled,
               capture_response_body = EXCLUDED.capture_response_body,
               max_payload_bytes     = EXCLUDED.max_payload_bytes,
               updated_at            = now(),
-              updated_by            = EXCLUDED.updated_by
+              updated_by            = EXCLUDED.updated_by,
+              resources_enabled        = EXCLUDED.resources_enabled,
+              resources_min_interval_s = EXCLUDED.resources_min_interval_s,
+              resources_disabled       = EXCLUDED.resources_disabled
 RETURNING app_id, enabled, sample_rate::float8 AS sample_rate,
           capture_headers, capture_request_body, capture_response_body,
-          max_payload_bytes, updated_at, updated_by
+          max_payload_bytes, updated_at, updated_by,
+          resources_enabled, resources_min_interval_s, resources_disabled
 `
 
 type UpsertCapturePolicyParams struct {
-	AppID               uuid.UUID
-	Enabled             bool
-	SampleRate          float64
-	CaptureHeaders      bool
-	CaptureRequestBody  bool
-	CaptureResponseBody bool
-	MaxPayloadBytes     *int32
-	UpdatedBy           *uuid.UUID
+	AppID                 uuid.UUID
+	Enabled               bool
+	SampleRate            float64
+	CaptureHeaders        bool
+	CaptureRequestBody    bool
+	CaptureResponseBody   bool
+	MaxPayloadBytes       *int32
+	UpdatedBy             *uuid.UUID
+	ResourcesEnabled      bool
+	ResourcesMinIntervalS int32
+	ResourcesDisabled     []string
 }
 
 type UpsertCapturePolicyRow struct {
-	AppID               uuid.UUID
-	Enabled             bool
-	SampleRate          float64
-	CaptureHeaders      bool
-	CaptureRequestBody  bool
-	CaptureResponseBody bool
-	MaxPayloadBytes     *int32
-	UpdatedAt           time.Time
-	UpdatedBy           *uuid.UUID
+	AppID                 uuid.UUID
+	Enabled               bool
+	SampleRate            float64
+	CaptureHeaders        bool
+	CaptureRequestBody    bool
+	CaptureResponseBody   bool
+	MaxPayloadBytes       *int32
+	UpdatedAt             time.Time
+	UpdatedBy             *uuid.UUID
+	ResourcesEnabled      bool
+	ResourcesMinIntervalS int32
+	ResourcesDisabled     []string
 }
 
 func (q *Queries) UpsertCapturePolicy(ctx context.Context, arg UpsertCapturePolicyParams) (UpsertCapturePolicyRow, error) {
@@ -182,6 +201,9 @@ func (q *Queries) UpsertCapturePolicy(ctx context.Context, arg UpsertCapturePoli
 		arg.CaptureResponseBody,
 		arg.MaxPayloadBytes,
 		arg.UpdatedBy,
+		arg.ResourcesEnabled,
+		arg.ResourcesMinIntervalS,
+		arg.ResourcesDisabled,
 	)
 	var i UpsertCapturePolicyRow
 	err := row.Scan(
@@ -194,6 +216,9 @@ func (q *Queries) UpsertCapturePolicy(ctx context.Context, arg UpsertCapturePoli
 		&i.MaxPayloadBytes,
 		&i.UpdatedAt,
 		&i.UpdatedBy,
+		&i.ResourcesEnabled,
+		&i.ResourcesMinIntervalS,
+		&i.ResourcesDisabled,
 	)
 	return i, err
 }

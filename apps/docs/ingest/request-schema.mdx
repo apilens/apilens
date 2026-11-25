@@ -25,6 +25,7 @@ All three ingest endpoints take a JSON body with one array of records. Fields ma
 | `request_headers` / `response_headers` | string | No | JSON-serialized header map — **redact secrets before sending**. |
 | `base_url` | string | No | `scheme://host` of the serving app. |
 | `trace_id` / `span_id` | string | No | Hex IDs linking the request to its trace. |
+| `instance_id` | string | No | The SDK process that served the request: the `instance_id` of its [heartbeat](/ingest/heartbeat#runtime-resources). Splits latency and throughput per instance, next to that process's CPU and memory. |
 | `project_slug` | string | No | Optional assertion; the key already implies the project. |
 
 ## SpanRecord — `POST /v1/traces`

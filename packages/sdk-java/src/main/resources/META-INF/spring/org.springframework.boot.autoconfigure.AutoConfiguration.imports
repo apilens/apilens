@@ -5,3 +5,4 @@ ai.apilens.spring.ApiLensLoggingAutoConfiguration
 ai.apilens.spring.ApiLensWebMvcAutoConfiguration
 ai.apilens.spring.ApiLensHttpClientAutoConfiguration
 ai.apilens.spring.ApiLensJdbcAutoConfiguration
+ai.apilens.spring.ApiLensResourcesAutoConfiguration

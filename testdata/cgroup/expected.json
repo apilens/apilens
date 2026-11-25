@@ -1,0 +1,139 @@
+{
+  "cases": {
+    "v2_namespaced_limited": {
+      "limit_source": "cgroup_v2",
+      "container_id": "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+      "cpu": {
+        "limit_cores": 0.5,
+        "usage_us": 123456789,
+        "nr_periods": 1000,
+        "nr_throttled": 180,
+        "throttled_us": 2400000
+      },
+      "memory": {
+        "limit": 536870912,
+        "current": 503316480,
+        "working_set": 419430400,
+        "anon": 398458880,
+        "file": 104857600,
+        "swap": 0,
+        "oom_kill": 1
+      },
+      "note": "cgroup namespace: own path is '/', files at the mount root; container id only visible in mountinfo (resolv.conf under containers/<id>, not sandboxes/<id>)."
+    },
+    "v2_kind_sandbox": {
+      "limit_source": "cgroup_v2",
+      "container_id": "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a",
+      "cpu": {
+        "limit_cores": 0.5,
+        "usage_us": 123456789,
+        "nr_periods": 1000,
+        "nr_throttled": 180,
+        "throttled_us": 2400000
+      },
+      "memory": {
+        "limit": 536870912,
+        "current": 503316480,
+        "working_set": 419430400,
+        "anon": 398458880,
+        "file": 104857600,
+        "swap": 0,
+        "oom_kill": 1
+      },
+      "note": "containerd + cgroup v2 Kubernetes (kind): own path is '/', hostname and resolv.conf come from the pod sandbox (sandboxes/<id> is per pod, never the container id). The only per-container-start source is kubelet's termination-log mount, root /var/lib/kubelet/pods/<uid>/containers/<name>/<suffix> (new suffix on every container start, shared by every process): container_id = k8s:<uid>/<name>/<suffix>."
+    },
+    "v2_unlimited": {
+      "limit_source": "cgroup_v2",
+      "container_id": null,
+      "cpu": {
+        "limit_cores": null,
+        "usage_us": 5000000,
+        "nr_periods": 0,
+        "nr_throttled": 0,
+        "throttled_us": 0
+      },
+      "memory": {
+        "limit": null,
+        "current": 104857600,
+        "working_set": 94371840,
+        "anon": 73400320,
+        "file": 31457280,
+        "swap": null,
+        "oom_kill": 0
+      },
+      "note": "'max' means no limit: limit is null, never a number. memory.swap.current absent -> swap null."
+    },
+    "v2_k8s_nested": {
+      "limit_source": "cgroup_v2",
+      "container_id": "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+      "cpu": {
+        "limit_cores": 1.0,
+        "usage_us": 900000000,
+        "nr_periods": 500,
+        "nr_throttled": 50,
+        "throttled_us": 750000
+      },
+      "memory": {
+        "limit": 536870912,
+        "current": 209715200,
+        "working_set": 199229440,
+        "anon": 188743680,
+        "file": 20971520,
+        "swap": null,
+        "oom_kill": 0
+      },
+      "note": "No cgroup namespace: own path is the full kubepods path. The effective limit is the minimum over the leaf and every ancestor up to the mount root (leaf 'max', pod slice 512 MiB / 1 core)."
+    },
+    "v1_docker": {
+      "limit_source": "cgroup_v1",
+      "container_id": "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+      "cpu": {
+        "limit_cores": 2.0,
+        "usage_us": 45000000,
+        "nr_periods": 2000,
+        "nr_throttled": 20,
+        "throttled_us": 1500000
+      },
+      "memory": {
+        "limit": null,
+        "current": 314572800,
+        "working_set": 262144000,
+        "anon": 209715200,
+        "file": 104857600,
+        "swap": null,
+        "oom_kill": 2
+      },
+      "note": "v1: the mount root (mountinfo field 4) is the container's own cgroup, so files sit at the mount point. limit_in_bytes 9223372036854771712 is the no-limit sentinel -> null. cpuacct.usage and throttled_time are nanoseconds; report microseconds. anon/file from total_rss/total_cache."
+    },
+    "hybrid_v1_controllers": {
+      "limit_source": "cgroup_v1",
+      "container_id": null,
+      "cpu": {
+        "limit_cores": null,
+        "usage_us": 1000000,
+        "nr_periods": 0,
+        "nr_throttled": 0,
+        "throttled_us": 0
+      },
+      "memory": {
+        "limit": 1073741824,
+        "current": 268435456,
+        "working_set": 234881024,
+        "anon": 201326592,
+        "file": 67108864,
+        "swap": null,
+        "oom_kill": 0
+      },
+      "note": "Hybrid: a cgroup2 mount exists (/sys/fs/cgroup/unified) but the cpu and memory controllers are v1, so read v1. Decide per controller from mountinfo, not by probing files. cfs_quota_us -1 = no CPU limit."
+    },
+    "no_cgroup": {
+      "limit_source": "none",
+      "container_id": null,
+      "cpu": null,
+      "memory": null,
+      "note": "No cgroup mount in mountinfo: no container numbers at all (null), never zeros."
+    }
+  },
+  "units": "bytes for memory, microseconds for cpu usage and throttling, cores for limit_cores. null = not measurable (absent file, 'max', sentinel).",
+  "how": "Each case has a fake filesystem under <case>/root. Point the reader's root at it (it reads <root>/proc/self/cgroup, <root>/proc/self/mountinfo and the cgroup files under the mount points named in mountinfo). CPU affinity/cpuset are not in the fixtures: tests inject host cores = 8, so limit_cores is min(quota, 8) or null when there is no quota."
+}

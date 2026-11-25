@@ -220,9 +220,16 @@
 //                                                  shop's apps (a day may add rejected_by, environments,
 //                                                  bytes); 503 when an app's ingest is "off", 500 when
 //                                                  seeded usage: "error"; quota from /__fake/apps {quota}
+//   GET  /api/v1/apps/{id}/resources?project=shop&metric=&range=&environment=&instance=&container=
+//                                                  one resources series (M7 #1123) of the app's seeded
+//                                                  `resources` scenario (see resourceScenario); 422 for an
+//                                                  unknown metric
+//   GET  /api/v1/apps/{id}/instance-events?project=shop&range=&environment=
+//                                                  the scenario's restarts and OOM kills (M7 #1126)
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
-//                                                  traffic?, deploys?, managed?}], their policies, reports, health
+//                                                  traffic?, deploys?, managed?, resources? (a scenario name,
+//                                                  M7)}], their policies, reports, health
 //                                                  counters, SDK status, traffic and lifecycle (managed:
 //                                                  any ManagedApp field), plus {rejections?}
 //   POST /__fake/ingested {project?, last_at}      test hook (#817): when the edge last stored data for a
@@ -791,6 +798,531 @@ const appDeploys = new Map<string, Record<string, unknown>[]>();
 let usageQuota = { records_per_minute: 0, bytes_per_day: 0 };
 let usageError = false;
 
+// Runtime resources (M7, #1127): seeded per app by `/__fake/apps` {resources: scenario}. A scenario
+// is a set of fake SDK processes with their identity, lifetime and resource curves; the status read
+// lists them as instances (identity, latest snapshot, 60 one-minute sparkline points, request stats,
+// signals), `GET /apps/{id}/resources` aggregates their curves per bucket (container metrics once per
+// container, process metrics over processes; gaps as nulls) and `GET /apps/{id}/instance-events`
+// lists the restarts and OOM kills their ends imply. Scenarios:
+//   k8s-python  4 gunicorn workers in 2 Kubernetes pods: one leaking ~+40 MB/h, the other pod
+//               OOMKilled 3 h ago and restarted (2 ended + 2 new workers, one noisy), one Lambda
+//               instance (CPU hidden) and one old-SDK instance (resources: null); a heartbeat gap
+//   node        3 Node.js processes on ECS (event loop, ELU, V8 heap, GC, pg pool)
+//   java        2 JVM pods (sawtooth heap, GC pause, threads, HikariCP)
+//   old-sdk     2 instances on an SDK without resources
+//   serverless  3 Lambda instances
+//   fresh       2 instances started seconds ago: resources reported, no samples in the series yet
+const MiB = 1024 * 1024;
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+interface FakeProc {
+  id: string;
+  env: string;
+  sdk: [string, string, string];
+  runtime: string;
+  release: string;
+  commit: string;
+  pid: number;
+  hostname: string;
+  hostname_guess?: boolean;
+  container_id: string;
+  pod_name: string;
+  pod_uid: string;
+  namespace: string;
+  node_name: string;
+  platform: string;
+  region: string;
+  /** ms before the seed time the process started, and ended (null while running). */
+  start: number;
+  end: number | null;
+  ended_reason: string;
+  /** False for an SDK too old to sample. */
+  resources: boolean;
+  limit_source: string;
+  cpuLimit: number | null;
+  memLimit: number | null;
+  /** Cores used at time t (ms since its start). */
+  cpu: (age: number, k: number) => number;
+  rss: (age: number, k: number) => number;
+  rt?: (age: number, k: number) => Partial<Record<string, number>>;
+  req: { rpm: number; p95_ms: number; error_pct: number } | null;
+  signals?: { kind: string; metric: string; value: number; detail: string }[];
+  /** Windows (ms before the seed time, [from, to]) with no heartbeat. */
+  gaps?: [number, number][];
+}
+interface ResourcesSeed {
+  at: number;
+  procs: FakeProc[];
+}
+const appResourceSeeds = new Map<string, ResourcesSeed>();
+
+/** Deterministic noise in [0, 1) for a process and a sample. */
+function noise(seed: string, k: number): number {
+  let h = 0;
+  for (const c of seed) h = (h * 31 + c.charCodeAt(0)) | 0;
+  const x = Math.sin(h * 0.0001 + k * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function resourceScenario(name: string): FakeProc[] {
+  const base = {
+    env: "production",
+    sdk: ["apilenss", "0.5.0", "0.5.0"] as [string, string, string],
+    runtime: "python 3.12.7",
+    release: "2026.11.25-2",
+    commit: "3f9a2c1d8e",
+    hostname_guess: false,
+    pod_uid: "",
+    namespace: "",
+    node_name: "",
+    region: "europe-west1",
+    end: null,
+    ended_reason: "",
+    resources: true,
+    limit_source: "cgroup_v2",
+    cpuLimit: 1,
+    memLimit: 1024 * MiB,
+    req: null,
+    gaps: [] as [number, number][],
+  };
+  const k8s = (pod: string, node: string, uid: string) => ({
+    platform: "k8s",
+    pod_name: pod,
+    hostname: pod,
+    namespace: "shop",
+    node_name: node,
+    pod_uid: uid,
+    container_id: `containerd://${uid.replace(/-/g, "").slice(0, 12)}9e1f4b7c2a`,
+  });
+  const worker = (cpu: number, rss: number) => ({
+    cpu: (_age: number, k: number) => cpu * (0.75 + 0.5 * noise(String(cpu), k)) * (1 + 0.35 * Math.sin(k / 9)),
+    rss: (_age: number, k: number) => rss * MiB + 6 * MiB * noise(String(rss), k),
+    rt: (_a: number, k: number) => ({ gc_pause: 2 + 3 * noise("gc", Math.floor(k / 4)) + 1.5 * noise("gc2", k), threads: 6 + (noise("th", Math.floor(k / 30)) > 0.7 ? 1 : 0), pool_used: 2 + Math.round(3 * noise("pool", Math.floor(k / 3))) }),
+  });
+  const gap: [number, number] = [2 * HOUR + 12 * MIN, 2 * HOUR];
+  switch (name) {
+    case "k8s-python": {
+      const a = k8s("checkout-api-7d9f8b6c4-x2k4p", "gke-shop-pool-a-1c2d", "5b1e2f3a-9c8d-4e7f-a6b5-1d2c3b4a5f60");
+      const b = k8s("checkout-api-7d9f8b6c4-m8q2z", "gke-shop-pool-a-7e8f", "8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d");
+      return [
+        { ...base, ...a, ...worker(0.18, 152), id: "gw-a1-5e1c", pid: 8, start: 5 * HOUR, req: { rpm: 212, p95_ms: 184, error_pct: 0.4 }, gaps: [gap] },
+        {
+          ...base,
+          ...a,
+          ...worker(0.2, 150),
+          id: "gw-a2-91d4",
+          pid: 9,
+          start: 5 * HOUR,
+          // Leaks ~40 MB an hour since it started.
+          rss: (age: number, k: number) => 150 * MiB + (age / HOUR) * 40 * MiB + 5 * MiB * noise("leak", k),
+          req: { rpm: 205, p95_ms: 197, error_pct: 0.5 },
+          signals: [{ kind: "leak", metric: "mem_rss", value: 40.3, detail: "RSS grew 40 MB/h over the last 5 h (R² 0.97); at this rate it reaches the 1 GiB limit in about 13 h." }],
+          gaps: [gap],
+        },
+        // Pod B's first workers: OOMKilled 3 h ago after a memory spike, then restarted.
+        {
+          ...base,
+          ...b,
+          ...worker(0.22, 160),
+          rss: (age: number, k: number) => 160 * MiB + Math.max(0, age - HOUR) ** 2 / HOUR ** 2 * 420 * MiB + 4 * MiB * noise("spike", k),
+          id: "gw-b1-0a7e",
+          pid: 8,
+          start: 5 * HOUR,
+          end: 3 * HOUR,
+          ended_reason: "oom",
+          req: null,
+        },
+        {
+          ...base,
+          ...b,
+          ...worker(0.21, 158),
+          rss: (age: number, k: number) => 158 * MiB + Math.max(0, age - HOUR) ** 2 / HOUR ** 2 * 400 * MiB + 4 * MiB * noise("spike2", k),
+          id: "gw-b2-c33f",
+          pid: 9,
+          start: 5 * HOUR,
+          end: 3 * HOUR,
+          ended_reason: "oom",
+          req: null,
+        },
+        { ...base, ...b, ...worker(0.19, 148), id: "gw-b3-77a0", pid: 8, start: 3 * HOUR - 40_000, req: { rpm: 198, p95_ms: 176, error_pct: 0.3 } },
+        {
+          ...base,
+          ...b,
+          ...worker(0.46, 171),
+          id: "gw-b4-e5b2",
+          pid: 9,
+          start: 3 * HOUR - 40_000,
+          req: { rpm: 207, p95_ms: 412, error_pct: 1.9 },
+          signals: [{ kind: "noisy", metric: "cpu_pct", value: 46, detail: "CPU 46% over the last 15 min, 2.3× the production median of 20% across 3 peers." }],
+        },
+        {
+          ...base,
+          id: "lambda-3c9e7a",
+          pid: 1,
+          platform: "lambda",
+          region: "eu-west-1",
+          hostname: "169.254.76.1",
+          hostname_guess: true,
+          pod_name: "",
+          container_id: "",
+          limit_source: "none",
+          cpuLimit: null,
+          memLimit: 512 * MiB,
+          start: 52 * MIN,
+          cpu: () => 0,
+          rss: (_a: number, k: number) => 96 * MiB + 8 * MiB * noise("lambda", k),
+          req: { rpm: 14, p95_ms: 238, error_pct: 0 },
+        },
+        {
+          ...base,
+          id: "legacy-0f2b",
+          env: "staging",
+          sdk: ["apilenss", "0.3.0", "0.5.0"],
+          runtime: "python 3.11.9",
+          release: "2026.10.30-1",
+          pid: 4211,
+          platform: "",
+          hostname: "",
+          pod_name: "",
+          container_id: "",
+          region: "",
+          resources: false,
+          start: 9 * 24 * HOUR,
+          cpu: () => 0,
+          rss: () => 0,
+          req: null,
+        },
+      ];
+    }
+    case "node": {
+      const node = (id: string, task: string, cpu: number, heap: number) => ({
+        ...base,
+        id,
+        sdk: ["apilens-js-sdk", "0.5.0", "0.5.0"] as [string, string, string],
+        runtime: "node 22.11.0",
+        platform: "ecs",
+        region: "us-east-1",
+        hostname: `ip-10-0-${task}.ec2.internal`,
+        container_id: `ecs-${task}-catalog-a1b2c3`,
+        pod_name: "",
+        limit_source: "ecs",
+        cpuLimit: 0.5,
+        memLimit: 768 * MiB,
+        pid: 1,
+        start: 20 * HOUR,
+        cpu: (_a: number, k: number) => cpu * (0.7 + 0.6 * noise(id, k)),
+        rss: (_a: number, k: number) => (heap + 70) * MiB + 10 * MiB * noise(id, k),
+        rt: (_a: number, k: number) => ({
+          event_loop_p99: 12 + 30 * noise(`${id}el`, k) ** 3,
+          elu: 0.18 + 0.25 * noise(`${id}elu`, k),
+          heap_used: heap * MiB + 40 * MiB * ((k % 12) / 12),
+          gc_pause: 1.5 + 4 * noise(`${id}gc`, k),
+          pool_used: 3 + Math.round(5 * noise(`${id}pg`, k)),
+        }),
+        req: { rpm: 330, p95_ms: 96, error_pct: 0.2 },
+      });
+      return [node("node-1a2b", "12-34", 0.21, 140), node("node-3c4d", "12-87", 0.24, 152), node("node-5e6f", "13-02", 0.19, 136)];
+    }
+    case "java": {
+      const jvm = (id: string, pod: string, uid: string) => ({
+        ...base,
+        ...k8s(pod, "gke-shop-pool-b-4a5b", uid),
+        id,
+        sdk: ["apilens-java-sdk", "0.2.0", "0.2.0"] as [string, string, string],
+        runtime: "java 21.0.5",
+        cpuLimit: 2,
+        memLimit: 2048 * MiB,
+        pid: 1,
+        start: 30 * HOUR,
+        cpu: (_a: number, k: number) => 0.6 * (0.7 + 0.6 * noise(id, k)),
+        rss: (_a: number, k: number) => 900 * MiB + 30 * MiB * noise(id, k),
+        rt: (_a: number, k: number) => ({
+          heap_used: (280 + 220 * ((k % 16) / 16)) * MiB,
+          gc_pause: 4 + 14 * noise(`${id}gc`, k) ** 2,
+          threads: 48 + Math.round(6 * noise(`${id}th`, k)),
+          pool_used: 4 + Math.round(6 * noise(`${id}hk`, k)),
+        }),
+        req: { rpm: 410, p95_ms: 132, error_pct: 0.3 },
+      });
+      return [jvm("jvm-7f1a", "orders-5c6d7e-q1w2e", "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f"), jvm("jvm-8b2c", "orders-5c6d7e-r3t4y", "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a")];
+    }
+    case "old-sdk":
+      return ["old-1", "old-2"].map((id, i) => ({
+        ...base,
+        id,
+        sdk: ["apilenss", "0.3.0", "0.5.0"] as [string, string, string],
+        pid: 100 + i,
+        platform: "",
+        hostname: `web-${i + 1}`,
+        pod_name: "",
+        container_id: "",
+        resources: false,
+        start: 3 * 24 * HOUR,
+        cpu: () => 0,
+        rss: () => 0,
+      }));
+    case "serverless":
+      return ["fn-1", "fn-2", "fn-3"].map((id, i) => ({
+        ...base,
+        id: `lambda-${id}`,
+        platform: "lambda",
+        region: "eu-west-1",
+        hostname: `169.254.76.${i + 1}`,
+        hostname_guess: true,
+        pod_name: "",
+        container_id: "",
+        limit_source: "none",
+        cpuLimit: null,
+        memLimit: 512 * MiB,
+        pid: 1,
+        start: (40 + 15 * i) * MIN,
+        cpu: () => 0,
+        rss: (_a: number, k: number) => (90 + 10 * i) * MiB + 8 * MiB * noise(id, k),
+        req: { rpm: 12 + i, p95_ms: 240, error_pct: 0 },
+      }));
+    case "fresh":
+      return ["new-1", "new-2"].map((id, i) => ({
+        ...base,
+        ...k8s(`ledger-6b7c8d-${id}`, "gke-shop-pool-a-1c2d", `6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9${i}`),
+        id,
+        pid: 1,
+        start: 20_000,
+        // Started seconds ago: no sample has landed yet.
+        gaps: [[30 * 24 * HOUR, -HOUR]] as [number, number][],
+        cpu: () => 0.1,
+        rss: () => 120 * MiB,
+      }));
+    default:
+      return [];
+  }
+}
+
+const isServerlessProc = (p: FakeProc) => p.platform === "lambda" || p.platform === "cloud_run";
+/** Whether the process sent a heartbeat covering `t` (absolute ms). */
+function procAlive(seed: ResourcesSeed, p: FakeProc, t: number): boolean {
+  if (!p.resources) return false;
+  if (t < seed.at - p.start || t > Date.now()) return false;
+  if (p.end !== null && t > seed.at - p.end) return false;
+  return !(p.gaps ?? []).some(([from, to]) => t >= seed.at - from && t < seed.at - to);
+}
+const procAge = (seed: ResourcesSeed, p: FakeProc, t: number) => t - (seed.at - p.start);
+/** The sample index of `t`: one per minute, so curves are stable across reads. */
+const sampleK = (t: number) => Math.floor(t / MIN);
+const containerKey = (p: FakeProc) => p.container_id || `proc:${p.id}`;
+
+/** A container's working set: its processes' RSS less what forked workers share, plus page cache. */
+function containerValues(seed: ResourcesSeed, procs: FakeProc[], t: number) {
+  const k = sampleK(t);
+  const alive = procs.filter((p) => procAlive(seed, p, t));
+  if (alive.length === 0) return null;
+  const p0 = alive[0];
+  const cores = alive.reduce((n, p) => n + p.cpu(procAge(seed, p, t), k), 0);
+  const shared = alive.length > 1 ? 0.18 : 0;
+  const ws = alive.reduce((n, p) => n + p.rss(procAge(seed, p, t), k) * (1 - shared), 0) + 28 * MiB;
+  const lim = p0.cpuLimit;
+  return {
+    cpu_cores: isServerlessProc(p0) ? null : cores,
+    cpu_pct: isServerlessProc(p0) ? null : lim ? (cores / lim) * 100 : (cores / 8) * 100,
+    mem_working_set: ws,
+    mem_pct: p0.memLimit ? (ws / p0.memLimit) * 100 : null,
+    throttled_ratio: isServerlessProc(p0) || !lim ? null : Math.max(0, Math.min(1, (cores / lim - 0.45) * 0.25 + 0.01 * noise(p0.id, k))),
+  };
+}
+
+function processValues(seed: ResourcesSeed, p: FakeProc, t: number): Record<string, number | null> | null {
+  if (!procAlive(seed, p, t)) return null;
+  const k = sampleK(t);
+  const age = procAge(seed, p, t);
+  const rss = p.rss(age, k);
+  return { mem_rss: rss, mem_pss: rss * 0.82, ...(p.rt ? p.rt(age, k) : {}) };
+}
+
+const RESOURCE_UNIT: Record<string, string> = {
+  cpu_pct: "percent",
+  cpu_cores: "cores",
+  mem_working_set: "bytes",
+  mem_rss: "bytes",
+  mem_pss: "bytes",
+  mem_pct: "percent",
+  throttled_ratio: "ratio",
+  event_loop_p99: "ms",
+  elu: "ratio",
+  heap_used: "bytes",
+  gc_pause: "ms",
+  threads: "count",
+  pool_used: "count",
+};
+const CONTAINER_METRICS = new Set(["cpu_pct", "cpu_cores", "mem_working_set", "mem_pct", "throttled_ratio"]);
+const RESOURCE_BUCKET: Record<string, number> = { "1h": 60, "6h": 300, "24h": 900, "7d": 3600 };
+const RESOURCE_SPAN: Record<string, number> = { "1h": HOUR, "6h": 6 * HOUR, "24h": 24 * HOUR, "7d": 7 * 24 * HOUR };
+
+/** `GET /apps/{id}/resources`: the metric per bucket over the scope, avg/min/max over containers or processes. */
+function resourceSeries(seed: ResourcesSeed | undefined, q: URLSearchParams): Record<string, unknown> | null {
+  const metric = q.get("metric") ?? "";
+  if (!(metric in RESOURCE_UNIT)) return null;
+  const range = q.get("range") ?? "6h";
+  const bs = RESOURCE_BUCKET[range] ?? 300;
+  const span = RESOURCE_SPAN[range] ?? 6 * HOUR;
+  const env = q.get("environment") ?? q.get("env") ?? "";
+  const instance = q.get("instance") ?? "";
+  const container = q.get("container") ?? "";
+  const now = Date.now();
+  const start = Math.floor((now - span) / (bs * 1000)) * bs * 1000 + bs * 1000;
+  const procs = (seed?.procs ?? []).filter((p) => (!env || p.env === env) && (!instance || p.id === instance) && (!container || p.container_id === container));
+  const container_ = CONTAINER_METRICS.has(metric);
+  // An instance filter on a container metric reads its whole container.
+  const scopeProcs = container_ && instance ? (seed?.procs ?? []).filter((p) => procs.some((x) => containerKey(x) === containerKey(p))) : procs;
+  const groups = new Map<string, FakeProc[]>();
+  for (const p of scopeProcs) groups.set(containerKey(p), [...(groups.get(containerKey(p)) ?? []), p]);
+  const points: Record<string, unknown>[] = [];
+  for (let t = start; t <= now; t += bs * 1000) {
+    // Up to four samples a bucket, so short spikes and gaps still show.
+    const samples = [0.125, 0.375, 0.625, 0.875].map((f) => t + f * bs * 1000).filter((s) => s <= now);
+    const vals: number[] = [];
+    let n = 0;
+    for (const s of samples) {
+      let any = 0;
+      if (container_) {
+        for (const g of groups.values()) {
+          const v = containerValues(seed as ResourcesSeed, g, s)?.[metric as "cpu_pct"];
+          if (v !== null && v !== undefined) {
+            vals.push(v);
+            any++;
+          }
+        }
+      } else {
+        for (const p of scopeProcs) {
+          const v = processValues(seed as ResourcesSeed, p, s)?.[metric];
+          if (v !== null && v !== undefined) {
+            vals.push(v);
+            any++;
+          }
+        }
+      }
+      n = Math.max(n, any);
+    }
+    const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    points.push({ t: new Date(t).toISOString(), avg, min: vals.length ? Math.min(...vals) : null, max: vals.length ? Math.max(...vals) : null, instances: n });
+  }
+  const limits = scopeProcs.filter((p) => p.resources);
+  const limit =
+    metric === "mem_working_set" ? (limits.length && limits.every((p) => p.memLimit) ? Math.max(...limits.map((p) => p.memLimit as number)) : null)
+    : metric === "cpu_cores" ? (limits.length && limits.every((p) => p.cpuLimit) ? Math.max(...limits.map((p) => p.cpuLimit as number)) : null)
+    : null;
+  return { metric, unit: RESOURCE_UNIT[metric], range, from: new Date(start).toISOString(), to: new Date(start + points.length * bs * 1000).toISOString(), bucket_seconds: bs, limit, points };
+}
+
+/** The scenario's processes as `GET /apps/{id}/status` lists its instances, newest first. */
+function resourceInstances(seed: ResourcesSeed): Record<string, unknown>[] {
+  const now = Date.now();
+  return seed.procs
+    .map((p) => {
+      const startedAt = seed.at - p.start;
+      const endedAt = p.end === null ? null : seed.at - p.end;
+      const last = endedAt ?? now - 12_000;
+      const group = seed.procs.filter((x) => containerKey(x) === containerKey(p));
+      const c = p.resources ? containerValues(seed, group, Math.min(last, now)) ?? containerValues(seed, [p], startedAt + 1000) : null;
+      const pv = p.resources ? processValues(seed, p, Math.min(last, now)) : null;
+      const cores = p.resources && !isServerlessProc(p) ? p.cpu(procAge(seed, p, last), sampleK(last)) : null;
+      const rt = pv ? { event_loop_p99: pv.event_loop_p99 ?? null, heap_used: pv.heap_used ?? null, gc_pause_ms: pv.gc_pause ?? null } : null;
+      const resources = p.resources
+        ? {
+            limit_source: p.limit_source,
+            cpu_pct: cores === null ? null : p.cpuLimit ? (cores / p.cpuLimit) * 100 : (cores / 8) * 100,
+            cpu_cores: cores,
+            cpu_limit_cores: p.cpuLimit,
+            mem_working_set: c?.mem_working_set ?? null,
+            mem_rss: pv?.mem_rss ?? null,
+            mem_pss: pv?.mem_pss ?? null,
+            mem_limit: p.memLimit,
+            mem_pct: c?.mem_pct ?? null,
+            throttled_ratio: c?.throttled_ratio ?? null,
+            runtime: rt && Object.values(rt).some((v) => v !== null) ? rt : null,
+            processes: p.platform === "k8s" || p.platform === "ecs"
+              ? [
+                  { pid: 1, ppid: 0, comm: p.runtime.startsWith("python") ? "gunicorn" : p.runtime.split(" ")[0], cpu_pct: 0.4, rss: 38 * MiB },
+                  ...group
+                    .filter((x) => x.end === null && x.pid !== 1)
+                    .map((x) => ({ pid: x.pid, ppid: 1, comm: "gunicorn", cpu_pct: x.cpu(procAge(seed, x, last), sampleK(last)) * 100, rss: x.rss(procAge(seed, x, last), sampleK(last)) })),
+                  { pid: 27, ppid: 0, comm: "sh", cpu_pct: 0, rss: 1.2 * MiB },
+                ]
+              : null,
+          }
+        : null;
+      const spark = p.resources
+        ? {
+            cpu_pct: Array.from({ length: 60 }, (_, m) => {
+              const t = now - (59 - m) * MIN;
+              if (!procAlive(seed, p, t) || isServerlessProc(p)) return null;
+              const v = p.cpu(procAge(seed, p, t), sampleK(t));
+              return p.cpuLimit ? (v / p.cpuLimit) * 100 : (v / 8) * 100;
+            }),
+            mem: Array.from({ length: 60 }, (_, m) => {
+              const t = now - (59 - m) * MIN;
+              // The process's RSS, as the query service sends it.
+              return procAlive(seed, p, t) ? p.rss(procAge(seed, p, t), sampleK(t)) : null;
+            }),
+          }
+        : null;
+      const quiet = now - last;
+      return {
+        instance_id: p.id,
+        environment: p.env,
+        status: quiet < 2 * MIN ? "reporting" : quiet < HOUR ? "stale" : "silent",
+        stats: {},
+        sdk_name: p.sdk[0],
+        sdk_version: p.sdk[1],
+        sdk_latest_version: p.sdk[2],
+        sdk_outdated: p.sdk[1] !== p.sdk[2],
+        runtime: p.runtime,
+        release: p.release,
+        commit: p.commit,
+        first_seen_at: new Date(startedAt).toISOString(),
+        last_seen_at: new Date(last).toISOString(),
+        pid: p.pid,
+        hostname: p.hostname,
+        hostname_guess: p.hostname_guess ?? false,
+        container_id: p.container_id,
+        pod_name: p.pod_name,
+        pod_uid: p.pod_uid,
+        namespace: p.namespace,
+        node_name: p.node_name,
+        platform: p.platform,
+        region: p.region,
+        process_start_time: p.resources ? new Date(startedAt).toISOString() : null,
+        uptime_s: p.resources ? Math.round((last - startedAt) / 1000) : null,
+        ended_at: endedAt === null ? null : new Date(endedAt).toISOString(),
+        ended_reason: p.ended_reason,
+        resources,
+        spark,
+        requests: p.req,
+        signals: p.signals ?? [],
+      };
+    })
+    .sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+}
+
+/** `GET /apps/{id}/instance-events`: an ended process's end as a restart or OOM event in the window, newest first. */
+function resourceEvents(seed: ResourcesSeed | undefined, q: URLSearchParams): Record<string, unknown> {
+  const range = q.get("range") ?? "24h";
+  const span = RESOURCE_SPAN[range] ?? 24 * HOUR;
+  const env = q.get("environment") ?? q.get("env") ?? "";
+  const from = Date.now() - span;
+  const events = (seed?.procs ?? [])
+    .filter((p) => p.end !== null && p.ended_reason && p.ended_reason !== "graceful" && (!env || p.env === env) && seed!.at - p.end >= from)
+    .map((p) => ({
+      kind: p.ended_reason,
+      at: new Date(seed!.at - (p.end as number)).toISOString(),
+      environment: p.env,
+      instance_id: p.id,
+      container_id: p.container_id,
+      pod_name: p.pod_name,
+      details: p.ended_reason === "oom" ? { replaced_by: "", last_seen_at: new Date(seed!.at - (p.end as number) - 15_000).toISOString() } : {},
+    }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return { range, from: new Date(from).toISOString(), to: new Date().toISOString(), events };
+}
+
 function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
   return {
     app_id: app.id,
@@ -802,6 +1334,7 @@ function capturePolicyOf(app: { id: string; slug: string }): Record<string, unkn
     capture_request_body: true,
     capture_response_body: true,
     max_payload_bytes: null,
+    resources: { enabled: true, min_interval_s: 15, disabled_collectors: [] },
     updated_at: null,
     updated_by: null,
     ...capturePolicies.get(app.id),
@@ -1892,6 +2425,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         ...Object.fromEntries(flags.map((f) => [f, body[f]])),
         sample_rate: rate,
         max_payload_bytes: cap,
+        // Omitted keeps the stored resources, like the server.
+        ...(body.resources ? { resources: body.resources } : {}),
         updated_at: new Date().toISOString(),
         updated_by: user,
       });
@@ -2022,8 +2557,24 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       instances: [],
       sdks: [],
       sdk_stats: { instances: 0, queued_records: 0, sent_records: 0, failed_batches: 0, dropped_records: 0, drop_counts: {}, ...stats },
+      ...(appResourceSeeds.has(app.id) ? { instances: resourceInstances(appResourceSeeds.get(app.id) as ResourcesSeed), next_cursor: null } : {}),
       ...appStatuses.get(app.id),
     });
+  }
+  // Runtime resources (M7, #1127): the seeded scenario's series and restart / OOM events.
+  const resourcesPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(resources|instance-events)$/);
+  if (resourcesPath && req.method === "GET") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
+    const app = shopApps.find((a) => a.id === decodeURIComponent(resourcesPath[1]));
+    if (!app) return problem(res, 404, "not_found");
+    if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
+    const seed = appResourceSeeds.get(app.id);
+    if (resourcesPath[2] === "instance-events") return send(res, 200, resourceEvents(seed, url.searchParams));
+    const series = resourceSeries(seed, url.searchParams);
+    if (!series) return problem(res, 422, "invalid_request");
+    return send(res, 200, series);
   }
   if (req.method === "POST" && path === "/__fake/ingested") {
     // Test hook (#817): sets when the edge last stored data for a project, or forgets it (null).
@@ -2048,6 +2599,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     appStatuses.clear();
     appTraffic.clear();
     appDeploys.clear();
+    appResourceSeeds.clear();
     shopApps = list.length
       ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug), managed: typeof a.managed === "object" && a.managed !== null ? (a.managed as Record<string, unknown>) : undefined }))
       : [DEFAULT_APP];
@@ -2060,6 +2612,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (typeof a.status === "object" && a.status !== null) appStatuses.set(id, a.status as Record<string, unknown>);
       if (typeof a.traffic === "object" && a.traffic !== null) appTraffic.set(id, a.traffic as { summary?: Record<string, unknown>; points?: unknown[]; endpoints?: unknown[] });
       if (Array.isArray(a.deploys)) appDeploys.set(id, a.deploys as Record<string, unknown>[]);
+      if (typeof a.resources === "string") appResourceSeeds.set(id, { at: Date.now(), procs: resourceScenario(a.resources) });
     });
     return send(res, 204);
   }
@@ -3950,6 +4503,9 @@ function measuredRetention(): Record<string, unknown>[] {
     { key: "spans", label: "Spans", period_days: 90, configurable: true, covers: "Trace spans: the waterfall in request detail." },
     { key: "rollups_1m", label: "Per-minute metrics", period_days: 30, configurable: true, covers: "Per-minute traffic, error and latency aggregates behind short-range charts." },
     { key: "rollups_1h", label: "Hourly metrics", period_days: 400, configurable: true, covers: "Hourly traffic, error and latency aggregates behind long-range charts." },
+    { key: "resources", label: "Runtime resources", period_days: 30, configurable: true, covers: "Per-minute CPU, memory and runtime health of each SDK process and its container." },
+    { key: "resources_1h", label: "Hourly runtime resources", period_days: 400, configurable: true, covers: "Hourly CPU, memory and runtime aggregates behind long-range resource charts." },
+    { key: "instance_rollups_1m", label: "Per-instance request metrics", period_days: 30, configurable: false, covers: "Per-minute traffic, error and latency of each SDK process, next to its runtime resources." },
     { key: "deploys", label: "Deploys", period_days: 400, configurable: false, covers: "Deploy markers on charts and the deploy comparison." },
   ];
 }

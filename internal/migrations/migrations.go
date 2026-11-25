@@ -90,7 +90,10 @@ func ensureDatabase(ctx context.Context, cfg config.ClickHouseConfig) error {
 }
 
 func up(ctx context.Context, dialect goose.Dialect, db *sql.DB, fsys fs.FS, name string, logger *slog.Logger) error {
-	provider, err := goose.NewProvider(dialect, db, fsys)
+	// Out of order: branches land independently (M7's 00047-00050 reached v2
+	// before 00046), so a lower version merged later still applies. Every
+	// migration here is idempotent, which keeps that safe.
+	provider, err := goose.NewProvider(dialect, db, fsys, goose.WithAllowOutofOrder(true))
 	if err != nil {
 		return fmt.Errorf("migrations: %s provider: %w", name, err)
 	}

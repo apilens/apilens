@@ -35,13 +35,16 @@ import (
 // timeColumn is the column each ClickHouse table's TTL reads; rows get now()
 // there so a merge does not expire them before the test looks.
 var timeColumn = map[string]string{
-	"api_requests":    "timestamp",
-	"api_logs":        "timestamp",
-	"api_spans":       "timestamp",
-	"api_deploys":     "deployed_at",
-	"api_requests_1m": "bucket",
-	"api_requests_1h": "bucket",
-	"api_consumers":   "",
+	"api_requests":              "timestamp",
+	"api_logs":                  "timestamp",
+	"api_spans":                 "timestamp",
+	"api_deploys":               "deployed_at",
+	"api_requests_1m":           "bucket",
+	"api_requests_1h":           "bucket",
+	"api_consumers":             "",
+	"app_instance_resources":    "ts",
+	"app_instance_resources_1h": "bucket",
+	"api_requests_instance_1m":  "bucket",
 }
 
 type fixture struct {

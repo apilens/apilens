@@ -56,16 +56,25 @@ func TestCheckRuleFields(t *testing.T) {
 	}
 
 	bad := map[string]func(b *AlertRuleBody){
-		"blank name":            func(b *AlertRuleBody) { b.Name = "  " },
-		"long name":             func(b *AlertRuleBody) { b.Name = strings.Repeat("n", 129) },
-		"blank environment":     func(b *AlertRuleBody) { b.Environment = " " },
-		"long description":      func(b *AlertRuleBody) { b.Description = strings.Repeat("d", 1025) },
-		"unknown metric":        func(b *AlertRuleBody) { b.Metric = "p99" },
-		"unknown condition":     func(b *AlertRuleBody) { b.Condition = "eq" },
-		"negative threshold":    func(b *AlertRuleBody) { b.Threshold = -1 },
-		"NaN threshold":         func(b *AlertRuleBody) { b.Threshold = math.NaN() },
-		"error rate above 1":    func(b *AlertRuleBody) { b.Metric, b.Threshold = "error_rate", 5 },
-		"apdex above 1":         func(b *AlertRuleBody) { b.Metric, b.Threshold = "apdex", 1.5 },
+		"blank name":              func(b *AlertRuleBody) { b.Name = "  " },
+		"long name":               func(b *AlertRuleBody) { b.Name = strings.Repeat("n", 129) },
+		"blank environment":       func(b *AlertRuleBody) { b.Environment = " " },
+		"long description":        func(b *AlertRuleBody) { b.Description = strings.Repeat("d", 1025) },
+		"unknown metric":          func(b *AlertRuleBody) { b.Metric = "p99" },
+		"unknown condition":       func(b *AlertRuleBody) { b.Condition = "eq" },
+		"negative threshold":      func(b *AlertRuleBody) { b.Threshold = -1 },
+		"NaN threshold":           func(b *AlertRuleBody) { b.Threshold = math.NaN() },
+		"error rate above 1":      func(b *AlertRuleBody) { b.Metric, b.Threshold = "error_rate", 5 },
+		"apdex above 1":           func(b *AlertRuleBody) { b.Metric, b.Threshold = "apdex", 1.5 },
+		"throttling above 1":      func(b *AlertRuleBody) { b.Metric, b.Threshold = "cpu_throttled_ratio", 2 },
+		"cpu above 100":           func(b *AlertRuleBody) { b.Metric, b.Threshold = "cpu_pct_of_limit", 101 },
+		"gc pause above 100":      func(b *AlertRuleBody) { b.Metric, b.Threshold = "gc_pause_pct", 150 },
+		"unknown aggregation":     func(b *AlertRuleBody) { b.Aggregation = "p95" },
+		"avg of a request metric": func(b *AlertRuleBody) { b.Aggregation = "avg" },
+		"avg of a resource count": func(b *AlertRuleBody) { b.Metric, b.Aggregation = "restarts", "avg" },
+		"filter on a resource metric": func(b *AlertRuleBody) {
+			b.Metric, b.Filters = "memory_pct_of_limit", AlertFilters{Endpoint: "GET /a"}
+		},
 		"window not minutes":    func(b *AlertRuleBody) { b.WindowS = 90 },
 		"window too short":      func(b *AlertRuleBody) { b.WindowS = 0 },
 		"no schedule":           func(b *AlertRuleBody) { b.EveryS = nil },
@@ -90,13 +99,19 @@ func TestCheckRuleFields(t *testing.T) {
 		}
 	}
 
-	// Every metric accepts a zero threshold.
+	// Every metric accepts a zero threshold and defaults to max.
 	for _, m := range alerts.Metrics {
 		b := ok
 		b.Metric, b.Threshold = string(m), 0
-		if _, err := checkRuleFields(b); err != nil {
-			t.Errorf("%s: %v", m, err)
+		if v, err := checkRuleFields(b); err != nil || v.aggregation != "max" {
+			t.Errorf("%s: %v (aggregation %q)", m, err, v.aggregation)
 		}
+	}
+	// A resource gauge can average over instances.
+	b := ok
+	b.Metric, b.Threshold, b.Aggregation = "cpu_pct_of_limit", 90, "avg"
+	if v, err := checkRuleFields(b); err != nil || v.aggregation != "avg" {
+		t.Errorf("cpu avg: %+v, %v", v, err)
 	}
 }
 

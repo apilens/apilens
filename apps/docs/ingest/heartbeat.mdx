@@ -55,3 +55,72 @@ The heartbeat body may carry `dropped`: the records the SDK dropped since its pr
 - The SDK resets its counts when the heartbeat is answered `200` and otherwise adds them to the next one, so a failed heartbeat loses nothing. The final heartbeat at shutdown carries the records the shutdown flush could not send.
 - The edge adds the counts to the app's hourly counters, shown in [Ingest health](/ingest/ingest-health#dropped-by-the-sdk) as **Dropped by the SDK**. If the counter store is unavailable the heartbeat is still accepted.
 - Records an SDK shortened to fit a batch (`truncated`) were sent and are not reported.
+
+## Runtime resources
+
+SDKs with runtime resources (M7) add two blocks to every heartbeat:
+
+- `identity`: where the process runs.
+- `resources`: CPU, memory and runtime health over the window since the previous heartbeat.
+
+The SDK samples every 15 seconds and sends the aggregate. Older SDKs send neither block, and their heartbeats work as before. `identity` is sent even when `capture_resources` is off (it is small, and restart inference needs it); only `resources` is turned off. What each SDK collects, what it costs and the platform matrix are in [Runtime resources](/sdk-reference/runtime-resources).
+
+```json
+{
+  "uptime_s": 3600.5,
+  "final": false,
+  "identity": {
+    "hostname": "storefront-7d9c8b6f5-x2k4q", "hostname_guess": false,
+    "container_id": "3f4e…", "pod_name": "storefront-7d9c8b6f5-x2k4q", "pod_uid": "8a6f…",
+    "namespace": "shop", "node_name": "gke-prod-pool-1-a1b2c3", "platform": "k8s",
+    "region": "europe-west1", "process_start_time": "2026-11-25T08:00:00Z"
+  },
+  "resources": {
+    "v": 1, "window_s": 60, "n": 4, "sampler_cost_us": 180,
+    "capabilities": ["process.cpu", "process.memory", "container.cpu", "container.memory", "runtime.python"],
+    "limit_source": "cgroup_v2",
+    "process": {
+      "cpu": { "cores_used": { "min": 0.12, "avg": 0.31, "max": 0.62, "last": 0.28 }, "pct_of_limit": { "avg": 31 } },
+      "memory": { "rss": { "avg": 203423744 }, "pss": { "avg": 126877696 }, "uss": null },
+      "threads": { "last": 8 }, "fds": { "last": 32 }
+    },
+    "container": {
+      "container_id": "3f4e…",
+      "cpu": { "cores_used": { "avg": 0.82 }, "pct_of_limit": { "avg": 82 }, "limit_cores": 1, "throttled_ratio": 0.18, "throttled_us": 2400000 },
+      "memory": { "current": { "avg": 515899392 }, "working_set": { "max": 432013312 }, "limit": 536870912, "oom_kill": 0 }
+    },
+    "runtime": { "python": { "gc": [{ "generation": 0, "collections": 41, "pause_ms_sum": 6.2 }], "threads": { "last": 6 }, "gil_enabled": true } },
+    "pools": [{ "name": "default", "kind": "sqlalchemy", "used": { "last": 3 }, "idle": 2, "max": 10, "pending": { "max": 1 } }],
+    "processes": [{ "pid": 4242, "ppid": 1, "comm": "gunicorn", "cpu_pct": 31, "rss": 205520896 }],
+    "flags": []
+  }
+}
+```
+
+The complete examples are [`testdata/resources/heartbeat_v1.json`](https://github.com/apilens/apilens/blob/v2/testdata/resources/heartbeat_v1.json), from a Kubernetes pod, and [`heartbeat_v1_minimal.json`](https://github.com/apilens/apilens/blob/v2/testdata/resources/heartbeat_v1_minimal.json), from a laptop with no container.
+
+### Values and units
+
+| Field | Meaning |
+|---|---|
+| Gauge `{min, avg, max, last}` | Over the samples of the window. Any of the four may be null. |
+| `null` or absent | Could not be measured: macOS has no PSS, a laptop has no container, an edge runtime has nothing. A missing value is never sent as `0`. |
+| Memory | Bytes |
+| `cores_used` | CPU cores busy; can exceed 1. |
+| `pct_of_limit` | Percent of the effective limit (cgroup quota, CPU affinity or cpuset, else host cores), 0–100. The edge clamps it to 100. |
+| `throttled_ratio`, `throttled_us` | Share of CFS periods that were throttled in the window, and microseconds throttled. |
+| `working_set` | Container memory minus inactive file cache: what the OOM killer and kubelet eviction look at. |
+| `limit`, `limit_cores` | Container memory and CPU limits; null when none is set. "No limit" sentinels such as cgroup v1's `9223372036854771712` are never stored. |
+| Counters (`oom_kill`, GC `collections`, `pause_ms_sum`, `count`) | Deltas over the window. |
+| `limit_source` | `cgroup_v2`, `cgroup_v1`, `ecs`, `vm`, `host` or `none`. |
+| `processes` | At most 20 processes in the SDK's own container, largest RSS first. Only `pid`, `ppid`, `comm` (15 characters), `cpu_pct` and `rss`. Command lines and environments are never accepted: the edge drops any other field. |
+| `flags` | Conditions of the window, for example `freeze_gap` (a serverless freeze) or `host_pid_namespace`. |
+
+### Rules at the edge
+
+- The `resources` block is at most **32 KiB**; a larger one is refused with `422`.
+- A block whose `v` is not `1` is ignored and the heartbeat still counts, so a newer SDK never loses its heartbeat.
+- Values that can't be right (negative, NaN, infinite) are dropped one at a time, never the whole block.
+- Unknown `limit_source` and `platform` values are dropped.
+- A `process_start_time` more than 5 minutes in the future is dropped.
+- Each worker of a container sends the same `container` numbers. APILens keeps one container series per `container_id` and never adds workers' memory together.

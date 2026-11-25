@@ -7,9 +7,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +47,9 @@ import org.springframework.web.multipart.MultipartFile;
  *   GET  /boom/handled    exception turned into a 500 by a @ControllerAdvice
  *   GET  /boom/logged     exception caught and logged (SLF4J) -> 200
  *   GET  /outbound        outbound HTTP call to EXAMPLE_OUTBOUND_URL
+ *   GET  /leak?mb=N       keep N MiB (default 16, at most 64 per call) of heap for good;
+ *                         past -Xmx the JVM answers OutOfMemoryError before the kernel kills it
+ *   GET  /burn?ms=N       spin one core for N ms (default 200, at most 5000)
  * </pre>
  */
 @RestController
@@ -178,6 +183,36 @@ public class ExampleController {
       return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
           .body(Map.of("detail", "outbound call failed: " + e.getMessage()));
     }
+  }
+
+  private static final int MIB = 1024 * 1024;
+  private static final List<byte[]> LEAKED = new CopyOnWriteArrayList<>();
+
+  /** Runtime-resources driver (M7): memory that is never freed. */
+  @GetMapping("/leak")
+  public ResponseEntity<Map<String, Object>> leak(@RequestParam(defaultValue = "16") int mb) {
+    if (mb < 1 || mb > 64) {
+      return ResponseEntity.unprocessableEntity().body(Map.of("detail", "mb must be 1-64"));
+    }
+    byte[] block = new byte[mb * MIB];
+    Arrays.fill(block, (byte) 1);
+    LEAKED.add(block);
+    long total = LEAKED.stream().mapToLong(b -> b.length).sum() / MIB;
+    return ResponseEntity.ok(Map.of("leaked_mb", total, "pid", ProcessHandle.current().pid()));
+  }
+
+  /** Runtime-resources driver (M7): CPU spent on purpose. */
+  @GetMapping("/burn")
+  public ResponseEntity<Map<String, Object>> burn(@RequestParam(defaultValue = "200") int ms) {
+    if (ms < 1 || ms > 5000) {
+      return ResponseEntity.unprocessableEntity().body(Map.of("detail", "ms must be 1-5000"));
+    }
+    long end = System.nanoTime() + ms * 1_000_000L;
+    long spins = 0;
+    while (System.nanoTime() < end) {
+      spins++;
+    }
+    return ResponseEntity.ok(Map.of("burned_ms", ms, "spins", spins, "pid", ProcessHandle.current().pid()));
   }
 
   /** Bean-validation failures answer 422 (Spring's default is 400), like the other examples. */

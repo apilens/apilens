@@ -28,6 +28,10 @@ type Querier interface {
 	// The project's keys that still work: not revoked and not expired
 	// (ingest.max_keys_per_project counts these).
 	CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (int32, error)
+	// The restarts of an app in a window, for the restarts alert metric:
+	// restart, oom and suspected_oom events, with the workers of one container
+	// ended by the same heartbeat (same container_id and at) counted once.
+	CountAppInstanceRestarts(ctx context.Context, arg CountAppInstanceRestartsParams) (int64, error)
 	// Owners whose account is not deleted: a deleted owner cannot act for the
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
@@ -104,6 +108,15 @@ type Querier interface {
 	// Ends the grace period of a project being purged early (the operator
 	// command), so it can no longer be restored half-purged.
 	EndProjectGrace(ctx context.Context, id uuid.UUID) error
+	// Ends the open instances a heartbeat shows are gone (ADR 0010 D10):
+	//   * a container restart: same pod (pod_uid), another container;
+	//   * a dead worker: same container, silent for 2.5 heartbeat windows
+	//     (at least 150 s), while a sibling still reports.
+	// The reason is oom when the container recorded an OOM kill around the
+	// instance's last heartbeat, suspected_oom when its last working set was at
+	// least 90 % of the memory limit, restart otherwise. A later heartbeat of an
+	// ended instance clears the end again (UpsertAppInstance).
+	EndReplacedInstances(ctx context.Context, arg EndReplacedInstancesParams) ([]EndReplacedInstancesRow, error)
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
 	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
@@ -256,6 +269,8 @@ type Querier interface {
 	// The last heartbeat of an app per environment, and how many of its
 	// instances were seen since @since.
 	ListAppEnvironmentsLastSeen(ctx context.Context, arg ListAppEnvironmentsLastSeenParams) ([]ListAppEnvironmentsLastSeenRow, error)
+	// Restarts and OOM kills of an app in a window, newest first.
+	ListAppInstanceEvents(ctx context.Context, arg ListAppInstanceEventsParams) ([]ListAppInstanceEventsRow, error)
 	// The latest metadata report of an active app per environment, without the
 	// route list: what the app settings page shows next to the capture policy.
 	ListAppMetadata(ctx context.Context, appID uuid.UUID) ([]ListAppMetadataRow, error)
@@ -372,7 +387,10 @@ type Querier interface {
 	ListPurgeExportFiles(ctx context.Context, projectID uuid.UUID) ([]string, error)
 	// Every API key of the project, revoked ones included.
 	ListPurgeKeyIDs(ctx context.Context, projectID uuid.UUID) ([]uuid.UUID, error)
-	// The most recently seen instances of an app.
+	// The most recently seen instances of an app with where they run, their
+	// latest resources snapshot and how they ended. Keyset pages: a cursor is
+	// the (last_seen_at, environment, instance_id) of the previous page's last
+	// row; a null after_seen_at starts at the newest.
 	ListRecentAppInstances(ctx context.Context, arg ListRecentAppInstancesParams) ([]ListRecentAppInstancesRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
 	// the relationships the outbox relay leaves behind once it has applied every
@@ -525,6 +543,7 @@ type Querier interface {
 	// alert_rule_state goes with its rule (ON DELETE CASCADE).
 	PurgeProjectAlertRules(ctx context.Context, projectID uuid.UUID) (int64, error)
 	PurgeProjectAppAliases(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectAppInstanceEvents(ctx context.Context, projectID uuid.UUID) (int64, error)
 	PurgeProjectAppInstances(ctx context.Context, projectID uuid.UUID) (int64, error)
 	PurgeProjectAppMetadata(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// After every row that references an app; api_key_apps goes with it (ON
@@ -544,6 +563,9 @@ type Querier interface {
 	PurgeProjectUptimeMonitors(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// Records a probe of a check and its status.
 	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
+	RecordInstanceEnded(ctx context.Context, arg RecordInstanceEndedParams) error
+	// A live process reported OOM kills in its container during the window.
+	RecordOOMKill(ctx context.Context, arg RecordOOMKillParams) error
 	// Adds an environment the SDK reported unless the project already has one
 	// of that name. It goes last in the project's order; production and prod are
 	// marked as production.
@@ -658,7 +680,10 @@ type Querier interface {
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	UpsertAppAlias(ctx context.Context, arg UpsertAppAliasParams) error
 	// Records a heartbeat of one SDK process: the latest report replaces the
-	// instance's previous one, first_seen_at is kept.
+	// instance's previous one, first_seen_at is kept. Identity and the resources
+	// snapshot are the latest heartbeat's (null resources: this beat had none).
+	// A final heartbeat ends the instance gracefully; any other heartbeat means
+	// it is alive, which clears an end inferred earlier.
 	UpsertAppInstance(ctx context.Context, arg UpsertAppInstanceParams) error
 	// Stores the latest metadata report of an app in an environment and, in the
 	// same statement, records the reported framework on the app when it has

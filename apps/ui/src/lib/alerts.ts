@@ -136,12 +136,15 @@ export function unnotifiedText(e: Pick<AlertEvent, "ended_at" | "notified_at">, 
 
 // ---------------------------------------------------------------- metrics
 
-type Unit = "count" | "rate" | "ms" | "score";
+/** `rate` is stored 0..1 and entered in percent; `pct` is a percent 0..100 as stored. */
+type Unit = "count" | "rate" | "pct" | "ms" | "score";
 
 /**
- * The alert metrics in the editor's order. `defaultCondition` and `defaultThreshold` (API units:
- * rates 0..1, times in ms) are what a rule starts at when its metric is picked (#982), so a switch
- * never carries `p95 > 5 ms` or `Apdex above 5` over from the last metric.
+ * The alert metrics in the editor's order: the request metrics, then the runtime resources (M7,
+ * #1135), which read the SDK heartbeats and take no filters. `defaultCondition` and
+ * `defaultThreshold` (API units: rates 0..1, percents 0..100, times in ms) are what a rule starts
+ * at when its metric is picked (#982), so a switch never carries `p95 > 5 ms` or `Apdex above 5`
+ * over from the last metric.
  */
 export const METRICS: { value: AlertMetric; label: string; unit: Unit; defaultCondition: AlertCondition; defaultThreshold: number }[] = [
   { value: "traffic", label: "Requests", unit: "count", defaultCondition: "lt", defaultThreshold: 1 },
@@ -156,7 +159,18 @@ export const METRICS: { value: AlertMetric; label: string; unit: Unit; defaultCo
   { value: "p95", label: "p95 response time", unit: "ms", defaultCondition: "gt", defaultThreshold: 1000 },
   { value: "apdex", label: "Apdex", unit: "score", defaultCondition: "lt", defaultThreshold: 0.85 },
   { value: "unique_consumers", label: "Unique consumers", unit: "count", defaultCondition: "lt", defaultThreshold: 1 },
+  { value: "cpu_pct_of_limit", label: "CPU (% of limit)", unit: "pct", defaultCondition: "gt", defaultThreshold: 90 },
+  { value: "memory_pct_of_limit", label: "Memory (% of limit)", unit: "pct", defaultCondition: "gt", defaultThreshold: 90 },
+  { value: "cpu_throttled_ratio", label: "CPU throttling", unit: "rate", defaultCondition: "gt", defaultThreshold: 0.25 },
+  { value: "event_loop_p99_ms", label: "Event-loop delay p99", unit: "ms", defaultCondition: "gt", defaultThreshold: 200 },
+  { value: "gc_pause_pct", label: "GC pause time", unit: "pct", defaultCondition: "gt", defaultThreshold: 10 },
+  { value: "oom_kills", label: "OOM kills", unit: "count", defaultCondition: "gt", defaultThreshold: 0 },
+  { value: "restarts", label: "Restarts", unit: "count", defaultCondition: "gt", defaultThreshold: 0 },
 ];
+
+/** The metrics over runtime resources, not requests: filters do not apply to them. */
+const RESOURCE_METRICS = new Set<AlertMetric>(["cpu_pct_of_limit", "memory_pct_of_limit", "cpu_throttled_ratio", "event_loop_p99_ms", "gc_pause_pct", "oom_kills", "restarts"]);
+export const isResourceMetric = (metric: AlertMetric): boolean => RESOURCE_METRICS.has(metric);
 
 const unitOf = (metric: AlertMetric): Unit => METRICS.find((m) => m.value === metric)?.unit ?? "count";
 export const metricLabel = (metric: AlertMetric): string => METRICS.find((m) => m.value === metric)?.label ?? metric;
@@ -169,10 +183,11 @@ export const CONDITIONS: { value: AlertCondition; label: string; symbol: string 
 ];
 export const conditionSymbol = (c: AlertCondition): string => CONDITIONS.find((x) => x.value === c)?.symbol ?? c;
 
-/** What the threshold field is entered in for `metric`: error rates in percent, the rest as stored. */
+/** What the threshold field is entered in for `metric`: rates and percents in percent, the rest as stored. */
 export function thresholdUnit(metric: AlertMetric): string {
   switch (unitOf(metric)) {
     case "rate":
+    case "pct":
       return "%";
     case "ms":
       return "ms";
@@ -180,6 +195,8 @@ export function thresholdUnit(metric: AlertMetric): string {
       return "0 to 1";
     default:
       if (metric === "unique_consumers") return "consumers";
+      if (metric === "oom_kills") return "OOM kills";
+      if (metric === "restarts") return "restarts";
       return metric === "traffic" ? "requests" : "errors";
   }
 }
@@ -193,6 +210,8 @@ export function formatMetric(metric: AlertMetric, value: number | null | undefin
     case "rate":
       // Two decimals under 1% so a 0.25% threshold reads as entered.
       return formatPercent(value, { digits: value > 0 && value < 0.01 ? 2 : 1 });
+    case "pct":
+      return formatPercent(value / 100);
     case "ms":
       return value >= 1000 ? `${Number((value / 1000).toFixed(2))} s` : `${Math.round(value)} ms`;
     case "score":
@@ -382,9 +401,9 @@ export function checkRuleDraft(d: RuleDraft): RuleCheck {
   let threshold = Number(raw);
   if (raw === "" || !Number.isFinite(threshold) || threshold < 0) {
     errors.threshold = "Enter a number of 0 or more.";
-  } else if (unit === "rate") {
+  } else if (unit === "rate" || unit === "pct") {
     if (threshold > 100) errors.threshold = "Enter a percentage from 0 to 100.";
-    threshold /= 100;
+    if (unit === "rate") threshold /= 100;
   } else if (unit === "score" && threshold > 1) {
     errors.threshold = "Apdex runs from 0 to 1.";
   }
@@ -414,7 +433,8 @@ export function checkRuleDraft(d: RuleDraft): RuleCheck {
   if (d.channel_ids.length > MAX_RULE_CHANNELS) errors.channel_ids = `Pick at most ${MAX_RULE_CHANNELS} channels.`;
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const filters = { ...(consumer ? { consumer } : {}), ...(group ? { group } : {}), ...(endpoint ? { endpoint } : {}) };
+  // Resource metrics take no filters (the API refuses them), so any typed before a switch are dropped.
+  const filters = isResourceMetric(d.metric) ? {} : { ...(consumer ? { consumer } : {}), ...(group ? { group } : {}), ...(endpoint ? { endpoint } : {}) };
   const body: AlertRuleBody = {
     environment,
     name,

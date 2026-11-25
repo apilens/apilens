@@ -12,6 +12,8 @@ export const RETENTION_LIMITS: Partial<Record<RetentionSignalKey, { default: num
   spans: { default: 90, min: 1, max: 3650 },
   rollups_1m: { default: 30, min: 1, max: 400 },
   rollups_1h: { default: 400, min: 30, max: 3650 },
+  resources: { default: 30, min: 7, max: 400 },
+  resources_1h: { default: 400, min: 30, max: 3650 },
 };
 
 /** Why `days` is not a valid `retention.<key>`, or null. Deploys are not configurable. */
@@ -87,6 +89,12 @@ export function afterRetention(
       return hourlyLonger ? "Deleted. Charts over older ranges use the hourly metrics." : "Deleted.";
     case "rollups_1h":
       return "Deleted. Charts show nothing older.";
+    case "resources":
+      return "Deleted. Resource charts over older ranges use the hourly resources.";
+    case "resources_1h":
+      return "Deleted. Resource charts show nothing older.";
+    case "instance_rollups_1m":
+      return "Deleted. The instances table shows no request metrics older.";
     case "deploys":
       return "Deleted. Charts no longer mark them.";
     default:

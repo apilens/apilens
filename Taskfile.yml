@@ -168,11 +168,15 @@ tasks:
         read_key="$(printf '%s' "$out" | sed -n 's/.*"read_key":"\([^"]*\)".*/\1/p')"
         if [ -z "$key" ]; then echo "seed did not return an api_key: $out" >&2; exit 1; fi
         printf 'APILENS_EXAMPLES_API_KEY=%s\nAPILENS_EXAMPLES_READ_KEY=%s\n' "$key" "$read_key" > examples/.env
-        APILENS_EXAMPLES_API_KEY="$key" {{.EXAMPLES_COMPOSE}} up -d --build --wait --wait-timeout 600
-        echo "Examples up (posture ${APILENS_EXAMPLES_POSTURE:-full}); keys in examples/.env. Try: task examples:smoke"
+        # APILENS_EXAMPLES_LIMITS=1: half a core and 256 MiB per app, gunicorn
+        # --preload -w 4 and a 2-worker Node cluster (compose.examples.limits.yaml).
+        limits=""
+        if [ -n "${APILENS_EXAMPLES_LIMITS:-}" ]; then limits="-f deploy/compose/compose.examples.limits.yaml"; fi
+        APILENS_EXAMPLES_API_KEY="$key" {{.EXAMPLES_COMPOSE}} $limits up -d --build --wait --wait-timeout 600
+        echo "Examples up (posture ${APILENS_EXAMPLES_POSTURE:-full}${limits:+, resource-limited}); keys in examples/.env. Try: task examples:smoke"
 
   examples:smoke:
-    desc: Hit every example endpoint once and check the status codes
+    desc: "Hit every example endpoint once and check the status codes (APILENS_SMOKE_RESOURCES=1: also the heartbeats' resources, after examples:up with APILENS_EXAMPLES_LIMITS=1)"
     cmds:
       - bash examples/smoke.sh {{.CLI_ARGS}}
 
@@ -279,6 +283,14 @@ tasks:
         APILENS_E2E_CLICKHOUSE_PASSWORD=ci-clickhouse \
         APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
           go test -count=1 -tags=e2e ./test/e2e/... -run '^TestIngestFailureDrills$' -v -timeout 30m
+
+  # Runtime-resources drill on kind (test/kind/drill.sh): Downward API
+  # identity and limits, an OOM kill, a container restart and a pod
+  # replacement, asserted from Postgres. Needs kind, kubectl and the e2e stack.
+  test:kind:drill:
+    desc: "kind drill: limits, OOM kill, restart and pod delete through the FastAPI example (task e2e:up first)"
+    cmds:
+      - bash test/kind/drill.sh
 
   examples:down:
     desc: Stop the example apps (the e2e stack keeps running; task e2e:down stops it)

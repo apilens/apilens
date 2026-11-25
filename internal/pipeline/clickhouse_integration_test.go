@@ -220,3 +220,149 @@ func TestRequestNewFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("defaults: sampled=%d validation_errors=%q", sampled, verrs)
 	}
 }
+
+// Runtime resources (M7): a metric the SDK could not measure stays absent
+// (null), never 0, and the hourly rollup keeps sum/count/min/max per metric.
+func TestResourcesRoundTripAndHourlyRollup(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ch.Connect(ctx, chCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	sink := pipeline.NewDirectSink(config.SinkConfig{
+		Ack: "flush", BatchSize: 1000, FlushInterval: 50 * time.Millisecond, QueueSize: 64,
+		InsertTimeout: 10 * time.Second, RetryWindow: time.Second,
+	}, pipeline.ClickHouseInserters(conn), logger, pipeline.NewMetrics(nil))
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { _ = sink.Run(runCtx); close(done) }()
+	defer func() { stop(); <-done }()
+
+	project, app := uuid.New(), uuid.New()
+	hour := time.Now().UTC().Truncate(time.Hour)
+	row := func(instance string, at time.Time, m map[string]float64) pipeline.ResourceRow {
+		return pipeline.ResourceRow{ProjectID: project, AppID: app, Environment: "production", InstanceID: instance,
+			Timestamp: at, WindowS: 60, Samples: 4, ContainerID: "c1", Platform: "k8s", LimitSource: "cgroup_v2",
+			Metrics: m, Capabilities: []string{"process.cpu"}, Processes: `[{"pid":1,"comm":"gunicorn"}]`}
+	}
+	rows := []pipeline.ResourceRow{
+		row("w1", hour.Add(time.Minute), map[string]float64{"process.cpu.pct_of_limit.avg": 20, "process.cpu.pct_of_limit.max": 40, "container.memory.working_set.max": 100}),
+		row("w1", hour.Add(2*time.Minute), map[string]float64{"process.cpu.pct_of_limit.avg": 40, "process.cpu.pct_of_limit.max": 90}),
+		row("w2", hour.Add(time.Minute), map[string]float64{"process.cpu.pct_of_limit.avg": 0}), // a measured zero
+	}
+	if err := sink.SubmitResources(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	var pss *float64
+	var zero *float64
+	var procs string
+	err = conn.QueryRow(ctx, `
+		SELECT if(mapContains(metrics, 'process.memory.pss.avg'), metrics['process.memory.pss.avg'], NULL),
+		       (SELECT if(mapContains(metrics, 'process.cpu.pct_of_limit.avg'), metrics['process.cpu.pct_of_limit.avg'], NULL)
+		          FROM app_instance_resources WHERE project_id = ? AND instance_id = 'w2'),
+		       processes
+		FROM app_instance_resources WHERE project_id = ? AND instance_id = 'w1' ORDER BY ts LIMIT 1`, project, project).Scan(&pss, &zero, &procs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pss != nil {
+		t.Errorf("unmeasured metric read back as %v, want NULL", *pss)
+	}
+	if zero == nil || *zero != 0 {
+		t.Errorf("measured zero read back as %v, want 0", zero)
+	}
+	if procs != `[{"pid":1,"comm":"gunicorn"}]` {
+		t.Errorf("processes = %q", procs)
+	}
+
+	var heartbeats uint64
+	var avg, maxPct, ws float64
+	var wsCount uint64
+	err = conn.QueryRow(ctx, `
+		SELECT sum(heartbeats),
+		       sumMap(metrics_sum)['process.cpu.pct_of_limit.avg'] / sumMap(metrics_count)['process.cpu.pct_of_limit.avg'],
+		       maxMap(metrics_max)['process.cpu.pct_of_limit.max'],
+		       maxMap(metrics_max)['container.memory.working_set.max'],
+		       sumMap(metrics_count)['container.memory.working_set.max']
+		FROM app_instance_resources_1h WHERE project_id = ? AND instance_id = 'w1' AND bucket = ?`, project, hour).
+		Scan(&heartbeats, &avg, &maxPct, &ws, &wsCount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heartbeats != 2 || avg != 30 || maxPct != 90 || ws != 100 || wsCount != 1 {
+		t.Errorf("1h rollup = heartbeats %d, avg %v, max %v, ws %v (n=%d); want 2, 30, 90, 100 (n=1)", heartbeats, avg, maxPct, ws, wsCount)
+	}
+}
+
+// M7: requests carry instance_id; the per-instance rollup has one row per
+// instance and minute, and requests of older SDKs (no instance) stay out.
+func TestRequestsPerInstanceRollup(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ch.Connect(ctx, chCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	sink := pipeline.NewDirectSink(config.SinkConfig{
+		Ack: "flush", BatchSize: 1000, FlushInterval: 50 * time.Millisecond, QueueSize: 64,
+		InsertTimeout: 10 * time.Second, RetryWindow: time.Second,
+	}, pipeline.ClickHouseInserters(conn), logger, pipeline.NewMetrics(nil))
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { _ = sink.Run(runCtx); close(done) }()
+	defer func() { stop(); <-done }()
+
+	project, app := uuid.New(), uuid.New()
+	minute := time.Now().UTC().Truncate(time.Minute)
+	var reqs []pipeline.RequestRow
+	for i, inst := range []string{"w1", "w1", "w1", "w2", ""} {
+		code := uint16(200)
+		if i == 2 {
+			code = 503
+		}
+		reqs = append(reqs, pipeline.RequestRow{ProjectID: project, AppID: app, Environment: "production",
+			Timestamp: minute.Add(time.Duration(i) * time.Second), Method: "GET", Path: "/x", StatusCode: code,
+			ResponseTimeMs: float64(10 * (i + 1)), InstanceID: inst})
+	}
+	if err := sink.SubmitRequests(ctx, reqs); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := conn.Query(ctx, `SELECT instance_id, sum(requests), sum(server_errors), max(latency_max_ms)
+		FROM api_requests_instance_1m WHERE project_id = ? GROUP BY instance_id ORDER BY instance_id`, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	type agg struct {
+		n, errs uint64
+		max     float64
+	}
+	got := map[string]agg{}
+	for rows.Next() {
+		var inst string
+		var a agg
+		if err := rows.Scan(&inst, &a.n, &a.errs, &a.max); err != nil {
+			t.Fatal(err)
+		}
+		got[inst] = a
+	}
+	if len(got) != 2 || got["w1"] != (agg{3, 1, 30}) || got["w2"] != (agg{1, 0, 40}) {
+		t.Fatalf("per-instance rollup = %+v", got)
+	}
+	var stored string
+	if err := conn.QueryRow(ctx, `SELECT instance_id FROM api_requests WHERE project_id = ? AND response_time_ms = 10`, project).Scan(&stored); err != nil || stored != "w1" {
+		t.Fatalf("api_requests.instance_id = %q, %v", stored, err)
+	}
+}

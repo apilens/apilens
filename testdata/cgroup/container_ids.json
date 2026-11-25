@@ -1,0 +1,45 @@
+{
+  "note": "One /proc/self/cgroup line -> the container id it names, or null. A 64-hex id with docker-/cri-containerd-/crio-/libpod- prefixes and .scope suffix, a bare 64-hex path segment, or ECS <32hex>-<digits>. crio-conmon-* is the monitor process, never the container.",
+  "cases": {
+    "docker_v1": [
+      "12:memory:/docker/3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+      "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e"
+    ],
+    "docker_systemd": [
+      "0::/system.slice/docker-3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e.scope",
+      "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e"
+    ],
+    "containerd_k8s": [
+      "0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod8a6f1c2e_4b3d_4e5f_9a8b_7c6d5e4f3a2b.slice/cri-containerd-3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e.scope",
+      "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e"
+    ],
+    "containerd_cgroupfs": [
+      "0::/kubepods/burstable/pod8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e",
+      "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e"
+    ],
+    "crio": [
+      "0::/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod8a6f1c2e_4b3d_4e5f_9a8b_7c6d5e4f3a2b.slice/crio-3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e.scope",
+      "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e"
+    ],
+    "crio_conmon_rejected": [
+      "0::/machine.slice/crio-conmon-3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e.scope",
+      null
+    ],
+    "podman": [
+      "0::/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e.scope",
+      "3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e"
+    ],
+    "ecs": [
+      "0::/ecs/5a0d5ceddf6c44c1928d367a815d890f/5a0d5ceddf6c44c1928d367a815d890f-1234567890",
+      "5a0d5ceddf6c44c1928d367a815d890f-1234567890"
+    ],
+    "namespaced_root": [
+      "0::/",
+      null
+    ],
+    "not_a_container": [
+      "0::/user.slice/user-1000.slice/session-2.scope",
+      null
+    ]
+  }
+}

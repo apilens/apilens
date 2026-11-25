@@ -4,6 +4,11 @@ import ai.apilens.internal.ApiLensHttpException;
 import ai.apilens.internal.Delivery;
 import ai.apilens.internal.HttpClients;
 import ai.apilens.internal.Strings;
+import ai.apilens.resources.DataSourcePools;
+import ai.apilens.resources.DefaultCollectors;
+import ai.apilens.resources.Fs;
+import ai.apilens.resources.IdentityResolver;
+import ai.apilens.resources.ResourceSampler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,6 +74,11 @@ import java.util.logging.Logger;
  * carries the app's {@link RemotePolicy}, applied to capture until the next heartbeat. The same
  * thread sends the app metadata report ({@link #reportMetadata}) once per process. Neither ever
  * blocks or delays record delivery.
+ *
+ * <p>Unless {@code captureResources} is off, a third daemon thread ({@code apilens-resources})
+ * samples CPU, memory, the container's cgroup and JVM internals every {@code resourcesInterval}
+ * (default 15 s); every heartbeat carries the window's aggregate as {@code resources} and the
+ * process's {@code identity} (host, container, Kubernetes pod). See {@link ResourceSampler}.
  */
 public class ApiLensClient implements AutoCloseable {
   /** Record-count cap ({@code maxQueueSize}) hit; the oldest record was dropped. */
@@ -169,6 +179,14 @@ public class ApiLensClient implements AutoCloseable {
   private volatile RemotePolicy remotePolicy = RemotePolicy.CAPTURE_EVERYTHING;
   private volatile ScheduledExecutorService heartbeatExecutor;
 
+  // ---- runtime resources state ----
+  private final DataSourcePools dataSourcePools = new DataSourcePools();
+  private volatile ResourceSampler resourceSampler;
+  /** Resolves {@code identity}; replaced in tests. */
+  volatile IdentityResolver identityResolver = IdentityResolver.system();
+  /** The block of the configured app's last heartbeat, repeated on the other apps' heartbeats. */
+  private volatile Map<String, Object> lastResources;
+
   public ApiLensClient(ApiLensConfig config) {
     this(config, HttpClients.create(config));
   }
@@ -197,7 +215,7 @@ public class ApiLensClient implements AutoCloseable {
       drops.put(reason, new AtomicLong());
     }
     requestQueue = new RecordQueue<>(
-        "requests", config::ingestPath, record -> record.toWire(config), RequestRecord::estimatedBytes);
+        "requests", config::ingestPath, this::requestWire, RequestRecord::estimatedBytes);
     spanQueue = new RecordQueue<>(
         "spans", config::spansPath, record -> record.toWire(config), SpanRecord::estimatedBytes);
     logQueue = new RecordQueue<>(
@@ -213,6 +231,13 @@ public class ApiLensClient implements AutoCloseable {
 
   public ApiLensConfig config() {
     return config;
+  }
+
+  /** A request record's wire form, stamped with this process's {@code instance_id}. */
+  private Map<String, Object> requestWire(RequestRecord record) {
+    Map<String, Object> wire = record.toWire(config);
+    wire.put("instance_id", instanceId);
+    return wire;
   }
 
   public boolean isEnabled() {
@@ -279,8 +304,58 @@ public class ApiLensClient implements AutoCloseable {
     executor = service;
     long intervalMs = Math.max(config.flushInterval().toMillis(), 1);
     service.scheduleWithFixedDelay(this::flushSafely, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+    startResources();
     startHeartbeats();
     registerShutdownHook();
+  }
+
+  // ---- runtime resources --------------------------------------------------
+
+  private synchronized void startResources() {
+    if (resourceSampler != null || !config.captureResources() || !config.sendHeartbeat()) {
+      return;
+    }
+    try {
+      ResourceSampler sampler = new ResourceSampler(config.resourcesInterval(),
+          DefaultCollectors.create(Fs.system(), dataSourcePools, config.captureProcessList()));
+      sampler.applyPolicy(remotePolicy.resources());
+      resourceSampler = sampler;
+      sampler.start();
+    } catch (RuntimeException | LinkageError ex) {
+      LOGGER.log(Level.FINE, "API Lens could not start resource sampling", ex);
+    }
+  }
+
+  /** Tests: replaces the resource sampler (started by the caller, or sampled by hand). */
+  void useResourceSampler(ResourceSampler sampler) {
+    ResourceSampler previous = resourceSampler;
+    resourceSampler = sampler;
+    if (previous != null && previous != sampler) {
+      previous.stop();
+    }
+  }
+
+  /** The resource sampler; {@code null} when resources are not captured or not started. */
+  public ResourceSampler resourceSampler() {
+    return resourceSampler;
+  }
+
+  /**
+   * Reports the connection pool behind {@code dataSource} (HikariCP, also behind Spring proxies)
+   * in the heartbeat's {@code pools} as {@code name}. The Spring Boot auto-configuration does
+   * this for every {@code DataSource} bean. At most {@value DataSourcePools#MAX_POOLS} pools.
+   */
+  public void registerDataSource(String name, javax.sql.DataSource dataSource) {
+    dataSourcePools.register(name, dataSource);
+  }
+
+  /** The heartbeat's {@code identity}: resolved once per process, the ECS metadata fetched once (1 s). */
+  public Map<String, Object> identity() {
+    try {
+      return identityResolver.identity(httpClient);
+    } catch (RuntimeException ex) {
+      return Map.of();
+    }
   }
 
   /** Stops the background threads without flushing; removes the JVM shutdown hook. */
@@ -296,6 +371,11 @@ public class ApiLensClient implements AutoCloseable {
     if (beats != null) {
       // Pending heartbeats and a metadata report not sent yet are cancelled.
       beats.shutdownNow();
+    }
+    ResourceSampler sampler = resourceSampler;
+    resourceSampler = null;
+    if (sampler != null) {
+      sampler.stop();
     }
   }
 
@@ -523,6 +603,10 @@ public class ApiLensClient implements AutoCloseable {
     if (finalBeat) {
       body.put("final", true);
     }
+    Map<String, Object> where = identity();
+    if (!where.isEmpty()) {
+      body.put("identity", where);
+    }
     return body;
   }
 
@@ -580,6 +664,11 @@ public class ApiLensClient implements AutoCloseable {
         if (!dropped.isEmpty()) {
           body.put("dropped", dropped);
         }
+        // The configured app's heartbeat drains the window; other apps repeat its last block.
+        Map<String, Object> resources = key.equals(primaryApp) ? drainResources() : lastResources;
+        if (resources != null) {
+          body.put("resources", resources);
+        }
         byte[] raw = post(config.heartbeatPath(), MAPPER.writeValueAsBytes(body), false, true);
         // Accepted: these drops are reported; newer ones wait for the next heartbeat.
         markReported(dropped);
@@ -617,8 +706,27 @@ public class ApiLensClient implements AutoCloseable {
     }
     RemotePolicy previous = remotePolicy;
     remotePolicy = policy;
+    ResourceSampler sampler = resourceSampler;
+    if (sampler != null) {
+      sampler.applyPolicy(policy.resources());
+    }
     if (!policy.equals(previous)) {
       LOGGER.info("API Lens remote capture policy is now " + policy.toWire());
+    }
+  }
+
+  private Map<String, Object> drainResources() {
+    ResourceSampler sampler = resourceSampler;
+    if (sampler == null) {
+      return null;
+    }
+    try {
+      Map<String, Object> block = sampler.drain();
+      lastResources = block;
+      return block;
+    } catch (RuntimeException ex) {
+      LOGGER.log(Level.FINE, "API Lens could not drain the resources window", ex);
+      return null;
     }
   }
 

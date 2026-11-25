@@ -14,22 +14,25 @@ type Sink interface {
 	SubmitLogs(ctx context.Context, rows []LogRow) error
 	SubmitSpans(ctx context.Context, rows []SpanRow) error
 	SubmitDeploys(ctx context.Context, rows []DeployRow) error
+	SubmitResources(ctx context.Context, rows []ResourceRow) error
 }
 
 // Inserters bundles the per-table writers used by the direct sink.
 type Inserters struct {
-	Requests Inserter[RequestRow]
-	Logs     Inserter[LogRow]
-	Spans    Inserter[SpanRow]
-	Deploys  Inserter[DeployRow]
+	Requests  Inserter[RequestRow]
+	Logs      Inserter[LogRow]
+	Spans     Inserter[SpanRow]
+	Deploys   Inserter[DeployRow]
+	Resources Inserter[ResourceRow]
 }
 
 // DirectSink batches rows in-process and writes them straight to ClickHouse.
 type DirectSink struct {
-	requests *Batcher[RequestRow]
-	logs     *Batcher[LogRow]
-	spans    *Batcher[SpanRow]
-	deploys  *Batcher[DeployRow]
+	requests  *Batcher[RequestRow]
+	logs      *Batcher[LogRow]
+	spans     *Batcher[SpanRow]
+	deploys   *Batcher[DeployRow]
+	resources *Batcher[ResourceRow]
 }
 
 // NewDirectSink builds the sink; Run starts its batchers.
@@ -46,17 +49,18 @@ func NewDirectSink(cfg config.SinkConfig, ins Inserters, logger *slog.Logger, m 
 	small := opts
 	small.Workers = 1
 	return &DirectSink{
-		requests: NewBatcher("api_requests", ins.Requests, opts, logger, m),
-		logs:     NewBatcher("api_logs", ins.Logs, opts, logger, m),
-		spans:    NewBatcher("api_spans", ins.Spans, opts, logger, m),
-		deploys:  NewBatcher("api_deploys", ins.Deploys, small, logger, m),
+		requests:  NewBatcher("api_requests", ins.Requests, opts, logger, m),
+		logs:      NewBatcher("api_logs", ins.Logs, opts, logger, m),
+		spans:     NewBatcher("api_spans", ins.Spans, opts, logger, m),
+		deploys:   NewBatcher("api_deploys", ins.Deploys, small, logger, m),
+		resources: NewBatcher("app_instance_resources", ins.Resources, small, logger, m),
 	}
 }
 
 // Run runs all batchers until ctx is cancelled and they have drained.
 func (s *DirectSink) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	for _, run := range []func(context.Context) error{s.requests.Run, s.logs.Run, s.spans.Run, s.deploys.Run} {
+	for _, run := range []func(context.Context) error{s.requests.Run, s.logs.Run, s.spans.Run, s.deploys.Run, s.resources.Run} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -85,4 +89,9 @@ func (s *DirectSink) SubmitSpans(ctx context.Context, rows []SpanRow) error {
 // SubmitDeploys implements Sink.
 func (s *DirectSink) SubmitDeploys(ctx context.Context, rows []DeployRow) error {
 	return s.deploys.Submit(ctx, rows)
+}
+
+// SubmitResources implements Sink.
+func (s *DirectSink) SubmitResources(ctx context.Context, rows []ResourceRow) error {
+	return s.resources.Submit(ctx, rows)
 }

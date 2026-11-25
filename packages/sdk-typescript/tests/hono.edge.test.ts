@@ -6,7 +6,7 @@
  * through `executionCtx.waitUntil`. This file never imports `src/node.ts`.
  */
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -222,8 +222,8 @@ describe("hono entry point imports", () => {
       const source = readFileSync(join(srcDir, file), "utf8");
       for (const match of source.matchAll(importRe)) {
         const spec = match[1];
-        if (spec.startsWith("./")) {
-          queue.push(spec.slice(2).replace(/\.js$/, ".ts"));
+        if (spec.startsWith("./") || spec.startsWith("../")) {
+          queue.push(posix.normalize(posix.join(posix.dirname(file), spec)).replace(/\.js$/, ".ts"));
         } else {
           external.add(spec);
         }

@@ -66,8 +66,12 @@ type RequestEvent struct {
 	Attributes map[string]string `protobuf:"bytes,27,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Structured framework validation errors of a 422 (at most 20).
 	ValidationErrors []*ValidationError `protobuf:"bytes,28,rep,name=validation_errors,json=validationErrors,proto3" json:"validation_errors,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The SDK process that served the request (heartbeat instance_id), for
+	// per-instance latency next to its runtime resources (M7). Empty from
+	// older SDKs.
+	InstanceId    string `protobuf:"bytes,29,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RequestEvent) Reset() {
@@ -294,6 +298,13 @@ func (x *RequestEvent) GetValidationErrors() []*ValidationError {
 		return x.ValidationErrors
 	}
 	return nil
+}
+
+func (x *RequestEvent) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
 }
 
 // ValidationError is one field error of a rejected request, e.g.
@@ -1128,7 +1139,7 @@ var File_apilens_event_v1_event_proto protoreflect.FileDescriptor
 
 const file_apilens_event_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x1capilens/event/v1/event.proto\x12\x10apilens.event.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd8\b\n" +
+	"\x1capilens/event/v1/event.proto\x12\x10apilens.event.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf9\b\n" +
 	"\fRequestEvent\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x15\n" +
@@ -1165,7 +1176,9 @@ const file_apilens_event_v1_event_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\x1b \x03(\v2..apilens.event.v1.RequestEvent.AttributesEntryR\n" +
 	"attributes\x12N\n" +
-	"\x11validation_errors\x18\x1c \x03(\v2!.apilens.event.v1.ValidationErrorR\x10validationErrors\x1a=\n" +
+	"\x11validation_errors\x18\x1c \x03(\v2!.apilens.event.v1.ValidationErrorR\x10validationErrors\x12\x1f\n" +
+	"\vinstance_id\x18\x1d \x01(\tR\n" +
+	"instanceId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\n" +

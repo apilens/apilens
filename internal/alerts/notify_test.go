@@ -89,6 +89,13 @@ func TestNotificationText(t *testing.T) {
 		{MetricP95, 412.26, "412.3 ms"},
 		{MetricApdex, 0.8, "0.80"},
 		{MetricUniqueConsumers, 42, "42"},
+		{MetricCPUPctOfLimit, 92.345, "92.3%"},
+		{MetricMemoryPctOfLimit, 80, "80%"},
+		{MetricCPUThrottledRatio, 0.25, "25%"},
+		{MetricEventLoopP99, 120.04, "120 ms"},
+		{MetricGCPausePct, 3.26, "3.3%"},
+		{MetricOOMKills, 2, "2"},
+		{MetricRestarts, 3, "3"},
 	} {
 		if got := FormatValue(c.m, &c.v); got != c.want {
 			t.Errorf("FormatValue(%s, %v) = %s, want %s", c.m, c.v, got, c.want)

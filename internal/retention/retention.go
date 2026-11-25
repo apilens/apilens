@@ -44,6 +44,12 @@ var Signals = []Signal{
 		Label: "Per-minute metrics", Covers: "Per-minute traffic, error and latency aggregates behind short-range charts."},
 	{Key: "rollups_1h", Table: "api_requests_1h", TimeExpr: "bucket", Configurable: true,
 		Label: "Hourly metrics", Covers: "Hourly traffic, error and latency aggregates behind long-range charts."},
+	{Key: "resources", Table: "app_instance_resources", TimeExpr: "toDateTime(ts)", Configurable: true,
+		Label: "Runtime resources", Covers: "Per-minute CPU, memory and runtime health of each SDK process and its container."},
+	{Key: "resources_1h", Table: "app_instance_resources_1h", TimeExpr: "bucket", Configurable: true,
+		Label: "Hourly runtime resources", Covers: "Hourly CPU, memory and runtime aggregates behind long-range resource charts."},
+	{Key: "instance_rollups_1m", Table: "api_requests_instance_1m", TimeExpr: "bucket", FixedDays: 30,
+		Label: "Per-instance request metrics", Covers: "Per-minute traffic, error and latency of each SDK process, next to its runtime resources."},
 	{Key: "deploys", Table: "api_deploys", TimeExpr: "toDateTime(deployed_at)", FixedDays: 400,
 		Label: "Deploys", Covers: "Deploy markers on charts and the deploy comparison."},
 }

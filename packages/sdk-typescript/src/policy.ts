@@ -8,7 +8,11 @@
  * field that is missing or malformed narrows nothing.
  */
 
+import type { ResourcesPolicy } from "./resources/sampler.js";
+import { COLLECTOR_NAMES } from "./resources/types.js";
 import type { ApiLensRecord } from "./types.js";
+
+export type { ResourcesPolicy } from "./resources/sampler.js";
 
 export type RemotePolicy = {
   /** False: stop sending records (heartbeats continue). */
@@ -20,6 +24,11 @@ export type RemotePolicy = {
   captureResponseBody: boolean;
   /** Cap on each captured body in bytes; null: no cap beyond the SDK's own. */
   maxPayloadBytes: number | null;
+  /**
+   * Runtime resources sampling (M7); undefined when the response has none,
+   * and then only the local config applies.
+   */
+  resources?: ResourcesPolicy;
 };
 
 /** The policy of an app without a saved one: capture everything. */
@@ -39,6 +48,25 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** `false` only for an explicit boolean false; anything else narrows nothing. */
 function flag(value: unknown): boolean {
   return value !== false;
+}
+
+/**
+ * `policy.resources` of a heartbeat response: `{enabled, min_interval_s,
+ * disabled_collectors}`. Undefined when missing or malformed (narrows
+ * nothing). Unknown collector names are ignored.
+ */
+export function parseResourcesPolicy(raw: unknown): ResourcesPolicy | undefined {
+  if (!isObject(raw)) {
+    return undefined;
+  }
+  const minIntervalS = typeof raw.min_interval_s === "number" && Number.isFinite(raw.min_interval_s)
+    ? Math.min(Math.max(raw.min_interval_s, 0), 3600)
+    : 0;
+  const known = new Set<string>(COLLECTOR_NAMES);
+  const disabledCollectors = Array.isArray(raw.disabled_collectors)
+    ? [...new Set(raw.disabled_collectors.filter((n): n is string => typeof n === "string" && known.has(n)))]
+    : [];
+  return { enabled: flag(raw.enabled), minIntervalS, disabledCollectors };
 }
 
 /**
@@ -72,6 +100,7 @@ export function parseRemotePolicy(body: unknown): RemotePolicy | undefined {
     captureRequestBody: flag(raw.capture_request_body),
     captureResponseBody: flag(raw.capture_response_body),
     maxPayloadBytes,
+    resources: parseResourcesPolicy(raw.resources),
   };
 }
 
