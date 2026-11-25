@@ -62,11 +62,22 @@ GROUP BY environment
 ORDER BY environment;
 
 -- name: ListRecentAppInstances :many
--- The most recently seen instances of an app.
+-- The most recently seen instances of an app with where they run, their
+-- latest resources snapshot and how they ended. Keyset pages: a cursor is
+-- the (last_seen_at, environment, instance_id) of the previous page's last
+-- row; a null after_seen_at starts at the newest.
 SELECT environment, instance_id, sdk_name, sdk_version, runtime, release, commit, pid,
-       stats, first_seen_at, last_seen_at
+       stats, first_seen_at, last_seen_at,
+       hostname, hostname_guess, container_id, pod_name, pod_uid, namespace, node_name,
+       platform, region, process_start_time, uptime_s, resources, ended_at, ended_reason
 FROM app_instances
 WHERE app_id = @app_id
+  AND (
+      sqlc.narg(after_seen_at)::timestamptz IS NULL
+      OR last_seen_at < sqlc.narg(after_seen_at)::timestamptz
+      OR (last_seen_at = sqlc.narg(after_seen_at)::timestamptz
+          AND (environment, instance_id) > (@after_environment::text, @after_instance_id::text))
+  )
 ORDER BY last_seen_at DESC, environment, instance_id
 LIMIT @max_rows;
 
