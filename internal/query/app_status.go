@@ -30,8 +30,11 @@ const ReportingWindow = 2 * time.Minute
 // instance counts as stale; past it, it is silent.
 const StaleWindow = time.Hour
 
-// maxStatusInstances caps the instances listed by app status.
-const maxStatusInstances = 100
+// Instances listed per app status page: by default and at most.
+const (
+	defaultStatusInstances = 100
+	maxStatusInstances     = 500
+)
 
 // Reporting states of an app, environment or instance.
 const (
@@ -74,6 +77,24 @@ type AppInstance struct {
 	Stats            map[string]any `json:"stats" doc:"SDK counters as the last heartbeat sent them."`
 	FirstSeenAt      time.Time      `json:"first_seen_at" doc:"Time of the instance's first heartbeat."`
 	LastSeenAt       time.Time      `json:"last_seen_at" doc:"Time of the instance's last heartbeat."`
+
+	Hostname         string             `json:"hostname" doc:"Host name of the process; empty when not sent."`
+	HostnameGuess    bool               `json:"hostname_guess" doc:"True when pod_name is only inferred from the hostname."`
+	ContainerID      string             `json:"container_id" doc:"Container (cgroup) the process runs in; workers of one container share it. Empty outside a container."`
+	PodName          string             `json:"pod_name" doc:"Kubernetes pod name; empty outside Kubernetes."`
+	PodUID           string             `json:"pod_uid" doc:"Kubernetes pod UID; empty when unknown."`
+	Namespace        string             `json:"namespace" doc:"Kubernetes namespace; empty when unknown."`
+	NodeName         string             `json:"node_name" doc:"Kubernetes node; empty when unknown."`
+	Platform         string             `json:"platform" doc:"Where the process runs: k8s, ecs, cloud_run, app_engine, heroku, fly, lambda, vm or bare; empty when not sent."`
+	Region           string             `json:"region" doc:"Cloud region; empty when unknown."`
+	ProcessStartTime *time.Time         `json:"process_start_time" required:"true" nullable:"true" doc:"When the process started; null when not sent."`
+	UptimeS          *float64           `json:"uptime_s" required:"true" nullable:"true" doc:"Seconds the process had been up at its last heartbeat; null when not sent."`
+	EndedAt          *time.Time         `json:"ended_at" required:"true" nullable:"true" doc:"When the instance ended; null while it is not known to have ended."`
+	EndedReason      string             `json:"ended_reason" doc:"How it ended: graceful (final heartbeat), restart, oom or suspected_oom (inferred when another process replaced it); empty while not ended."`
+	Resources        *InstanceResources `json:"resources" required:"true" doc:"CPU and memory from the last heartbeat with resources; null for an SDK that does not send them."`
+	Spark            InstanceSpark      `json:"spark" doc:"The last hour per minute for sparklines."`
+	Requests         *InstanceRequests  `json:"requests" required:"true" doc:"Requests the instance served in the last 15 full minutes; null when it served none (or its SDK does not tag requests with instance_id)."`
+	Signals          []InstanceSignal   `json:"signals" doc:"Noisy-instance and memory-leak badges; empty when none."`
 }
 
 // AppSDK is one SDK in use by an app, against its latest release.
@@ -101,7 +122,8 @@ type AppStatus struct {
 	Status       string                 `json:"status" enum:"reporting,stale,silent,never" doc:"reporting when any instance sent a heartbeat in the last 2 minutes, stale in the last hour, silent when the last one is older, never when none arrived."`
 	LastSeenAt   *time.Time             `json:"last_seen_at" required:"true" nullable:"true" doc:"Time of the last heartbeat; null when none arrived."`
 	Environments []AppEnvironmentStatus `json:"environments" doc:"Reporting state per environment the app sent heartbeats from, by name."`
-	Instances    []AppInstance          `json:"instances" doc:"The 100 most recently seen instances, newest first."`
+	Instances    []AppInstance          `json:"instances" doc:"One page of instances (limit, 100 by default), most recently seen first."`
+	NextCursor   *string                `json:"next_cursor" required:"true" nullable:"true" doc:"Pass as cursor for the next page of instances; null on the last page."`
 	SDKs         []AppSDK               `json:"sdks" doc:"SDKs in use by the listed instances, by name."`
 	SDKStats     AppSDKStats            `json:"sdk_stats" doc:"SDK delivery counters summed over the instances seen in the last hour."`
 	IngestToday  *IngestCounts          `json:"ingest_today,omitempty" doc:"The ingest edge's counters of the app for the current UTC day (see /apps/{id}/ingest-stats); left out when the counter store is not configured."`
@@ -109,7 +131,9 @@ type AppStatus struct {
 
 type appStatusInput struct {
 	ProjectInput
-	ID string `path:"id" format:"uuid" doc:"The app's id."`
+	ID     string `path:"id" format:"uuid" doc:"The app's id."`
+	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most instances to list."`
+	Cursor string `query:"cursor" maxLength:"512" doc:"next_cursor of the previous page; empty for the first page."`
 }
 
 type appStatusOutput struct {
@@ -167,9 +191,29 @@ func (s *Service) appStatus(ctx context.Context, in *appStatusInput) (*appStatus
 	if err != nil {
 		return nil, internalError("app environments", err)
 	}
-	instances, err := store.ListRecentAppInstances(ctx, db.ListRecentAppInstancesParams{AppID: app.ID, MaxRows: maxStatusInstances})
+	cursor, err := decodeStatusCursor(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = defaultStatusInstances
+	}
+	limit = min(limit, maxStatusInstances)
+	page := db.ListRecentAppInstancesParams{AppID: app.ID, MaxRows: int32(limit + 1)}
+	if cursor != nil {
+		page.AfterSeenAt, page.AfterEnvironment, page.AfterInstanceID = &cursor.SeenAt, cursor.Environment, cursor.InstanceID
+	}
+	instances, err := store.ListRecentAppInstances(ctx, page)
 	if err != nil {
 		return nil, internalError("app instances", err)
+	}
+	var next *string
+	if len(instances) > limit {
+		instances = instances[:limit]
+		last := instances[limit-1]
+		c := statusCursor{SeenAt: last.LastSeenAt, Environment: last.Environment, InstanceID: last.InstanceID}.encode()
+		next = &c
 	}
 
 	out := &appStatusOutput{Body: AppStatus{
@@ -178,7 +222,9 @@ func (s *Service) appStatus(ctx context.Context, in *appStatusInput) (*appStatus
 		Instances:    make([]AppInstance, 0, len(instances)),
 		SDKs:         []AppSDK{},
 		SDKStats:     AppSDKStats{DropCounts: map[string]int64{}},
+		NextCursor:   next,
 	}}
+	snaps := make([]snapshot, 0, len(instances))
 	for _, e := range envs {
 		last := e.LastSeenAt.UTC()
 		out.Body.Environments = append(out.Body.Environments, AppEnvironmentStatus{
@@ -199,6 +245,7 @@ func (s *Service) appStatus(ctx context.Context, in *appStatusInput) (*appStatus
 				return nil, internalError("app instance stats", err)
 			}
 		}
+		res, snap := instanceResources(i.Resources)
 		state := reportingState(now, i.LastSeenAt)
 		latest := latestSDKVersion(i.SdkName)
 		outdated := sdkOutdated(i.SdkVersion, latest)
@@ -207,7 +254,14 @@ func (s *Service) appStatus(ctx context.Context, in *appStatusInput) (*appStatus
 			SDKName: i.SdkName, SDKVersion: i.SdkVersion, SDKLatestVersion: latest, SDKOutdated: outdated,
 			Runtime: i.Runtime, Release: i.Release, Commit: i.Commit,
 			PID: i.Pid, Stats: stats, FirstSeenAt: i.FirstSeenAt.UTC(), LastSeenAt: i.LastSeenAt.UTC(),
+
+			Hostname: i.Hostname, HostnameGuess: i.HostnameGuess, ContainerID: i.ContainerID,
+			PodName: i.PodName, PodUID: i.PodUid, Namespace: i.Namespace, NodeName: i.NodeName,
+			Platform: i.Platform, Region: i.Region, ProcessStartTime: utcPtr(i.ProcessStartTime), UptimeS: i.UptimeS,
+			EndedAt: utcPtr(i.EndedAt), EndedReason: i.EndedReason,
+			Resources: res, Spark: emptySpark(), Signals: []InstanceSignal{},
 		})
+		snaps = append(snaps, snap)
 		if i.SdkName != "" {
 			sdk := sdks[i.SdkName]
 			if sdk == nil {
@@ -230,6 +284,10 @@ func (s *Service) appStatus(ctx context.Context, in *appStatusInput) (*appStatus
 		out.Body.SDKs = append(out.Body.SDKs, *sdk)
 	}
 	slices.SortFunc(out.Body.SDKs, func(a, b AppSDK) int { return cmp.Compare(a.Name, b.Name) })
+
+	if err := s.enrichInstances(ctx, p.ProjectID, app.ID, now, out.Body.Instances, snaps); err != nil {
+		return nil, err
+	}
 
 	if s.ingestStats != nil {
 		counts, err := s.ingestStats.Days(ctx, app.ID, []time.Time{now.Truncate(24 * time.Hour)})
