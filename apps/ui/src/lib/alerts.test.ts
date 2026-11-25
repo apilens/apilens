@@ -15,6 +15,7 @@ import {
   incidentsRange,
   isCron,
   isHookUrl,
+  isResourceMetric,
   METRICS,
   newChannelDraft,
   newRuleDraft,
@@ -114,6 +115,41 @@ describe("metrics", () => {
     const ok = checkRuleDraft({ ...newRuleDraft("app1", "production"), name: "5xx", metric: "server_error_rate", threshold: "1" });
     expect(ok.ok && ok.body.threshold).toBe(0.01);
     expect(checkRuleDraft({ ...newRuleDraft("app1", "production"), name: "4xx", metric: "client_error_rate", threshold: "150" }).ok).toBe(false);
+  });
+
+  it("labels and formats the resource metrics (#1135)", () => {
+    const label = (v: string) => METRICS.find((m) => m.value === v)?.label;
+    expect(label("cpu_pct_of_limit")).toBe("CPU (% of limit)");
+    expect(label("memory_pct_of_limit")).toBe("Memory (% of limit)");
+    expect(label("cpu_throttled_ratio")).toBe("CPU throttling");
+    expect(label("event_loop_p99_ms")).toBe("Event-loop delay p99");
+    expect(label("gc_pause_pct")).toBe("GC pause time");
+    expect(label("oom_kills")).toBe("OOM kills");
+    expect(label("restarts")).toBe("Restarts");
+    expect(formatMetric("cpu_pct_of_limit", 92.34)).toBe("92.3%");
+    expect(formatMetric("memory_pct_of_limit", 80)).toBe("80.0%");
+    expect(formatMetric("cpu_throttled_ratio", 0.25)).toBe("25.0%");
+    expect(formatMetric("event_loop_p99_ms", 180.4)).toBe("180 ms");
+    expect(formatMetric("oom_kills", 2)).toBe("2");
+    expect(thresholdUnit("gc_pause_pct")).toBe("%");
+    expect(thresholdUnit("cpu_throttled_ratio")).toBe("%");
+    expect(thresholdUnit("event_loop_p99_ms")).toBe("ms");
+    expect(thresholdUnit("oom_kills")).toBe("OOM kills");
+    expect(thresholdUnit("restarts")).toBe("restarts");
+    expect(isResourceMetric("restarts")).toBe(true);
+    expect(isResourceMetric("p95")).toBe(false);
+  });
+
+  it("checks resource thresholds and drops their filters", () => {
+    const base = { ...newRuleDraft("app1", "production"), name: "cpu", endpoint: "GET /a", consumer: "alice" };
+    const cpu = checkRuleDraft({ ...base, metric: "cpu_pct_of_limit", threshold: "90" });
+    expect(cpu.ok && cpu.body.threshold).toBe(90);
+    expect(cpu.ok && cpu.body.filters).toEqual({});
+    const throttled = checkRuleDraft({ ...base, metric: "cpu_throttled_ratio", threshold: "25" });
+    expect(throttled.ok && throttled.body.threshold).toBe(0.25);
+    expect(checkRuleDraft({ ...base, metric: "memory_pct_of_limit", threshold: "120" }).ok).toBe(false);
+    const p95 = checkRuleDraft({ ...base, metric: "p95", threshold: "800" });
+    expect(p95.ok && p95.body.filters).toEqual({ consumer: "alice", endpoint: "GET /a" });
   });
 
   it("summarizes rules", () => {

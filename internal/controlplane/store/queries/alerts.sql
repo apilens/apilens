@@ -51,10 +51,11 @@ WHERE project_id = @project_id AND channel_ids @> ARRAY[@channel_id::uuid];
 -- name: CreateAlertRule :one
 INSERT INTO alert_rules (id, project_id, app_id, environment, name, description, metric, condition,
                          threshold, window_s, every_s, cron, notify_after_s, resolve_after_s,
-                         filters, channel_ids, enabled, created_by)
+                         filters, channel_ids, enabled, created_by, aggregation)
 VALUES (@id, @project_id, @app_id, @environment, @name, @description, @metric, @condition,
         @threshold, @window_s, sqlc.narg(every_s)::integer, sqlc.narg(cron)::text, @notify_after_s,
-        @resolve_after_s, @filters, @channel_ids, @enabled, @created_by)
+        @resolve_after_s, @filters, @channel_ids, @enabled, @created_by,
+        COALESCE(sqlc.narg(aggregation)::text, 'max'))
 RETURNING *;
 
 -- name: GetAlertRule :one
@@ -96,6 +97,7 @@ SET environment     = @environment,
     filters         = @filters,
     channel_ids     = @channel_ids,
     enabled         = @enabled,
+    aggregation     = COALESCE(sqlc.narg(aggregation)::text, 'max'),
     updated_at      = now()
 WHERE project_id = @project_id AND id = @id
 RETURNING *;

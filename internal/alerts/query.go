@@ -78,12 +78,17 @@ type queryScope struct {
 	window       Window
 	filters      Filters
 	apdex        apdexThresholds
+	// aggregation combines a resource gauge over the series; "" is max.
+	aggregation Aggregation
 }
 
 // buildQuery builds the query of metric m over s.
 func buildQuery(m Metric, s queryScope) (evalQuery, error) {
 	if !m.Valid() {
 		return evalQuery{}, fmt.Errorf("alerts: unknown metric %q", m)
+	}
+	if m.IsResource() {
+		return buildResourceQuery(m, s), nil
 	}
 	method, path := s.filters.endpoint()
 	if usesRollup(m, s.filters) {
@@ -168,4 +173,111 @@ func buildQuery(m Metric, s queryScope) (evalQuery, error) {
 		sql:  with + "SELECT count(), " + value + " FROM api_requests WHERE " + strings.Join(where, " AND "),
 		args: append(prefix, args...),
 	}, nil
+}
+
+// The resource keys (app_instance_resources.metrics) the resource metrics
+// read. A key that is absent was not measured, never 0.
+const (
+	keyContainerCPU   = "container.cpu.pct_of_limit"
+	keyProcessCPU     = "process.cpu.pct_of_limit"
+	keyWorkingSet     = "container.memory.working_set"
+	keyMemoryLimit    = "container.memory.limit"
+	keyThrottledRatio = "container.cpu.throttled_ratio"
+	keyEventLoopP99   = "node.event_loop_delay_ms.p99"
+	keyOOMKill        = "container.memory.oom_kill"
+)
+
+// gcPauseKeys are the GC pause time sums (ms over the heartbeat window) of
+// every runtime; a process reports those of its own runtime.
+var gcPauseKeys = []string{
+	"jvm.gc.pause_ms_sum", "node.gc.pause_ms_sum",
+	"python.gc.gen0.pause_ms_sum", "python.gc.gen1.pause_ms_sum", "python.gc.gen2.pause_ms_sum",
+}
+
+// containerSeries keys a row by its container, so the workers of one
+// container are one series; a row without a container_id is its own
+// instance's series.
+const containerSeries = "if(container_id = '', concat('i:', instance_id), concat('c:', container_id))"
+
+// has is the ClickHouse condition that the row measured key.
+func has(key string) string { return "mapContains(metrics, '" + key + "')" }
+
+// val is the ClickHouse value of key in a row (0 when absent: guard with has).
+func val(key string) string { return "metrics['" + key + "']" }
+
+// buildResourceQuery builds the query of resource metric m over s. It
+// returns one row: the number of resource rows that measured the metric
+// (UInt64; for restarts, every resource row of the app and environment) and
+// the metric's value (Float64; NaN when no row measured it). The value of
+// restarts is read from Postgres instead (see Evaluator.Evaluate).
+//
+// Gauges are aggregated in two steps: per series over the window (the
+// rows' max gauge and max() for AggregationMax, their avg gauge and avg()
+// for AggregationAvg), then over the series by the same function. Keys are
+// constants, so they are inlined; the scope is bound.
+func buildResourceQuery(m Metric, s queryScope) evalQuery {
+	where := "project_id = ? AND app_id = ? AND environment = ? AND ts >= ? AND ts < ?"
+	args := []any{s.project, s.app, s.environment, s.window.Start, s.window.End}
+	agg, stat := "max", ".max"
+	if s.aggregation == AggregationAvg {
+		agg, stat = "avg", ".avg"
+	}
+	gauge := func(series, value, cond string) evalQuery {
+		return evalQuery{
+			sql: "SELECT toUInt64(sum(n)), if(sum(n) = 0, nan, toFloat64(" + agg + "(v))) FROM (" +
+				"SELECT " + series + " AS series, count() AS n, " + value + " AS v FROM app_instance_resources " +
+				"WHERE " + where + " AND " + cond + " GROUP BY series)",
+			args: args,
+		}
+	}
+	switch m {
+	case MetricCPUPctOfLimit:
+		// The container's CPU where reported (one series per container),
+		// else the process's (one per instance).
+		c, p := keyContainerCPU+stat, keyProcessCPU+stat
+		inContainer := "(" + has(c) + " AND container_id != '')"
+		return gauge(
+			"if("+inContainer+", concat('c:', container_id), concat('i:', instance_id))",
+			agg+"(if("+inContainer+", "+val(c)+", "+val(p)+"))",
+			"("+inContainer+" OR "+has(p)+")")
+	case MetricMemoryPctOfLimit:
+		ws := keyWorkingSet + stat
+		return gauge(containerSeries,
+			agg+"(least(100, "+val(ws)+" / "+val(keyMemoryLimit)+" * 100))",
+			has(ws)+" AND "+has(keyMemoryLimit)+" AND "+val(keyMemoryLimit)+" > 0")
+	case MetricCPUThrottledRatio:
+		return gauge(containerSeries, agg+"("+val(keyThrottledRatio)+")", has(keyThrottledRatio))
+	case MetricEventLoopP99:
+		return gauge("instance_id", agg+"("+val(keyEventLoopP99)+")", has(keyEventLoopP99))
+	case MetricGCPausePct:
+		hasAny := make([]string, len(gcPauseKeys))
+		sum := make([]string, len(gcPauseKeys))
+		for i, k := range gcPauseKeys {
+			hasAny[i], sum[i] = has(k), val(k)
+		}
+		pause := "(" + strings.Join(sum, " + ") + ")"
+		// max: the worst heartbeat; avg: the pause time over the time.
+		value := "max(least(100, " + pause + " / (window_s * 1000) * 100))"
+		if s.aggregation == AggregationAvg {
+			value = "least(100, sum(" + pause + ") / sum(window_s * 1000) * 100)"
+		}
+		return gauge("instance_id", value, "("+strings.Join(hasAny, " OR ")+") AND window_s > 0")
+	case MetricOOMKills:
+		// Every worker of a container reports the container's OOM kills:
+		// per container the kills of the instance that saw the most, then
+		// the containers' total.
+		return evalQuery{
+			sql: "SELECT toUInt64(sum(rows)), toFloat64(sum(v)) FROM (" +
+				"SELECT series, sum(n) AS rows, max(k) AS v FROM (" +
+				"SELECT " + containerSeries + " AS series, instance_id, count() AS n, sum(" + val(keyOOMKill) + ") AS k " +
+				"FROM app_instance_resources WHERE " + where + " AND " + has(keyOOMKill) + " GROUP BY series, instance_id" +
+				") GROUP BY series)",
+			args: args,
+		}
+	default: // MetricRestarts: the rows only tell whether the app reported resources.
+		return evalQuery{
+			sql:  "SELECT count(), nan FROM app_instance_resources WHERE " + where,
+			args: args,
+		}
+	}
 }

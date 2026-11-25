@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -42,12 +43,53 @@ const (
 	MetricUniqueConsumers Metric = "unique_consumers"
 )
 
-// Metrics lists every metric, in catalogue order.
-var Metrics = []Metric{
+// The resource metrics (M7) read the SDK heartbeats' runtime resources
+// (ClickHouse app_instance_resources) of the rule's app and environment
+// instead of its requests; filters do not apply to them. A container metric
+// is one series per container_id however many workers report it (an
+// instance without a container_id is its own series), a process metric one
+// series per instance. The gauges are aggregated per series over the window
+// and then over the series by the rule's Aggregation (max by default).
+const (
+	// MetricCPUPctOfLimit is CPU use as a percent of the CPU limit, 0 to
+	// 100: the container's where reported, else the process's.
+	MetricCPUPctOfLimit Metric = "cpu_pct_of_limit"
+	// MetricMemoryPctOfLimit is the container's memory working set as a
+	// percent of its memory limit, 0 to 100.
+	MetricMemoryPctOfLimit Metric = "memory_pct_of_limit"
+	// MetricCPUThrottledRatio is the fraction of the container's CPU
+	// periods that were throttled, 0 to 1.
+	MetricCPUThrottledRatio Metric = "cpu_throttled_ratio"
+	// MetricEventLoopP99 is the Node.js event-loop delay p99 in ms.
+	MetricEventLoopP99 Metric = "event_loop_p99_ms"
+	// MetricGCPausePct is the time a process spent in GC pauses as a
+	// percent of the heartbeat window, 0 to 100 (JVM, Node.js and Python).
+	MetricGCPausePct Metric = "gc_pause_pct"
+	// MetricOOMKills is the number of OOM kills the containers recorded
+	// (cgroup memory.events oom_kill), each container counted once.
+	MetricOOMKills Metric = "oom_kills"
+	// MetricRestarts is the number of restarts the server inferred (restart,
+	// oom and suspected_oom instance events); the workers of a container
+	// replaced together count once.
+	MetricRestarts Metric = "restarts"
+)
+
+// RequestMetrics lists the metrics over requests, in catalogue order.
+var RequestMetrics = []Metric{
 	MetricTraffic, MetricErrors, MetricErrorRate,
 	MetricServerErrors, MetricServerErrorRate, MetricClientErrors, MetricClientErrorRate,
 	MetricP50, MetricP75, MetricP95, MetricApdex, MetricUniqueConsumers,
 }
+
+// ResourceMetrics lists the metrics over runtime resources, in catalogue
+// order.
+var ResourceMetrics = []Metric{
+	MetricCPUPctOfLimit, MetricMemoryPctOfLimit, MetricCPUThrottledRatio,
+	MetricEventLoopP99, MetricGCPausePct, MetricOOMKills, MetricRestarts,
+}
+
+// Metrics lists every metric, in catalogue order.
+var Metrics = append(slices.Clone(RequestMetrics), ResourceMetrics...)
 
 // Valid reports whether m is a metric alert_rules accepts.
 func (m Metric) Valid() bool {
@@ -59,8 +101,23 @@ func (m Metric) Valid() bool {
 	return false
 }
 
+// IsResource reports whether m reads runtime resources, not requests.
+func (m Metric) IsResource() bool { return slices.Contains(ResourceMetrics, m) }
+
+// IsGauge reports whether m is a resource gauge, aggregated over instances
+// by the rule's Aggregation. The resource counts are totals.
+func (m Metric) IsGauge() bool {
+	return m.IsResource() && m != MetricOOMKills && m != MetricRestarts
+}
+
+// IsPercent reports whether m is a percent from 0 to 100.
+func (m Metric) IsPercent() bool {
+	return m == MetricCPUPctOfLimit || m == MetricMemoryPctOfLimit || m == MetricGCPausePct
+}
+
 // countLike reports whether m is a count, which is 0 (not "no data") over a
-// window without requests.
+// window without requests. The resource counts are not: they are 0 only
+// over a window with resource rows (see Evaluator.Evaluate).
 func (m Metric) countLike() bool {
 	switch m {
 	case MetricTraffic, MetricErrors, MetricServerErrors, MetricClientErrors, MetricUniqueConsumers:
@@ -69,10 +126,29 @@ func (m Metric) countLike() bool {
 	return false
 }
 
-// IsRate reports whether m is a fraction from 0 to 1 of the requests.
+// IsRate reports whether m is a fraction from 0 to 1: of the requests, or
+// of the CPU periods for cpu_throttled_ratio.
 func (m Metric) IsRate() bool {
-	return m == MetricErrorRate || m == MetricServerErrorRate || m == MetricClientErrorRate
+	return m == MetricErrorRate || m == MetricServerErrorRate || m == MetricClientErrorRate || m == MetricCPUThrottledRatio
 }
+
+// Aggregation is alert_rules.aggregation: how a resource gauge combines
+// over the instances (series) of the app. Request metrics and the resource
+// counts ignore it.
+type Aggregation string
+
+// The aggregations alert_rules accepts.
+const (
+	// AggregationMax is the worst series: each series' peak (the gauges'
+	// max) over the window, the highest of them. The default.
+	AggregationMax Aggregation = "max"
+	// AggregationAvg is each series' average (the gauges' avg) over the
+	// window, averaged over the series.
+	AggregationAvg Aggregation = "avg"
+)
+
+// Valid reports whether a is an aggregation alert_rules accepts.
+func (a Aggregation) Valid() bool { return a == AggregationMax || a == AggregationAvg }
 
 // Condition is alert_rules.condition: how a value compares to the
 // threshold for the rule to be breached.
