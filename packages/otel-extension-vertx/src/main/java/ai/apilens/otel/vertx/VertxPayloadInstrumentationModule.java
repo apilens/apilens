@@ -54,7 +54,64 @@ public final class VertxPayloadInstrumentationModule extends InstrumentationModu
         new RequestInstrumentation(),
         new ResponseInstrumentation(),
         new Http2RequestInstrumentation(),
-        new Http2ResponseInstrumentation());
+        new Http2ResponseInstrumentation(),
+        new MotadataLoggerInstrumentation(),
+        new MotadataErrorResponseInstrumentation());
+  }
+
+  /**
+   * Motadata catches a request's exception, logs it with its own Logger and answers a generic
+   * 500, so the span would carry no exception. Every Throwable it logs is recorded on the current
+   * span; nothing happens in other applications, which have no such class.
+   */
+  static final class MotadataLoggerInstrumentation implements TypeInstrumentation {
+    @Override
+    public ElementMatcher<TypeDescription> typeMatcher() {
+      return named("com.mindarray.util.Logger");
+    }
+
+    @Override
+    public void transform(TypeTransformer transformer) {
+      transformer.applyAdviceToMethod(
+          named("error").and(takesArguments(1)).and(takesArgument(0, named("java.lang.Throwable")))
+              .or(named("error").and(takesArguments(1)).and(takesArgument(0, named("java.lang.Exception")))),
+          getClass().getName() + "$ErrorAdvice");
+    }
+
+    @SuppressWarnings("unused")
+    public static final class ErrorAdvice {
+      @Advice.OnMethodEnter(suppress = Throwable.class)
+      public static void onEnter(@Advice.Argument(0) Object throwable) {
+        PayloadCapture.logged(throwable);
+      }
+    }
+  }
+
+  /** Motadata's 500 for an exception: recorded on that request's span even from a callback. */
+  static final class MotadataErrorResponseInstrumentation implements TypeInstrumentation {
+    @Override
+    public ElementMatcher<TypeDescription> typeMatcher() {
+      return named("com.mindarray.api.APIUtil");
+    }
+
+    @Override
+    public void transform(TypeTransformer transformer) {
+      transformer.applyAdviceToMethod(
+          named("sendResponse")
+              .and(takesArguments(2))
+              .and(takesArgument(0, named("java.lang.Exception")))
+              .and(takesArgument(1, named("io.vertx.ext.web.RoutingContext"))),
+          getClass().getName() + "$SendAdvice");
+    }
+
+    @SuppressWarnings("unused")
+    public static final class SendAdvice {
+      @Advice.OnMethodEnter(suppress = Throwable.class)
+      public static void onEnter(
+          @Advice.Argument(0) Object exception, @Advice.Argument(1) Object routingContext) {
+        PayloadCapture.failed(routingContext, exception);
+      }
+    }
   }
 
   static final class RequestInstrumentation implements TypeInstrumentation {

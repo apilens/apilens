@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectFormat, exceptionLog, frameLocation, parseException, parseJava, parseNode, parsePython, splitHeader } from "./stack-trace";
+import { detectFormat, exceptionLog, exceptionLogs, frameLocation, parseException, parseJava, parseNode, parsePython, splitHeader } from "./stack-trace";
 
 const PY_CHAIN = `Traceback (most recent call last):
   File "/app/shop/payments.py", line 6, in pay
@@ -173,6 +173,17 @@ describe("parseException", () => {
     expect(exceptionLog(logs)).toBe(logs[2]);
     expect(exceptionLog([logs[1]])).toBe(logs[1]);
     expect(exceptionLog([logs[0]])).toBeNull();
+  });
+
+  it("lists every exception of the trace once, oldest first", () => {
+    const logs = [
+      { logger_name: "apilens.exception", message: "IllegalStateException: query failed", payload: "B", timestamp: "2026-11-25T10:00:02Z" },
+      { logger_name: "app", message: "retrying", timestamp: "2026-11-25T10:00:00Z" },
+      { logger_name: "apilens.exception", message: "IOException: cache miss", payload: "A", timestamp: "2026-11-25T10:00:01Z" },
+      { logger_name: "apilens.exception", message: "IOException: cache miss", payload: "A", timestamp: "2026-11-25T10:00:01Z" },
+    ];
+    expect(exceptionLogs(logs).map((l) => l.payload)).toEqual(["A", "B"]);
+    expect(exceptionLogs([logs[1]])).toEqual([]);
   });
 
   it("formats a frame location", () => {

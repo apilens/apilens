@@ -287,6 +287,23 @@ export function exceptionLog<L extends { logger_name?: string; payload?: string 
   return all.find((l) => l.payload) ?? all[0] ?? null;
 }
 
+/**
+ * Every exception of the trace, in the order they were raised; one reported twice (same message
+ * and stack) shows once. A request that logged an error and then failed with another has two.
+ */
+export function exceptionLogs<L extends { logger_name?: string; payload?: string; message?: string; timestamp?: string }>(logs: readonly L[]): L[] {
+  const seen = new Set<string>();
+  return logs
+    .filter((l) => l.logger_name === EXCEPTION_LOGGER)
+    .sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""))
+    .filter((l) => {
+      const key = `${l.message ?? ""}\u0000${l.payload ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 /** Where a frame is, as one line: `file:line in fn`. */
 export function frameLocation(f: StackFrame): string {
   const at = f.line !== null ? `${f.file}:${f.line}` : f.file;

@@ -36,7 +36,7 @@ import {
   requestDetailPath,
   sizeLabel,
 } from "@/lib/request-detail";
-import { EXCEPTION_LOGGER, type ExceptionBlock, type StackFrame, exceptionLog, frameLocation, parseException } from "@/lib/stack-trace";
+import { EXCEPTION_LOGGER, type ExceptionBlock, type StackFrame, exceptionLog, exceptionLogs, frameLocation, parseException } from "@/lib/stack-trace";
 import { useTimeZone } from "@/lib/time-zone-context";
 import { endpointHref, formatLatency } from "@/lib/traffic";
 import { isEventStream, parseEventStream } from "@/lib/event-stream";
@@ -578,6 +578,7 @@ function ResponseTab({ data, project, api }: { data: RequestDetailRead; project:
   const appSlug = useAppSlug(r.app_id);
   const exc = useMemo(() => exceptionLog(data.logs ?? []), [data.logs]);
   const excInfo = exc ? { type: exc.attributes?.["exception.type"], message: exc.attributes?.["exception.message"] } : null;
+  const excs = useMemo(() => exceptionLogs(data.logs ?? []), [data.logs]);
   const summary = errorSummary(r, excInfo);
   const validation = r.validation_errors ?? [];
   // The Body block shows the response body; the Error block repeats it only when that block can't.
@@ -610,9 +611,17 @@ function ResponseTab({ data, project, api }: { data: RequestDetailRead; project:
           <ValidationTable errors={validation} />
         </Block>
       ) : null}
-      {exc ? (
-        <Block title="Exception" tone="error">
-          <ExceptionView label="Exception" payload={exc.payload || exc.message} type={excInfo?.type} message={excInfo?.message} />
+      {excs.length ? (
+        <Block title={excs.length === 1 ? "Exception" : "Exceptions"} meta={excs.length > 1 ? [`${excs.length} raised`] : []} tone="error">
+          {excs.map((l, i) => (
+            <ExceptionView
+              key={`${l.timestamp}-${i}`}
+              label={excs.length > 1 ? `Exception ${i + 1} of ${excs.length}` : "Exception"}
+              payload={l.payload || l.message}
+              type={l.attributes?.["exception.type"]}
+              message={l.attributes?.["exception.message"]}
+            />
+          ))}
         </Block>
       ) : null}
       <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} captureHref={appSlug ? capturePath(project, appSlug) : null} first="body" sampled={isSampledOut(r)} />

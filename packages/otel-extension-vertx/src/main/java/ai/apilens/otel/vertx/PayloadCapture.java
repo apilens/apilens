@@ -45,7 +45,7 @@ public final class PayloadCapture {
           "(?i).*\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|html?|txt|wasm)$");
 
   private static final Tracer TRACER =
-      GlobalOpenTelemetry.getTracer("ai.apilens.vertx-http2", "0.2.0");
+      GlobalOpenTelemetry.getTracer("ai.apilens.vertx-http2", "0.3.0");
 
   /** Keyed by the server response; weak so an exchange that never ends cannot leak. */
   private static final Map<Object, Exchange> EXCHANGES =
@@ -231,6 +231,51 @@ public final class PayloadCapture {
     }
     finish(ex, headers);
     endOwned(ex, status, !ended);
+  }
+
+  /**
+   * An exception the application logged: recorded on the current span (the request's server span,
+   * or a span under it) when there is one. Outside a request it is not recorded.
+   */
+  public static void logged(Object throwable) {
+    if (throwable instanceof Throwable) {
+      record(Span.current(), (Throwable) throwable);
+    }
+  }
+
+  /**
+   * The application answers a request with an error for this exception: recorded on that
+   * request's server span, which may no longer be current when the answer is sent from a callback.
+   */
+  public static void failed(Object routingContext, Object throwable) {
+    if (!(throwable instanceof Throwable)) {
+      return;
+    }
+    Span span = null;
+    if (routingContext instanceof io.vertx.ext.web.RoutingContext) {
+      Exchange ex = EXCHANGES.get(((io.vertx.ext.web.RoutingContext) routingContext).response());
+      if (ex != null) {
+        span = ex.span;
+      }
+    }
+    record(span != null ? span : Span.current(), (Throwable) throwable);
+  }
+
+  /**
+   * Each exception once: a request's handler often logs it and then answers with it. Weak keys,
+   * so a recorded exception is not kept alive.
+   */
+  private static final Map<Throwable, Boolean> RECORDED =
+      Collections.synchronizedMap(new WeakHashMap<>());
+
+  private static void record(Span span, Throwable t) {
+    if (span == null || !span.getSpanContext().isValid() || !span.isRecording()) {
+      return;
+    }
+    if (RECORDED.put(t, Boolean.TRUE) != null) {
+      return;
+    }
+    span.recordException(t);
   }
 
   private static void endOwned(Exchange ex, Object status, boolean aborted) {
