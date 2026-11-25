@@ -284,6 +284,14 @@ tasks:
         APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
           go test -count=1 -tags=e2e ./test/e2e/... -run '^TestIngestFailureDrills$' -v -timeout 30m
 
+  # Runtime-resources drill on kind (test/kind/drill.sh): Downward API
+  # identity and limits, an OOM kill, a container restart and a pod
+  # replacement, asserted from Postgres. Needs kind, kubectl and the e2e stack.
+  test:kind:drill:
+    desc: "kind drill: limits, OOM kill, restart and pod delete through the FastAPI example (task e2e:up first)"
+    cmds:
+      - bash test/kind/drill.sh
+
   examples:down:
     desc: Stop the example apps (the e2e stack keeps running; task e2e:down stops it)
     cmds:
