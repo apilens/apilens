@@ -30,7 +30,7 @@ import { projectSectionHref } from "@/lib/project-settings";
 import { formatLatency } from "@/lib/traffic";
 import { APP_TABPANEL_ID, type AppTab, appTabId } from "@/lib/resources";
 import { ObIcon } from "../onboarding/ob";
-import { InstancesTable } from "../resources/instances-table";
+import { FleetTable } from "../resources/fleet-table";
 import { ResourceTiles } from "../resources/resource-tiles";
 import { ResourcesTab, type ResourcesTabProps } from "../resources/resources-tab";
 import { AppTabs } from "./app-tabs";
@@ -142,7 +142,7 @@ function Overview({
             {status === null ? (
               <Failed text={STATUS_LOAD_FAILED} href={appHref(project, slug)} />
             ) : (
-              <InstancesTable project={project} app={app.slug} instances={(status.instances ?? []).slice(0, APP_INSTANCES_SHOWN)} events={events} now={now} />
+              <FleetTable project={project} app={app.slug} instances={(status.instances ?? []).slice(0, APP_INSTANCES_SHOWN)} events={events} now={now} />
             )}
             {status && (status.instances ?? []).length > APP_INSTANCES_SHOWN ? (
               <p className="tr-cap">
