@@ -1,0 +1,4 @@
+24 30 0:22 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup2 rw,nsdelegate
+612 600 259:1 /var/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/hostname /etc/hostname rw,relatime - ext4 /dev/root rw
+613 600 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/containers/app/3f4e9c2b /dev/termination-log rw - ext4 /dev/root rw
+614 600 259:1 /var/lib/containerd/io.containerd.grpc.v1.cri/containers/3f4e9c2b1a0d8e7f6c5b4a3928170f6e5d4c3b2a1908f7e6d5c4b3a291807f6e/resolv.conf /etc/resolv.conf rw - ext4 /dev/root rw

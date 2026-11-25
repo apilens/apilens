@@ -1,0 +1,1 @@
+24 30 0:22 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup2 rw
