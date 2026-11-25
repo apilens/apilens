@@ -31,6 +31,27 @@ class ApiLensPropertiesTest {
   }
 
   @Test
+  void bindsTheResourcesProperties() {
+    ApiLensConfig defaults = bind(Map.of("apilens.api-key", "apilens_test")).toClientConfig();
+    assertTrue(defaults.captureResources());
+    assertTrue(defaults.captureProcessList());
+    assertEquals(java.time.Duration.ofSeconds(15), defaults.resourcesInterval());
+
+    ApiLensConfig config = bind(Map.of(
+        "apilens.api-key", "apilens_test",
+        "apilens.capture-resources", "false",
+        "apilens.resources-interval", "45s",
+        "apilens.capture-process-list", "false")).toClientConfig();
+    assertFalse(config.captureResources());
+    assertFalse(config.captureProcessList());
+    assertEquals(java.time.Duration.ofSeconds(45), config.resourcesInterval());
+
+    ApiLensConfig tooShort = bind(Map.of("apilens.api-key", "apilens_test", "apilens.resources-interval", "1s"))
+        .toClientConfig();
+    assertEquals(java.time.Duration.ofSeconds(15), tooShort.resourcesInterval(), "minimum 15s");
+  }
+
+  @Test
   void bindsEveryNewProperty() {
     ApiLensProperties properties = bind(Map.ofEntries(
         Map.entry("apilens.api-key", "apilens_test"),

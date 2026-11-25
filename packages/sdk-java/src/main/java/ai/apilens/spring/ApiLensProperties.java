@@ -70,6 +70,12 @@ public class ApiLensProperties {
   private Duration heartbeatInterval = Duration.ofSeconds(60);
   /** Whether the app metadata report (POST /v1/metadata) is sent once the app is ready. */
   private boolean sendMetadata = true;
+  /** Whether CPU, memory, container and JVM resources are sampled and sent with the heartbeat. */
+  private boolean captureResources = true;
+  /** Time between resource samples; at least 15s. */
+  private Duration resourcesInterval = Duration.ofSeconds(15);
+  /** Whether the top processes of the SDK's container are sent with the resources (Linux; never argv). */
+  private boolean captureProcessList = true;
   /** Whether request headers and bodies are captured at all. */
   private boolean enableRequestLogging = true;
   /**
@@ -148,6 +154,9 @@ public class ApiLensProperties {
         .sendHeartbeat(sendHeartbeat)
         .heartbeatInterval(heartbeatInterval)
         .sendMetadata(sendMetadata)
+        .captureResources(captureResources)
+        .resourcesInterval(resourcesInterval)
+        .captureProcessList(captureProcessList)
         .build();
   }
 
@@ -413,6 +422,33 @@ public class ApiLensProperties {
 
   public void setHeartbeatInterval(Duration heartbeatInterval) {
     this.heartbeatInterval = heartbeatInterval;
+  }
+
+  /** {@code apilens.capture-resources}: sample runtime resources (default true). */
+  public boolean isCaptureResources() {
+    return captureResources;
+  }
+
+  public void setCaptureResources(boolean captureResources) {
+    this.captureResources = captureResources;
+  }
+
+  /** {@code apilens.resources-interval}: time between resource samples (default and minimum 15s). */
+  public Duration getResourcesInterval() {
+    return resourcesInterval;
+  }
+
+  public void setResourcesInterval(Duration resourcesInterval) {
+    this.resourcesInterval = resourcesInterval;
+  }
+
+  /** {@code apilens.capture-process-list}: send the container's top processes (default true). */
+  public boolean isCaptureProcessList() {
+    return captureProcessList;
+  }
+
+  public void setCaptureProcessList(boolean captureProcessList) {
+    this.captureProcessList = captureProcessList;
   }
 
   /** {@code apilens.send-metadata}: send the app metadata report on startup (default true). */

@@ -85,6 +85,25 @@ class ApiLensEnvTest {
   }
 
   @Test
+  void configFromEnvReadsTheResourcesOptions() {
+    ApiLensConfig defaults = ApiLensConfig.fromEnv(Map.of("APILENS_API_KEY", "k"));
+    assertTrue(defaults.captureResources());
+    assertTrue(defaults.captureProcessList());
+    assertEquals(Duration.ofSeconds(15), defaults.resourcesInterval());
+    ApiLensConfig config = ApiLensConfig.fromEnv(Map.of(
+        "APILENS_API_KEY", "k",
+        "APILENS_CAPTURE_RESOURCES", "false",
+        "APILENS_RESOURCES_INTERVAL", "30",
+        "APILENS_CAPTURE_PROCESS_LIST", "0"));
+    assertFalse(config.captureResources());
+    assertFalse(config.captureProcessList());
+    assertEquals(Duration.ofSeconds(30), config.resourcesInterval());
+    assertEquals(Duration.ofSeconds(15),
+        ApiLensConfig.fromEnv(Map.of("APILENS_API_KEY", "k", "APILENS_RESOURCES_INTERVAL", "5")).resourcesInterval(),
+        "below the 15 s minimum is raised to it");
+  }
+
+  @Test
   void configPrecedenceIsExplicitThenEnvThenDefault() {
     Map<String, String> env = Map.of("APILENS_APP_ID", "from-env", "APILENS_BATCH_SIZE", "50");
     ApiLensConfig config = ApiLensConfig.builderFromEnv(env).appId("explicit").build();
