@@ -985,3 +985,37 @@ span.rd-j-tog { cursor: default; }
 .sse-row--trailing { display: grid; gap: 6px; padding: 10px 12px; }
 .sse-note { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--warn); }
 @media (prefers-reduced-motion: reduce) { .sse-chev { transition: none; } }
+
+/* The drawer's Services tab: the request's services as a tree, each under its caller. */
+.svc-tree { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.svc-tree--sub { position: relative; margin: 8px 0 0 14px; padding-left: 18px; }
+/* The trunk from a caller down to its last callee, and a branch into each callee's card. */
+.svc-tree--sub > .svc-branch { position: relative; }
+.svc-tree--sub > .svc-branch::before { content: ""; position: absolute; left: -18px; top: 0; height: 22px; width: 16px; border-left: 1.5px solid var(--border-strong); border-bottom: 1.5px solid var(--border-strong); border-bottom-left-radius: 8px; }
+.svc-tree--sub > .svc-branch:not(:last-child)::after { content: ""; position: absolute; left: -18px; top: 0; bottom: -8px; border-left: 1.5px solid var(--border-strong); }
+.svc-tree--sub > .svc-branch:has(> .svc-card.is-bad)::before { border-color: var(--error); }
+.svc-card { position: relative; min-width: 0; padding: 8px 12px 8px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); }
+.svc-card::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--chart-muted); }
+.svc-card--service::before, .svc-dot--service { background: var(--accent); }
+.svc-card--database::before, .svc-dot--database { background: var(--info); }
+.svc-card--http::before, .svc-card--rpc::before, .svc-dot--http { background: var(--ok); }
+.svc-card--messaging::before { background: var(--warn); }
+.svc-card--client::before, .svc-dot--client { background: var(--ink-muted); }
+.svc-card.is-self { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.svc-card.is-bad { border-color: color-mix(in srgb, var(--error) 50%, var(--border)); background: var(--error-tint); }
+.svc-card.is-bad::before { background: var(--error); }
+.svc-card__h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.svc-card__kind { font: 500 10px/18px var(--font-sans); color: var(--ink-muted); text-transform: uppercase; letter-spacing: .05em; }
+.svc-card__name { min-width: 0; font: 600 13px/18px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.svc-card__detail { font: 400 11px/18px var(--font-mono); color: var(--ink-muted); }
+.svc-card__stats { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 2px; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+.svc-card__also { margin: 4px 0 0; font: 400 11.5px/16px var(--font-sans); color: var(--ink-muted); }
+.svc-bad { color: var(--error); }
+.svc-ops { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+.svc-ops li { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; min-width: 0; padding: 0 8px; border-radius: var(--radius-pill); background: var(--surface-2); }
+.svc-ops code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11.5px/20px var(--font-mono); color: var(--ink-soft); }
+.svc-ops__n { font: 500 11px/20px var(--font-mono); color: var(--ink-muted); }
+.svc-ops .svc-ops__more { font: 400 11.5px/20px var(--font-sans); color: var(--ink-muted); background: none; }
+.svc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 12px 0 0; font: 400 11.5px/16px var(--font-sans); color: var(--ink-muted); }
+.svc-dot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 2px; }
+.svc-dot:first-child { margin-left: 0; }

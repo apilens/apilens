@@ -44,6 +44,7 @@ import { projectHref } from "@/lib/routes";
 import { ObIcon } from "../onboarding/ob";
 import { capturePath } from "@/lib/capture-policy";
 import { useAppName, useAppSlug } from "./app-names";
+import { ServicesTab } from "./service-map";
 import { CopyAction } from "./copy-action";
 import { SseEvents } from "./sse-view";
 import { type FilterApi, filterActions } from "./field-actions";
@@ -271,6 +272,8 @@ export function RequestPanel({
             <ResponseTab key={id} data={load.data} project={project} api={api} />
           ) : tab === "timeline" ? (
             <Timeline spans={load.data.spans ?? []} logs={load.data.logs ?? []} at={load.data.request.timestamp} traced={Boolean(load.data.request.trace_id)} />
+          ) : tab === "services" ? (
+            <ServicesTab key={id} request={load.data.request} spans={load.data.spans ?? []} />
           ) : (
             <RawTab data={load.data} />
           )}

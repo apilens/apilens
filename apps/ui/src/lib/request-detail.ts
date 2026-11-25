@@ -10,6 +10,7 @@ export const DRAWER_TABS = [
   { slug: "request", label: "Request" },
   { slug: "response", label: "Response" },
   { slug: "timeline", label: "Timeline" },
+  { slug: "services", label: "Services" },
   { slug: "raw", label: "Raw" },
 ] as const;
 export type DrawerTab = (typeof DRAWER_TABS)[number]["slug"];
