@@ -133,3 +133,14 @@ WHERE app_id = @app_id
   AND at >= @since AND at < @until
 ORDER BY at DESC, id DESC
 LIMIT @max_rows;
+
+-- name: CountAppInstanceRestarts :one
+-- The restarts of an app in a window, for the restarts alert metric:
+-- restart, oom and suspected_oom events, with the workers of one container
+-- ended by the same heartbeat (same container_id and at) counted once.
+SELECT count(DISTINCT (container_id, at))::bigint
+FROM app_instance_events
+WHERE app_id = @app_id
+  AND environment = @environment
+  AND kind IN ('restart', 'oom', 'suspected_oom')
+  AND at >= @since AND at < @until;

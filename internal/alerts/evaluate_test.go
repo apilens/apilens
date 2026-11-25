@@ -16,9 +16,10 @@ import (
 func ptr[T any](v T) *T { return &v }
 
 func TestMetricCatalogueMatchesSchema(t *testing.T) {
-	// alert_rules.metric CHECK in 00016_alerts.sql.
+	// alert_rules.metric CHECK in 00050_alert_resource_metrics.sql.
 	want := []string{
-		"traffic", "errors", "error_rate", "server_errors", "server_error_rate", "client_errors", "client_error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"}
+		"traffic", "errors", "error_rate", "server_errors", "server_error_rate", "client_errors", "client_error_rate", "p50", "p75", "p95", "apdex", "unique_consumers",
+		"cpu_pct_of_limit", "memory_pct_of_limit", "cpu_throttled_ratio", "event_loop_p99_ms", "gc_pause_pct", "oom_kills", "restarts"}
 	if len(Metrics) != len(want) {
 		t.Fatalf("Metrics = %v, want %v", Metrics, want)
 	}
@@ -29,6 +30,61 @@ func TestMetricCatalogueMatchesSchema(t *testing.T) {
 	}
 	if Metric("p99").Valid() {
 		t.Error("p99 is not an alert metric")
+	}
+	for _, m := range Metrics {
+		if m.IsResource() != slices.Contains(ResourceMetrics, m) || (m.IsGauge() && !m.IsResource()) {
+			t.Errorf("%s: IsResource %v IsGauge %v", m, m.IsResource(), m.IsGauge())
+		}
+	}
+	if MetricOOMKills.IsGauge() || MetricRestarts.IsGauge() || !MetricGCPausePct.IsGauge() {
+		t.Error("the resource counts are not gauges")
+	}
+	if !AggregationMax.Valid() || !AggregationAvg.Valid() || Aggregation("p95").Valid() {
+		t.Error("aggregations")
+	}
+}
+
+// TestBuildResourceQuery checks the resource metrics read
+// app_instance_resources, never requests, ignore filters, bind the scope and
+// switch the gauges' functions with the aggregation.
+func TestBuildResourceQuery(t *testing.T) {
+	scope := queryScope{
+		project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300),
+		filters: Filters{Endpoint: "GET /a", Consumer: "alice"},
+	}
+	for _, m := range ResourceMetrics {
+		for _, a := range []Aggregation{"", AggregationMax, AggregationAvg} {
+			s := scope
+			s.aggregation = a
+			q, err := buildQuery(m, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(q.sql, "FROM app_instance_resources ") || strings.Contains(q.sql, "api_requests") {
+				t.Errorf("%s: not over resources\n%s", m, q.sql)
+			}
+			if strings.Contains(q.sql, "consumer") || strings.Contains(q.sql, "method") {
+				t.Errorf("%s: filters applied\n%s", m, q.sql)
+			}
+			if got := strings.Count(q.sql, "?"); got != len(q.args) || len(q.args) != 5 {
+				t.Errorf("%s: %d placeholders, %d args\n%s", m, got, len(q.args), q.sql)
+			}
+			avg := strings.Contains(q.sql, "avg(")
+			if m.IsGauge() && m != MetricGCPausePct && avg != (a == AggregationAvg) {
+				t.Errorf("%s %q: avg = %v\n%s", m, a, avg, q.sql)
+			}
+		}
+	}
+	q, _ := buildQuery(MetricMemoryPctOfLimit, scope)
+	if !strings.Contains(q.sql, "metrics['container.memory.working_set.max'] / metrics['container.memory.limit']") ||
+		!strings.Contains(q.sql, containerSeries) {
+		t.Errorf("memory:\n%s", q.sql)
+	}
+	s := scope
+	s.aggregation = AggregationAvg
+	q, _ = buildQuery(MetricCPUPctOfLimit, s)
+	if !strings.Contains(q.sql, "metrics['container.cpu.pct_of_limit.avg']") || !strings.Contains(q.sql, "metrics['process.cpu.pct_of_limit.avg']") {
+		t.Errorf("cpu avg:\n%s", q.sql)
 	}
 }
 
@@ -158,11 +214,19 @@ func TestRuleFromRow(t *testing.T) {
 	if _, err := RuleFromRow(row); err == nil {
 		t.Error("unknown condition: want error")
 	}
+	row.Condition, row.Aggregation = "gt", "avg"
+	if r, err := RuleFromRow(row); err != nil || r.Aggregation != AggregationAvg {
+		t.Errorf("avg rule = %+v, %v", r, err)
+	}
+	row.Aggregation = "p95"
+	if _, err := RuleFromRow(row); err == nil {
+		t.Error("unknown aggregation: want error")
+	}
 }
 
 func TestBuildQuerySource(t *testing.T) {
 	scope := queryScope{project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300)}
-	for _, m := range Metrics {
+	for _, m := range RequestMetrics {
 		for _, f := range []Filters{{}, {Endpoint: "GET /a"}, {Consumer: "alice"}, {Group: "Acme Corp"}} {
 			s := scope
 			s.filters = f
@@ -226,7 +290,8 @@ func TestBuildQueryErrorSplit(t *testing.T) {
 			m == MetricClientErrors || m == MetricUniqueConsumers; got != want {
 			t.Errorf("%s countLike = %v, want %v", m, got, want)
 		}
-		if got, want := m.IsRate(), m == MetricErrorRate || m == MetricServerErrorRate || m == MetricClientErrorRate; got != want {
+		if got, want := m.IsRate(), m == MetricErrorRate || m == MetricServerErrorRate || m == MetricClientErrorRate ||
+			m == MetricCPUThrottledRatio; got != want {
 			t.Errorf("%s IsRate = %v, want %v", m, got, want)
 		}
 	}
@@ -237,7 +302,7 @@ func TestBuildQueryGroup(t *testing.T) {
 		project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300),
 		filters: Filters{Group: "Acme Corp"},
 	}
-	for _, m := range Metrics {
+	for _, m := range RequestMetrics {
 		q, err := buildQuery(m, scope)
 		if err != nil {
 			t.Fatal(err)

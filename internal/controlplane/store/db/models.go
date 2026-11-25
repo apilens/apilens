@@ -48,6 +48,7 @@ type AlertRule struct {
 	CreatedBy     *uuid.UUID
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	Aggregation   string
 }
 
 type AlertRuleState struct {

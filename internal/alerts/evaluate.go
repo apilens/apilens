@@ -37,6 +37,7 @@ type Store interface {
 	UpsertAlertRuleState(ctx context.Context, arg db.UpsertAlertRuleStateParams) error
 	ListProjectEndpointLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]db.ListProjectEndpointLatencyThresholdsRow, error)
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]db.ListProjectAppLatencyThresholdsRow, error)
+	CountAppInstanceRestarts(ctx context.Context, arg db.CountAppInstanceRestartsParams) (int64, error)
 }
 
 // Pool is the Postgres pool the evaluator reads rules from and records
@@ -59,6 +60,8 @@ type Rule struct {
 	EveryS      *int32
 	Cron        *string
 	Filters     Filters
+	// Aggregation combines a resource gauge over instances; "" is max.
+	Aggregation Aggregation
 	// NotifyAfterS and ResolveAfterS delay triggering and resolving (see
 	// Status).
 	NotifyAfterS  int32
@@ -76,7 +79,7 @@ func RuleFromRow(r db.ListAlertRulesToEvaluateRow) (Rule, error) {
 	rule := Rule{
 		ID: r.ID, ProjectID: r.ProjectID, AppID: r.AppID, Environment: r.Environment,
 		Metric: Metric(r.Metric), Condition: Condition(r.Condition), Threshold: r.Threshold,
-		WindowS: r.WindowS, EveryS: r.EveryS, Cron: r.Cron, Filters: f,
+		WindowS: r.WindowS, EveryS: r.EveryS, Cron: r.Cron, Filters: f, Aggregation: Aggregation(r.Aggregation),
 		NotifyAfterS: r.NotifyAfterS, ResolveAfterS: r.ResolveAfterS, LastEvaluatedAt: r.LastEvaluatedAt,
 	}
 	if !rule.Metric.Valid() {
@@ -84,6 +87,9 @@ func RuleFromRow(r db.ListAlertRulesToEvaluateRow) (Rule, error) {
 	}
 	if !rule.Condition.Valid() {
 		return Rule{}, fmt.Errorf("alerts: unknown condition %q", r.Condition)
+	}
+	if rule.Aggregation != "" && !rule.Aggregation.Valid() {
+		return Rule{}, fmt.Errorf("alerts: unknown aggregation %q", r.Aggregation)
 	}
 	return rule, nil
 }
@@ -139,8 +145,13 @@ func (r Rule) Due(now time.Time) (bool, error) {
 type Result struct {
 	Window Window
 	// Value is nil when the window has no data for the metric (no requests
-	// for a rate, percentile or Apdex). Counts are 0 instead.
-	Value    *float64
+	// for a rate, percentile or Apdex). Request counts are 0 instead. A
+	// resource metric is nil without resource rows that measured it, even
+	// the resource counts (an app that sends no resources is not one with 0
+	// OOM kills).
+	Value *float64
+	// Requests is how many requests the value is over; for a resource
+	// metric, how many resource rows (heartbeats) measured it.
 	Requests uint64
 	Breached bool
 }
@@ -197,7 +208,7 @@ func (e *Evaluator) WithNotifications(jobs Enqueuer) *Evaluator {
 func (e *Evaluator) Evaluate(ctx context.Context, r Rule, now time.Time) (Result, error) {
 	scope := queryScope{
 		project: r.ProjectID, app: r.AppID, environment: r.Environment,
-		window: WindowAt(now, r.WindowS), filters: r.Filters,
+		window: WindowAt(now, r.WindowS), filters: r.Filters, aggregation: r.Aggregation,
 	}
 	if r.Metric == MetricApdex {
 		t, err := e.apdexThresholds(ctx, r.ProjectID, r.AppID)
@@ -219,6 +230,19 @@ func (e *Evaluator) Evaluate(ctx context.Context, r Rule, now time.Time) (Result
 	}
 	res := Result{Window: scope.window, Requests: n}
 	switch {
+	case r.Metric == MetricRestarts:
+		restarts, err := e.store.CountAppInstanceRestarts(ctx, db.CountAppInstanceRestartsParams{
+			AppID: r.AppID, Environment: r.Environment, Since: scope.window.Start, Until: scope.window.End,
+		})
+		if err != nil {
+			return Result{}, fmt.Errorf("alerts: evaluate %s: %w", r.Metric, err)
+		}
+		// A restart is inferred from a heartbeat, so it is data even when
+		// the window holds no resource row; otherwise 0 needs resource rows.
+		if restarts > 0 || n > 0 {
+			v := float64(restarts)
+			res.Value = &v
+		}
 	case n == 0 && r.Metric.countLike():
 		zero := 0.0
 		res.Value = &zero

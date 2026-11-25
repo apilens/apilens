@@ -16,11 +16,12 @@ const createAlertRule = `-- name: CreateAlertRule :one
 
 INSERT INTO alert_rules (id, project_id, app_id, environment, name, description, metric, condition,
                          threshold, window_s, every_s, cron, notify_after_s, resolve_after_s,
-                         filters, channel_ids, enabled, created_by)
+                         filters, channel_ids, enabled, created_by, aggregation)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
         $9, $10, $11::integer, $12::text, $13,
-        $14, $15, $16, $17, $18)
-RETURNING id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at
+        $14, $15, $16, $17, $18,
+        COALESCE($19::text, 'max'))
+RETURNING id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at, aggregation
 `
 
 type CreateAlertRuleParams struct {
@@ -42,6 +43,7 @@ type CreateAlertRuleParams struct {
 	ChannelIds    []uuid.UUID
 	Enabled       bool
 	CreatedBy     *uuid.UUID
+	Aggregation   *string
 }
 
 // Alert rules.
@@ -65,6 +67,7 @@ func (q *Queries) CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams
 		arg.ChannelIds,
 		arg.Enabled,
 		arg.CreatedBy,
+		arg.Aggregation,
 	)
 	var i AlertRule
 	err := row.Scan(
@@ -88,6 +91,7 @@ func (q *Queries) CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Aggregation,
 	)
 	return i, err
 }
@@ -239,7 +243,7 @@ func (q *Queries) GetAlertEventNotification(ctx context.Context, id uuid.UUID) (
 }
 
 const getAlertRule = `-- name: GetAlertRule :one
-SELECT id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at FROM alert_rules
+SELECT id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at, aggregation FROM alert_rules
 WHERE project_id = $1 AND id = $2
 `
 
@@ -274,6 +278,7 @@ func (q *Queries) GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (Ale
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Aggregation,
 	)
 	return i, err
 }
@@ -576,7 +581,7 @@ func (q *Queries) ListAlertRuleStates(ctx context.Context, projectID uuid.UUID) 
 }
 
 const listAlertRules = `-- name: ListAlertRules :many
-SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at FROM alert_rules r
+SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at, r.aggregation FROM alert_rules r
 JOIN apps a ON a.id = r.app_id
 WHERE r.project_id = $1 AND a.deleted_at IS NULL
 ORDER BY r.name, r.id
@@ -613,6 +618,7 @@ func (q *Queries) ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]Al
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Aggregation,
 		); err != nil {
 			return nil, err
 		}
@@ -625,7 +631,7 @@ func (q *Queries) ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]Al
 }
 
 const listAlertRulesToEvaluate = `-- name: ListAlertRulesToEvaluate :many
-SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at, s.evaluated_at AS last_evaluated_at
+SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at, r.aggregation, s.evaluated_at AS last_evaluated_at
 FROM alert_rules r
 JOIN apps a ON a.id = r.app_id
 JOIN projects p ON p.id = r.project_id
@@ -655,6 +661,7 @@ type ListAlertRulesToEvaluateRow struct {
 	CreatedBy       *uuid.UUID
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	Aggregation     string
 	LastEvaluatedAt *time.Time
 }
 
@@ -690,6 +697,7 @@ func (q *Queries) ListAlertRulesToEvaluate(ctx context.Context) ([]ListAlertRule
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Aggregation,
 			&i.LastEvaluatedAt,
 		); err != nil {
 			return nil, err
@@ -703,7 +711,7 @@ func (q *Queries) ListAlertRulesToEvaluate(ctx context.Context) ([]ListAlertRule
 }
 
 const listEnabledAlertRules = `-- name: ListEnabledAlertRules :many
-SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at FROM alert_rules r
+SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at, r.aggregation FROM alert_rules r
 JOIN apps a ON a.id = r.app_id
 JOIN projects p ON p.id = r.project_id
 WHERE r.enabled AND a.deleted_at IS NULL AND p.deleted_at IS NULL
@@ -742,6 +750,7 @@ func (q *Queries) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Aggregation,
 		); err != nil {
 			return nil, err
 		}
@@ -980,9 +989,10 @@ SET environment     = $1,
     filters         = $12,
     channel_ids     = $13,
     enabled         = $14,
+    aggregation     = COALESCE($15::text, 'max'),
     updated_at      = now()
-WHERE project_id = $15 AND id = $16
-RETURNING id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at
+WHERE project_id = $16 AND id = $17
+RETURNING id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at, aggregation
 `
 
 type UpdateAlertRuleParams struct {
@@ -1000,6 +1010,7 @@ type UpdateAlertRuleParams struct {
 	Filters       []byte
 	ChannelIds    []uuid.UUID
 	Enabled       bool
+	Aggregation   *string
 	ProjectID     uuid.UUID
 	ID            uuid.UUID
 }
@@ -1021,6 +1032,7 @@ func (q *Queries) UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams
 		arg.Filters,
 		arg.ChannelIds,
 		arg.Enabled,
+		arg.Aggregation,
 		arg.ProjectID,
 		arg.ID,
 	)
@@ -1046,6 +1058,7 @@ func (q *Queries) UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Aggregation,
 	)
 	return i, err
 }

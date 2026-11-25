@@ -142,6 +142,14 @@ var metricLabels = map[Metric]string{
 	MetricP95:             "p95 response time",
 	MetricApdex:           "Apdex",
 	MetricUniqueConsumers: "Unique consumers",
+
+	MetricCPUPctOfLimit:     "CPU (% of limit)",
+	MetricMemoryPctOfLimit:  "Memory (% of limit)",
+	MetricCPUThrottledRatio: "CPU throttling",
+	MetricEventLoopP99:      "Event-loop delay p99",
+	MetricGCPausePct:        "GC pause time",
+	MetricOOMKills:          "OOM kills",
+	MetricRestarts:          "Restarts",
 }
 
 // Label is the metric's display name.
@@ -167,9 +175,10 @@ func (c Condition) Symbol() string {
 	return string(c)
 }
 
-// FormatValue formats a value of metric m for people: error rates as a
-// percentage, response times in ms, Apdex with two decimals, counts as
-// integers. nil is "no data".
+// FormatValue formats a value of metric m for people: error rates, CPU
+// throttling and the resource percents as a percentage, response times and
+// event-loop delay in ms, Apdex with two decimals, counts as integers. nil
+// is "no data".
 func FormatValue(m Metric, v *float64) string {
 	if v == nil {
 		return "no data"
@@ -178,7 +187,9 @@ func FormatValue(m Metric, v *float64) string {
 	switch {
 	case m.IsRate():
 		return trimFloat(x*100, 2) + "%"
-	case m == MetricP50, m == MetricP75, m == MetricP95:
+	case m.IsPercent():
+		return trimFloat(x, 1) + "%"
+	case m == MetricP50, m == MetricP75, m == MetricP95, m == MetricEventLoopP99:
 		return trimFloat(x, 1) + " ms"
 	case m == MetricApdex:
 		return strconv.FormatFloat(x, 'f', 2, 64)
