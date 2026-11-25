@@ -898,6 +898,10 @@ span.rd-j-tog { cursor: default; }
 .exd-step__svc { flex: none; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
 .exd-tl__more { justify-self: stretch; justify-content: center; margin-top: 4px; }
 .exd-menu__n.is-zero { opacity: .6; }
+/* The Response tab's Exceptions count, when there are any. */
+.exd-menu__n--error { background: var(--error-soft); color: var(--error); }
+/* Several exceptions in the Exceptions tab, one after the other. */
+.rd-excs { display: grid; gap: var(--space-4); padding: var(--space-3) 0; }
 
 /* The Consumer fact opens a card (ConsumerHover). */
 .exd-consumer-trigger { padding: 0; border: 0; border-bottom: 1px dashed var(--border-strong); background: none; color: var(--ink); font: inherit; cursor: pointer; }

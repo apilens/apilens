@@ -611,20 +611,16 @@ function ResponseTab({ data, project, api }: { data: RequestDetailRead; project:
           <ValidationTable errors={validation} />
         </Block>
       ) : null}
-      {excs.length ? (
-        <Block title={excs.length === 1 ? "Exception" : "Exceptions"} meta={excs.length > 1 ? [`${excs.length} raised`] : []} tone="error">
-          {excs.map((l, i) => (
-            <ExceptionView
-              key={`${l.timestamp}-${i}`}
-              label={excs.length > 1 ? `Exception ${i + 1} of ${excs.length}` : "Exception"}
-              payload={l.payload || l.message}
-              type={l.attributes?.["exception.type"]}
-              message={l.attributes?.["exception.message"]}
-            />
-          ))}
-        </Block>
-      ) : null}
-      <HeadersBodyTabs what="response" headersText={r.response_headers} body={r.response_body} size={r.response_size} captureHref={appSlug ? capturePath(project, appSlug) : null} first="body" sampled={isSampledOut(r)} />
+      <HeadersBodyTabs
+        what="response"
+        headersText={r.response_headers}
+        body={r.response_body}
+        size={r.response_size}
+        captureHref={appSlug ? capturePath(project, appSlug) : null}
+        first="body"
+        sampled={isSampledOut(r)}
+        exceptions={excs}
+      />
     </div>
   );
 }
@@ -644,6 +640,7 @@ function HeadersBodyTabs({
   first,
   query,
   sampled = false,
+  exceptions,
 }: {
   what: "request" | "response";
   headersText: string;
@@ -656,8 +653,10 @@ function HeadersBodyTabs({
   query?: [string, string][];
   /** Sampled out: the tabs stay, each saying its part was not kept. */
   sampled?: boolean;
+  /** The trace's exceptions: a tab of their own on Response, shown (with 0) even when there are none. */
+  exceptions?: TraceLog[];
 }) {
-  type Sub = "headers" | "query" | "body";
+  type Sub = "headers" | "query" | "body" | "exceptions";
   const [sub, setSub] = useState<Sub>(first);
   const headers = parseHeaders(headersText);
   const parsed = useMemo(() => parseBody(body, contentTypeOf(headersText)), [body, headersText]);
@@ -679,13 +678,16 @@ function HeadersBodyTabs({
       return next;
     });
   // The view switch only where there is something to switch.
-  const view = sampled ? null : sub === "body" ? (sse ? "Events" : partial ? "Pretty" : bodyViewName(parsed.kind)) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
+  const view = sub === "exceptions" || sampled ? null : sub === "body" ? (sse ? "Events" : partial ? "Pretty" : bodyViewName(parsed.kind)) : sub === "headers" ? (headers?.length ? "Table" : null) : query?.length ? "Table" : null;
   const id = useId();
   // Every tab is always there, with its count (0 too), so nothing appears or vanishes per request.
   const headersTab = { slug: "headers" as Sub, label: "Headers", n: sampled ? 0 : (headers?.length ?? 0) };
   const queryTab = query ? [{ slug: "query" as Sub, label: "Query parameters", n: sampled ? 0 : query.length }] : [];
   const bodyTab = { slug: "body" as Sub, label: "Body" };
-  const tabs: { slug: Sub; label: string; n?: number }[] = first === "body" ? [bodyTab, headersTab, ...queryTab] : [headersTab, ...queryTab, bodyTab];
+  // Exceptions are trace logs, kept whether or not the request was sampled out.
+  const exceptionsTab = exceptions ? [{ slug: "exceptions" as Sub, label: "Exceptions", n: exceptions.length, tone: exceptions.length ? "error" : undefined }] : [];
+  const tabs: { slug: Sub; label: string; n?: number; tone?: string }[] =
+    first === "body" ? [bodyTab, headersTab, ...queryTab, ...exceptionsTab] : [headersTab, ...queryTab, bodyTab, ...exceptionsTab];
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const k = tabs.findIndex((x) => x.slug === sub);
     const n = tabs.length;
@@ -712,7 +714,7 @@ function HeadersBodyTabs({
               onClick={() => setSub(x.slug)}
             >
               {x.label}
-              {x.n !== undefined ? <span className={`exd-menu__n${x.n === 0 ? " is-zero" : ""}`}>{x.n}</span> : null}
+              {x.n !== undefined ? <span className={`exd-menu__n${x.n === 0 ? " is-zero" : ""}${x.tone ? ` exd-menu__n--${x.tone}` : ""}`}>{x.n}</span> : null}
             </button>
           ))}
         </div>
@@ -730,7 +732,23 @@ function HeadersBodyTabs({
         </span>
       </div>
       <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${sub}`}>
-        {sampled ? (
+        {sub === "exceptions" ? (
+          exceptions?.length ? (
+            <div className="rd-excs">
+              {exceptions.map((l, i) => (
+                <ExceptionView
+                  key={`${l.timestamp}-${i}`}
+                  label={exceptions.length > 1 ? `Exception ${i + 1} of ${exceptions.length}` : "Exception"}
+                  payload={l.payload || l.message}
+                  type={l.attributes?.["exception.type"]}
+                  message={l.attributes?.["exception.message"]}
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty>No exception was recorded for this request.</Empty>
+          )
+        ) : sampled ? (
           <Empty>Not kept: this request was sampled out, so the SDK stored a base record without its headers, query parameters or bodies.</Empty>
         ) : sub === "headers" ? (
           headers ? (
