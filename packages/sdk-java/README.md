@@ -32,6 +32,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [SDK health & stats](#sdk-health--stats)
 - [App metadata](#app-metadata)
 - [Heartbeat](#heartbeat)
+- [Runtime resources](#runtime-resources)
 - [Security & privacy](#security--privacy)
 - [Troubleshooting](#troubleshooting)
 - [Publishing](#publishing)
@@ -395,6 +396,9 @@ auto-configuration.
 | `sendMetadata` | `true` | Report framework, versions, route templates and the effective capture config once per process (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
 | `sendHeartbeat` | `true` | Send `POST /v1/heartbeat` on start, every `heartbeatInterval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
 | `heartbeatInterval` | `Duration.ofSeconds(60)` | Time between heartbeats. Minimum 10 s (ingest answers 429 to faster ones). |
+| `captureResources` | `true` | Sample CPU, memory, the container's cgroup and JVM internals and send them with every heartbeat (`resources`, `identity`). Env `APILENS_CAPTURE_RESOURCES=false` also turns it off. See [Runtime resources](#runtime-resources). |
+| `resourcesInterval` | `Duration.ofSeconds(15)` | Time between resource samples. Minimum 15 s (shorter values are raised to 15 s); the remote policy can only lengthen it. |
+| `captureProcessList` | `true` | Send the top 20 processes of the SDK's own container by RSS (pid, ppid, name, CPU, RSS; never command lines or environments). Linux only. Env `APILENS_CAPTURE_PROCESS_LIST=false` also turns it off. |
 | `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the records and heartbeats belong to (free-form name). Empty: everything (records, heartbeats, metadata) goes to the project's default app with `app_id: ""`. |
 | `onStats` | **not available** | Python only. Read `client.stats()` yourself, or let the [Micrometer binder](#sdk-health--stats) export it. |
 | `release` / `commit` | detected | Release and commit sent with the heartbeat. Fall back to `APILENS_RELEASE` / `APILENS_COMMIT`, `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`. |
@@ -642,6 +646,9 @@ variable overrides `application.properties`.
 | `APILENS_SERVICE_NAME` | `serviceName` | string | app id |
 | `APILENS_SEND_HEARTBEAT` | `sendHeartbeat` | bool; `false` wins over code | `true` |
 | `APILENS_SEND_METADATA` | `sendMetadata` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_RESOURCES` | `captureResources` | bool; `false` wins over code | `true` |
+| `APILENS_RESOURCES_INTERVAL` | `resourcesInterval` | seconds (at least 15) | `15` |
+| `APILENS_CAPTURE_PROCESS_LIST` | `captureProcessList` | bool; `false` wins over code | `true` |
 | `APILENS_PARAMETRIZE_PATHS` | `parametrizePaths` | bool; `false` wins over code | `true` |
 | `APILENS_RELEASE` / `APILENS_COMMIT` | `release` / `commit` | string | detected |
 
@@ -684,6 +691,9 @@ description and default.
 | `apilens.send-heartbeat` | `true` | Send `POST /v1/heartbeat`; see [Heartbeat](#heartbeat). |
 | `apilens.heartbeat-interval` | `60s` | Time between heartbeats (at least `10s`). |
 | `apilens.send-metadata` | `true` | Send the [app metadata](#app-metadata) report once the app is ready. |
+| `apilens.capture-resources` | `true` | Sample [runtime resources](#runtime-resources) and send them with the heartbeat. |
+| `apilens.resources-interval` | `15s` | Time between resource samples (at least `15s`). |
+| `apilens.capture-process-list` | `true` | Send the container's top processes (Linux; never command lines). |
 | `apilens.enable-request-logging` | `true` | `false` turns off header and body capture. |
 | `apilens.capture-profile` | unset (= `full`) | `metadata`, `redacted` or `full`; see [Capture profiles](#capture-profiles). |
 | `apilens.log-request-body` | `true`* | Capture request bodies. |
@@ -894,6 +904,42 @@ so a change in APILens reaches the app within one heartbeat interval. It can onl
 | `sample_rate` | Keeps that fraction of the requests local sampling keeps; the rest send only the base record (`sampled: false`). |
 | `capture_headers`, `capture_request_body`, `capture_response_body` | `false` turns that part off; `true` never turns on what is off locally. |
 | `max_payload_bytes` | The smaller of it and `maxPayloadBytes`; `null` keeps the local cap. |
+| `resources` | `enabled: false` stops resource sampling; `min_interval_s` lengthens `resourcesInterval` (never shortens it); `disabled_collectors` skips collectors (`process.cpu`, `process.memory`, `process.pss`, `container.cpu`, `container.memory`, `runtime`, `pools`, `processes`). |
+
+---
+
+## Runtime resources
+
+A third daemon thread (`apilens-resources`) samples the process every
+`resourcesInterval` (default 15 s) and every heartbeat sends the window's
+aggregate as `resources` (contract v1, `apps/docs/ingest/heartbeat.mdx`), plus
+`identity`: hostname, container id, Kubernetes pod name/uid, namespace and node
+(Downward API env vars, then well-known files, then the hostname as a guess),
+platform (`k8s`, `ecs`, `cloud_run`, `app_engine`, `heroku`, `fly`, `lambda`,
+`vm`, `bare`), region and process start time. On ECS one metadata request
+(1 s timeout, never on a request thread) adds the container id and region.
+
+| Block | What | Where from |
+|---|---|---|
+| `process.cpu` | `cores_used` and `pct_of_limit` | `OperatingSystemMXBean.getProcessCpuTime()` deltas; the limit is the container quota, else the CPUs the process may use |
+| `process.memory`, `threads`, `fds` | RSS, PSS/USS (once a minute), OS threads, open descriptors | `/proc/self/status`, `smaps_rollup`, `fd` (Linux; null elsewhere) |
+| `container` | CPU used, limit, throttling; memory current, working set, anon, file, swap, limit, OOM kills | cgroup v1/v2 files read directly (not the JDK's container metrics) |
+| `runtime.jvm` | heap used/committed/max, heap after the last old/full GC, non-heap, metaspace, direct buffers, threads, every memory pool, GC per collector | platform MXBeans and GC notifications; `pause_ms` is stop-the-world time, `concurrent_ms` the time of concurrent cycles (ZGC, Shenandoah); G1's Concurrent GC bean times Remark/Cleanup pauses, so it counts as `pause_ms` |
+| `pools` | HikariCP active, idle, max and threads waiting | every Spring `DataSource` bean, unwrapped from proxies; `client.registerDataSource(name, ds)` without Spring |
+| `processes` | top 20 by RSS in the SDK's own cgroup: pid, ppid, name, CPU %, RSS | `/proc`; never `cmdline` or `environ`; off when the host's PID namespace is visible |
+
+- **Null, never zero:** what cannot be measured (RSS on macOS, a container on a
+  laptop, virtual threads before JDK 24) is left out, not sent as `0`.
+- **Read-only:** platform MXBeans are only read; nothing is registered in the
+  MBean server or in your Micrometer registry.
+- **Safe:** each collector is isolated (errors are counted and it is disabled
+  after 5 failures in a row), the thread is a daemon and never keeps the JVM
+  alive, and the sampler measures its own cost (`sampler_cost_us`) and doubles
+  its interval while it uses more than 0.1% of one core.
+- **Request records** carry the same `instance_id` as the heartbeat, so latency
+  and errors can be split per instance.
+- **Turn it off:** `apilens.capture-resources=false` (`captureResources(false)`),
+  or env `APILENS_CAPTURE_RESOURCES=false`.
 
 ---
 

@@ -79,6 +79,7 @@ class ApiLensSpringFilterTest {
       assertTrue(requestBody.contains("\"path\":\"/orders/{id}\""));
       assertTrue(requestBody.contains("\"raw_path\":\"/orders/42?token=[redacted]&keep=1\""));
       assertTrue(requestBody.contains("\"consumer_id\":\"user-123\""));
+      assertTrue(requestBody.contains("\"instance_id\":\"" + client.instanceId() + "\""), "D14: per-instance requests");
       assertTrue(requestBody.contains("\"ip_address\":\"1.2.3.4\""));
       assertTrue(requestBody.contains("\\\"authorization\\\":\\\"[redacted]\\\""));
       assertTrue(requestBody.contains("\"request_payload\":\"{\\\"password\\\":\\\"[redacted]\\\",\\\"item\\\":\\\"book\\\"}\""));

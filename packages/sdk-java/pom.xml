@@ -137,6 +137,18 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+      <version>6.3.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+      <version>6.2.19</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
       <version>2.3.232</version>
@@ -167,6 +179,56 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.2</version>
+        <executions>
+          <!-- GC matrix: the GC smoke test again under every collector, so pause and
+               concurrent time are classified right for each (the default run covers G1).
+               IgnoreUnrecognizedVMOptions keeps -XX:+ZGenerational harmless on JDK 17. -->
+          <execution>
+            <id>gc-parallel</id>
+            <goals><goal>test</goal></goals>
+            <configuration>
+              <test>JvmGcMatrixTest</test>
+              <argLine>-XX:+UseParallelGC</argLine>
+              <reportNameSuffix>parallel</reportNameSuffix>
+            </configuration>
+          </execution>
+          <execution>
+            <id>gc-serial</id>
+            <goals><goal>test</goal></goals>
+            <configuration>
+              <test>JvmGcMatrixTest</test>
+              <argLine>-XX:+UseSerialGC</argLine>
+              <reportNameSuffix>serial</reportNameSuffix>
+            </configuration>
+          </execution>
+          <execution>
+            <id>gc-zgc</id>
+            <goals><goal>test</goal></goals>
+            <configuration>
+              <test>JvmGcMatrixTest</test>
+              <argLine>-XX:+UseZGC</argLine>
+              <reportNameSuffix>zgc</reportNameSuffix>
+            </configuration>
+          </execution>
+          <execution>
+            <id>gc-zgc-generational</id>
+            <goals><goal>test</goal></goals>
+            <configuration>
+              <test>JvmGcMatrixTest</test>
+              <argLine>-XX:+IgnoreUnrecognizedVMOptions -XX:+UseZGC -XX:+ZGenerational</argLine>
+              <reportNameSuffix>zgc-generational</reportNameSuffix>
+            </configuration>
+          </execution>
+          <execution>
+            <id>gc-shenandoah</id>
+            <goals><goal>test</goal></goals>
+            <configuration>
+              <test>JvmGcMatrixTest</test>
+              <argLine>-XX:+UseShenandoahGC</argLine>
+              <reportNameSuffix>shenandoah</reportNameSuffix>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
