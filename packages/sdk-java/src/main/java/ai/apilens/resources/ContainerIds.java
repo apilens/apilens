@@ -16,6 +16,13 @@ final class ContainerIds {
   /** containerd/Docker/Podman keep per-container files under containers/<id>/. */
   private static final Pattern MOUNT_ID =
       Pattern.compile("/(?:containers|overlay-containers)/([0-9a-f]{64})(?:/|$)");
+  /**
+   * kubelet's per-container-start file ({@code /dev/termination-log} or the pod's
+   * {@code terminationMessagePath}): {@code <kubelet root>/pods/<uid>/containers/<name>/<suffix>}.
+   */
+  private static final Pattern KUBELET_CONTAINER = Pattern.compile(
+      "/pods/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/containers/"
+          + "([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)/([0-9A-Za-z]+)$");
 
   private ContainerIds() {}
 
@@ -66,7 +73,12 @@ final class ContainerIds {
   /**
    * The id in the mount roots (field 4) of {@code mountinfo}: {@code /etc/resolv.conf} and
    * {@code /etc/hosts} are bind-mounted from {@code .../containers/<id>/}. Sandbox (pause
-   * container) paths are skipped.
+   * container) paths are per pod and never match.
+   *
+   * <p>Failing that (containerd + cgroup v2 Kubernetes, where hostname and resolv.conf come from
+   * the sandbox), kubelet's termination-log mount: its root {@code .../pods/<uid>/containers/
+   * <name>/<suffix>} gets a new suffix on every container start and is shared by every process in
+   * it, so the id is {@code k8s:<uid>/<name>/<suffix>}.
    */
   static String fromMountinfo(List<String> lines) {
     for (String line : lines) {
@@ -77,6 +89,16 @@ final class ContainerIds {
       Matcher matcher = MOUNT_ID.matcher(fields[3]);
       if (matcher.find()) {
         return matcher.group(1);
+      }
+    }
+    for (String line : lines) {
+      String[] fields = line.split(" ");
+      if (fields.length < 5) {
+        continue;
+      }
+      Matcher matcher = KUBELET_CONTAINER.matcher(fields[3]);
+      if (matcher.find()) {
+        return "k8s:" + matcher.group(1) + "/" + matcher.group(2) + "/" + matcher.group(3);
       }
     }
     return null;

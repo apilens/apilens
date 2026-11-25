@@ -188,4 +188,22 @@ class CgroupReaderTest {
     }
     return target;
   }
+
+  @Test
+  void mountinfoNeverTakesASandboxAndFallsBackToTheTerminationLog() {
+    String sandbox = "1 2 259:1 /var/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/" + "a".repeat(64)
+        + "/hostname /etc/hostname rw - ext4 /dev/root rw";
+    String term = "4 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/containers/app/5f2c9e1a"
+        + " /dev/termination-log rw - ext4 /dev/root rw";
+    String real = "3 2 259:1 /var/lib/docker/containers/" + "b".repeat(64)
+        + "/resolv.conf /etc/resolv.conf rw - ext4 /dev/root rw";
+    String hosts = "5 2 259:1 /var/lib/kubelet/pods/8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/etc-hosts"
+        + " /etc/hosts rw - ext4 /dev/root rw";
+    String k8s = "k8s:8a6f1c2e-4b3d-4e5f-9a8b-7c6d5e4f3a2b/app/5f2c9e1a";
+    assertNull(ContainerIds.fromMountinfo(List.of(sandbox, hosts)));
+    assertEquals(k8s, ContainerIds.fromMountinfo(List.of(sandbox, term)));
+    assertEquals(k8s, ContainerIds.fromMountinfo(
+        List.of(term.replace("/dev/termination-log", "/tmp/msg"))));
+    assertEquals("b".repeat(64), ContainerIds.fromMountinfo(List.of(term, real)));
+  }
 }

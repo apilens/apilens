@@ -33,7 +33,12 @@ SENTINEL_MIN = 1 << 62
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 _ECS_ID = re.compile(r"[0-9a-f]{32}-\d+")
 _RUNTIME_PREFIXES = ("docker-", "cri-containerd-", "crio-", "libpod-")
-_MOUNTINFO_ID = re.compile(r"containers/([0-9a-f]{64})/")
+_MOUNTINFO_ID = re.compile(r"(?:^|/)containers/([0-9a-f]{64})/")
+#: kubelet's per-container-start file (``/dev/termination-log`` or the pod's
+#: ``terminationMessagePath``): ``<kubelet root>/pods/<uid>/containers/<name>/<suffix>``.
+_KUBELET_CONTAINER = re.compile(
+    r"/pods/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/containers/([a-z0-9]([-a-z0-9]*[a-z0-9])?)/([0-9A-Za-z]+)$"
+)
 
 
 def container_id_from_cgroup_line(line: str) -> str | None:
@@ -61,13 +66,33 @@ def container_id_from_cgroup_line(line: str) -> str | None:
 def container_id_from_mountinfo(text: str) -> str | None:
     """The container id in a mount source path (``.../containers/<id>/...``),
     the only place it shows under a cgroup v2 namespace. Sandbox (pause
-    container) paths are not the app's container and do not match."""
-    for line in text.splitlines():
-        fields = line.split()
+    container) paths are per pod, not the app's container, and never match.
+
+    Failing that (containerd + cgroup v2 Kubernetes, where hostname and
+    resolv.conf come from the sandbox), kubelet's termination-log mount:
+    its root ``.../pods/<uid>/containers/<name>/<suffix>`` gets a new suffix
+    on every container start and is shared by every process in it, so
+    ``k8s:<uid>/<name>/<suffix>`` is the container id."""
+    lines = [line.split() for line in text.splitlines()]
+    for fields in lines:
         if len(fields) > 3:
             m = _MOUNTINFO_ID.search(fields[3])
             if m:
                 return m.group(1)
+    for fields in lines:
+        if len(fields) > 3:
+            k = kubelet_container_from_mount_root(_unescape(fields[3]))
+            if k:
+                return "k8s:" + "/".join(k)
+    return None
+
+
+def kubelet_container_from_mount_root(root: str) -> tuple[str, str, str] | None:
+    """``(pod_uid, container_name, suffix)`` when a mount root is kubelet's
+    per-container file ``.../pods/<uid>/containers/<name>/<suffix>``."""
+    m = _KUBELET_CONTAINER.search(root)
+    if m:
+        return m.group(1), m.group(2), m.group(4)
     return None
 
 
@@ -527,4 +552,5 @@ __all__ = [
     "ContainerMemory",
     "container_id_from_cgroup_line",
     "container_id_from_mountinfo",
+    "kubelet_container_from_mount_root",
 ]
