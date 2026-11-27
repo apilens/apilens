@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { withRemember } from "@/lib/keep-signed-in";
+import { markPending } from "@/lib/last-signin";
 import {
   SSO_LOOKUP_FAILED,
   SSO_NEEDS_EMAIL,
@@ -71,11 +73,12 @@ export function useSSOLookup(email: string | null, next?: string) {
    * the sentence to show when it cannot (no address, no SSO for the domain, lookup failed).
    */
   const go = useCallback(
-    async (addr: string | null): Promise<string | null> => {
+    async (addr: string | null, keepSignedIn = true): Promise<string | null> => {
       if (!addr) return SSO_NEEDS_EMAIL;
       const res = await resolve(addr);
       if (res.kind === "match") {
-        window.location.assign(res.match.startUrl);
+        markPending("sso");
+        window.location.assign(withRemember(res.match.startUrl, keepSignedIn));
         return null;
       }
       return res.kind === "none" ? SSO_NOT_SET_UP : SSO_LOOKUP_FAILED;
@@ -91,9 +94,9 @@ export function useSSOLookup(email: string | null, next?: string) {
  * "Continue with <org> SSO": a plain link to identity's SSO start (a full-page navigation). The
  * primary action when the organization enforces SSO, otherwise a secondary button.
  */
-export function SSOLink({ match, primary }: { match: SSOMatch; primary?: boolean }) {
+export function SSOLink({ match, primary, remember = true }: { match: SSOMatch; primary?: boolean; remember?: boolean }) {
   return (
-    <a className={`ah-btn ${primary ? "ah-btn--primary" : "ah-btn--secondary"} au-btn-full`} href={match.startUrl} data-sso={match.enforced ? "enforced" : "available"}>
+    <a className={`ah-btn ${primary ? "ah-btn--primary" : "ah-btn--secondary"} au-btn-full`} href={withRemember(match.startUrl, remember)} data-sso={match.enforced ? "enforced" : "available"} onClick={() => markPending("sso")}>
       <ObIcon name="lock" />
       {ssoLabel(match.orgName)}
     </a>
@@ -103,9 +106,9 @@ export function SSOLink({ match, primary }: { match: SSOMatch; primary?: boolean
 /** The generic "SSO" provider button (`providers.sso`), used until the typed domain has a match. */
 export function SSOButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
   return (
-    <button type="button" className={`ah-btn ah-btn--secondary${busy ? " is-loading" : ""}`} onClick={onClick} disabled={busy} aria-busy={busy || undefined}>
+    <button type="button" className={`ah-btn ah-btn--secondary au-btn-full${busy ? " is-loading" : ""}`} onClick={onClick} disabled={busy} aria-busy={busy || undefined}>
       <ObIcon name="lock" />
-      SSO
+      Continue with SSO
     </button>
   );
 }

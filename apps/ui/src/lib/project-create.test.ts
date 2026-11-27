@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ContextOrg } from "./identity";
-import { MAX_ENVIRONMENTS, addEnvironments, createProjectError, envError, projectOrg } from "./project-create";
+import { MAX_ENVIRONMENTS, addEnvironments, canCreateProject, createProjectError, envError, projectOrg } from "./project-create";
 
 describe("addEnvironments", () => {
   it("adds every separated name", () => {
@@ -63,5 +63,12 @@ describe("createProjectError", () => {
     ["something_else", "couldn’t create your project"],
   ])("%s", (code, text) => {
     expect(createProjectError(code)).toContain(text);
+  });
+});
+
+describe("canCreateProject", () => {
+  it("is everyone but a viewer, as `create_project` is", () => {
+    expect(["owner", "admin", "member"].map(canCreateProject)).toEqual([true, true, true]);
+    expect(canCreateProject("viewer")).toBe(false);
   });
 });

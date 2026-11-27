@@ -140,7 +140,7 @@ describe("deleteOrganization", () => {
   it("lands on joining an organization when none is left", async () => {
     deleteOrg.mockResolvedValue(undefined);
     context.mockResolvedValue(ctx([]));
-    await expect(deleteOrganization("acme", "acme")).rejects.toMatchObject({ to: "/onboarding/join" });
+    await expect(deleteOrganization("acme", "acme")).rejects.toMatchObject({ to: "/onboarding/welcome" });
   });
 
   it("answers the API's refusal", async () => {

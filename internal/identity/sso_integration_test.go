@@ -26,7 +26,6 @@ import (
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
-	"github.com/apilens/apilens/internal/identity/users"
 	"github.com/apilens/apilens/internal/platform/cache"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/jobs"
@@ -160,7 +159,8 @@ func TestSSOIntegration(t *testing.T) {
 		f := begin(t, "remember=true")
 		idp.Grant("c1", ssoGrant(f, "Ada@ACME.example.com"))
 		res := redeem(t, callback(t, url.Values{"code": {"c1"}, "state": {f.state}}))
-		if res.AccessToken == "" || res.RefreshToken == "" || res.Next != users.OnboardingPath {
+		// The connection joined them, so there is nothing to onboard.
+		if res.AccessToken == "" || res.RefreshToken == "" || res.Next != "/" {
 			t.Fatalf("handoff = %+v", res)
 		}
 		if ada, err = q.GetUserByEmail(ctx, "ada@acme.example.com"); err != nil {
@@ -194,6 +194,33 @@ func TestSSOIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("first sign-in keeps the profile name once", func(t *testing.T) {
+		nameOf := func(email string) string {
+			t.Helper()
+			u, err := q.GetUserByEmail(ctx, email)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return u.Name
+		}
+		f := begin(t, "")
+		g := ssoGrant(f, "grace@acme.example.com")
+		g.claims["name"] = "  Grace Hopper "
+		idp.Grant("n1", g)
+		redeem(t, callback(t, url.Values{"code": {"n1"}, "state": {f.state}}))
+		if got := nameOf("grace@acme.example.com"); got != "Grace Hopper" {
+			t.Fatalf("name = %q, want Grace Hopper", got)
+		}
+		f = begin(t, "")
+		g = ssoGrant(f, "grace@acme.example.com")
+		g.claims["name"] = "Someone Else"
+		idp.Grant("n2", g)
+		redeem(t, callback(t, url.Values{"code": {"n2"}, "state": {f.state}}))
+		if got := nameOf("grace@acme.example.com"); got != "Grace Hopper" {
+			t.Fatalf("name after second sign-in = %q, want Grace Hopper", got)
+		}
+	})
+
 	t.Run("second sign-in keeps the membership", func(t *testing.T) {
 		if _, err := pool.Exec(ctx, `UPDATE memberships SET role = 'admin' WHERE org_id = $1 AND user_id = $2`, org, ada.ID); err != nil {
 			t.Fatal(err)
@@ -206,6 +233,31 @@ func TestSSOIntegration(t *testing.T) {
 		}
 		if r := role(ada.ID); r != "admin" {
 			t.Fatalf("role = %q", r)
+		}
+	})
+
+	t.Run("later sign-ins keep the first completed_at", func(t *testing.T) {
+		stamp := func() string {
+			t.Helper()
+			u, err := q.GetUserByEmail(ctx, "ada@acme.example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m map[string]any
+			_ = json.Unmarshal(u.Onboarding, &m)
+			at, _ := m["completed_at"].(string)
+			if at == "" || !NewOnboardingState(u.Onboarding).Completed {
+				t.Fatalf("onboarding = %s, want completed with completed_at", u.Onboarding)
+			}
+			return at
+		}
+		first := stamp()
+		time.Sleep(1100 * time.Millisecond)
+		f := begin(t, "")
+		idp.Grant("c2b", ssoGrant(f, "ada@acme.example.com"))
+		redeem(t, callback(t, url.Values{"code": {"c2b"}, "state": {f.state}}))
+		if got := stamp(); got != first {
+			t.Fatalf("completed_at = %s after another sign-in, want %s", got, first)
 		}
 	})
 

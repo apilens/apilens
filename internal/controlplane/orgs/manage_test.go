@@ -111,3 +111,46 @@ func TestInitials(t *testing.T) {
 		}
 	}
 }
+
+func TestAddedDomains(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cur  []string
+		next []string
+		want []string
+	}{
+		{"nothing stored", nil, []string{"acme.dev"}, []string{"acme.dev"}},
+		{"kept domain is not added", []string{"old.io"}, []string{"old.io", "acme.dev"}, []string{"acme.dev"}},
+		{"removing adds nothing", []string{"old.io", "acme.dev"}, []string{"old.io"}, nil},
+		{"unchanged list", []string{"acme.dev"}, []string{"acme.dev"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := addedDomains(tc.cur, tc.next); !slices.Equal(got, tc.want) {
+				t.Fatalf("added = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUnverifiedDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		added []string
+		email string
+		want  string
+	}{
+		{"own domain", []string{"acme.dev"}, "ada@acme.dev", ""},
+		{"own domain, mixed case email", []string{"acme.dev"}, "Ada@ACME.dev", ""},
+		{"someone else's domain", []string{"globex.com"}, "ada@acme.dev", "globex.com"},
+		{"first unverified of several", []string{"acme.dev", "globex.com"}, "ada@acme.dev", "globex.com"},
+		{"subdomain is not the same domain", []string{"mail.acme.dev"}, "ada@acme.dev", "mail.acme.dev"},
+		{"nothing added", nil, "ada@acme.dev", ""},
+		{"no email to check against", []string{"acme.dev"}, "", "acme.dev"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := unverifiedDomain(tc.added, tc.email); got != tc.want {
+				t.Fatalf("unverified = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

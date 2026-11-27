@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { NETWORK_MESSAGE, errorMessage, rateLimitMessage, startEmail } from "@/lib/email-start";
 import { LINKS, extLink } from "@/lib/links";
-import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { type SignInMethods, altMethods } from "@/lib/sign-in-methods";
+import { pathWithRemember, withRemember } from "@/lib/keep-signed-in";
 import { ssoRequiredMatch } from "@/lib/sso";
-import { AltLink } from "./alt-method";
+import { KeepSignedIn } from "./keep-signed-in";
 import { ObIcon, ObShell, describedBy } from "./ob";
 import { SSOButton, SSOLink, useSSOLookup } from "./sso";
 
@@ -29,11 +30,12 @@ type Problem =
  * replaces Continue with "Continue with <org> SSO" (no code is sent); SSO that is offered but not
  * enforced adds that button under Continue.
  */
-export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth?: OAuthLinks; next?: string }) {
+export function SignUp({ methods, next }: { methods: SignInMethods; next?: string }) {
   const router = useRouter();
   const alts = altMethods(methods, { email: false });
   const [email, setEmail] = useState("");
   const [touched, setTouched] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -65,12 +67,12 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
     // An enforced domain never gets a code: go to its SSO instead (the lookup may still be pending).
     const found = await sso.resolve(address);
     if (found.kind === "match" && found.match.enforced) {
-      window.location.assign(found.match.startUrl);
+      window.location.assign(withRemember(found.match.startUrl, remember));
       return;
     }
     const res = await startEmail({ email: address, intent: "signup", next });
     if (res.kind === "sent") {
-      router.push(res.next);
+      router.push(pathWithRemember(res.next, remember));
       return; // keep the loading state until /verify replaces this page
     }
     setSending(false);
@@ -91,7 +93,7 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
     if (ssoBusy) return;
     setSsoBusy(true);
     setProblem(null);
-    const text = await sso.go(valid(email) ? email.trim() : null);
+    const text = await sso.go(valid(email) ? email.trim() : null, remember);
     if (text === null) return; // navigating to the identity provider
     setSsoBusy(false);
     if (!valid(email)) setTouched(true);
@@ -119,8 +121,6 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
           alert · error rate <b>31%</b>
         </>
       }
-      progress={0}
-      step={0}
       badge="user"
       title="Create your APILens account"
       lead="Free for 3 services. No card needed."
@@ -130,6 +130,14 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
         </>
       }
     >
+      {shown.length > 0 ? (
+        <>
+          <div className="au-provs">
+            {shown.map((m) => (m === "sso" ? <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} /> : null))}
+          </div>
+          <div className="ob-or">or</div>
+        </>
+      ) : null}
       <form onSubmit={submit} noValidate>
         <div className="ob-f">
           <label className="ob-l" htmlFor="su-email">
@@ -170,36 +178,23 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
             </p>
           ) : null}
         </div>
+        <KeepSignedIn checked={remember} onChange={setRemember} disabled={sending} />
         <div style={{ marginTop: 22 }}>
           {enforced && sso.match ? (
-            <SSOLink match={sso.match} primary />
+            <SSOLink match={sso.match} remember={remember} primary />
           ) : (
             <button type="submit" className={`ah-btn ah-btn--primary au-btn-full${sending ? " is-loading" : ""}${limited ? " is-disabled" : ""}`} disabled={sending || !!limited} aria-busy={sending || undefined}>
-              Continue
+              Continue with email
               <ObIcon name="next" />
             </button>
           )}
         </div>
         {sso.match && !enforced ? (
           <div style={{ marginTop: 10 }}>
-            <SSOLink match={sso.match} />
+            <SSOLink match={sso.match} remember={remember} />
           </div>
         ) : null}
       </form>
-      {shown.length > 0 ? (
-        <>
-          <div className="ob-or">or</div>
-          <div style={{ display: "grid", gridTemplateColumns: gridColumns(shown.length), gap: 10 }}>
-            {shown.map((m) =>
-              m === "email" ? null : m === "sso" ? (
-                <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} />
-              ) : (
-                <AltLink key={m} method={m} href={oauth?.[m] ?? "/sign-up"} />
-              ),
-            )}
-          </div>
-        </>
-      ) : null}
     </ObShell>
   );
 }

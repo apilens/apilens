@@ -1,12 +1,11 @@
-// Project settings → SDK setup (#817): the install steps onboarding showed (#333), found again.
-// The snippets come from `snippetsFor` in lib/install.ts and the languages from lib/instrument.ts,
-// so this page and onboarding render the same source. Pure; safe in Client Components.
+// Project settings → SDK setup (#817): the install steps for a project's SDK.
+// The snippets come from `snippetsFor` in lib/install.ts and the languages from lib/instrument.ts. Pure; safe in Client Components.
 import { runtimeLine } from "./capture-policy";
 import type { AppEnvironmentReport, IngestStatus, NamedApp } from "./identity";
 import { DEFAULT_POSTURE, type Snippet, appIdFor, snippetsFor } from "./install";
 import { LANGUAGES, type Language } from "./instrument";
 
-/** The languages with an APILens SDK, in onboarding's order: one tab each. */
+/** The languages with an APILens SDK, one tab each. */
 export const SDK_LANGUAGES: readonly Language[] = LANGUAGES.filter((l) => Boolean(l.sdk));
 
 /** The docs setup guide each SDK's snippet follows (apps/docs/setup-guides). */

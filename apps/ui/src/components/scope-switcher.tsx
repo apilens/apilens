@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SERVICES, type Health } from "@/lib/data";
 import { type ContextOrg, plural, roleLabel } from "@/lib/scope";
+import { HOME_VIEW } from "@/lib/data";
 import { projectHref } from "@/lib/routes";
 
 type Level = 0 | 1 | 2;
@@ -31,7 +32,7 @@ function Hit({ text, q }: { text: string; q: string }) {
  * Miller columns: Organizations (with your role), Projects, Services. Typing filters all three at
  * once. `orgs` is the user's `GET /users/me/context` tenancy.
  */
-export function ScopeSwitcher({ orgs: allOrgs, open, onClose, orgSlug, projectSlug = "" }: { orgs: ContextOrg[]; open: boolean; onClose: () => void; orgSlug: string; projectSlug?: string }) {
+export function ScopeSwitcher({ orgs: allOrgs, open, onClose, orgSlug, projectSlug = "", view = HOME_VIEW }: { orgs: ContextOrg[]; open: boolean; onClose: () => void; orgSlug: string; projectSlug?: string; view?: string }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
@@ -73,7 +74,7 @@ export function ScopeSwitcher({ orgs: allOrgs, open, onClose, orgSlug, projectSl
       setCur({ level: 1, i: 0 });
     } else if (level === 1) {
       onClose();
-      router.push(projectHref(row.key, "incidents"));
+      router.push(projectHref(row.key, view));
     } else {
       onClose();
       router.push(projectHref(project, "apis"));

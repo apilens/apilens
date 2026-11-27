@@ -1,0 +1,22 @@
+/* Welcome, the one onboarding screen: the organization picks on the system's .ob-picks/.ob-pick,
+   the create fields under them, and the mark each pick carries. Tokens from tokens.css only. */
+.wc-picks { margin-top: 26px; }
+.wc-picks .ob-pick { align-items: flex-start; }
+.wc-picks .ob-pick .rd { margin-top: 7px; }
+.wc-picks .tx { flex: 1; min-width: 0; }
+.wc-mark { width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center; font: 600 14px/1 var(--font-sans); }
+.wc-mark--new { border: 1px dashed var(--border-strong); color: var(--ink-muted); box-sizing: border-box; }
+/* The create fields are a sibling of the picks, not a child: indenting them under the chosen card
+   read as a third frame inside card-inside-field. */
+.wc-new { padding-left: 0; }
+.wc-new .ob-f:first-child { margin-top: 24px; }
+.wc-note { margin-top: 20px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-1); color: var(--ink-soft); }
+.wc-note .ob-ic { flex: none; margin-top: 2px; color: var(--accent-ink); }
+.wc-note b { font-weight: 500; color: var(--ink); }
+.wc-picks .ob-pick.on { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.wc-new .ob-in .r { color: var(--ok); }
+.wc-muted { color: var(--ink-muted); }
+.wc-bad { color: var(--error); }
+.wc-many { margin-top: 22px; font-size: 13px; }
+.wc-go { margin: 32px 0 40px; display: flex; justify-content: flex-end; }
+

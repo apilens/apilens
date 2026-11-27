@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
 
 	"github.com/google/uuid"
@@ -17,15 +16,7 @@ import (
 const (
 	AnswerOrgSlug     = "org_slug"
 	AnswerProjectSlug = "project_slug"
-	AnswerLanguage    = "language"
-	AnswerRuntime     = "runtime"
-	AnswerMethod      = "method"
-	AnswerInvited     = "invited"
-	AnswerAPIKeyID    = "api_key_id"
 )
-
-// MaxInvited bounds the `invited` answer (the number of teammates invited).
-const MaxInvited = 1000
 
 // ErrInvalidOnboarding means an onboarding patch has an unknown key or a
 // value that is not allowed.
@@ -33,27 +24,19 @@ var ErrInvalidOnboarding = errors.New("account: invalid onboarding")
 
 var (
 	// StepPattern is the onboarding step rule: a lowercase screen name such
-	// as "about", "project" or "install".
+	// as "welcome" or "done".
 	StepPattern = `^[a-z][a-z0-9_-]{0,31}$`
 	// SlugPattern is the organization and project slug rule, or empty.
 	SlugPattern = `^([a-z0-9][a-z0-9-]{0,62})?$`
-	// ChoicePattern is the rule for the language, runtime and method
-	// answers (e.g. "python", "fastapi", "sdk"), or empty.
-	ChoicePattern = `^([a-z0-9][a-z0-9._+-]{0,31})?$`
-	// KeyIDPattern is the rule for the api_key_id answer: the id of the
-	// ingest key the install step created (a lowercase UUID), or empty.
-	KeyIDPattern = `^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$`
 
-	stepRE   = regexp.MustCompile(StepPattern)
-	slugRE   = regexp.MustCompile(SlugPattern)
-	choiceRE = regexp.MustCompile(ChoicePattern)
-	keyIDRE  = regexp.MustCompile(KeyIDPattern)
+	stepRE = regexp.MustCompile(StepPattern)
+	slugRE = regexp.MustCompile(SlugPattern)
 )
 
 // OnboardingPatch is a partial update of the onboarding state. Nil fields
 // stay unchanged.
 type OnboardingPatch struct {
-	// Step is the screen to resume at.
+	// Step is the stored step: "welcome" or "done".
 	Step *string
 	// Answers is merged key by key into the stored answers.
 	Answers map[string]any
@@ -94,10 +77,8 @@ func (s *Service) UpdateOnboarding(ctx context.Context, id uuid.UUID, p Onboardi
 }
 
 // ValidateOnboarding checks an onboarding patch: the step is a screen name,
-// and answers only carry the known keys with an allowed value (slugs for
-// org_slug and project_slug, short lowercase names for language, runtime
-// and method, a count from 0 to MaxInvited for invited, a key id for
-// api_key_id).
+// and answers only carry the known keys (org_slug, project_slug) with a
+// slug value.
 func ValidateOnboarding(p OnboardingPatch) error {
 	if p.Step != nil && !stepRE.MatchString(*p.Step) {
 		return fmt.Errorf("%w: step must match %s", ErrInvalidOnboarding, StepPattern)
@@ -108,14 +89,6 @@ func ValidateOnboarding(p OnboardingPatch) error {
 		case AnswerOrgSlug, AnswerProjectSlug:
 			s, isString := v.(string)
 			ok = isString && slugRE.MatchString(s)
-		case AnswerLanguage, AnswerRuntime, AnswerMethod:
-			s, isString := v.(string)
-			ok = isString && choiceRE.MatchString(s)
-		case AnswerInvited:
-			ok = validInvited(v)
-		case AnswerAPIKeyID:
-			s, isString := v.(string)
-			ok = isString && keyIDRE.MatchString(s)
 		default:
 			return fmt.Errorf("%w: unknown answer %q", ErrInvalidOnboarding, k)
 		}
@@ -124,21 +97,4 @@ func ValidateOnboarding(p OnboardingPatch) error {
 		}
 	}
 	return nil
-}
-
-// validInvited accepts a whole number from 0 to MaxInvited, as an int or as
-// the float64 encoding/json decodes numbers to.
-func validInvited(v any) bool {
-	var f float64
-	switch n := v.(type) {
-	case int:
-		f = float64(n)
-	case int64:
-		f = float64(n)
-	case float64:
-		f = n
-	default:
-		return false
-	}
-	return f >= 0 && f <= MaxInvited && f == math.Trunc(f)
 }

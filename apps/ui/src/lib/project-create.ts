@@ -47,6 +47,11 @@ export function envError(error: EnvError, name: string): string {
  * organization step (`answers.org_slug`) when the user may still create projects in it, else the
  * first such organization. Viewers cannot create projects.
  */
+/** Whether an organization role may create a project: everyone but a viewer (`create_project`). */
+export function canCreateProject(role: string): boolean {
+  return role !== "viewer";
+}
+
 export function projectOrg(ctx: Pick<UserContext, "orgs">, orgSlug?: string): ContextOrg | undefined {
   const usable = ctx.orgs.filter((o) => o.role !== "viewer");
   return usable.find((o) => o.slug === orgSlug) ?? usable[0];

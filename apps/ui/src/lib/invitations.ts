@@ -6,7 +6,7 @@
 // Server Actions alike.
 //
 // Also the invitation landing (`/invite/{token}`, #337): who signs in where, what accepting does
-// and how the invited user's onboarding skips the organization and project steps.
+// and how an invited user's Welcome screen starts from the saved organization.
 import type { ContextOrg, ContextProject, Invitation, InvitationAccepted, InvitationPreview, UpdateOnboardingRequest, UserContext } from "./identity";
 import { homeView } from "./landing";
 import { orgHome } from "./scope";
@@ -81,8 +81,8 @@ export function invitationsError(code: string): string {
 
 // --- Invitation landing (#337) ---
 
-/** The onboarding step an invited user starts at (and the only one they see). */
-export const INVITED_STEP = "about";
+/** The onboarding step an invited user starts at (Welcome, the only one anyone sees). */
+export const INVITED_STEP = "welcome";
 /** Where an invited user with open onboarding goes after accepting. */
 export const INVITED_ONBOARDING_PATH = `/onboarding/${INVITED_STEP}`;
 
@@ -110,20 +110,6 @@ export type InviteProblem = "invite_expired" | "invalid_token" | "invite_email_m
 /** Maps an identity `code` to the problem the landing shows; anything unknown is `error`. */
 export function inviteProblem(code: string | null | undefined): InviteProblem {
   return code === "invite_expired" || code === "invalid_token" || code === "invite_email_mismatch" ? code : "error";
-}
-
-/**
- * The organization of an invitation the user accepted while onboarding: the stored
- * `answers.org_slug` names an organization they belong to without owning it (an invitation never
- * makes an owner, while the organization step's create does). Undefined for everyone else.
- */
-export function invitedOrg(ctx: UserContext): ContextOrg | undefined {
-  if (ctx.onboarding?.completed) return undefined;
-  const answers = ctx.onboarding?.answers ?? ctx.user.onboarding?.answers;
-  const slug = answers && typeof answers.org_slug === "string" ? answers.org_slug : "";
-  if (!slug) return undefined;
-  const org = ctx.orgs.find((o) => o.slug === slug);
-  return org && org.role !== "owner" ? org : undefined;
 }
 
 /**
@@ -159,9 +145,8 @@ export interface AcceptDeps {
 
 /**
  * Accepts the invitation and says where the browser goes next. A user still onboarding resumes
- * at the about step with the organization saved (`answers.org_slug`), which marks them as
- * invited: the about step then opens the invited project (`answers.project_slug`, #809) or the
- * organization's first project instead of the organization and project steps. A user who finished
+ * at Welcome with the organization saved (`answers.org_slug`, and `answers.project_slug` for a
+ * project invitation, #809), which Welcome opens instead of creating one. A user who finished
  * onboarding goes straight to that project. Identity errors (`invite_email_mismatch`,
  * `invite_expired`, …) propagate.
  */

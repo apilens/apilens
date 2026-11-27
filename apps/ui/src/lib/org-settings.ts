@@ -104,6 +104,10 @@ export function orgSettingsError(code: string): string {
   switch (code) {
     case "domain_not_allowed":
       return "Public email domains like gmail.com or outlook.com can’t be claimed by an organization. Remove them and save again.";
+    case "domain_not_verified":
+      return "You can only add your own email domain. Ask someone with an address at that domain to add it.";
+    case "domain_taken":
+      return "Another organization already allows joining with this domain. Ask its owner to remove it first.";
     case "slug_immutable":
       return "The address can’t be changed yet.";
     case "invalid_request":

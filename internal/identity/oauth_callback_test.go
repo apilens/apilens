@@ -302,6 +302,36 @@ func TestOAuthCallbackTwoFactorRequired(t *testing.T) {
 	}
 }
 
+func TestOAuthCallbackHandoffCarriesRemember(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		remember  bool
+		twoFactor bool
+	}{
+		{"remember", true, false},
+		{"no remember", false, false},
+		{"remember with 2fa", true, true},
+		{"no remember with 2fa", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newCallbackHarness(t)
+			u := db.User{ID: uuid.New(), Email: "ada@example.com"}
+			h.users.byEmail[u.Email] = u
+			h.users.totp[u.ID] = tc.twoFactor
+
+			f := beginOAuth(t, h.api, "github", fmt.Sprintf("remember=%t", tc.remember))
+			h.idp.Grant("c", githubGrant(f, 9, githubEmail{Email: u.Email, Primary: true, Verified: true}))
+			res := h.handedOff(t, h.callback(t, "github", url.Values{"code": {"c"}, "state": {f.state}}))
+			if (res.Status == TwoFactorRequiredStatus) != tc.twoFactor {
+				t.Fatalf("handoff status = %q", res.Status)
+			}
+			if res.Remember != tc.remember {
+				t.Fatalf("handoff remember = %v, want %v", res.Remember, tc.remember)
+			}
+		})
+	}
+}
+
 func TestOAuthCallbackStateMismatch(t *testing.T) {
 	t.Run("missing state", func(t *testing.T) {
 		h := newCallbackHarness(t)

@@ -119,6 +119,50 @@ func (q *Queries) GetInvitation(ctx context.Context, arg GetInvitationParams) (I
 	return i, err
 }
 
+const getInvitationByID = `-- name: GetInvitationByID :one
+SELECT i.id, i.org_id, i.email, i.role, i.invited_by, i.created_at, i.expires_at,
+       i.accepted_at, i.revoked_at, i.resent_at, o.slug AS org_slug, o.name AS org_name
+FROM invitations i
+JOIN organizations o ON o.id = i.org_id
+WHERE i.id = $1 AND o.deleted_at IS NULL
+`
+
+type GetInvitationByIDRow struct {
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	Email      string
+	Role       string
+	InvitedBy  *uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	AcceptedAt *time.Time
+	RevokedAt  *time.Time
+	ResentAt   *time.Time
+	OrgSlug    string
+	OrgName    string
+}
+
+// As GetInvitationByTokenHash, by id.
+func (q *Queries) GetInvitationByID(ctx context.Context, id uuid.UUID) (GetInvitationByIDRow, error) {
+	row := q.db.QueryRow(ctx, getInvitationByID, id)
+	var i GetInvitationByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Email,
+		&i.Role,
+		&i.InvitedBy,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.AcceptedAt,
+		&i.RevokedAt,
+		&i.ResentAt,
+		&i.OrgSlug,
+		&i.OrgName,
+	)
+	return i, err
+}
+
 const getInvitationByTokenHash = `-- name: GetInvitationByTokenHash :one
 SELECT i.id, i.org_id, i.email, i.role, i.invited_by, i.created_at, i.expires_at,
        i.accepted_at, i.revoked_at, i.resent_at, o.slug AS org_slug, o.name AS org_name
@@ -210,6 +254,58 @@ func (q *Queries) ListPendingInvitations(ctx context.Context, orgID uuid.UUID) (
 			&i.AcceptedAt,
 			&i.RevokedAt,
 			&i.ResentAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingInvitationsForEmail = `-- name: ListPendingInvitationsForEmail :many
+SELECT i.id, i.role, i.expires_at, o.slug AS org_slug, o.name AS org_name,
+       u.name AS inviter_name, u.email AS inviter_email
+FROM invitations i
+JOIN organizations o ON o.id = i.org_id AND o.deleted_at IS NULL
+LEFT JOIN users u ON u.id = i.invited_by AND u.deleted_at IS NULL
+WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
+  AND lower(i.email) = lower($1)
+ORDER BY i.created_at DESC, i.id
+`
+
+type ListPendingInvitationsForEmailRow struct {
+	ID           uuid.UUID
+	Role         string
+	ExpiresAt    time.Time
+	OrgSlug      string
+	OrgName      string
+	InviterName  *string
+	InviterEmail *string
+}
+
+// The pending, unexpired invitations to an address (any letter case), newest
+// first, with the organization and the inviting user's name and email (NULL
+// when the inviter's account is gone).
+func (q *Queries) ListPendingInvitationsForEmail(ctx context.Context, email string) ([]ListPendingInvitationsForEmailRow, error) {
+	rows, err := q.db.Query(ctx, listPendingInvitationsForEmail, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPendingInvitationsForEmailRow{}
+	for rows.Next() {
+		var i ListPendingInvitationsForEmailRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.ExpiresAt,
+			&i.OrgSlug,
+			&i.OrgName,
+			&i.InviterName,
+			&i.InviterEmail,
 		); err != nil {
 			return nil, err
 		}

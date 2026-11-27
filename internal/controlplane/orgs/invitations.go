@@ -308,6 +308,45 @@ func (s *InvitationService) Pending(ctx context.Context, user uuid.UUID, slug st
 	return out, withProjects(ctx, q, out)
 }
 
+// MyInvitation is a pending invitation to the signed-in user's address.
+type MyInvitation struct {
+	ID          uuid.UUID
+	OrgSlug     string
+	OrgName     string
+	Role        string
+	InviterName string
+	ExpiresAt   time.Time
+}
+
+// Mine lists the pending, unexpired invitations to user's verified email,
+// newest first. A user without a verified email has none.
+func (s *InvitationService) Mine(ctx context.Context, user uuid.UUID) ([]MyInvitation, error) {
+	q := db.New(s.pool)
+	u, err := q.GetUserEmail(ctx, user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserGone
+	}
+	if err != nil {
+		return nil, fmt.Errorf("orgs: get user: %w", err)
+	}
+	out := []MyInvitation{}
+	if u.EmailVerifiedAt == nil {
+		return out, nil
+	}
+	rows, err := q.ListPendingInvitationsForEmail(ctx, u.Email)
+	if err != nil {
+		return nil, fmt.Errorf("orgs: list my invitations: %w", err)
+	}
+	for _, r := range rows {
+		inviter := deref(r.InviterName)
+		if strings.TrimSpace(inviter) == "" {
+			inviter = deref(r.InviterEmail)
+		}
+		out = append(out, MyInvitation{ID: r.ID, OrgSlug: r.OrgSlug, OrgName: r.OrgName, Role: r.Role, InviterName: inviter, ExpiresAt: r.ExpiresAt})
+	}
+	return out, nil
+}
+
 // ProjectPending lists the pending invitations that carry a role on
 // project, newest first, including expired ones that can still be resent.
 // The caller has checked manage_access on the project.

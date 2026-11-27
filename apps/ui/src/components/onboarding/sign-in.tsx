@@ -20,12 +20,14 @@ import {
   relativeDay,
   rememberAccount,
 } from "@/lib/remembered-account";
-import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { type SignInMethods, altMethods } from "@/lib/sign-in-methods";
 import { SIGN_IN_NOTICES, type SignInNotice } from "@/lib/sign-in-notice";
+import { type SignInMethod, clearPending, forgetSignIn, lastSignIn, markPending, rememberSignIn } from "@/lib/last-signin";
+import { pathWithRemember, withRemember } from "@/lib/keep-signed-in";
 import { ssoRequiredMatch } from "@/lib/sso";
-import { AltLink } from "./alt-method";
 import { ObIcon, ObShell, describedBy } from "./ob";
 import { SignInNoticeBanner } from "./sign-in-notice";
+import { KeepSignedIn } from "./keep-signed-in";
 import { SSOButton, SSOLink, useSSOLookup } from "./sso";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
@@ -48,6 +50,14 @@ function writeDraft(email: string) {
   }
 }
 
+const METHOD_WORDS: Record<SignInMethod, string> = {
+  email: "an email code",
+  google: "Google",
+  github: "GitHub",
+  sso: "single sign-on",
+  passkey: "a passkey",
+};
+
 /** Shown when the passkey Continue opened did not sign the user in; Continue now sends a code. */
 const PASSKEY_FALLBACK = "Your passkey didn’t sign you in. Continue to get a code by email instead.";
 
@@ -62,19 +72,17 @@ const PASSKEY_FALLBACK = "Your passkey didn’t sign you in. Continue to get a c
  *      account exists, so Continue never tells anyone which addresses have accounts or passkeys.
  *
  * Passkeys are also offered in the email field's autofill (conditional mediation) while the
- * field is shown, and as a secondary "Passkey" button for a passkey this device does not know
- * about (a phone, a security key). `methods` (`GET /auth/providers`) adds Google, GitHub and the
- * generic SSO under "or"; `oauth` holds their start URLs (built on the server). `next` is where
- * to land; `notice` (from `?error=`/`?reason=`) sits above the form.
+ * field is shown, and as a "Continue with a passkey" button for a passkey this device does not
+ * know about (a phone, a security key). It heads one stack with the generic SSO button, which
+ * `methods` (`GET /auth/providers`) adds. `next` is where to land; `notice` (from
+ * `?error=`/`?reason=`) sits above the form.
  */
 export function SignIn({
   methods,
-  oauth,
   next,
   notice,
 }: {
   methods: SignInMethods;
-  oauth?: OAuthLinks;
   next?: string;
   notice?: SignInNotice | null;
 }) {
@@ -85,13 +93,21 @@ export function SignIn({
   // never starts (and at once cancels) one.
   const [deviceRead, setDeviceRead] = useState(false);
   const [email, setEmail] = useState("");
+  const [last, setLast] = useState<ReturnType<typeof lastSignIn>>(null);
   useEffect(() => {
+    // Landing here means any earlier sign-in ended (finished, failed or abandoned).
+    clearPending();
+    setLast(lastSignIn());
     const account = readRememberedAccount();
     setRemembered(account);
     if (!account) setEmail((typed) => typed || readDraft());
     setDeviceRead(true);
   }, []);
   const [touched, setTouched] = useState(false);
+  const [remember, setRemember] = useState(true);
+  // Read by the autofill request, which starts before the box can change.
+  const rememberRef = useRef(remember);
+  rememberRef.current = remember;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [limitedUntil, setLimitedUntil] = useState<number | null>(null);
@@ -142,7 +158,10 @@ export function SignIn({
 
   const signedIn = (res: Extract<PasskeyResult, { ok: true }>, fallbackEmail?: string) => {
     const who = res.email ?? fallbackEmail;
-    if (who) rememberAccount(who, "passkey");
+    if (who) {
+      rememberAccount(who, "passkey");
+      rememberSignIn("passkey", who);
+    }
     router.push(res.next);
   };
 
@@ -157,7 +176,7 @@ export function SignIn({
     autofill.current = ctl;
     void (async () => {
       if (!(await conditionalMediationAvailable()) || ctl.signal.aborted) return;
-      const res = await signInWithPasskey({ mediation: "conditional", signal: ctl.signal, next });
+      const res = await signInWithPasskey({ mediation: "conditional", signal: ctl.signal, next, remember: () => rememberRef.current });
       if (ctl.signal.aborted) return;
       if (res.ok) return signedIn(res);
       // Only a passkey the user picked from the autofill (unknown, or it failed) says anything and
@@ -193,7 +212,7 @@ export function SignIn({
   const sendCode = async (address: string) => {
     const res = await startEmail({ email: address, intent: "signin", next });
     if (res.kind === "sent") {
-      router.push(res.next);
+      router.push(pathWithRemember(res.next, remember));
       return; // keep the loading state until /verify replaces this page
     }
     setBusy(false);
@@ -233,12 +252,13 @@ export function SignIn({
     // 1. An enforced domain never gets a code or a passkey prompt (the lookup may still be pending).
     const found = await sso.resolve(address);
     if (found.kind === "match" && found.match.enforced) {
-      window.location.assign(found.match.startUrl);
+      markPending("sso");
+      window.location.assign(withRemember(found.match.startUrl, remember));
       return;
     }
     // 2. The passkey this device last signed in with.
     if (passkeyFirst) {
-      const res = await signInWithPasskey({ mediation: "optional", email: address, next });
+      const res = await signInWithPasskey({ mediation: "optional", email: address, next, remember });
       if (res.ok) return signedIn(res, address);
       if (res.code === "passkey_unknown") {
         // Gone from the account: forget the shortcut (no sign-in happened, so keep its "last used")
@@ -265,7 +285,7 @@ export function SignIn({
     stopAutofill();
     setPasskeyBusy(true);
     setError(null);
-    const res = await signInWithPasskey({ mediation: "optional", email: address ?? undefined, next });
+    const res = await signInWithPasskey({ mediation: "optional", email: address ?? undefined, next, remember });
     if (res.ok) return signedIn(res, address ?? undefined);
     setPasskeyBusy(false);
     const problem = passkeyError(res.code);
@@ -277,6 +297,8 @@ export function SignIn({
   const notYou = () => {
     stopAutofill();
     forgetAccount();
+    forgetSignIn();
+    setLast(null);
     focusEmail.current = true;
     setRemembered(null);
     setEmail("");
@@ -290,19 +312,17 @@ export function SignIn({
     // The passkey autofill stays on: a lookup does not compete with it, and leaving the page ends it.
     setSsoBusy(true);
     setError(null);
-    const problem = await sso.go(address);
+    const problem = await sso.go(address, remember);
     if (problem === null) return; // navigating to the identity provider
     setSsoBusy(false);
     if (!address) setTouched(true);
     setError(problem);
   };
 
-  // Under "or": a passkey Continue would not already offer, then the providers. An enforced
-  // organization refuses every other way in (codes, passkeys, Google, GitHub), so only its SSO shows.
-  const others = [
-    ...(passkeys && !passkeyFirst && !enforced ? (["passkey"] as const) : []),
-    ...altMethods(methods, { email: false }).filter((m) => !enforced && !(m === "sso" && sso.match)),
-  ];
+  // The passkey button leads the form. An enforced organization refuses every other way in
+  // (codes, passkeys, Google, GitHub), so only its SSO shows.
+  const showPasskey = passkeys && !enforced;
+  const others = altMethods(methods, { email: false }).filter((m) => !enforced && !(m === "sso" && sso.match));
   const errorText = limited ? rateLimitMessage(waitLeft) : error;
 
   return (
@@ -328,6 +348,39 @@ export function SignIn({
         <SignInNoticeBanner key="sso_required" notice={{ code: "sso_required", ...SIGN_IN_NOTICES.sso_required }} />
       ) : notice ? (
         <SignInNoticeBanner notice={notice} />
+      ) : null}
+      {last && !remembered ? (
+        <p className="ob-hint plain" data-testid="last-signin">
+          <span>
+            Last time you signed in as <b>{last.email}</b> with {METHOD_WORDS[last.method]}.{" "}
+            <button
+              type="button"
+              className="cp-link"
+              onClick={() => {
+                forgetSignIn();
+                setLast(null);
+              }}
+            >
+              Not you?
+            </button>
+          </span>
+        </p>
+      ) : null}
+      {showPasskey || others.length > 0 ? (
+        <>
+          <div className="au-provs">
+            {showPasskey ? (
+              <button type="button" className={`ah-btn ah-btn--secondary au-btn-full${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy || undefined}>
+                <ObIcon name="finger" />
+                Continue with a passkey
+              </button>
+            ) : null}
+            {others.map((m) =>
+              m === "sso" ? <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} /> : null,
+            )}
+          </div>
+          <div className="ob-or">or</div>
+        </>
       ) : null}
       <form onSubmit={submit} noValidate>
         <div className="ob-f">
@@ -395,41 +448,23 @@ export function SignIn({
             <span>We’ll email you a 6-digit code. There’s no password to remember.</span>
           )}
         </div>
+        <KeepSignedIn checked={remember} onChange={setRemember} disabled={busy} />
         <div style={{ marginTop: 18 }}>
           {enforced && sso.match ? (
-            <SSOLink match={sso.match} primary />
+            <SSOLink match={sso.match} remember={remember} primary />
           ) : (
             <button ref={continueButton} type="submit" className={`ah-btn ah-btn--primary au-btn-full${busy ? " is-loading" : ""}${limited ? " is-disabled" : ""}`} disabled={busy || limited} aria-busy={busy || undefined}>
-              Continue
+              Continue with email
               <ObIcon name="next" />
             </button>
           )}
         </div>
         {sso.match && !enforced ? (
           <div style={{ marginTop: 10 }}>
-            <SSOLink match={sso.match} />
+            <SSOLink match={sso.match} remember={remember} />
           </div>
         ) : null}
       </form>
-      {others.length > 0 ? (
-        <>
-          <div className="ob-or">or</div>
-          <div style={{ display: "grid", gridTemplateColumns: gridColumns(others.length), gap: 10 }}>
-            {others.map((m) =>
-              m === "passkey" ? (
-                <button key={m} type="button" className={`ah-btn ah-btn--secondary${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy || undefined}>
-                  <ObIcon name="finger" />
-                  Passkey
-                </button>
-              ) : m === "sso" ? (
-                <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} />
-              ) : m === "email" ? null : (
-                <AltLink key={m} method={m} href={oauth?.[m] ?? "/sign-in"} />
-              ),
-            )}
-          </div>
-        </>
-      ) : null}
     </ObShell>
   );
 }

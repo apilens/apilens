@@ -4,6 +4,7 @@ import {
   countdown,
   twoFactorPath,
   verifyEmailCode,
+  verifyNext,
   verifyErrorMessage,
   verifyRateLimitMessage,
   wrongCodeMessage,
@@ -33,8 +34,8 @@ describe("verifyEmailCode", () => {
   });
 
   it("signs in to the server's next, never off-origin", async () => {
-    const ok = vi.fn<typeof fetch>(async () => json(200, { ok: true, next: "/onboarding/about" }));
-    expect(await verifyEmailCode(input, ok)).toEqual({ kind: "signed_in", next: "/onboarding/about" });
+    const ok = vi.fn<typeof fetch>(async () => json(200, { ok: true, next: "/onboarding/welcome" }));
+    expect(await verifyEmailCode(input, ok)).toEqual({ kind: "signed_in", next: "/onboarding/welcome" });
     const evil = vi.fn<typeof fetch>(async () => json(200, { ok: true, next: "//evil.example" }));
     expect(await verifyEmailCode({ ...input, next: "/orgs" }, evil)).toEqual({ kind: "signed_in", next: "/orgs" });
     const none = vi.fn<typeof fetch>(async () => json(200, { ok: true }));
@@ -113,5 +114,15 @@ describe("copy", () => {
   it("builds the 2FA path", () => {
     expect(twoFactorPath(null)).toBe("/auth/2fa");
     expect(twoFactorPath("/orgs?x=1")).toBe("/auth/2fa?next=%2Forgs%3Fx%3D1");
+  });
+});
+
+describe("verifyNext", () => {
+  it("leaves the landing to identity when the page asked for none", () => {
+    expect(verifyNext(undefined)).toBeUndefined();
+  });
+
+  it("keeps the page's next", () => {
+    expect(verifyNext("/invite/abc")).toBe("/invite/abc");
   });
 });

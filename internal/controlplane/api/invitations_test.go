@@ -54,6 +54,14 @@ func (f *fakeInvitations) Resend(context.Context, uuid.UUID, string, uuid.UUID) 
 
 func (f *fakeInvitations) Revoke(context.Context, uuid.UUID, string, uuid.UUID) error { return f.err }
 
+func (f *fakeInvitations) Mine(context.Context, uuid.UUID) ([]orgs.MyInvitation, error) {
+	return nil, f.err
+}
+
+func (f *fakeInvitations) AcceptMine(context.Context, uuid.UUID, uuid.UUID) (orgs.AcceptedInvitation, error) {
+	return orgs.AcceptedInvitation{}, f.err
+}
+
 func newInvitationsAPI(t *testing.T, svc InvitationService, user uuid.UUID) humatest.TestAPI {
 	t.Helper()
 	return newInvitationsAPIWith(t, svc, nil, user)

@@ -1,5 +1,5 @@
 /* Project settings → SDK setup (#817). Tokens from tokens.css only; cards reuse .os-* (org
-   settings), tables .pk-table (Security → Passkeys), code blocks .ob-code/.ins-* (onboarding Install). */
+   settings), tables .pk-table (Security → Passkeys), code blocks .ob-code/.ins-* (components/code-block.css). */
 .sdk code { font: 400 12.5px/18px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
 
 .sdk-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); margin: var(--space-4) 0 0; }

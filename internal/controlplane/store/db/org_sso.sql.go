@@ -25,45 +25,6 @@ func (q *Queries) DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (
 	return result.RowsAffected(), nil
 }
 
-const enforcedSSODomainsOfOtherOrgs = `-- name: EnforcedSSODomainsOfOtherOrgs :many
-SELECT DISTINCT d.domain::text AS domain
-FROM org_sso_connections c
-JOIN organizations o ON o.id = c.org_id
-CROSS JOIN LATERAL unnest(c.domains) AS d(domain)
-WHERE c.org_id <> $1
-  AND c.enforce
-  AND o.deleted_at IS NULL
-  AND d.domain = ANY($2::text[])
-ORDER BY 1
-`
-
-type EnforcedSSODomainsOfOtherOrgsParams struct {
-	OrgID   uuid.UUID
-	Domains []string
-}
-
-// The domains among @domains that another active organization enforces SSO
-// for. A domain is enforced by at most one organization.
-func (q *Queries) EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, enforcedSSODomainsOfOtherOrgs, arg.OrgID, arg.Domains)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var domain string
-		if err := rows.Scan(&domain); err != nil {
-			return nil, err
-		}
-		items = append(items, domain)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getOrgSSOConnection = `-- name: GetOrgSSOConnection :one
 SELECT org_id, issuer, client_id, client_secret_enc, domains, enforce, default_role, created_at, updated_at, last_login_at FROM org_sso_connections
 WHERE org_id = $1
@@ -127,6 +88,45 @@ SELECT pg_advisory_xact_lock(hashtext('org_sso_connections.enforce'))
 func (q *Queries) LockSSOEnforcement(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, lockSSOEnforcement)
 	return err
+}
+
+const sSODomainsOfOtherOrgs = `-- name: SSODomainsOfOtherOrgs :many
+SELECT DISTINCT d.domain::text AS domain
+FROM org_sso_connections c
+JOIN organizations o ON o.id = c.org_id
+CROSS JOIN LATERAL unnest(c.domains) AS d(domain)
+WHERE c.org_id <> $1
+  AND o.deleted_at IS NULL
+  AND d.domain = ANY($2::text[])
+ORDER BY 1
+`
+
+type SSODomainsOfOtherOrgsParams struct {
+	OrgID   uuid.UUID
+	Domains []string
+}
+
+// The domains among @domains that another active organization's SSO
+// connection lists, enforcing or not. A connection signs in anyone at its
+// domains, so a domain belongs to one organization.
+func (q *Queries) SSODomainsOfOtherOrgs(ctx context.Context, arg SSODomainsOfOtherOrgsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, sSODomainsOfOtherOrgs, arg.OrgID, arg.Domains)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			return nil, err
+		}
+		items = append(items, domain)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const upsertOrgSSOConnection = `-- name: UpsertOrgSSOConnection :one

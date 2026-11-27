@@ -61,7 +61,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://ingest.apilens.ai/v1/health
 
 A `200` means egress works. A timeout means a firewall or allow-list change; a certificate error means a TLS-inspecting proxy, which needs [`ca_bundle_path`](/sdk-reference/delivery#proxies-and-custom-cas); a proxy goes in [`APILENS_PROXY`](/sdk-reference/delivery#proxies-and-custom-cas) (Python) or the runtime's own proxy settings.
 
-The onboarding flow's **Instrument** step does the project, app, key and snippet in one pass, with the posture from phase 2 already set in the snippet.
+Onboarding creates the organization and its first project; the app, the key and the snippet come from **Settings → SDK setup** in that project, with the posture from phase 2 already set in the snippet.
 
 **Checklist**
 

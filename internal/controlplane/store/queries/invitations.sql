@@ -78,3 +78,24 @@ RETURNING *;
 -- account is deleted.
 SELECT email, name FROM users
 WHERE id = @id AND deleted_at IS NULL;
+
+-- name: ListPendingInvitationsForEmail :many
+-- The pending, unexpired invitations to an address (any letter case), newest
+-- first, with the organization and the inviting user's name and email (NULL
+-- when the inviter's account is gone).
+SELECT i.id, i.role, i.expires_at, o.slug AS org_slug, o.name AS org_name,
+       u.name AS inviter_name, u.email AS inviter_email
+FROM invitations i
+JOIN organizations o ON o.id = i.org_id AND o.deleted_at IS NULL
+LEFT JOIN users u ON u.id = i.invited_by AND u.deleted_at IS NULL
+WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
+  AND lower(i.email) = lower(@email)
+ORDER BY i.created_at DESC, i.id;
+
+-- name: GetInvitationByID :one
+-- As GetInvitationByTokenHash, by id.
+SELECT i.id, i.org_id, i.email, i.role, i.invited_by, i.created_at, i.expires_at,
+       i.accepted_at, i.revoked_at, i.resent_at, o.slug AS org_slug, o.name AS org_name
+FROM invitations i
+JOIN organizations o ON o.id = i.org_id
+WHERE i.id = @id AND o.deleted_at IS NULL;

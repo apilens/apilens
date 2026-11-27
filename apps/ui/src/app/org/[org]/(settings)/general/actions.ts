@@ -16,7 +16,7 @@ export type OrgActionResult = { ok: true; org: Org } | { ok: false; error: strin
 const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /** Where someone lands when the organization they were in is gone. */
-const NO_ORG_PATH = "/onboarding/join";
+const NO_ORG_PATH = "/onboarding/welcome";
 
 function failed(err: unknown): OrgActionResult {
   if (!isApiError(err)) throw err;

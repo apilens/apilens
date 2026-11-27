@@ -50,3 +50,22 @@ RETURNING *;
 -- name: DeleteMembership :execrows
 DELETE FROM memberships
 WHERE org_id = @org_id AND user_id = @user_id;
+
+-- name: SoleOwnedOrganizations :many
+-- The active organizations where the user is the only owner with a live
+-- account, so deleting their account would leave the organization without
+-- one. Read by the identity account service before a deletion.
+SELECT m.org_id FROM memberships m
+JOIN organizations o ON o.id = m.org_id
+WHERE m.user_id = @user_id
+  AND m.role = 'owner'
+  AND o.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM memberships other
+      JOIN users u ON u.id = other.user_id
+      WHERE other.org_id = m.org_id
+        AND other.role = 'owner'
+        AND other.user_id <> m.user_id
+        AND u.deleted_at IS NULL
+  )
+ORDER BY m.org_id;

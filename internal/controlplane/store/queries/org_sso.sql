@@ -30,19 +30,6 @@ WHERE org_id = @org_id;
 -- organizations cannot both start enforcing one domain.
 SELECT pg_advisory_xact_lock(hashtext('org_sso_connections.enforce'));
 
--- name: EnforcedSSODomainsOfOtherOrgs :many
--- The domains among @domains that another active organization enforces SSO
--- for. A domain is enforced by at most one organization.
-SELECT DISTINCT d.domain::text AS domain
-FROM org_sso_connections c
-JOIN organizations o ON o.id = c.org_id
-CROSS JOIN LATERAL unnest(c.domains) AS d(domain)
-WHERE c.org_id <> @org_id
-  AND c.enforce
-  AND o.deleted_at IS NULL
-  AND d.domain = ANY(@domains::text[])
-ORDER BY 1;
-
 -- name: HasSSOSignInSince :one
 -- Whether user signed in through organization org's SSO connection (a
 -- login.succeeded audit event with method sso for the organization) at or
@@ -55,3 +42,16 @@ SELECT EXISTS (
       AND metadata->>'org_id' = @org_id::text
       AND created_at >= @since
 ) AS signed_in;
+
+-- name: SSODomainsOfOtherOrgs :many
+-- The domains among @domains that another active organization's SSO
+-- connection lists, enforcing or not. A connection signs in anyone at its
+-- domains, so a domain belongs to one organization.
+SELECT DISTINCT d.domain::text AS domain
+FROM org_sso_connections c
+JOIN organizations o ON o.id = c.org_id
+CROSS JOIN LATERAL unnest(c.domains) AS d(domain)
+WHERE c.org_id <> @org_id
+  AND o.deleted_at IS NULL
+  AND d.domain = ANY(@domains::text[])
+ORDER BY 1;

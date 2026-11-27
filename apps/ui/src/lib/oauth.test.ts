@@ -109,6 +109,11 @@ describe("oauthStartUrl / oauthStartLinks", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({ next: "/acme/requests?range=7d", intent: "login", remember: "true" });
   });
 
+  it("carries an unticked keep-me-signed-in as remember=false", () => {
+    const url = new URL(oauth.oauthStartUrl("https://api.example.com", "google", { remember: false }));
+    expect(url.searchParams.get("remember")).toBe("false");
+  });
+
   it.each(["//evil.example", "/\\evil.example", "https://evil.example/x", "javascript:alert(1)", "evil", `/${"a".repeat(600)}`])(
     "drops an off-origin next (%s)",
     (next) => {
@@ -148,9 +153,46 @@ describe("GET /auth/callback", () => {
     }
   });
 
+  it("hands the browser the signed-in address once, for the sign-in hint", async () => {
+    replies["POST /api/v1/auth/handoff"] = () => ({ status: 200, body: BUNDLE });
+    const { setCookies } = await callback({ code: CODE });
+    const cookie = setCookies.find((c) => c.startsWith("apilens_signed_in=")) ?? "";
+    expect(decodeURIComponent(cookie.split(";")[0].split("=")[1])).toBe("ada@example.com");
+    expect(cookie).toMatch(/Max-Age=120/i);
+    expect(cookie).toMatch(/SameSite=Strict/i);
+    expect(cookie).not.toMatch(/HttpOnly/i);
+  });
+
+  it("2FA sets the hint cookie to \"2fa\" (no address), failures set none", async () => {
+    replies["POST /api/v1/auth/handoff"] = () => ({ status: 200, body: { status: "2fa_required", pre_auth_token: PRE_AUTH, next: "/acme" } });
+    expect((await callback({ code: CODE })).setCookies.find((c) => c.startsWith("apilens_signed_in="))).toMatch(/^apilens_signed_in=2fa;/);
+    replies["POST /api/v1/auth/handoff"] = problem(410, "handoff_expired");
+    expect((await callback({ code: CODE })).setCookies.some((c) => c.startsWith("apilens_signed_in="))).toBe(false);
+  });
+
+  it("follows the handoff's remember: false gives a 24-hour session", async () => {
+    replies["POST /api/v1/auth/handoff"] = () => ({ status: 200, body: { ...BUNDLE, remember: false } });
+    const { setCookies } = await callback({ code: CODE });
+    const opened = await session.open(cookieValue(setCookies, session.SESSION_COOKIE_NAME));
+    expect(opened).toMatchObject({ remember: false });
+    const cookie = setCookies.find((c) => c.startsWith(`${session.SESSION_COOKIE_NAME}=`)) ?? "";
+    expect(cookie).toMatch(/Max-Age=86400/i);
+  });
+
+  it("2FA keeps the handoff's remember: false in the pre-auth cookie", async () => {
+    replies["POST /api/v1/auth/handoff"] = () => ({
+      status: 200,
+      body: { status: "2fa_required", pre_auth_token: PRE_AUTH, next: "/acme", remember: false },
+    });
+    const { setCookies } = await callback({ code: CODE });
+    const value = cookieValue(setCookies, routes.PRE_AUTH_COOKIE_NAME);
+    const req = new NextRequest(`${PUBLIC_URL}/auth/2fa`, { headers: { cookie: `${routes.PRE_AUTH_COOKIE_NAME}=${value}` } });
+    expect(routes.readPreAuth(req)).toMatchObject({ token: PRE_AUTH, remember: false });
+  });
+
   it("a new user goes where identity points them (onboarding)", async () => {
-    replies["POST /api/v1/auth/handoff"] = () => ({ status: 200, body: { ...BUNDLE, next: "/onboarding/about" } });
-    expect((await callback({ code: CODE })).location).toBe("/onboarding/about");
+    replies["POST /api/v1/auth/handoff"] = () => ({ status: 200, body: { ...BUNDLE, next: "/onboarding/welcome" } });
+    expect((await callback({ code: CODE })).location).toBe("/onboarding/welcome");
   });
 
   it.each(["//evil.example", "/\\evil.example", "https://evil.example/", "javascript:alert(1)", null])(

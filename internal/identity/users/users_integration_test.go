@@ -77,7 +77,7 @@ func TestFindOrCreateByVerifiedEmailIntegration(t *testing.T) {
 		if len(prefs) != 1 || prefs["home"] != "endpoints" {
 			t.Fatalf("preferences = %v", prefs)
 		}
-		if len(onboarding) != 1 || onboarding["step"] != "about" {
+		if len(onboarding) != 1 || onboarding["step"] != users.OnboardingStepWelcome {
 			t.Fatalf("onboarding = %v", onboarding)
 		}
 		if m := createdMethods(t, u.ID); len(m) != 1 || m[0] != "google" {
@@ -183,4 +183,25 @@ func TestFindOrCreateByVerifiedEmailIntegration(t *testing.T) {
 			t.Fatalf("user.created audited %d times", len(m))
 		}
 	})
+}
+
+func TestCompleteOnboardingIntegration(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+	svc := users.New(pool)
+	u, _, err := svc.FindOrCreateByVerifiedEmail(ctx, "sso@example.com", users.SourceSSO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompleteOnboarding(ctx, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	var step string
+	var completedAt *string
+	if err := pool.QueryRow(ctx, `SELECT onboarding->>'step', onboarding->>'completed_at' FROM users WHERE id = $1`, u.ID).Scan(&step, &completedAt); err != nil {
+		t.Fatal(err)
+	}
+	if step != "done" || completedAt == nil || *completedAt == "" {
+		t.Fatalf("onboarding step = %q completed_at = %v", step, completedAt)
+	}
 }

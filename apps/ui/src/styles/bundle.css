@@ -321,15 +321,6 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .ob-top { display: flex; align-items: center; gap: 24px; padding: 0 24px 0 28px; border-bottom: 1px solid var(--border); }
 .ob-brand { display: inline-flex; align-items: center; gap: 10px; font: 600 15px/1 var(--font-sans); color: var(--ink); width: 240px; }
-.ob-steps { display: flex; align-items: center; gap: 4px; margin: 0 auto; }
-.ob-st { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 10px; border-radius: 999px; font: 500 13px/1 var(--font-sans); color: var(--ink-muted); border: 1px solid transparent; }
-.ob-st .ob-ic { width: 15px; height: 15px; }
-.ob-st.done { color: var(--ink); } .ob-st.done .ob-ic { color: var(--accent-ink); }
-.ob-st.cur { color: var(--ink); background: var(--surface-1); border-color: var(--border-strong); }
-.ob-st.cur .ob-ic { color: var(--accent-ink); }
-.ob-st.todo { opacity: .75; }
-.ob-sep { width: 18px; height: 1px; background: var(--border-strong); }
-.ob-sep.done { background: var(--accent-ink); }
 .ob-tr { width: 240px; display: flex; justify-content: flex-end; gap: 4px; }
 .ob-main { display: grid; grid-template-columns: 1fr 600px; min-height: 0; }
 .ob-form { display: flex; flex-direction: column; padding: 48px 64px 0; min-height: 0; }
@@ -399,6 +390,9 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-code .hd .ah-btn { margin-left: auto; }
 .ob-code pre { margin: 0; padding: 12px 16px; font: 400 12.5px/21px var(--font-mono); color: var(--ink); white-space: pre; overflow: hidden; }
 .ob-code .p { color: var(--accent-ink); } .ob-code .m { color: var(--ink-muted); } .ob-code .o { color: var(--ok); } .ob-code .q { color: var(--info); }
+/* Every way in that is not the email code, as one stack of identical buttons: the column used to
+   carry a passkey button, a rule, the email block, then a second rule and a provider grid. */
+.au-provs { display: grid; gap: 8px; }
 .ob-or { display: flex; align-items: center; gap: 12px; margin: 22px 0; font: 400 12px/1 var(--font-sans); color: var(--ink-muted); }
 .ob-or::before, .ob-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .ob-code6 { display: flex; gap: 10px; margin-top: 28px; }
@@ -654,8 +648,6 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-badge.ok { background: var(--surface-1); border: 1px solid var(--border); color: var(--ink); }
 .ob-badge.bad { color: var(--error); }
 .ob-note .ob-ic, .ob-hint > .ob-ic, .ob-pv .note .ob-ic { color: var(--ink-muted); }
-.ob-st.done .ob-ic { color: var(--ink-muted); } .ob-st.cur .ob-ic { color: var(--ink); }
-.ob-sep.done { background: var(--border-strong); }
 .ob-opt.on .ti { color: var(--ink); }
 .ob-tile.on .mono, .ob-tile.on .al-brand, .ob-tile.on .ob-ic { color: var(--ink); }
 .ob-pill.on .ob-ic { color: var(--ink); }
@@ -725,14 +717,11 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-bp-foot a { color: var(--ink-muted); text-decoration: none; }
 .ob-fp { display: flex; flex-direction: column; min-width: 0; padding: 0 72px; }
 .ob-ftop { height: 72px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.ob-ftop .ob-steps { margin: 0; }
 .ob-ftop .ob-tr { width: auto; }
 .ob-fbody { flex: 1; min-height: 0; display: flex; align-items: center; }
 .ob-fbody .ob-col { margin: 0 auto; }
 .ob-fp .ob-foot { border-top: 1px solid var(--border); }
 .ob-fp > .ob-col { margin: 0 auto; }
-.ob-st { padding: 0 10px 0 8px; font-size: 12.5px; }
-.ob-sep { width: 12px; }
 /* invite list */
 .ob-inv { border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); }
 .ob-inv .add { display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); }
@@ -755,7 +744,6 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-live .facts { display: grid; grid-template-columns: repeat(3, 1fr); }
 .ob-live .facts div { padding: 16px 18px; } .ob-live .facts div + div { border-left: 1px solid var(--border); }
 .ob-live .facts b { display: block; font: 500 22px/28px var(--font-mono); color: var(--ink); } .ob-live .facts span { font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
-.ob-st { white-space: nowrap; }
 .ob-ftop .ob-tr .ah-btn { width: 32px; padding: 0; gap: 0; font-size: 0; }
 .ob-ftop .ob-tr .ah-btn .ob-ic { width: 16px; height: 16px; }
 /* brand panel v2: typographic, no icon tiles */
@@ -800,10 +788,6 @@ button.cp-link:disabled { cursor: default; opacity: .6; }
 .ob-rc b { font-weight: 500; color: var(--ink); }
 .ob-rc i { font-style: normal; font-weight: 500; color: var(--ink); }
 .ob-rc i.e { color: var(--error); }
-.ob-tl { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; font: 400 11px/1 var(--font-mono); color: var(--ink-muted); }
-.ob-tl .tr { position: relative; flex: 1; height: 1px; background: var(--border); }
-.ob-tl .fill { position: absolute; left: 0; top: 0; height: 1px; background: var(--border-strong); }
-.ob-tl .dot { position: absolute; top: -3px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--ink); }
 
 /* ── control scale v2: gentler buttons, matched fields ──
    One height per row: 36px for buttons, 40px for full-width actions and the fields beside them. */

@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { HOME_VIEW } from "@/lib/data";
+import { canCreateProject } from "@/lib/project-create";
 import { type ContextOrg, type ContextProject, orgMark, plural, roleLabel } from "@/lib/scope";
 import { Icon } from "./icons";
 import { PopMenu } from "./pop-menu";
-import { orgHref, projectHref } from "@/lib/routes";
+import { newOrgHref, newProjectHref, orgHref, projectHref } from "@/lib/routes";
 
 
 
@@ -50,12 +51,12 @@ export function OrgHeader({ orgs, org, orgScope, collapsed }: { orgs: ContextOrg
           </span>
           <span className="lb">Organization settings</span>
         </Link>
-        <button type="button" role="menuitem" className="cp-sitem" onClick={close}>
+        <Link href={newOrgHref()} role="menuitem" className="cp-sitem" onClick={close}>
           <span className="sl">
             <Icon name="plus" />
           </span>
           <span className="lb">Create organization</span>
-        </button>
+        </Link>
       </PopMenu>
     </>
   );
@@ -102,10 +103,12 @@ export function ProjectRow({ org, project, view, collapsed = false }: { org: Con
           <span className="sl"><Icon name="settings" /></span>
           <span className="lb">Project settings</span>
         </Link>
-        <button type="button" role="menuitem" className="cp-sitem" onClick={() => setOpen(false)}>
-          <span className="sl"><Icon name="plus" /></span>
-          <span className="lb">Create project</span>
-        </button>
+        {canCreateProject(org.role) ? (
+          <Link href={newProjectHref(org.slug)} role="menuitem" className="cp-sitem" onClick={() => setOpen(false)}>
+            <span className="sl"><Icon name="plus" /></span>
+            <span className="lb">Create project</span>
+          </Link>
+        ) : null}
       </PopMenu>
     </>
   );

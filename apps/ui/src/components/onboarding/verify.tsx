@@ -7,21 +7,20 @@ import {
   EXPIRED_MESSAGE,
   LOCKED_MESSAGE,
   MAX_CODE_ATTEMPTS,
-  NEW_USER_PATH,
   VERIFY_NETWORK_MESSAGE,
   countdown,
   verifyEmailCode,
+  verifyNext,
   verifyErrorMessage,
   verifyRateLimitMessage,
   wrongCodeMessage,
 } from "@/lib/email-verify";
 import { passkeyError, passkeysSupported, signInWithPasskey } from "@/lib/auth/passkeys";
+import { REMEMBER_PARAM, rememberFromParam } from "@/lib/keep-signed-in";
+import { recordEmailSignIn, rememberSignIn } from "@/lib/last-signin";
 import { rememberAccount } from "@/lib/remembered-account";
 import { KeepSignedIn } from "./keep-signed-in";
 import { BackNext, ObIcon, ObShell } from "./ob";
-
-/** "Keep me signed in" starts checked (30-day session); unchecked asks for 24 hours (#322). */
-const DEFAULT_REMEMBER = true;
 
 type Problem =
   | { kind: "invalid_code"; left: number }
@@ -69,7 +68,7 @@ export function Verify() {
   const [problem, setProblem] = useState<Problem | null>(null);
   const [sent, setSent] = useState(false);
   const [shake, setShake] = useState(false);
-  const [remember, setRemember] = useState(DEFAULT_REMEMBER);
+  const [remember, setRemember] = useState(() => rememberFromParam(params.get(REMEMBER_PARAM)));
   // The resend cooldown starts where `/api/auth/email/start` said (`retry_after`, #313).
   const [left, setLeft] = useCountdown(secondsParam(params.get("retry_after")));
   // A verify rate limit (429 `rate_limited`) blocks checking codes until it runs out.
@@ -103,10 +102,10 @@ export function Verify() {
       email,
       code: value,
       remember,
-      next: asked ?? (signin ? undefined : NEW_USER_PATH),
+      next: verifyNext(asked),
     });
     if (res.kind === "signed_in" || res.kind === "2fa_required") {
-      if (signin) rememberAccount(email, "email");
+      if (signin) recordEmailSignIn(res.kind, email);
       router.replace(res.next);
       return; // keep the loading state until the next page replaces this one
     }
@@ -168,6 +167,7 @@ export function Verify() {
     const res = await signInWithPasskey({ mediation: "optional", email, next: asked, remember });
     if (res.ok) {
       rememberAccount(res.email ?? email, "passkey");
+      rememberSignIn("passkey", res.email ?? email);
       router.replace(res.next);
       return; // keep the loading state until the next page replaces this one
     }
@@ -217,8 +217,6 @@ export function Verify() {
           #incident · <b>47</b> messages · <b>0</b> answers
         </>
       }
-      progress={16.67}
-      step={signin ? undefined : 0}
       badge="mail"
       title="Check your inbox"
       lead={

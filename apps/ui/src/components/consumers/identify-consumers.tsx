@@ -1,11 +1,10 @@
 "use client";
 
 import { type KeyboardEvent, useId, useState } from "react";
-import { CodeBlock } from "@/components/onboarding/install";
+import { CodeBlock } from "@/components/code-block";
 import { CONSUMER_SDKS, type ConsumerSdk, consumerDocsUrl, consumerSnippet } from "@/lib/consumer-setup";
 import { LINKS, extLink } from "@/lib/links";
 import { radioKeyTarget } from "@/lib/radio-group";
-import "../onboarding/install.css";
 import "../project-settings/sdk-setup.css";
 
 /**

@@ -8,8 +8,8 @@ import type { SessionPayload } from "./session-format";
 
 /** Where signed-out users are sent; `next` carries the page they asked for. */
 export const SIGN_IN_PATH = "/sign-in";
-/** First onboarding page, for a signed-in user without an organization (see `lib/landing.ts`). */
-export const ONBOARDING_PATH = "/onboarding/about";
+/** The one onboarding page, for a signed-in user without an organization (see `lib/landing.ts`). */
+export const ONBOARDING_PATH = "/onboarding/welcome";
 /** Where signed-out visitors to `/onboarding/*` are sent: sign up, then start onboarding. */
 export const ONBOARDING_SIGN_UP_PATH = `/sign-up?${new URLSearchParams({ next: ONBOARDING_PATH })}`;
 

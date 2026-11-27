@@ -29,7 +29,10 @@ type SignInResponse struct {
 	RefreshToken string    `json:"refresh_token,omitempty" doc:"Opaque refresh token. It is single-use: every refresh returns a new one, and presenting a used one again revokes the session."`
 	ExpiresIn    int       `json:"expires_in,omitempty" minimum:"1" doc:"Seconds until the access token expires."`
 	User         *AuthUser `json:"user,omitempty"`
-	Next         string    `json:"next,omitempty" doc:"Relative path to open after sign-in: as requested when the sign-in started, or /onboarding/about for a new user who requested none."`
+	Next         string    `json:"next,omitempty" doc:"Relative path to open after sign-in: as requested when the sign-in started, or /onboarding/welcome for a new user who requested none."`
+	// Not omitempty: the UI reads a missing field as "remember", so an
+	// unticked box has to arrive as an explicit false.
+	Remember bool `json:"remember" doc:"The remember choice of an OAuth or SSO sign-in, echoed in its handoff so the UI sets a matching cookie."`
 }
 
 // NewSignInSession renders a session bundle, with expires_in counted from
@@ -101,6 +104,10 @@ func (s *PGSignInUsers) TOTPConfirmed(ctx context.Context, user uuid.UUID) (bool
 }
 
 // TouchLastLogin implements SignInUsers.
+func (s *PGSignInUsers) CompleteOnboarding(ctx context.Context, user uuid.UUID) error {
+	return s.users.CompleteOnboarding(ctx, user)
+}
+
 func (s *PGSignInUsers) TouchLastLogin(ctx context.Context, user uuid.UUID) error {
 	if err := s.q.TouchLastLogin(ctx, user); err != nil {
 		return fmt.Errorf("identity: touch last login: %w", err)

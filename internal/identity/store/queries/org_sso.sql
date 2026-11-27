@@ -49,3 +49,12 @@ SELECT c.*, o.slug, o.name AS org_name FROM org_sso_connections c
 JOIN organizations o ON o.id = c.org_id
 WHERE o.slug = @slug
   AND o.deleted_at IS NULL;
+
+-- name: AnySSOConnection :one
+-- Whether any active organization has an SSO connection, so the sign-in
+-- page shows its SSO button.
+SELECT EXISTS (
+    SELECT 1 FROM org_sso_connections c
+    JOIN organizations o ON o.id = c.org_id
+    WHERE o.deleted_at IS NULL
+);

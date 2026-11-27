@@ -7,7 +7,7 @@
 //
 // A first login bootstraps the user: the address is verified, last_login_at
 // is set, preferences start as {home: "endpoints"} and onboarding as
-// {step: "about"}, and user.created is audited with the sign-in source. The
+// {step: "welcome"}, and user.created is audited with the sign-in source. The
 // caller learns the user is new (created) and sends them to OnboardingPath.
 package users
 
@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -52,11 +54,14 @@ func (s Source) Valid() bool {
 }
 
 // OnboardingPath is where a newly created user goes after signing in.
-const OnboardingPath = "/onboarding/about"
+const OnboardingPath = "/onboarding/welcome"
 
-// OnboardingStepAbout is the first onboarding step, stored as
+// OnboardingStepWelcome is the first onboarding step, stored as
 // onboarding.step for a new user.
-const OnboardingStepAbout = "about"
+const OnboardingStepWelcome = "welcome"
+
+// OnboardingStepDone is the step stored once onboarding is complete.
+const OnboardingStepDone = "done"
 
 // ErrInvalidSource means FindOrCreateByVerifiedEmail was called with an
 // unknown Source.
@@ -69,7 +74,7 @@ func DefaultPreferences() map[string]any {
 
 // DefaultOnboarding returns the onboarding state a new user starts with.
 func DefaultOnboarding() map[string]any {
-	return map[string]any{"step": OnboardingStepAbout}
+	return map[string]any{"step": OnboardingStepWelcome}
 }
 
 // TxBeginner starts transactions; *pgxpool.Pool satisfies it.
@@ -163,6 +168,48 @@ func (s *Service) findOrCreate(ctx context.Context, email string, source Source)
 		return db.User{}, false, err
 	}
 	return user, created, nil
+}
+
+// CompleteOnboarding marks user's onboarding done, for users who need none
+// (an SSO sign-in that already made them a member). completed_at is stamped
+// once, so later calls keep the first time.
+func (s *Service) CompleteOnboarding(ctx context.Context, user uuid.UUID) error {
+	patch, err := json.Marshal(map[string]any{"step": OnboardingStepDone})
+	if err != nil {
+		return fmt.Errorf("users: onboarding patch: %w", err)
+	}
+	done := true
+	if _, err := s.q.MergeUserOnboarding(ctx, db.MergeUserOnboardingParams{ID: user, Patch: patch, Answers: []byte("{}"), Completed: &done}); err != nil {
+		return fmt.Errorf("users: complete onboarding: %w", err)
+	}
+	return nil
+}
+
+// ProfileName is the trimmed name claim of a provider profile, empty when it
+// is missing, blank or over 100 runes.
+func ProfileName(profile map[string]any) string {
+	name, _ := profile["name"].(string)
+	return CleanName(name)
+}
+
+// CleanName trims name; it is empty when blank or over 100 runes.
+func CleanName(name string) string {
+	name = strings.TrimSpace(name)
+	if utf8.RuneCountInString(name) > 100 {
+		return ""
+	}
+	return name
+}
+
+// SetNameIfEmpty gives user name unless it is empty or the user already has one.
+func (s *Service) SetNameIfEmpty(ctx context.Context, user uuid.UUID, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, err := s.q.SetUserNameIfEmpty(ctx, db.SetUserNameIfEmptyParams{Name: name, ID: user}); err != nil {
+		return fmt.Errorf("users: set name: %w", err)
+	}
+	return nil
 }
 
 // inTx runs fn in a transaction whose audit events commit with it.

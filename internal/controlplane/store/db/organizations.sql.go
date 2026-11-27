@@ -423,6 +423,28 @@ func (q *Queries) LockOrganizationBySlug(ctx context.Context, slug string) (Orga
 	return i, err
 }
 
+const organizationClaimingDomain = `-- name: OrganizationClaimingDomain :one
+SELECT id FROM organizations
+WHERE $1::text = ANY (allowed_domains)
+  AND deleted_at IS NULL
+  AND id <> $2
+LIMIT 1
+`
+
+type OrganizationClaimingDomainParams struct {
+	Domain string
+	OrgID  uuid.UUID
+}
+
+// The active organization other than @org_id that already allows joining
+// with a domain (lower-case, no "@"). Returns pgx.ErrNoRows when it is free.
+func (q *Queries) OrganizationClaimingDomain(ctx context.Context, arg OrganizationClaimingDomainParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, organizationClaimingDomain, arg.Domain, arg.OrgID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const organizationSlugTaken = `-- name: OrganizationSlugTaken :one
 SELECT EXISTS (
     SELECT 1 FROM organizations WHERE slug = $1 AND deleted_at IS NULL

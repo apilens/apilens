@@ -90,7 +90,9 @@ func TestHandoffRedeemsTwoFactor(t *testing.T) {
 	}
 	api := newHandoffAPI(t, config.IdentityConfig{}, store)
 	status, out := redeemHandoff(t, api, code)
-	want := map[string]any{"status": "2fa_required", "pre_auth_token": "pre-auth", "next": "/settings"}
+	// remember rides along even on the two-factor answer: the UI puts it in the
+	// pre-auth cookie so the session it finally creates matches the box.
+	want := map[string]any{"status": "2fa_required", "pre_auth_token": "pre-auth", "next": "/settings", "remember": false}
 	if status != http.StatusOK || !jsonEqual(out, want) {
 		t.Fatalf("%d %v, want 200 %v", status, out, want)
 	}

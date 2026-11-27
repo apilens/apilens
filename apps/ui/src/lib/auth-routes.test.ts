@@ -298,6 +298,11 @@ describe("2FA", () => {
     const opened = await session.open(cookieValue(second.setCookies, session.SESSION_COOKIE_NAME), SECRET);
     expect(opened).toMatchObject({ access: ACCESS, refresh: REFRESH, remember: true });
     expect(cookieLine(second.setCookies, lib.PRE_AUTH_COOKIE_NAME)).toMatch(/Max-Age=0/);
+    // The completed factor is a real sign-in: the hint cookie carries the masked address.
+    const hint = cookieLine(second.setCookies, "apilens_signed_in") ?? "";
+    expect(decodeURIComponent(hint.split(";")[0].split("=")[1])).toBe("ada@example.com");
+    expect(hint).toMatch(/SameSite=Strict/i);
+    expect(hint).not.toMatch(/HttpOnly/i);
   });
 
   it.each([

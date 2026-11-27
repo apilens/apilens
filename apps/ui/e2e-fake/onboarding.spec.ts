@@ -1,338 +1,84 @@
-// Onboarding guard (#326) against the fake identity: signed-out visitors go to sign-up, a step
-// ahead of the saved one goes back to it, and browser back/forward still works. The fake user's
-// context has onboarding open at no saved step (the first one, `about`).
-import AxeBuilder from "@axe-core/playwright";
+// Onboarding guard (#326) against the fake identity: signed-out visitors go to sign-up and then
+// Welcome, the only onboarding screen, browser back/forward still works, and a user who already
+// belongs to an organization is offered it instead of a second one. The fake user's context has
+// onboarding open until Welcome finishes it.
 import { type Page, expect, test } from "@playwright/test";
 
-function githubButton(page: Page) {
-  return page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ });
+const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
+const WELCOME = "Welcome to APILens";
+const PAGE = "/onboarding/welcome";
+
+/** The redirect-based way in that the page still offers: an SSO domain's own button. */
+async function ssoIn(page: Page) {
+  await page.getByLabel("Work email").fill("ada@acme.example.com");
+  await page.getByRole("link", { name: "Continue with Acme SSO" }).click();
 }
 
-const ABOUT = "What should you see first?";
-const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
-
-/** Signs in through the fake handoff, with the organizations the user may join (#329), and lands on `next`. */
-async function signIn(page: Page, next: string, joinable: Record<string, unknown>[] = []) {
+/** Signs in through the fake handoff (a user who belongs to acme, onboarding open) and lands on Welcome. */
+async function signIn(page: Page) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next, joinable }),
+    body: JSON.stringify({ next: PAGE }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
-  await page.waitForURL((url) => url.pathname === next);
+  await page.waitForURL((url) => url.pathname === PAGE);
+  await expect(page.getByRole("heading", { name: WELCOME })).toBeVisible({ timeout: 20_000 });
 }
 
-const JOIN = "Join your team on APILens";
-const step = (page: Page) => page.locator('.ob-st[aria-current="step"]');
+async function orgsCreated(): Promise<string[]> {
+  const res = await fetch(`${IDENTITY}/__fake/orgs-created`);
+  return ((await res.json()) as { orgs: string[] }).orgs;
+}
 
-// #329: the join step lists the organizations the user may join by verified email domain, and
-// is skipped when there are none.
-test("join: nothing to join skips straight to creating an organization", async ({ page }) => {
-  await signIn(page, "/onboarding/about");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/create");
-  await expect(page.getByRole("heading", { name: "Name your organization" })).toBeVisible();
-  // Back passes the skipped step.
-  await expect(page.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/onboarding/about");
+test("signed out → sign-up → Welcome, with no step bar anywhere", async ({ page }) => {
+  await page.goto(PAGE);
+  await page.waitForURL((url) => url.pathname === "/sign-up" && url.searchParams.get("next") === PAGE);
+  await expect(page.locator(".ob-steps")).toHaveCount(0);
 
-  await page.goto("/onboarding/join");
-  await page.waitForURL((url) => url.pathname === "/onboarding/create");
-});
-
-test("join: one organization without projects joins and continues to project creation", async ({ page }) => {
-  await signIn(page, "/onboarding/about", [{ slug: "initech", name: "Initech", member_count: 4, member_initials: ["PG", "BL", "ML"] }]);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
-  await expect(page.getByRole("heading", { name: JOIN })).toBeVisible();
-  await expect(step(page)).toHaveText("Organization");
-
-  const card = page.getByTestId("joinable-org");
-  await expect(card).toHaveCount(1);
-  await expect(card).toContainText("Initech");
-  await expect(card).toContainText("example.com verified");
-  await expect(card).toContainText("PGBLML");
-  await expect(card).toContainText("4members");
-  await expect(card).toContainText("0projects");
-  await expect(page.getByRole("link", { name: "Create a separate organization" })).toHaveAttribute("href", "/onboarding/create");
-
-  await page.getByRole("button", { name: "Join Initech" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/project");
-});
-
-test("join: several organizations, the chosen one with a project opens it and finishes onboarding", async ({ page }) => {
-  await signIn(page, "/onboarding/about", [
-    { slug: "hooli", name: "Hooli", member_count: 12, member_initials: ["GB", "DD", "JH"], projects: ["nucleus", "hooli-xyz"] },
-    { slug: "initech", name: "Initech", member_count: 1, member_initials: ["BL"] },
-    { slug: "pied-piper", name: "Pied Piper", member_count: 5, member_initials: ["RH", "BG", "DC"], projects: ["middle-out"] },
-  ]);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
-  await expect(page.getByRole("heading", { name: JOIN })).toBeVisible();
-  await expect(page.getByText("3 organizations at example.com already use APILens.")).toBeVisible();
-  const choices = page.getByRole("radio");
-  await expect(choices).toHaveCount(3);
-  await expect(choices.nth(0)).toHaveAttribute("aria-checked", "true");
-  await expect(choices.nth(0)).toContainText("12 members · 2 projects");
-  await expect(choices.nth(1)).toContainText("1 member · 0 projects");
-
-  await page.getByRole("radio", { name: /Pied Piper/ }).click();
-  await expect(page.getByRole("radio", { name: /Pied Piper/ })).toHaveAttribute("aria-checked", "true");
-  await page.getByRole("button", { name: "Join Pied Piper" }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/project/middle-out/"));
-
-  // Onboarding is finished: its pages send the user to their project now.
-  await page.goto("/onboarding/join");
-  await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));
-});
-
-test("signed out → sign-up, then onboarding starts at the saved step", async ({ page }) => {
-  await page.goto("/onboarding/create");
-  await page.waitForURL((url) => url.pathname === "/sign-up" && url.searchParams.get("next") === "/onboarding/about");
-
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
-  await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
-  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Account");
-
-  // Ahead of the saved step: back to it.
-  await page.goto("/onboarding/create");
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
+  await ssoIn(page);
+  await page.getByRole("link", { name: "Sign in" }).click();
+  await page.waitForURL((url) => url.pathname === PAGE);
+  await expect(page.getByRole("heading", { name: WELCOME })).toBeVisible();
+  await expect(page.locator(".ob-steps")).toHaveCount(0);
 
   // Back/forward between onboarding and another page still works.
   await page.goto("/project/acme/requests");
   await page.goBack();
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
-  await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
+  await page.waitForURL((url) => url.pathname === PAGE);
+  await expect(page.getByRole("heading", { name: WELCOME })).toBeVisible();
   await page.goForward();
   await page.waitForURL((url) => url.pathname === "/project/acme/requests");
 });
 
-// #328: Continue on "What should you see first?" saves the pick as the home preference, so it is
-// still selected after a refresh.
-test("the home screen pick is saved and stays selected after a refresh", async ({ page }) => {
-  await page.goto("/sign-in");
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
-  await page.goto("/onboarding/about");
-  const picks = page.getByRole("radiogroup", { name: "Home screen" });
-  await expect(picks.getByRole("radio", { name: /^Slow or failing endpoints/ })).toHaveAttribute("aria-checked", "true");
+// Review Focus: someone who already belongs to an organization (an invitation accepted at its
+// link, or a second sign-in) sees it as a card to continue into, not a form for a second one.
+test("a user who already belongs to an organization continues into it and no second one is created", async ({ page }) => {
+  const before = await orgsCreated();
+  await signIn(page);
 
-  await picks.getByRole("radio", { name: /^Exceptions/ }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+  const cards = page.getByTestId("welcome-org");
+  await expect(cards).toHaveCount(1);
+  await expect(cards).toContainText("Acme");
+  await expect(cards).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("welcome-create")).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByLabel("Organization name")).toHaveCount(0);
 
-  await page.goto("/onboarding/about");
-  await page.reload();
-  await expect(picks.getByRole("radio", { name: /^Exceptions/ })).toHaveAttribute("aria-checked", "true");
-  await expect(picks.getByRole("radio", { name: /^Slow or failing endpoints/ })).toHaveAttribute("aria-checked", "false");
+  await page.getByRole("button", { name: "Continue to Acme" }).click();
+  await page.waitForURL((url) => url.pathname.startsWith("/project/"));
+  expect(await orgsCreated()).toEqual(before);
+
+  // Onboarding is finished: Welcome now sends the user back to their project.
+  await page.goto(PAGE);
+  await page.waitForURL((url) => url.pathname.startsWith("/project/"));
 });
 
-// #327: every Continue saves the step and answers (`PATCH /users/me/onboarding`), so a refresh
-// resumes on the saved step with what was entered; a failed save shows a toast.
-test("Continue saves progress, so a refresh resumes with the answers", async ({ page }) => {
-  // One organization to join (#329), so the join step is shown rather than skipped.
-  await signIn(page, "/onboarding/about", [{ slug: "initech", name: "Initech" }]);
-  await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
-
-  // About → join: saved before the guard is asked, so the page stays after a refresh.
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "Join your team on APILens" })).toBeVisible();
-  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Organization");
-  expect(new URL(page.url()).pathname).toBe("/onboarding/join");
-
-  // A failed save keeps the screen and says so.
-  await page.getByRole("link", { name: "Create a separate organization" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/create");
-  await page.getByLabel("Name", { exact: true }).fill("Example Co");
-  const address = page.getByRole("textbox", { name: /^Address/ });
-  await address.fill("unavailable");
-  await page.getByRole("button", { name: "Create organization" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "couldn’t reach APILens to save your progress" })).toBeVisible();
-  expect(new URL(page.url()).pathname).toBe("/onboarding/create");
-
-  // The saved address comes back after leaving the screen and refreshing it.
-  await address.fill("example-co");
-  await page.getByRole("button", { name: "Create organization" }).click();
-  await page.waitForURL((url) => url.pathname !== "/onboarding/create");
-  await page.goto("/onboarding/create");
-  await page.reload();
-  await expect(page.getByRole("textbox", { name: /^Address/ })).toHaveValue("example-co");
-  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Organization");
-
-  // Passing an earlier screen again goes straight on (the save follows) and still resumes there.
-  await page.goto("/onboarding/about");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "Join your team on APILens" })).toBeVisible();
-});
-
-// #330: the address is checked as the user types (debounced; a new keystroke aborts the check in
-// flight), a taken one offers the API's suggestions, Create calls `POST /orgs` (a slug taken in
-// between is reported on the field) and continues to the project step with `org_slug` saved.
-test("Name your organization checks the address live and creates the org", async ({ page }) => {
-  // Nothing to join (#329), so Continue skips the join step straight to this screen.
-  await signIn(page, "/onboarding/about");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/create");
-
-  const address = page.getByRole("textbox", { name: /^Address/ });
-  const indicator = page.locator(".ob-in .r");
-  const create = page.getByRole("button", { name: "Create organization" });
-  // The address is shown under the real public host.
-  await expect(page.locator(".ob-in .pre")).toHaveText("localhost:3210/");
-
-  // A taken address (from the name) says so and offers suggestions; Create stays disabled.
-  await page.getByLabel("Name", { exact: true }).fill("Globex");
-  await expect(address).toHaveValue("globex");
-  await expect(page.locator("#slug-err")).toContainText("That address is taken.");
-  await expect(address).toHaveAttribute("aria-invalid", "true");
-  await expect(create).toBeDisabled();
-
-  // A suggestion fills the address, which is then available.
-  await page.getByRole("button", { name: "globex-hq" }).click();
-  await expect(address).toHaveValue("globex-hq");
-  await expect(indicator).toHaveText("Available");
-  await expect(create).toBeEnabled();
-
-  // Each keystroke aborts the check still in flight: hold every check so a later key lands first.
-  const aborted: string[] = [];
-  page.on("requestfailed", (r) => {
-    if (r.url().includes("/api/orgs/slug-available")) aborted.push(new URL(r.url()).searchParams.get("slug") ?? "");
-  });
-  await page.route("**/api/orgs/slug-available*", async (route) => {
-    await new Promise((r) => setTimeout(r, 1500));
-    await route.continue().catch(() => {});
-  });
-  const checked = page.waitForRequest((r) => r.url().includes("slug-available?slug=globex-hqa"));
-  await address.press("End");
-  await address.press("a");
-  await checked;
-  await address.press("b");
-  await expect.poll(() => aborted).toContain("globex-hqa");
-  await page.unroute("**/api/orgs/slug-available*");
-  await expect(indicator).toHaveText("Available");
-
-  // Taken between the check and Create: reported on the field, the screen stays.
-  await address.fill("race-lost");
-  await expect(indicator).toHaveText("Available");
-  await create.click();
-  await expect(page.locator("#slug-err")).toContainText("Someone just took that address.");
-  expect(new URL(page.url()).pathname).toBe("/onboarding/create");
-
-  // Created: on to the project step, with the address saved.
-  await page.getByRole("button", { name: "race-lost-hq" }).click();
-  await expect(indicator).toHaveText("Available");
-  await create.click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/project");
-  await page.goto("/onboarding/create");
-  await expect(address).toHaveValue("race-lost-hq");
-  await expect(indicator).toHaveText("Yours");
-});
-
-/** Signs a new fake user in and creates organization `name`, landing on the project step. */
-async function toProjectStep(page: Page, name: string) {
-  // Nothing to join (#329), so Continue skips the join step straight to creating the org.
-  await signIn(page, "/onboarding/about");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/create");
-  await page.getByLabel("Name", { exact: true }).fill(name);
-  await expect(page.locator(".ob-in .r")).toHaveText("Available");
-  await page.getByRole("button", { name: "Create organization" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/project");
-  await expect(page.getByRole("heading", { name: "Create your first project" })).toBeVisible();
-}
-
-// #331: name, an address checked live against the global project slugs (taken ones offer the
-// API's suggestions), environment chips (production and staging to start with, add and remove),
-// Create calls `POST /orgs/{org}/projects` in the organization just created and continues to the
-// instrument step with `project_slug` saved; coming back shows the project as the user's.
-test("Create your first project checks the address, edits environments and creates the project", async ({ page }) => {
-  await toProjectStep(page, "Initech");
-  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Project");
-  await expect(page.locator(".ob-p").first()).toContainText("Initech");
-
-  const address = page.getByRole("textbox", { name: /^Address/ });
-  const indicator = page.locator(".ob-in .r");
-  const create = page.getByRole("button", { name: "Create project" });
-  const envs = page.getByRole("list", { name: "Environments" });
-  const envInput = page.locator("#project-env");
-  await expect(page.locator(".ob-in .pre")).toHaveText("localhost:3210/");
-
-  // A taken address (from the name) says so and offers suggestions; Create stays disabled.
-  await page.getByLabel("Name", { exact: true }).fill("Shop");
-  await expect(address).toHaveValue("shop");
-  await expect(page.locator("#slug-err")).toContainText("That address is taken.");
-  await expect(address).toHaveAttribute("aria-invalid", "true");
-  await expect(create).toBeDisabled();
-  await page.getByRole("button", { name: "shop-api" }).click();
-  await expect(address).toHaveValue("shop-api");
-  await expect(indicator).toHaveText("Available");
-  await expect(create).toBeEnabled();
-
-  // Environments: production and staging to start with; remove one, add one, refuse a bad name.
-  await expect(envs.getByRole("listitem")).toHaveText(["production×", "staging×"]);
-  await page.getByRole("button", { name: "Remove staging" }).click();
-  await envInput.fill("dev");
-  await envInput.press("Enter");
-  await expect(envs.getByRole("listitem")).toHaveText(["production×", "dev×"]);
-  await envInput.fill("bad!");
-  await envInput.press("Enter");
-  await expect(page.locator("#env-err")).toContainText("“bad!” isn’t a valid name");
-  await expect(envInput).toHaveAttribute("aria-invalid", "true");
-  await envInput.fill("");
-  await expect(page.locator("#env-err")).toHaveCount(0);
-
-  // Taken between the check and Create: reported on the field, the screen stays.
-  await address.fill("race-lost");
-  await expect(indicator).toHaveText("Available");
-  await create.click();
-  await expect(page.locator("#slug-err")).toContainText("Someone just took that address.");
-  expect(new URL(page.url()).pathname).toBe("/onboarding/project");
-
-  // Created: on to the instrument step, with the address saved.
-  await page.getByRole("button", { name: "race-lost-api" }).click();
-  await expect(indicator).toHaveText("Available");
-  await create.click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/instrument");
-
-  // Coming back resumes on the project created, with its environments.
-  await page.goto("/onboarding/project");
-  await expect(address).toHaveValue("race-lost-api");
-  await expect(indicator).toHaveText("Yours");
-  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Shop");
-  await expect(envs.getByRole("listitem")).toHaveText(["dev×", "production×"]);
-  await create.click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/instrument");
-});
-
-// #331: visual check of the project step in light and dark at 1440 and 390 px, with axe finding
-// no serious or critical violations. Screenshots: `AUTH_SHOTS=<dir> pnpm test:e2e:fake onboarding`.
-test("Create your first project passes axe in light and dark at 1440 and 390 px", async ({ page }) => {
-  test.setTimeout(120_000);
-  await toProjectStep(page, "Umbrella");
-  for (const theme of ["light", "dark"] as const) {
-    await page.evaluate((t) => localStorage.setItem("theme", t), theme);
-    for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "Create your first project" })).toBeVisible();
-      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-      const { violations } = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
-        .analyze();
-      const bad = violations
-        .filter((v) => v.impact === "serious" || v.impact === "critical")
-        .map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target.join(" ")) }));
-      expect(bad, `${theme} at ${width} px`).toEqual([]);
-      // Nothing scrolls sideways on a phone.
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      const shots = process.env.AUTH_SHOTS;
-      if (shots) await page.screenshot({ path: `${shots}/onboarding-project-${theme}-${width}.png`, fullPage: true });
-    }
+// The nine-step flow is gone: its addresses are no longer pages.
+test("the old step addresses are gone", async ({ page }) => {
+  await signIn(page);
+  for (const step of ["about", "join", "create", "project", "instrument", "install", "waiting", "first-data", "invite"]) {
+    const res = await page.goto(`/onboarding/${step}`);
+    expect(res?.status(), step).toBe(404);
   }
 });

@@ -50,6 +50,7 @@ change to one of them updates this page in the same pull request.
 | M4: `auth_time` and the recent sign-in rule (#793), re-authentication without signing out (#797) | done |
 | M4: emails to project admins about sensitive changes (#798) | done |
 | M4: project lifecycle: pause (#792), slug rename (#794), delete and restore (#795), purge (#796); see [`project-lifecycle.md`](project-lifecycle.md) | done |
+| Phase A auth fixes: one "keep me signed in" for the code, OAuth, SSO and passkeys (their handoffs echo `remember`; the magic link still always takes the long session, Phase B), `providers.sso` follows the connections, account deletion blocked while sole owner (`orgs.Ownership`), join domains and SSO connection domains must be the admin's own verified domain (or one the organization already allows) and listed by no other organization, Traffic as the default home, create organization and project pages | done |
 
 ## Components
 
@@ -593,13 +594,15 @@ Served by the identity role and authenticated with the session scheme
   Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
 - `PATCH /api/v1/users/me/onboarding` (`internal/identity/onboarding.go`)
-  saves onboarding progress so a refresh resumes: `step` replaces the stored
-  step, `answers` (`org_slug`, `project_slug`, `language`, `runtime`,
-  `method`, `invited`; other keys fail validation) is merged key by key into
+  saves onboarding progress: `step` replaces the stored step, `answers`
+  (`org_slug`, `project_slug`; other keys fail validation) is merged key by key into
   the stored `answers`, and `completed: true` stamps `completed_at` once
   (`false` reopens onboarding). The merge is one `UPDATE`, so concurrent saves
   never drop each other's answers. It returns
-  `{step, completed, completed_at, answers}`.
+  `{step, completed, completed_at, answers}`. The dashboard has one onboarding
+  screen, Welcome (`/onboarding/welcome`): the stored step is `welcome` until
+  it finishes onboarding (`done`, with `completed: true`); the dashboard
+  saves no other step.
 - `DELETE` soft-deletes the account: it is hidden at once (the email can sign
   up again), every session is revoked (reason `user_deleted`) and
   `delete_after` is set 30 days out, after which a purge job removes the row.
@@ -774,7 +777,8 @@ needs: `user` (the `/users/me` body), `orgs` (each with the user's `role` and
 the projects they can view, each with its environments and the user's
 effective project `role`), `last_project_slug` (the preference,
 or null when the user can no longer see that project), `onboarding`
-(`{step, completed}` read from the stored onboarding object) and
+(`{step, completed}` read from the stored onboarding object, `step` being
+`welcome` or `done`) and
 `capabilities`. It is four indexed queries in one read-only snapshot plus one
 SpiceDB `CheckBulkPermissions` call whatever the number of organizations and
 projects (under 50 ms for 10 × 10, asserted by an integration test).
@@ -896,6 +900,7 @@ Rules:
 | `oauth_identity_gone` | 410 Gone | This account was already disconnected. Refresh the page. |
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |
 | `invite_email_mismatch` | 403 Forbidden | This invitation was sent to a different email address. Sign in with that address. |
+| `invitation_not_pending` | 409 Conflict | This invitation was already accepted, revoked or has expired. |
 | `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |
 | `already_enabled` | 409 Conflict | Two-factor authentication is already on. |
 | `not_enabled` | 409 Conflict | Two-factor authentication is off. |
@@ -906,6 +911,8 @@ Rules:
 | `recovery_not_ready` | 409 Conflict | Account recovery is still in its waiting period. Try again in {retry_after} seconds, or cancel it if you didn't ask for it. |
 | `slug_immutable` | 409 Conflict | This URL can't be changed yet. |
 | `domain_not_allowed` | 400 Bad Request | Public email domains like gmail.com can't be added. Use your company's domain. |
+| `domain_not_verified` | 422 Unprocessable Entity | A domain can only be added by a member whose own verified email is at it. |
+| `domain_taken` | 409 Conflict | Another active organization already allows joining with this domain. |
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |

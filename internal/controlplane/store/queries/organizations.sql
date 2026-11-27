@@ -130,3 +130,12 @@ FOR UPDATE;
 -- The email of an active user and when it was verified (NULL when not).
 SELECT email::text AS email, email_verified_at FROM users
 WHERE id = @id AND deleted_at IS NULL;
+
+-- name: OrganizationClaimingDomain :one
+-- The active organization other than @org_id that already allows joining
+-- with a domain (lower-case, no "@"). Returns pgx.ErrNoRows when it is free.
+SELECT id FROM organizations
+WHERE @domain::text = ANY (allowed_domains)
+  AND deleted_at IS NULL
+  AND id <> @org_id
+LIMIT 1;

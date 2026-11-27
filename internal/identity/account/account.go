@@ -74,14 +74,14 @@ var (
 )
 
 // OwnershipChecker reports the organizations a user is the only owner of.
-// Memberships live in the control plane; the implementation backed by the
-// memberships table arrives with it (#276).
+// Memberships live in the control plane: *orgs.Ownership satisfies it.
 type OwnershipChecker interface {
 	SoleOwnedOrgs(ctx context.Context, user uuid.UUID) ([]uuid.UUID, error)
 }
 
-// NoMemberships is the OwnershipChecker used until memberships exist: no
-// user owns an organization, so nothing blocks a deletion.
+// NoMemberships is the OwnershipChecker of a deployment without the control
+// plane (the CLI, tests): no user owns an organization, so nothing blocks a
+// deletion.
 type NoMemberships struct{}
 
 // SoleOwnedOrgs returns no organizations.

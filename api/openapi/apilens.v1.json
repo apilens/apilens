@@ -8022,6 +8022,47 @@
         ],
         "type": "object"
       },
+      "MyInvitation": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_by_name": {
+            "description": "Who sent the invitation (their name, or email when they have none); empty once their account is gone.",
+            "type": "string"
+          },
+          "org_name": {
+            "type": "string"
+          },
+          "org_slug": {
+            "type": "string"
+          },
+          "role": {
+            "description": "The role the user joins with.",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_slug",
+          "org_name",
+          "role",
+          "invited_by_name",
+          "expires_at"
+        ],
+        "type": "object"
+      },
       "Named": {
         "additionalProperties": false,
         "properties": {
@@ -8242,28 +8283,6 @@
       "OnboardingAnswers": {
         "additionalProperties": false,
         "properties": {
-          "api_key_id": {
-            "description": "Id of the ingest key the install step created; the raw key is never stored.",
-            "pattern": "^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$",
-            "type": "string"
-          },
-          "invited": {
-            "description": "Number of teammates invited.",
-            "format": "int64",
-            "maximum": 1000,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "language": {
-            "description": "Language chosen to instrument, e.g. python.",
-            "pattern": "^([a-z0-9][a-z0-9._+-]{0,31})?$",
-            "type": "string"
-          },
-          "method": {
-            "description": "Instrumentation method, e.g. sdk or otel.",
-            "pattern": "^([a-z0-9][a-z0-9._+-]{0,31})?$",
-            "type": "string"
-          },
           "org_slug": {
             "description": "Slug of the organization created or joined.",
             "pattern": "^([a-z0-9][a-z0-9-]{0,62})?$",
@@ -8272,11 +8291,6 @@
           "project_slug": {
             "description": "Slug of the first project.",
             "pattern": "^([a-z0-9][a-z0-9-]{0,62})?$",
-            "type": "string"
-          },
-          "runtime": {
-            "description": "Framework or runtime, e.g. fastapi.",
-            "pattern": "^([a-z0-9][a-z0-9._+-]{0,31})?$",
             "type": "string"
           }
         },
@@ -8303,7 +8317,7 @@
             "type": "boolean"
           },
           "step": {
-            "description": "The onboarding screen to resume at, e.g. project.",
+            "description": "The onboarding screen to resume at, e.g. welcome.",
             "pattern": "^[a-z][a-z0-9_-]{0,31}$",
             "type": "string"
           }
@@ -11548,7 +11562,7 @@
             "type": "integer"
           },
           "next": {
-            "description": "Relative path to open after sign-in: as requested when the sign-in started, or /onboarding/about for a new user who requested none.",
+            "description": "Relative path to open after sign-in: as requested when the sign-in started, or /onboarding/welcome for a new user who requested none.",
             "type": "string"
           },
           "pre_auth_token": {
@@ -11558,6 +11572,10 @@
           "refresh_token": {
             "description": "Opaque refresh token. It is single-use: every refresh returns a new one, and presenting a used one again revokes the session.",
             "type": "string"
+          },
+          "remember": {
+            "description": "The remember choice of an OAuth or SSO sign-in, echoed in its handoff so the UI sets a matching cookie.",
+            "type": "boolean"
           },
           "status": {
             "description": "Present only as \"2fa_required\": exchange pre_auth_token with a TOTP or backup code at POST /api/v1/auth/2fa/exchange.",
@@ -11570,6 +11588,9 @@
             "$ref": "#/components/schemas/AuthUser"
           }
         },
+        "required": [
+          "remember"
+        ],
         "type": "object"
       },
       "SizeBucket": {
@@ -14595,7 +14616,7 @@
     },
     "/api/v1/auth/email/verify": {
       "post": {
-        "description": "Public. Checks the 6-digit code of the latest sign-in email sent to the address and consumes it. The user is found or, on first sign-in, created, and the address is marked verified. Answers the session bundle (`amr: [\"email\"]`; `remember` picks the session lifetime) or, when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`. Either answer carries the `next` path the email was requested with; a new user who requested none gets `/onboarding/about`. A wrong code, an unknown address and an address with no outstanding email all answer `invalid_code`; the fifth wrong code locks the email (`too_many_attempts`) until a new one is requested. Rate-limited per email address (429 `rate_limited` with Retry-After).",
+        "description": "Public. Checks the 6-digit code of the latest sign-in email sent to the address and consumes it. The user is found or, on first sign-in, created, and the address is marked verified. Answers the session bundle (`amr: [\"email\"]`; `remember` picks the session lifetime) or, when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`. Either answer carries the `next` path the email was requested with; a new user who requested none gets `/onboarding/welcome`. A wrong code, an unknown address and an address with no outstanding email all answer `invalid_code`; the fifth wrong code locks the email (`too_many_attempts`) until a new one is requested. Rate-limited per email address (429 `rate_limited` with Retry-After).",
         "operationId": "verify-email-code",
         "requestBody": {
           "content": {
@@ -31623,6 +31644,172 @@
         ]
       }
     },
+    "/api/v1/users/me/invitations": {
+      "get": {
+        "description": "Lists the pending, unexpired invitations to the signed-in user's verified email address, newest first. An unverified email has none.",
+        "operationId": "list-my-invitations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MyInvitation"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List my invitations",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/users/me/invitations/{id}/accept": {
+      "post": {
+        "description": "Accepts the invitation like the emailed link does (membership, project roles and audit) and returns the organization with the user's role. An invitation to another address, or none, answers 404 `not_found`; one of the user's own that was already accepted, revoked or has expired answers 409 `invitation_not_pending`.",
+        "operationId": "accept-my-invitation",
+        "parameters": [
+          {
+            "description": "The invitation id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The invitation id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `invitation_not_pending`.",
+            "x-apilens-codes": [
+              "invitation_not_pending"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Accept one of my invitations",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
     "/api/v1/users/me/joinable-orgs": {
       "get": {
         "description": "Lists the active organizations the signed-in user is not a member of that have domain join on and list the domain of the user's verified email among their allowed domains, ordered by name. An unverified email or one at a public email provider (gmail.com, outlook.com…) matches none.",
@@ -31685,7 +31872,7 @@
     },
     "/api/v1/users/me/onboarding": {
       "patch": {
-        "description": "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited, api_key_id), and `completed` finishes or reopens onboarding. Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
+        "description": "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug), and `completed` finishes or reopens onboarding. Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
         "operationId": "update-onboarding",
         "requestBody": {
           "content": {

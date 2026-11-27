@@ -1,7 +1,9 @@
 package identity
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -27,7 +29,7 @@ func TestProvidersEndpoint(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, api := humatest.New(t)
-			RegisterProviders(api, config.IdentityConfig{OAuth: tc.oauth})
+			RegisterProviders(api, config.IdentityConfig{OAuth: tc.oauth}, nil)
 			resp := api.Get(AuthPrefix + "/providers")
 			if resp.Code != http.StatusOK {
 				t.Fatalf("status = %d: %s", resp.Code, resp.Body)
@@ -54,12 +56,48 @@ func TestProvidersEndpoint(t *testing.T) {
 
 func TestProvidersOperationIsPublic(t *testing.T) {
 	_, api := humatest.New(t)
-	RegisterProviders(api, config.IdentityConfig{})
+	RegisterProviders(api, config.IdentityConfig{}, nil)
 	op := api.OpenAPI().Paths[AuthPrefix+"/providers"].Get
 	if op == nil {
 		t.Fatal("GET /auth/providers not registered")
 	}
 	if len(op.Security) != 0 {
 		t.Fatalf("security = %v, want none (public)", op.Security)
+	}
+}
+
+type fakeSSOAvailability struct {
+	any bool
+	err error
+}
+
+func (f fakeSSOAvailability) AnySSOConnection(context.Context) (bool, error) { return f.any, f.err }
+
+func TestProvidersSSOFollowsConnections(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sso  SSOAvailability
+		want bool
+	}{
+		{"a connection exists", fakeSSOAvailability{any: true}, true},
+		{"no connection", fakeSSOAvailability{}, false},
+		{"lookup fails", fakeSSOAvailability{err: errors.New("db down")}, false},
+		{"not wired", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, api := humatest.New(t)
+			RegisterProviders(api, config.IdentityConfig{}, tc.sso)
+			resp := api.Get(AuthPrefix + "/providers")
+			if resp.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", resp.Code, resp.Body)
+			}
+			var got AuthProviders
+			if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.SSO != tc.want {
+				t.Fatalf("sso = %v, want %v", got.SSO, tc.want)
+			}
+		})
 	}
 }

@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ORG_NAV, ORG_SETTINGS_ROUTES, TOP_LEVEL_ROUTES, legacyRedirect, orgHref, orgNavActive, projectHref } from "./routes";
+import { ORG_NAV, ORG_SETTINGS_ROUTES, TOP_LEVEL_ROUTES, legacyRedirect, newOrgHref, newProjectHref, orgHref, orgNavActive, projectHref } from "./routes";
 
 describe("projectHref", () => {
   it("builds /project/<slug>[/<view>[/<sub>]]", () => {
@@ -101,7 +101,7 @@ describe("legacyRedirect", () => {
       "/auth/callback",
       "/auth/2fa",
       "/invite/tok",
-      "/onboarding/about",
+      "/onboarding/welcome",
       "/sign-in",
       "/sign-up",
       "/verify",
@@ -125,5 +125,16 @@ describe("legacyRedirect", () => {
     const top = dirs(app).filter((d) => !d.startsWith("[") && !d.startsWith("_"));
     expect(top.length).toBeGreaterThan(5);
     for (const r of top) expect(TOP_LEVEL_ROUTES.has(r), r).toBe(true);
+  });
+});
+
+describe("the create pages", () => {
+  it("names the organization and project create routes", () => {
+    expect(newOrgHref()).toBe("/organizations/new");
+    expect(newProjectHref("acme")).toBe("/org/acme/projects/new");
+  });
+
+  it("encodes an odd organization slug", () => {
+    expect(newProjectHref("a b")).toBe("/org/a%20b/projects/new");
   });
 });

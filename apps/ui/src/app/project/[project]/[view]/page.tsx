@@ -25,7 +25,7 @@ export default async function Page({ params, searchParams }: { params: Promise<P
   if (OWN_ROUTE.has(view) || !VIEWS.some((v) => v.slug === view)) notFound();
   const context = await getContext(projectHref(project, view));
   if (!findProject(context, project)) notFound();
-  // "I'll do this later" on the onboarding install step (#333) opens the project with a reminder.
+  // `?setup=later` opens the project with the setup reminder.
   const later = (await searchParams)[LATER_PARAM] === LATER_VALUE;
   return (
     <AppShell context={context} project={project} view={view}>

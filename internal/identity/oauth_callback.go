@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -397,6 +398,7 @@ func (o *OAuth) signInUser(ctx context.Context, ext ExternalIdentity, st OAuthSt
 			return nil, failure(CodeInternal, "issue_pre_auth", err)
 		}
 		res := NewSignInTwoFactor(pre, next)
+		res.Remember = st.Remember
 		return &res, nil
 	}
 
@@ -423,6 +425,7 @@ func (o *OAuth) signInUser(ctx context.Context, ext ExternalIdentity, st OAuthSt
 		o.logger.ErrorContext(ctx, "oauth callback: audit", "error", err, "user_id", user.ID)
 	}
 	res := NewSignInSession(t, next, o.now())
+	res.Remember = st.Remember
 	return &res, nil
 }
 
@@ -493,6 +496,11 @@ func (s *PGSignInUsers) FindOrCreateOAuth(ctx context.Context, ext ExternalIdent
 		user, created, err := s.users.FindOrCreateByVerifiedEmail(ctx, email, source)
 		if err != nil {
 			return db.User{}, false, err
+		}
+		if created {
+			if err := s.users.SetNameIfEmpty(ctx, user.ID, users.ProfileName(ext.Profile)); err != nil {
+				slog.WarnContext(ctx, "oauth: could not save profile name", "error", err, "user_id", user.ID.String())
+			}
 		}
 		now := time.Now()
 		_, err = s.q.CreateOAuthIdentity(ctx, db.CreateOAuthIdentityParams{

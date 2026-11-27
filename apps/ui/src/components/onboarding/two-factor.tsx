@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { clearPending, settlePending } from "@/lib/last-signin";
 import { RECOVERY_PATH } from "@/lib/recovery-client";
 import {
   MAX_TWO_FACTOR_ATTEMPTS,
@@ -54,12 +55,16 @@ export function TwoFactor({ next: asked }: { next?: string | null }) {
     const res = await exchangeTwoFactor(body);
     switch (res.kind) {
       case "signed_in":
+        // A soft navigation does not reload the root layout's recorder, so settle here.
+        settlePending();
         router.replace(res.next);
         return; // keep the loading state until the next page replaces this one
       case "too_many_attempts":
+        clearPending();
         router.replace(startOverPath("2fa_locked", asked));
         return;
       case "expired":
+        clearPending();
         router.replace(startOverPath("2fa_expired", asked));
         return;
     }

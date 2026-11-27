@@ -12,7 +12,7 @@
 import "server-only";
 import { type NextRequest, NextResponse } from "next/server";
 import { SIGN_IN_PATH } from "./auth-gate";
-import { clearPreAuthCookie, setPreAuthCookie, setSessionCookie } from "./auth-routes";
+import { clearPreAuthCookie, hintCookie, setPreAuthCookie, setSessionCookie } from "./auth-routes";
 import { twoFactorPath } from "./email-verify";
 import { env } from "./env";
 import {
@@ -24,6 +24,7 @@ import {
   isApiError,
   isTwoFactorRequired,
 } from "./identity";
+import { SECOND_FACTOR_PENDING } from "./last-signin";
 import { safeNext } from "./safe-next";
 import { SESSION_COOKIE_NAME, open } from "./session";
 import type { OAuthLinks, OAuthProvider, SignInMethods } from "./sign-in-methods";
@@ -32,12 +33,6 @@ import { redirectTo } from "@/lib/redirect";
 /** The page identity redirects to with the handoff code. */
 export const CALLBACK_PATH = "/auth/callback";
 
-/**
- * Social sign-ins open straight into a session with no form to ask on, so they take the default
- * of the "keep me signed in" control on the code page (#322), like a magic link: a 30-day session
- * (identity reads `remember` from the start URL) and a matching cookie.
- */
-export const OAUTH_REMEMBER = true;
 
 /** Longest handoff code accepted (matches `POST /api/auth/handoff`). */
 const MAX_CODE_LENGTH = 2048;
@@ -55,12 +50,12 @@ const FALLBACK_ERROR = "internal_error";
  * `GET {apiBase}/api/v1/auth/oauth/{provider}/start?…`: where a provider button navigates.
  * `next` is dropped unless it is a same-origin path (identity checks it again).
  */
-export function oauthStartUrl(apiBase: string, provider: OAuthProvider, opts: { next?: string } = {}): string {
+export function oauthStartUrl(apiBase: string, provider: OAuthProvider, opts: { next?: string; remember?: boolean } = {}): string {
   const q = new URLSearchParams();
   const next = safeNext(opts.next, "");
   if (next) q.set("next", next);
   q.set("intent", "login");
-  q.set("remember", String(OAUTH_REMEMBER));
+  q.set("remember", String(opts.remember ?? true));
   return `${apiBase.replace(/\/+$/, "")}/api/v1/auth/oauth/${provider}/start?${q}`;
 }
 
@@ -118,19 +113,21 @@ export async function exchangeHandoff(req: NextRequest, deps: HandoffDeps = {}):
   if (isTwoFactorRequired(result)) {
     const target = safeNext(result.next);
     const res = redirect(req, twoFactorPath(target));
-    setPreAuthCookie(res, { token: result.pre_auth_token, remember: OAUTH_REMEMBER, next: target });
+    hintCookie(res, SECOND_FACTOR_PENDING);
+    setPreAuthCookie(res, { token: result.pre_auth_token, remember: result.remember ?? true, next: target });
     return res;
   }
 
   const previous = await open(req.cookies.get(SESSION_COOKIE_NAME)?.value);
   const res = redirect(req, safeNext(result.next));
   try {
-    await setSessionCookie(res, result, OAUTH_REMEMBER);
+    await setSessionCookie(res, result, result.remember ?? true);
   } catch (err) {
     console.error("oauth handoff: malformed session bundle", err);
     return redirect(req, signInErrorPath(FALLBACK_ERROR));
   }
   clearPreAuthCookie(res);
+  hintCookie(res, result.user.email);
 
   if (previous) {
     try {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { markPending } from "@/lib/last-signin";
 import type { AltMethod } from "@/lib/sign-in-methods";
 import { Brand, ObIcon } from "./ob";
 
@@ -15,7 +16,7 @@ export function AltLink({ method, href }: { method: Exclude<AltMethod, "email">;
   );
   if (/^https?:\/\//i.test(href)) {
     return (
-      <a className="ah-btn ah-btn--secondary" href={href}>
+      <a className="ah-btn ah-btn--secondary" href={href} onClick={() => markPending(method)}>
         {content}
       </a>
     );

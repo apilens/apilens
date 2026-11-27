@@ -157,6 +157,8 @@ func TestOrgErrors(t *testing.T) {
 		{orgs.ErrForbidden, http.StatusForbidden, "forbidden"},
 		{orgs.ErrSlugImmutable, http.StatusConflict, "slug_immutable"},
 		{&orgs.DomainNotAllowedError{Domain: "gmail.com"}, http.StatusBadRequest, "domain_not_allowed"},
+		{&orgs.DomainNotVerifiedError{Domain: "globex.com"}, http.StatusUnprocessableEntity, "domain_not_verified"},
+		{&orgs.DomainTakenError{Domain: "acme.dev"}, http.StatusConflict, "domain_taken"},
 		{orgs.ErrInvalid, http.StatusBadRequest, "invalid_request"},
 		{errors.New("boom"), http.StatusInternalServerError, "internal_error"},
 	} {

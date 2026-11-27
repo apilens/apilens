@@ -31,16 +31,15 @@ export type OAuthProvider = "google" | "github";
  */
 export type OAuthLinks = Partial<Record<OAuthProvider, string>>;
 
-/** The secondary buttons in display order. `email` leads when the row carries the email code. */
+/**
+ * The provider buttons in display order. `email` leads when the row carries the email code.
+ *
+ * Google and GitHub are deliberately absent: the product offers a passkey, SSO and an emailed
+ * code, so no third party learns who signs in. `SignInMethods` still carries their flags because
+ * `GET /api/v1/auth/providers` still reports them and the OAuth routes still answer.
+ */
 export function altMethods(m: SignInMethods, opts: { email: boolean }): AltMethod[] {
   const out: AltMethod[] = opts.email ? ["email"] : [];
-  if (m.github) out.push("github");
-  if (m.google) out.push("google");
   if (m.sso) out.push("sso");
   return out;
-}
-
-/** `grid-template-columns` for a row of `count` equal-width buttons. */
-export function gridColumns(count: number): string {
-  return `repeat(${Math.max(1, count)}, minmax(0, 1fr))`;
 }

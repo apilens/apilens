@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EMAIL_ONLY, altMethods, gridColumns, toSignInMethods } from "./sign-in-methods";
+import { EMAIL_ONLY, altMethods, toSignInMethods } from "./sign-in-methods";
 
 const providers = vi.fn();
 const requestHeaders = new Headers({ "x-request-id": "req-312", "user-agent": "vitest" });
@@ -31,27 +31,17 @@ describe("altMethods", () => {
     expect(altMethods(EMAIL_ONLY, { email: false })).toEqual([]);
   });
 
-  it("2 methods: email plus the one configured provider", () => {
-    expect(altMethods({ google: true, github: false, sso: false }, { email: true })).toEqual(["email", "google"]);
-    expect(altMethods({ google: false, github: true, sso: false }, { email: true })).toEqual(["email", "github"]);
+  it("never offers Google or GitHub, however the deployment reports them", () => {
+    expect(altMethods({ google: true, github: true, sso: false }, { email: true })).toEqual(["email"]);
+    expect(altMethods({ google: true, github: true, sso: false }, { email: false })).toEqual([]);
   });
 
-  it("3+ methods in a stable order", () => {
-    expect(altMethods({ google: true, github: true, sso: false }, { email: true })).toEqual(["email", "github", "google"]);
-    expect(altMethods({ google: true, github: true, sso: true }, { email: false })).toEqual(["github", "google", "sso"]);
+  it("offers SSO when the deployment has it", () => {
+    expect(altMethods({ google: false, github: false, sso: true }, { email: true })).toEqual(["email", "sso"]);
+    expect(altMethods({ google: true, github: true, sso: true }, { email: false })).toEqual(["sso"]);
   });
 });
 
-describe("gridColumns", () => {
-  it("gives one equal column per button", () => {
-    expect(gridColumns(1)).toBe("repeat(1, minmax(0, 1fr))");
-    expect(gridColumns(3)).toBe("repeat(3, minmax(0, 1fr))");
-  });
-
-  it("never emits an empty grid", () => {
-    expect(gridColumns(0)).toBe("repeat(1, minmax(0, 1fr))");
-  });
-});
 
 describe("signInMethods (server loader)", () => {
   beforeEach(() => {

@@ -75,6 +75,9 @@ const (
 	// CodeInviteEmailMismatch: the signed-in user's email differs from the
 	// address the invitation was sent to.
 	CodeInviteEmailMismatch ErrCode = "invite_email_mismatch"
+	// CodeInvitationNotPending: the signed-in user's own invitation was
+	// already accepted, was revoked or has expired.
+	CodeInvitationNotPending ErrCode = "invitation_not_pending"
 	// CodeOwnerTransferRequired: the user is the only owner of an
 	// organization and must transfer ownership before deleting the account.
 	CodeOwnerTransferRequired ErrCode = "owner_transfer_required"
@@ -110,6 +113,14 @@ const (
 	// CodeDomainNotAllowed: an allowed domain is a public email provider
 	// (gmail.com, outlook.com, …) that anyone can hold an address at.
 	CodeDomainNotAllowed ErrCode = "domain_not_allowed"
+
+	// CodeDomainNotVerified: a domain was added that the acting user's own
+	// verified email is not at.
+	CodeDomainNotVerified ErrCode = "domain_not_verified"
+
+	// CodeDomainTaken: another organization already allows joining with
+	// this domain.
+	CodeDomainTaken ErrCode = "domain_taken"
 	// CodeLastOwner: the change would leave the organization without an
 	// owner; make someone else an owner first.
 	CodeLastOwner ErrCode = "last_owner"
@@ -196,6 +207,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeOAuthIdentityGone:     {http.StatusGone, "Connected account removed", "The connected account was already removed or is not on this account."},
 	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
 	CodeInviteEmailMismatch:   {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
+	CodeInvitationNotPending:  {http.StatusConflict, "Invitation not pending", "The invitation was already accepted, revoked or has expired."},
 	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},
 	CodeAlreadyEnabled:        {http.StatusConflict, "Already enabled", "Two-factor authentication is already enabled."},
 	CodeNotEnabled:            {http.StatusConflict, "Not enabled", "Two-factor authentication is not enabled."},
@@ -206,6 +218,8 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeRecoveryNotReady:      {http.StatusConflict, "Recovery not ready", "Account recovery is still in its waiting period. Try again after it ends."},
 	CodeSlugImmutable:         {http.StatusConflict, "Slug cannot be changed", "This slug cannot be changed."},
 	CodeDomainNotAllowed:      {http.StatusBadRequest, "Domain not allowed", "Public email domains cannot be claimed by an organization."},
+	CodeDomainNotVerified:     {http.StatusUnprocessableEntity, "Domain not verified", "You can only allow joining with a domain your own verified email is at."},
+	CodeDomainTaken:           {http.StatusConflict, "Domain taken", "Another organization already allows joining with this domain."},
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},

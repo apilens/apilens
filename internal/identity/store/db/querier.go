@@ -19,6 +19,9 @@ type Querier interface {
 	// (the name at the time) stays so org and project history stays readable.
 	// Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 	AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// Whether any active organization has an SSO connection, so the sign-in
+	// page shows its SSO button.
+	AnySSOConnection(ctx context.Context) (bool, error)
 	// The database's current time: an export ends there, on the clock that
 	// stamps created_at, so a skewed app clock cannot cut or extend it.
 	AuditClock(ctx context.Context) (time.Time, error)
@@ -315,6 +318,8 @@ type Querier interface {
 	// second callback for the same request matches no row. The code expires
 	// with the request, which is shortened to code_expires_at.
 	SaveOAuthAuthCode(ctx context.Context, arg SaveOAuthAuthCodeParams) (int64, error)
+	// Fills a missing name only; a name the user already has is never replaced.
+	SetUserNameIfEmpty(ctx context.Context, arg SetUserNameIfEmptyParams) (int64, error)
 	// Run before a sign-in creates its session. has_sessions is false for the
 	// user's very first sign-in (no session row at all). known_device is true
 	// when a live session, or one revoked since revoked_since (rotated rows

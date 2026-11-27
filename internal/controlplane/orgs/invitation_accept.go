@@ -20,7 +20,7 @@ import (
 // are 43 characters.
 const MaxInvitationTokenLen = 128
 
-// Errors returned by Lookup and Accept.
+// Errors returned by Lookup, Accept and AcceptMine.
 var (
 	// ErrInvitationTokenInvalid: no invitation has the token (it was never
 	// issued, was rotated by a resend, or its organization is gone).
@@ -31,6 +31,9 @@ var (
 	// ErrInviteEmailMismatch: the accepting user's verified email is not the
 	// invited address (or their email is not verified).
 	ErrInviteEmailMismatch = errors.New("orgs: invitation email mismatch")
+	// ErrInvitationNotPending: the user's own invitation was already
+	// accepted, was revoked or has expired (AcceptMine).
+	ErrInvitationNotPending = errors.New("orgs: invitation not pending")
 )
 
 // InvitationPreview is what the public invitation page shows before the
@@ -173,24 +176,38 @@ func (s *InvitationService) Accept(ctx context.Context, user uuid.UUID, token st
 	} else if err != nil {
 		return AcceptedInvitation{}, fmt.Errorf("orgs: accept invitation: %w", err)
 	}
-	m, err := q.GetMembership(ctx, db.GetMembershipParams{OrgID: o.ID, UserID: user})
+	return s.completeAccept(ctx, tx, q, org, invitationRef{ID: inv.ID, Role: inv.Role, InvitedBy: inv.InvitedBy}, user, u.Email)
+}
+
+// invitationRef is the part of an invitation row completeAccept needs.
+type invitationRef struct {
+	ID        uuid.UUID
+	Role      string
+	InvitedBy *uuid.UUID
+}
+
+// completeAccept finishes accepting inv, already marked accepted in tx:
+// membership, project roles, audit event and commit. org is the locked
+// organization without the user's role.
+func (s *InvitationService) completeAccept(ctx context.Context, tx pgx.Tx, q *db.Queries, org Org, inv invitationRef, user uuid.UUID, userEmail string) (AcceptedInvitation, error) {
+	m, err := q.GetMembership(ctx, db.GetMembershipParams{OrgID: org.ID, UserID: user})
 	joined := false
 	switch {
 	case err == nil:
 		// Already a member (e.g. joined by email domain): keep their role.
 		org.Role = m.Role
 	case errors.Is(err, pgx.ErrNoRows):
-		if _, err := q.CreateMembership(ctx, db.CreateMembershipParams{OrgID: o.ID, UserID: user, Role: inv.Role, InvitedBy: inv.InvitedBy}); err != nil {
+		if _, err := q.CreateMembership(ctx, db.CreateMembershipParams{OrgID: org.ID, UserID: user, Role: inv.Role, InvitedBy: inv.InvitedBy}); err != nil {
 			return AcceptedInvitation{}, fmt.Errorf("orgs: create membership: %w", err)
 		}
-		if err := outbox.Emit(ctx, tx, outbox.MembershipUpserted, o.ID, outbox.MembershipUpsertedPayload{OrgID: o.ID, UserID: user, Role: inv.Role}); err != nil {
+		if err := outbox.Emit(ctx, tx, outbox.MembershipUpserted, org.ID, outbox.MembershipUpsertedPayload{OrgID: org.ID, UserID: user, Role: inv.Role}); err != nil {
 			return AcceptedInvitation{}, err
 		}
 		org.Role, joined = inv.Role, true
 	default:
 		return AcceptedInvitation{}, fmt.Errorf("orgs: get membership: %w", err)
 	}
-	granted, err := s.applyProjectGrants(ctx, tx, q, inv.ID, o.ID, user, u.Email, inv.InvitedBy)
+	granted, err := s.applyProjectGrants(ctx, tx, q, inv.ID, org.ID, user, userEmail, inv.InvitedBy)
 	if err != nil {
 		return AcceptedInvitation{}, err
 	}
@@ -198,10 +215,10 @@ func (s *InvitationService) Accept(ctx context.Context, user uuid.UUID, token st
 		User:   &user,
 		Actor:  &user,
 		Kind:   audit.InvitationAccepted,
-		Org:    &o.ID,
-		Target: audit.Target{Type: "invitation", ID: inv.ID.String(), Label: u.Email},
+		Org:    &org.ID,
+		Target: audit.Target{Type: "invitation", ID: inv.ID.String(), Label: userEmail},
 		Meta: map[string]any{
-			"org_id": o.ID.String(), "slug": o.Slug, "invitation_id": inv.ID.String(),
+			"org_id": org.ID.String(), "slug": org.Slug, "invitation_id": inv.ID.String(),
 			"role": org.Role, "invited_role": inv.Role, "joined": joined, "project_grants": len(granted),
 		},
 	}); err != nil {
@@ -288,4 +305,48 @@ func (s *InvitationService) notAccepted(ctx context.Context, q *db.Queries, org 
 	}
 	org.Role = m.Role
 	return AcceptedInvitation{Org: org}, nil
+}
+
+// AcceptMine accepts the invitation id on behalf of user like Accept does
+// by token. An invitation to another address, or none, is ErrInvitationNotFound
+// so the id confirms nothing; one of user's own that is no longer pending
+// (accepted, revoked or expired) is ErrInvitationNotPending.
+func (s *InvitationService) AcceptMine(ctx context.Context, user, id uuid.UUID) (AcceptedInvitation, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return AcceptedInvitation{}, fmt.Errorf("orgs: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.New(tx)
+	inv, err := q.GetInvitationByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AcceptedInvitation{}, ErrInvitationNotFound
+	}
+	if err != nil {
+		return AcceptedInvitation{}, fmt.Errorf("orgs: get invitation: %w", err)
+	}
+	u, err := q.GetUserEmail(ctx, user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AcceptedInvitation{}, ErrUserGone
+	}
+	if err != nil {
+		return AcceptedInvitation{}, fmt.Errorf("orgs: get user: %w", err)
+	}
+	if u.EmailVerifiedAt == nil || !strings.EqualFold(u.Email, inv.Email) {
+		return AcceptedInvitation{}, ErrInvitationNotFound
+	}
+	o, err := q.LockOrganizationBySlug(ctx, inv.OrgSlug)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AcceptedInvitation{}, ErrInvitationNotFound
+	}
+	if err != nil {
+		return AcceptedInvitation{}, fmt.Errorf("orgs: lock organization: %w", err)
+	}
+	if _, err := q.AcceptInvitation(ctx, inv.ID); errors.Is(err, pgx.ErrNoRows) {
+		return AcceptedInvitation{}, ErrInvitationNotPending
+	} else if err != nil {
+		return AcceptedInvitation{}, fmt.Errorf("orgs: accept invitation: %w", err)
+	}
+	org := Org{ID: o.ID, Slug: o.Slug, Name: o.Name, CreatedAt: o.CreatedAt}
+	return s.completeAccept(ctx, tx, q, org, invitationRef{ID: inv.ID, Role: inv.Role, InvitedBy: inv.InvitedBy}, user, u.Email)
 }
