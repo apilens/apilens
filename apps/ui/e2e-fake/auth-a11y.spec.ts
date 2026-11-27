@@ -124,25 +124,28 @@ test("tab order reaches the form before the brand panel", async ({ page }) => {
   }
 });
 
-test("sign-in tab order: passkey, email, keep me signed in, Continue, then the other methods", async ({ page }) => {
+test("sign-in tab order: the provider stack, then email, keep me signed in, Continue", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, "/sign-in", "Welcome back");
   await expect(page.getByLabel("Work email")).toBeFocused();
+  // The stack sits above the field, so Shift+Tab walks back up it: SSO, then the passkey.
   await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "Passkey", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Continue with SSO", exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Continue with a passkey", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Work email")).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("checkbox", { name: /Keep me signed in/ })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Continue" })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeFocused();
 });
 
 test("sign-in: a passkey autofill that cannot start says nothing", async ({ page }) => {
   await page.route("**/api/auth/passkeys/login/options", (route) => route.fulfill({ status: 503, json: { ok: false, code: "unavailable" } }));
   await open(page, "/sign-in", "Welcome back");
-  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeEnabled();
   await expect(page.locator(".ob-err")).toHaveCount(0);
 });
 
@@ -150,7 +153,7 @@ test("errors are tied to their field with aria-invalid and aria-describedby", as
   await open(page, "/sign-up", "Create your APILens account");
   const field = page.getByLabel("Work email");
   await field.fill("not-an-email");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
   await expect(field).toHaveAttribute("aria-invalid", "true");
   await expect(field).toHaveAccessibleDescription(/Enter a work email/);
 

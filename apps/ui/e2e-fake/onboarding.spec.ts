@@ -8,8 +8,10 @@ const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
 const WELCOME = "Welcome to APILens";
 const PAGE = "/onboarding/welcome";
 
-function githubButton(page: Page) {
-  return page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ });
+/** The redirect-based way in that the page still offers: an SSO domain's own button. */
+async function ssoIn(page: Page) {
+  await page.getByLabel("Work email").fill("ada@acme.example.com");
+  await page.getByRole("link", { name: "Continue with Acme SSO" }).click();
 }
 
 /** Signs in through the fake handoff (a user who belongs to acme, onboarding open) and lands on Welcome. */
@@ -35,8 +37,8 @@ test("signed out → sign-up → Welcome, with no step bar anywhere", async ({ p
   await page.waitForURL((url) => url.pathname === "/sign-up" && url.searchParams.get("next") === PAGE);
   await expect(page.locator(".ob-steps")).toHaveCount(0);
 
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
+  await ssoIn(page);
+  await page.getByRole("link", { name: "Sign in" }).click();
   await page.waitForURL((url) => url.pathname === PAGE);
   await expect(page.getByRole("heading", { name: WELCOME })).toBeVisible();
   await expect(page.locator(".ob-steps")).toHaveCount(0);

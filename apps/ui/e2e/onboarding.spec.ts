@@ -45,7 +45,7 @@ test("sign-up → verify → Welcome → organization with its first project", a
   // Sign up and verify with the emailed code.
   await page.goto("/sign-up");
   await page.getByLabel("Work email").fill(email);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
   await expect(page).toHaveURL(/\/verify\?/);
   const [codeMail] = await mailTo(email);
   const code = codeMail.Subject.match(/\b(\d{6})\b/)?.[1];

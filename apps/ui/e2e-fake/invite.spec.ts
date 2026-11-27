@@ -9,8 +9,11 @@ const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
 const INVITE = "/invite/inv_globex";
 const WELCOME = "Welcome to APILens";
 
-function githubButton(page: Page) {
-  return page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ });
+/** Signs up through the redirect the page offers: the SSO domain's own button. */
+async function ssoUp(page: Page) {
+  await page.getByLabel("Work email").fill("ada@acme.example.com");
+  await page.getByRole("link", { name: "Continue with Acme SSO" }).click();
+  await page.getByRole("link", { name: "Sign in" }).click();
 }
 
 const accept = (page: Page) => page.getByRole("link", { name: "Accept invitation" });
@@ -50,8 +53,7 @@ test("new account: invitation → sign up → accept → Welcome → the organiz
 
   await accept(page).click();
   await page.waitForURL((url) => url.pathname === "/sign-up" && url.searchParams.get("next") === INVITE);
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
+  await ssoUp(page);
 
   // Back on the invitation, signed in: accepting now joins.
   await page.waitForURL((url) => url.pathname === INVITE);

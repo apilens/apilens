@@ -20,12 +20,11 @@ import {
   relativeDay,
   rememberAccount,
 } from "@/lib/remembered-account";
-import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { type SignInMethods, altMethods } from "@/lib/sign-in-methods";
 import { SIGN_IN_NOTICES, type SignInNotice } from "@/lib/sign-in-notice";
 import { type SignInMethod, clearPending, forgetSignIn, lastSignIn, markPending, rememberSignIn } from "@/lib/last-signin";
 import { pathWithRemember, withRemember } from "@/lib/keep-signed-in";
 import { ssoRequiredMatch } from "@/lib/sso";
-import { AltLink } from "./alt-method";
 import { ObIcon, ObShell, describedBy } from "./ob";
 import { SignInNoticeBanner } from "./sign-in-notice";
 import { KeepSignedIn } from "./keep-signed-in";
@@ -73,19 +72,17 @@ const PASSKEY_FALLBACK = "Your passkey didn’t sign you in. Continue to get a c
  *      account exists, so Continue never tells anyone which addresses have accounts or passkeys.
  *
  * Passkeys are also offered in the email field's autofill (conditional mediation) while the
- * field is shown, and as a secondary "Passkey" button for a passkey this device does not know
- * about (a phone, a security key). `methods` (`GET /auth/providers`) adds Google, GitHub and the
- * generic SSO under "or"; `oauth` holds their start URLs (built on the server). `next` is where
- * to land; `notice` (from `?error=`/`?reason=`) sits above the form.
+ * field is shown, and as a "Continue with a passkey" button for a passkey this device does not
+ * know about (a phone, a security key). It heads one stack with the generic SSO button, which
+ * `methods` (`GET /auth/providers`) adds. `next` is where to land; `notice` (from
+ * `?error=`/`?reason=`) sits above the form.
  */
 export function SignIn({
   methods,
-  oauth,
   next,
   notice,
 }: {
   methods: SignInMethods;
-  oauth?: OAuthLinks;
   next?: string;
   notice?: SignInNotice | null;
 }) {
@@ -369,12 +366,19 @@ export function SignIn({
           </span>
         </p>
       ) : null}
-      {showPasskey ? (
+      {showPasskey || others.length > 0 ? (
         <>
-          <button type="button" className={`ah-btn ah-btn--secondary au-btn-full${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy || undefined}>
-            <ObIcon name="finger" />
-            Passkey
-          </button>
+          <div className="au-provs">
+            {showPasskey ? (
+              <button type="button" className={`ah-btn ah-btn--secondary au-btn-full${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy || undefined}>
+                <ObIcon name="finger" />
+                Continue with a passkey
+              </button>
+            ) : null}
+            {others.map((m) =>
+              m === "sso" ? <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} /> : null,
+            )}
+          </div>
           <div className="ob-or">or</div>
         </>
       ) : null}
@@ -450,7 +454,7 @@ export function SignIn({
             <SSOLink match={sso.match} remember={remember} primary />
           ) : (
             <button ref={continueButton} type="submit" className={`ah-btn ah-btn--primary au-btn-full${busy ? " is-loading" : ""}${limited ? " is-disabled" : ""}`} disabled={busy || limited} aria-busy={busy || undefined}>
-              Continue
+              Continue with email
               <ObIcon name="next" />
             </button>
           )}
@@ -461,20 +465,6 @@ export function SignIn({
           </div>
         ) : null}
       </form>
-      {others.length > 0 ? (
-        <>
-          <div className="ob-or">or</div>
-          <div style={{ display: "grid", gridTemplateColumns: gridColumns(others.length), gap: 10 }}>
-            {others.map((m) =>
-              m === "sso" ? (
-                <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} />
-              ) : m === "email" ? null : (
-                <AltLink key={m} method={m} href={withRemember(oauth?.[m] ?? "/sign-in", remember)} />
-              ),
-            )}
-          </div>
-        </>
-      ) : null}
     </ObShell>
   );
 }

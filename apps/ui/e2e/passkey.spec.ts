@@ -114,8 +114,8 @@ async function stubPasskeyRoutes(
   return stub;
 }
 
-const passkeyButton = (page: Page) => page.getByRole("button", { name: "Passkey", exact: true });
-const continueButton = (page: Page) => page.getByRole("button", { name: "Continue" });
+const passkeyButton = (page: Page) => page.getByRole("button", { name: "Continue with a passkey", exact: true });
+const continueButton = (page: Page) => page.getByRole("button", { name: "Continue with email", exact: true });
 /** `/verify`, where a sent code lands (the email start is stubbed, so nothing is sent). */
 const codeScreen = (page: Page) => page.getByRole("heading", { name: "Check your inbox" });
 

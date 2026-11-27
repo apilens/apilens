@@ -25,16 +25,16 @@ async function sessionCookie(page: Page) {
 test("sign-in: an enforced domain replaces the email code with the org's SSO and signs in", async ({ page }) => {
   const emailStarts = countEmailStarts(page);
   await page.goto("/sign-in?next=%2Fproject%2Facme%2Frequests");
-  await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeVisible();
   await page.getByLabel("Work email").fill("ada@acme.example.com");
 
   const link = ssoLink(page, "Acme");
   await expect(link).toBeVisible();
   await expect(link).toHaveClass(/ah-btn--primary/);
-  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toHaveCount(0);
   // The generic SSO button gives way to the org's own, and the org refuses passkeys.
-  await expect(page.getByRole("button", { name: "SSO", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Passkey", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue with SSO", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue with a passkey", exact: true })).toHaveCount(0);
 
   const href = new URL((await link.getAttribute("href")) ?? "");
   expect(href.origin + href.pathname).toBe(`${IDENTITY}/api/v1/auth/sso/acme/start`);
@@ -70,19 +70,19 @@ test("sign-in: SSO that is not enforced is a secondary button under Continue", a
   const link = ssoLink(page, "Beta");
   await expect(link).toBeVisible();
   await expect(link).toHaveClass(/ah-btn--secondary/);
-  await expect(page.getByRole("button", { name: "Continue" })).toHaveClass(/ah-btn--primary/);
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toHaveClass(/ah-btn--primary/);
 
   // A domain without SSO takes it away again.
   await page.getByLabel("Work email").fill("ada@example.com");
   await expect(ssoLink(page, "Beta")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "SSO", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with SSO", exact: true })).toBeVisible();
 });
 
 test("sign-in: a failed lookup still never sends a code; sso_required shows the banner and the SSO", async ({ page }) => {
   await page.route("**/api/auth/sso/lookup", (route) => route.abort());
   await page.goto("/sign-in?next=%2Fproject%2Facme%2Fendpoints");
   await page.getByLabel("Work email").fill("ada@acme.example.com");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
 
   await expect(page.getByRole("status").filter({ hasText: "Your organization requires single sign-on." })).toBeVisible();
   const link = ssoLink(page);
@@ -120,7 +120,7 @@ test("sign-in: the generic SSO button asks for an email, then explains a domain 
   // The fake has no passkeys: keep the email field's passkey autofill pending so its error stays out.
   await page.route("**/api/auth/passkeys/login/options", () => {});
   await page.goto("/sign-in");
-  const generic = page.getByRole("button", { name: "SSO", exact: true });
+  const generic = page.getByRole("button", { name: "Continue with SSO", exact: true });
   await generic.click();
   await expect(page.locator("p.ob-err[role=alert]")).toHaveText("Enter your work email to continue with SSO.");
 
@@ -139,7 +139,7 @@ test("sign-up: an enforced domain replaces Continue with the org's SSO and sends
   const link = ssoLink(page, "Acme");
   await expect(link).toBeVisible();
   await expect(link).toHaveClass(/ah-btn--primary/);
-  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toHaveCount(0);
   await expect(page.getByText("Acme signs in with single sign-on.")).toBeVisible();
 
   await link.click();
@@ -155,7 +155,7 @@ test("sign-up: SSO that is not enforced is offered under Continue", async ({ pag
   await page.goto("/sign-up");
   await page.getByLabel("Work email").fill("ada@beta.example.com");
   await expect(ssoLink(page, "Beta")).toHaveClass(/ah-btn--secondary/);
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeVisible();
 });
 
 test("cancelling at the IdP lands on /sign-in with the error, signed out", async ({ page }) => {

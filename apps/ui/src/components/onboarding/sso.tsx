@@ -106,9 +106,9 @@ export function SSOLink({ match, primary, remember = true }: { match: SSOMatch; 
 /** The generic "SSO" provider button (`providers.sso`), used until the typed domain has a match. */
 export function SSOButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
   return (
-    <button type="button" className={`ah-btn ah-btn--secondary${busy ? " is-loading" : ""}`} onClick={onClick} disabled={busy} aria-busy={busy || undefined}>
+    <button type="button" className={`ah-btn ah-btn--secondary au-btn-full${busy ? " is-loading" : ""}`} onClick={onClick} disabled={busy} aria-busy={busy || undefined}>
       <ObIcon name="lock" />
-      SSO
+      Continue with SSO
     </button>
   );
 }

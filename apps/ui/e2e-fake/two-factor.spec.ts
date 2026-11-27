@@ -149,9 +149,10 @@ test("'Lost your device?' opens account recovery", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Lost your device?" })).toBeVisible();
 });
 
-// The sign-in hint through a real GitHub click and a second factor: nothing is recorded while the
-// factor is pending, and it is recorded (with the clicked method) once it completes.
-async function githubToTwoFactor(page: Page, next: string): Promise<Buffer> {
+// The sign-in hint through a real redirect-based click and a second factor: nothing is recorded
+// while the factor is pending, and it is recorded (with the clicked method) once it completes.
+// SSO carries the redirect here, since it is the provider the page offers.
+async function ssoToTwoFactor(page: Page, next: string): Promise<Buffer> {
   const secret = newSecret();
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
@@ -163,10 +164,11 @@ async function githubToTwoFactor(page: Page, next: string): Promise<Buffer> {
   await expect(page.getByRole("heading", { level: 1, name: "Welcome back" })).toBeVisible();
   await page.evaluate(() => localStorage.setItem("apilens.last-signin", JSON.stringify({ method: "email", email: "zed@old.dev" })));
   const origin = new URL(page.url()).origin;
-  await page.route("**/api/v1/auth/oauth/github/start**", (route) =>
+  await page.route("**/api/v1/auth/sso/**/start**", (route) =>
     route.fulfill({ status: 302, headers: { location: `${origin}/auth/callback?code=${code}` } }),
   );
-  await page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ }).click();
+  await page.getByLabel("Work email").fill("ada@acme.example.com");
+  await page.getByRole("link", { name: "Continue with Acme SSO" }).click();
   await page.waitForURL((url) => url.pathname === "/auth/2fa");
   await expect(page.getByRole("heading", { name: "Two-factor authentication" })).toBeVisible();
   return secret.key;
@@ -176,20 +178,20 @@ const hintStore = (page: Page) => page.evaluate(() => localStorage.getItem("apil
 const pendingMark = (page: Page) => page.evaluate(() => sessionStorage.getItem("apilens.signin-pending"));
 
 test("a completed second factor records the hint with the clicked method", async ({ page }) => {
-  const key = await githubToTwoFactor(page, "/project/acme/requests");
+  const key = await ssoToTwoFactor(page, "/project/acme/requests");
   // Pending: the old hint is gone (it would name someone else) and nothing new is recorded.
   await expect.poll(() => hintStore(page)).toBeNull();
 
   await codeInput(page).fill(totp(key));
   await page.waitForURL((url) => url.pathname === "/project/acme/requests");
-  await expect.poll(() => hintStore(page)).toContain('"method":"github"');
+  await expect.poll(() => hintStore(page)).toContain('"method":"sso"');
   expect(await hintStore(page)).toContain("you@example.com");
   expect(await pendingMark(page)).toBeNull();
   expect(await page.evaluate(() => document.cookie)).not.toContain("apilens_signed_in");
 });
 
 test("an abandoned second factor records nothing and leaves no pending mark", async ({ page }) => {
-  await githubToTwoFactor(page, "/project/acme/requests");
+  await ssoToTwoFactor(page, "/project/acme/requests");
   await page.getByRole("link", { name: "Back" }).click();
   await page.waitForURL((url) => url.pathname === "/sign-in");
   await expect(page.getByRole("heading", { level: 1, name: "Welcome back" })).toBeVisible();

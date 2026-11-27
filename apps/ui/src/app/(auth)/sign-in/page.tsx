@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { SignIn } from "@/components/onboarding/sign-in";
-import { oauthStartLinks } from "@/lib/oauth";
 import { safeNext } from "@/lib/safe-next";
 import { signInNotice } from "@/lib/sign-in-notice";
 import { signInMethods } from "@/lib/sign-in-providers";
@@ -16,7 +15,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   return (
     <SignIn
       methods={methods}
-      oauth={oauthStartLinks(methods, target)}
       next={target}
       notice={signInNotice({ error, reason })}
     />

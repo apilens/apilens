@@ -5,10 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { NETWORK_MESSAGE, errorMessage, rateLimitMessage, startEmail } from "@/lib/email-start";
 import { LINKS, extLink } from "@/lib/links";
-import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { type SignInMethods, altMethods } from "@/lib/sign-in-methods";
 import { pathWithRemember, withRemember } from "@/lib/keep-signed-in";
 import { ssoRequiredMatch } from "@/lib/sso";
-import { AltLink } from "./alt-method";
 import { KeepSignedIn } from "./keep-signed-in";
 import { ObIcon, ObShell, describedBy } from "./ob";
 import { SSOButton, SSOLink, useSSOLookup } from "./sso";
@@ -31,7 +30,7 @@ type Problem =
  * replaces Continue with "Continue with <org> SSO" (no code is sent); SSO that is offered but not
  * enforced adds that button under Continue.
  */
-export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth?: OAuthLinks; next?: string }) {
+export function SignUp({ methods, next }: { methods: SignInMethods; next?: string }) {
   const router = useRouter();
   const alts = altMethods(methods, { email: false });
   const [email, setEmail] = useState("");
@@ -131,6 +130,14 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
         </>
       }
     >
+      {shown.length > 0 ? (
+        <>
+          <div className="au-provs">
+            {shown.map((m) => (m === "sso" ? <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} /> : null))}
+          </div>
+          <div className="ob-or">or</div>
+        </>
+      ) : null}
       <form onSubmit={submit} noValidate>
         <div className="ob-f">
           <label className="ob-l" htmlFor="su-email">
@@ -177,7 +184,7 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
             <SSOLink match={sso.match} remember={remember} primary />
           ) : (
             <button type="submit" className={`ah-btn ah-btn--primary au-btn-full${sending ? " is-loading" : ""}${limited ? " is-disabled" : ""}`} disabled={sending || !!limited} aria-busy={sending || undefined}>
-              Continue
+              Continue with email
               <ObIcon name="next" />
             </button>
           )}
@@ -188,20 +195,6 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
           </div>
         ) : null}
       </form>
-      {shown.length > 0 ? (
-        <>
-          <div className="ob-or">or</div>
-          <div style={{ display: "grid", gridTemplateColumns: gridColumns(shown.length), gap: 10 }}>
-            {shown.map((m) =>
-              m === "email" ? null : m === "sso" ? (
-                <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} />
-              ) : (
-                <AltLink key={m} method={m} href={withRemember(oauth?.[m] ?? "/sign-up", remember)} />
-              ),
-            )}
-          </div>
-        </>
-      ) : null}
     </ObShell>
   );
 }

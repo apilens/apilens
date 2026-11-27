@@ -38,7 +38,7 @@ const address = (tag: string) => `e2e-verify-${tag}-${Date.now()}-${Math.floor(M
 async function signUp(page: Page, email: string) {
   await page.goto("/sign-up");
   await page.getByLabel("Work email").fill(email);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
   await expect(page).toHaveURL(/\/verify\?/);
   await expect(page.getByText(email)).toBeVisible();
 }
