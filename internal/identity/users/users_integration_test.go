@@ -77,7 +77,7 @@ func TestFindOrCreateByVerifiedEmailIntegration(t *testing.T) {
 		if len(prefs) != 1 || prefs["home"] != "endpoints" {
 			t.Fatalf("preferences = %v", prefs)
 		}
-		if len(onboarding) != 1 || onboarding["step"] != "about" {
+		if len(onboarding) != 1 || onboarding["step"] != users.OnboardingStepWelcome {
 			t.Fatalf("onboarding = %v", onboarding)
 		}
 		if m := createdMethods(t, u.ID); len(m) != 1 || m[0] != "google" {

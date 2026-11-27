@@ -12,7 +12,7 @@
 import "server-only";
 import { type NextRequest, NextResponse } from "next/server";
 import { SIGN_IN_PATH } from "./auth-gate";
-import { clearPreAuthCookie, setPreAuthCookie, setSessionCookie } from "./auth-routes";
+import { clearPreAuthCookie, hintCookie, setPreAuthCookie, setSessionCookie } from "./auth-routes";
 import { twoFactorPath } from "./email-verify";
 import { env } from "./env";
 import {
@@ -24,6 +24,7 @@ import {
   isApiError,
   isTwoFactorRequired,
 } from "./identity";
+import { SECOND_FACTOR_PENDING } from "./last-signin";
 import { safeNext } from "./safe-next";
 import { SESSION_COOKIE_NAME, open } from "./session";
 import type { OAuthLinks, OAuthProvider, SignInMethods } from "./sign-in-methods";
@@ -112,6 +113,7 @@ export async function exchangeHandoff(req: NextRequest, deps: HandoffDeps = {}):
   if (isTwoFactorRequired(result)) {
     const target = safeNext(result.next);
     const res = redirect(req, twoFactorPath(target));
+    hintCookie(res, SECOND_FACTOR_PENDING);
     setPreAuthCookie(res, { token: result.pre_auth_token, remember: result.remember ?? true, next: target });
     return res;
   }
@@ -125,6 +127,7 @@ export async function exchangeHandoff(req: NextRequest, deps: HandoffDeps = {}):
     return redirect(req, signInErrorPath(FALLBACK_ERROR));
   }
   clearPreAuthCookie(res);
+  hintCookie(res, result.user.email);
 
   if (previous) {
     try {

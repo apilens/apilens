@@ -7,7 +7,7 @@ import { ObIcon } from "./ob";
 import "./setup-reminder.css";
 
 /**
- * The reminder a project opens with after "I'll do this later" on the install step (#333): no
+ * The reminder a project opens with when the URL asks for it (`?setup=later`): no
  * events arrive until the SDK or an exporter sends them with an ingest key, which Access → API keys
  * creates. Dismissing it hides it for this page view.
  */

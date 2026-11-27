@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Organizations" };
 // organization crumb (account scope, #1051).
 export default async function OrganizationsPage() {
   const context = await getContext(ORGANIZATIONS_PATH);
-  if (context.orgs.length === 0) redirect(onboardingPath(context.onboarding?.step));
+  if (context.orgs.length === 0) redirect(onboardingPath());
   return (
     <AppShell context={context} account view="organizations">
       <Organizations orgs={context.orgs} />

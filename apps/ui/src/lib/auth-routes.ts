@@ -12,6 +12,7 @@
 import "server-only";
 import { type NextRequest, NextResponse } from "next/server";
 import { SIGN_IN_PATH } from "./auth-gate";
+import { SIGNED_IN_COOKIE } from "./last-signin";
 import { env } from "./env";
 import {
   CLIENT_ERROR_CODES,
@@ -276,6 +277,19 @@ export function readPreAuth(req: NextRequest): PreAuth | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * For the sign-in hint: the address (or "2fa" while a second factor is pending), read once
+ * by script (so not httpOnly) and deleted. Strict: the server never needs it back.
+ */
+export function hintCookie(res: NextResponse, value: string) {
+  res.cookies.set(SIGNED_IN_COOKIE, value, {
+    maxAge: 120,
+    path: "/",
+    sameSite: "strict",
+    secure: env().publicUrl.startsWith("https:"),
+  });
 }
 
 /**

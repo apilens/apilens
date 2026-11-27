@@ -18,16 +18,11 @@ func TestNewOnboardingState(t *testing.T) {
 		`{"completed_at":"2026-11-04T12:00:00+00:00"}`: func(o Onboarding) bool {
 			return o.Completed && o.CompletedAt != nil && o.CompletedAt.Equal(at)
 		},
-		`{"answers":{"org_slug":"acme","language":"go","invited":2,"runtime":3}}`: func(o Onboarding) bool {
+		`{"answers":{"org_slug":"acme","language":"go","runtime":3}}`: func(o Onboarding) bool {
 			a := o.Answers
-			return a.OrgSlug != nil && *a.OrgSlug == "acme" && a.Language != nil && *a.Language == "go" &&
-				a.Invited != nil && *a.Invited == 2 && a.Runtime == nil && a.ProjectSlug == nil
+			return a.OrgSlug != nil && *a.OrgSlug == "acme" && a.ProjectSlug == nil
 		},
-		`{"answers":{"invited":-1}}`: func(o Onboarding) bool { return o.Answers.Invited == nil },
-		`{"answers":"acme"}`:         func(o Onboarding) bool { return o.Answers.OrgSlug == nil },
-		`{"answers":{"api_key_id":"0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f"}}`: func(o Onboarding) bool {
-			return o.Answers.APIKeyID != nil && *o.Answers.APIKeyID == "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f"
-		},
+		`{"answers":"acme"}`: func(o Onboarding) bool { return o.Answers.OrgSlug == nil },
 	} {
 		if got := NewOnboardingState([]byte(raw)); !check(got) {
 			t.Errorf("NewOnboardingState(%s) = %+v", raw, got)

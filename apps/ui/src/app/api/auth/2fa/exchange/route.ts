@@ -7,6 +7,7 @@ import {
   callContext,
   failure,
   fromError,
+  hintCookie,
   optionalString,
   readJson,
   readPreAuth,
@@ -29,7 +30,10 @@ export async function POST(req: NextRequest) {
         ? { pre_auth_token: pre.token, code }
         : { pre_auth_token: pre.token, backup_code: backupCode as string };
     const bundle = await identity().twoFactorExchange(exchange, callContext(req));
-    return await signedIn(bundle, pre.remember, pre.next);
+    const res = await signedIn(bundle, pre.remember, pre.next);
+    // A completed second factor is the real sign-in: the recorder pairs this with the pending method.
+    hintCookie(res, bundle.user.email);
+    return res;
   } catch (err) {
     return fromError(err);
   }

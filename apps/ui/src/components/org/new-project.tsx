@@ -135,6 +135,7 @@ export function NewProject({ org, orgs }: { org: string; orgs: readonly { slug: 
             </label>
             <div className={`ob-in${taken ? " bad" : ""}`}>
               <ObIcon name="link" />
+              <span className="pre">/project/</span>
               <input
                 id="new-project-slug"
                 value={address}
@@ -145,11 +146,21 @@ export function NewProject({ org, orgs }: { org: string; orgs: readonly { slug: 
                 aria-invalid={taken}
                 aria-describedby="new-project-address"
               />
+              <span className="r" aria-live="polite">
+                {status.kind === "available" ? (
+                  <>
+                    <ObIcon name="done" />
+                    Available
+                  </>
+                ) : status.kind === "checking" ? (
+                  <span className="org-muted">Checking…</span>
+                ) : taken ? (
+                  <span className="org-bad">Taken</span>
+                ) : null}
+              </span>
             </div>
             <p id="new-project-address" className="org-hint">
-              /project/<b>{address || "your-project"}</b>
-              {status.kind === "available" ? " · available" : null}
-              {taken ? " · taken" : null}
+              The SDK sends it with every request. Addresses are unique across APILens.
             </p>
             {taken && status.suggestions.length > 0 ? (
               <p className="org-hint">

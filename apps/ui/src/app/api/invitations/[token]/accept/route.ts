@@ -1,7 +1,6 @@
 // POST /api/invitations/{token}/accept {}: accepts an invitation as the signed-in user (#337).
-// Answers `{ok: true, next}`: the about step with the organization saved while onboarding is
-// open (invited users skip the organization and project steps), else the organization's first
-// project, or the project the invitation gives a role on (#809). Identity's codes pass through as `{ok: false, code}` (`invite_email_mismatch`,
+// Answers `{ok: true, next}`: Welcome with the organization saved while onboarding is open,
+// else the organization's first project, or the project the invitation gives a role on (#809). Identity's codes pass through as `{ok: false, code}` (`invite_email_mismatch`,
 // `invite_expired`, `invalid_token`).
 import type { NextRequest } from "next/server";
 import { fromError, readJson, success } from "@/lib/auth-routes";

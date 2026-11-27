@@ -1,14 +1,7 @@
-// "Install" onboarding step (#333): the ingest key it creates and the snippets it renders with that
-// key for the language picked on the instrument step (#332). Pure, so every snippet
-// can be unit tested against the SDK READMEs (packages/sdk-*) and the README quick start.
-import type { ApiKey, ApiKeyScope } from "./identity";
+// The SDK install snippets, rendered with an ingest key for a language (SDK setup, consumers and
+// deploys pages). Pure, so every snippet can be unit tested against the SDK READMEs
+// (packages/sdk-*) and the README quick start.
 import { languageOf } from "./instrument";
-
-/** Name of the key the step creates, as it then shows in Access → API keys. */
-export const INSTALL_KEY_NAME = "Onboarding";
-
-/** What the key may do: send events, nothing else. */
-export const INSTALL_KEY_SCOPES: readonly ApiKeyScope[] = ["ingest"];
 
 /** `?setup=later`: the project page shows the "finish setting up" reminder (#333) for it. */
 export const LATER_PARAM = "setup";
@@ -55,43 +48,8 @@ export interface SnippetInput {
  */
 export type Posture = "metadata" | "redacted" | "full";
 
-export interface PostureOption {
-  id: Posture;
-  label: string;
-  /** One line on what choosing it means for the data that leaves the service. */
-  consequence: string;
-}
-
-/** In the order the instrument step lists them, the documented first rollout first. */
-export const POSTURES: readonly PostureOption[] = [
-  {
-    id: "metadata",
-    label: "Metadata only",
-    consequence: "No headers or bodies leave your service: method, route, status, latency, sizes and consumer only.",
-  },
-  {
-    id: "redacted",
-    label: "Redacted",
-    consequence: "Headers and bodies up to 16 KB, with secrets and the fields listed in the snippet masked before they’re sent.",
-  },
-  {
-    id: "full",
-    label: "Full",
-    consequence: "Headers and bodies up to the SDK’s cap; built-in masking still hides passwords, tokens and card numbers.",
-  },
-];
-
 /** `metadata` is the documented first production rollout; the SDKs' own default stays `full`. */
 export const DEFAULT_POSTURE: Posture = "metadata";
-
-/** `?capture=` on the install step: the posture picked on the instrument step. */
-export const POSTURE_PARAM = "capture";
-
-/** The posture `value` names, or undefined for anything else. */
-export function postureOf(value: string | string[] | null | undefined): Posture | undefined {
-  const v = Array.isArray(value) ? value[0] : value;
-  return POSTURES.find((p) => p.id === v)?.id;
-}
 
 /**
  * The starter redaction list every SDK snippet carries, on top of the SDKs' built-in masking
@@ -99,11 +57,6 @@ export function postureOf(value: string | string[] | null | undefined): Posture 
  */
 export const STARTER_REDACT_QUERY_PARAMS: readonly string[] = ["^email$"];
 export const STARTER_REDACT_BODY_FIELDS: readonly string[] = ["^email$", "^phone$", "^date_of_birth$"];
-
-/** The docs page on what the SDKs capture and redact, at its capture profiles section. */
-export function privacyDocsUrl(docs: string): string {
-  return `${docs.replace(/\/+$/, "")}/getting-started/data-privacy#capture-profiles`;
-}
 
 /** `export APILENS_API_KEY=…`: the key goes in the environment, never in source. */
 function envSnippet(key: string): Snippet {
@@ -238,43 +191,4 @@ export function snippetsFor({ language, apiKey, appId, ingestUrl, posture = DEFA
   const lang = languageOf(language);
   if (!lang) return [];
   return sdkSnippets(lang.id, apiKey || KEY_PLACEHOLDER, appId, ingestUrl, posture);
-}
-
-/** The key the install step created, as the step reads it back once the raw key is gone. */
-export type SavedKey = { state: "none" } | { state: "active"; prefix: string } | { state: "gone" } | { state: "unknown" };
-
-/**
- * What became of the saved key `id` among the project's keys (`null` when they could not be
- * listed): none saved, still usable (only its prefix is known now), revoked, expired or deleted,
- * or unknown.
- */
-export function savedKeyState(id: string | undefined, keys: readonly ApiKey[] | null, now = Date.now()): SavedKey {
-  if (!id) return { state: "none" };
-  if (!keys) return { state: "unknown" };
-  const key = keys.find((k) => k.id === id);
-  if (!key) return { state: "gone" };
-  if (key.revoked_at) return { state: "gone" };
-  if (key.expires_at) {
-    const t = Date.parse(key.expires_at);
-    if (!Number.isNaN(t) && t <= now) return { state: "gone" };
-  }
-  return { state: "active", prefix: key.prefix };
-}
-
-/** The sentence the install step shows when creating its key fails, by API error code. */
-export function installKeyError(code: string): string {
-  switch (code) {
-    case "forbidden":
-      return "You don’t have permission to create API keys in this project. Ask an owner or admin for one.";
-    case "not_found":
-      return "This project no longer exists, or you’re no longer a member.";
-    case "rate_limited":
-      return "Too many attempts in a row. Wait a moment and try again.";
-    case "network_error":
-    case "timeout":
-    case "unavailable":
-      return "We couldn’t reach APILens to create your key. Check your connection and try again.";
-    default:
-      return "We couldn’t create your key. Try again in a moment.";
-  }
 }

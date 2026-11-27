@@ -210,6 +210,33 @@ func TestOAuthCallbackIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("first sign-in keeps the profile name once", func(t *testing.T) {
+		nameOf := func(email string) string {
+			t.Helper()
+			u, err := q.GetUserByEmail(ctx, email)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return u.Name
+		}
+		f := beginOAuth(t, api, "google", "")
+		g := googleGrant(f, "g-sub-grace", "grace@example.com")
+		g.claims["name"] = "  Grace Hopper "
+		idp.Grant("n1", g)
+		redeem(t, callback(t, "google", url.Values{"code": {"n1"}, "state": {f.state}}))
+		if got := nameOf("grace@example.com"); got != "Grace Hopper" {
+			t.Fatalf("name = %q, want Grace Hopper", got)
+		}
+		f = beginOAuth(t, api, "google", "")
+		g = googleGrant(f, "g-sub-grace", "grace@example.com")
+		g.claims["name"] = "Someone Else"
+		idp.Grant("n2", g)
+		redeem(t, callback(t, "google", url.Values{"code": {"n2"}, "state": {f.state}}))
+		if got := nameOf("grace@example.com"); got != "Grace Hopper" {
+			t.Fatalf("name after second sign-in = %q, want Grace Hopper", got)
+		}
+	})
+
 	t.Run("two-factor hands off a pre-auth token", func(t *testing.T) {
 		if _, err := q.UpsertPendingTOTP(ctx, db.UpsertPendingTOTPParams{UserID: ada.ID, SecretEnc: []byte("sealed")}); err != nil {
 			t.Fatal(err)

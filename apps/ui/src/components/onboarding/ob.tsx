@@ -9,7 +9,6 @@ const P = {
   building: <path d="M3 14V3.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1V14M10 6.5h2a1 1 0 0 1 1 1V14M1.5 14h13M5.5 5h2M5.5 8h2M5.5 11h2" />,
   folder: <path d="M1.75 4.5A1.5 1.5 0 0 1 3.25 3h3l1.5 1.75h5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5z" />,
   code: <path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5M9 3 7 13" />,
-  live: <><circle cx="8" cy="8" r="1.5" /><path d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.2 3.2a6.8 6.8 0 0 0 0 9.6M12.8 3.2a6.8 6.8 0 0 1 0 9.6" /></>,
   book: <path d="M2.5 3.5c1.8-.9 3.8-.9 5.5.5v9c-1.7-1.4-3.7-1.4-5.5-.5zM13.5 3.5c-1.8-.9-3.8-.9-5.5.5v9c1.7-1.4 3.7-1.4 5.5-.5z" />,
   help: <><circle cx="8" cy="8" r="6.25" /><path d="M6.3 6.2a1.8 1.8 0 0 1 3.5.6c0 1.2-1.8 1.4-1.8 2.6M8 11.4v.1" /></>,
   mail: <><rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" /><path d="m2.5 4.5 5.5 4.25 5.5-4.25" /></>,
@@ -42,46 +41,12 @@ export function ObIcon({ name }: { name: ObIconName }) {
   );
 }
 
-const STEPS: { label: string; icon: ObIconName }[] = [
-  { label: "Account", icon: "user" },
-  { label: "Organization", icon: "building" },
-  { label: "Project", icon: "folder" },
-  { label: "Instrument", icon: "code" },
-  { label: "Go live", icon: "live" },
-];
-
-function Steps({ current, reached = current }: { current: number; reached?: number }) {
-  const upTo = Math.max(current, reached);
-  return (
-    <nav className="ob-steps" aria-label="Setup progress">
-      {STEPS.map((s, i) => {
-        const state = i === current ? "cur" : i < upTo ? "done" : "todo";
-        return (
-          <span key={s.label} style={{ display: "contents" }}>
-            {i > 0 ? <span className={`ob-sep${i <= upTo ? " done" : ""}`} /> : null}
-            <span className={`ob-st ${state}`} aria-current={state === "cur" ? "step" : undefined}>
-              <ObIcon name={state === "done" ? "done" : s.icon} />
-              {s.label}
-            </span>
-          </span>
-        );
-      })}
-    </nav>
-  );
-}
-
 export interface ObProps {
   /** Brand panel: mono eyebrow, headline lines, one human line, one receipt. */
   eyebrow: string;
   headline: string[];
   body: string;
   receipt: ReactNode;
-  /** 0–100 position on the 02:14 to 02:44 timeline. Omit for sign in. */
-  progress?: number;
-  /** Index of the current setup step. Omit for sign in. */
-  step?: number;
-  /** Index of the furthest saved setup step; earlier steps show as done. Defaults to `step`. */
-  reached?: number;
   badge: ObIconName;
   title: string;
   lead: ReactNode;
@@ -95,13 +60,13 @@ export interface ObProps {
  * comes first in the DOM (the grid puts the panel back on the left), so keyboard and screen-reader
  * order reach the form and its `h1` before the brand panel's `h2` and footer links.
  */
-export function ObShell({ eyebrow, headline, body, receipt, progress, step, reached, badge, title, lead, children, footer, below }: ObProps) {
+export function ObShell({ eyebrow, headline, body, receipt, badge, title, lead, children, footer, below }: ObProps) {
   return (
     <div className="ah ob2">
       <main className="ob-fp">
         <div className="ob-ftop">
           <span className="ob-mlogo"><Logo height={34} /></span>
-          {step !== undefined ? <Steps current={step} reached={reached} /> : <span />}
+          <span />
           <div className="ob-tr">
             <a className="ah-btn ah-btn--ghost ah-btn--sm" {...extLink(LINKS.docs)} title="Docs" aria-label="Docs">
               <ObIcon name="book" />
@@ -152,16 +117,6 @@ export function ObShell({ eyebrow, headline, body, receipt, progress, step, reac
           <p>{body}</p>
           <div className="ob-rc">{receipt}</div>
         </div>
-        {progress !== undefined ? (
-          <div className="ob-tl" aria-hidden="true">
-            <span>02:14</span>
-            <span className="tr">
-              <span className="fill" style={{ width: `${progress}%` }} />
-              <span className="dot" style={{ left: `${progress}%` }} />
-            </span>
-            <span>02:44</span>
-          </div>
-        ) : null}
         <div className="ob-bp-foot">
           <span>© 2026 APILens</span>
           <a {...extLink(LINKS.privacy)}>Privacy</a>
@@ -171,12 +126,6 @@ export function ObShell({ eyebrow, headline, body, receipt, progress, step, reac
       </aside>
     </div>
   );
-}
-
-/** Step bar state an onboarding page gets from its server guard (`requireOnboardingStep`). */
-export interface StepProps {
-  step: number;
-  reached: number;
 }
 
 export function BackNext({ back, next, nextLabel, disabled, onNext, loading }: { back?: string; next?: string; nextLabel: string; disabled?: boolean; onNext?: () => void; loading?: boolean }) {

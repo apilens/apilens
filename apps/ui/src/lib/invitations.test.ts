@@ -9,7 +9,6 @@ import {
   invitationsError,
   inviteAuthPath,
   invitedLanding,
-  invitedOrg,
   invitedProjectName,
   invitePath,
   inviteProblem,
@@ -132,26 +131,6 @@ describe("inviteProblem", () => {
   });
 });
 
-describe("invitedOrg", () => {
-  it("is the saved organization the user joined without owning it", () => {
-    expect(invitedOrg(ctx({ step: "about", completed: false, answers: { org_slug: "globex" } }, [ACME, GLOBEX]))).toBe(GLOBEX);
-  });
-
-  it("is not an organization the user created (owner)", () => {
-    expect(invitedOrg(ctx({ step: "about", completed: false, answers: { org_slug: "acme" } }, [ACME]))).toBeUndefined();
-  });
-
-  it("needs a saved organization the user belongs to", () => {
-    expect(invitedOrg(ctx({ step: "about", completed: false }, [GLOBEX]))).toBeUndefined();
-    expect(invitedOrg(ctx({ step: "about", completed: false, answers: { org_slug: "initech" } }, [GLOBEX]))).toBeUndefined();
-    expect(invitedOrg(ctx({ step: "about", completed: false, answers: { org_slug: 7 } }, [GLOBEX]))).toBeUndefined();
-  });
-
-  it("is nothing once onboarding is finished", () => {
-    expect(invitedOrg(ctx({ step: "about", completed: true, answers: { org_slug: "globex" } }, [GLOBEX]))).toBeUndefined();
-  });
-});
-
 describe("invitedLanding", () => {
   it("opens the organization's first project, or its settings without one", () => {
     const c = ctx({ step: "about", completed: false }, [GLOBEX]);
@@ -182,10 +161,10 @@ describe("invited project (#809)", () => {
     expect(next).toBe("/project/checkout/traffic");
   });
 
-  it("while onboarding: saves the project so the about step opens it", async () => {
+  it("while onboarding: saves the project so Welcome opens it", async () => {
     const updateOnboarding = vi.fn().mockResolvedValue({});
     await acceptInvitation({ accept: async () => accepted, context: async () => ctx({ step: null, completed: false }, [WITH_CHECKOUT]), updateOnboarding, projectName: "Checkout" });
-    expect(updateOnboarding).toHaveBeenCalledWith({ step: "about", answers: { org_slug: "globex", project_slug: "checkout" } });
+    expect(updateOnboarding).toHaveBeenCalledWith({ step: "welcome", answers: { org_slug: "globex", project_slug: "checkout" } });
     const c = ctx({ step: "about", completed: false, answers: { org_slug: "globex", project_slug: "checkout" } }, [WITH_CHECKOUT]);
     expect(invitedLanding(c, WITH_CHECKOUT)).toBe("/project/checkout/traffic");
   });
@@ -201,15 +180,15 @@ describe("invited project (#809)", () => {
 describe("acceptInvitation", () => {
   const accepted = { org: { id: "o2", slug: "globex", name: "Globex", role: "member" as const }, joined: true };
 
-  it("while onboarding: saves the organization at the about step and resumes there", async () => {
+  it("while onboarding: saves the organization and resumes on Welcome", async () => {
     const updateOnboarding = vi.fn().mockResolvedValue({});
     const next = await acceptInvitation({
       accept: async () => accepted,
       context: async () => ctx({ step: null, completed: false }, [GLOBEX]),
       updateOnboarding,
     });
-    expect(next).toBe("/onboarding/about");
-    expect(updateOnboarding).toHaveBeenCalledWith({ step: "about", answers: { org_slug: "globex" } });
+    expect(next).toBe("/onboarding/welcome");
+    expect(updateOnboarding).toHaveBeenCalledWith({ step: "welcome", answers: { org_slug: "globex" } });
   });
 
   it("after onboarding: opens the organization's first project and leaves onboarding alone", async () => {

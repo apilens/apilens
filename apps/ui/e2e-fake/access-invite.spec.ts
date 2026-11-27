@@ -139,8 +139,8 @@ test("the invitation names the project, and accepting lands there as a Viewer", 
   await expect(page.getByTestId("invite-project")).toContainText(["Checkout", "Project · Viewer"].join(""));
   await page.getByRole("button", { name: "Accept invitation" }).click();
 
-  // Still onboarding: the about step, then straight into Checkout (not Globex's first project).
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
+  // Still onboarding: Welcome, then straight into Checkout (not Globex's first project).
+  await page.waitForURL((url) => url.pathname === "/onboarding/welcome");
   await page.getByRole("button", { name: "Continue to Globex" }).click();
   await page.waitForURL((url) => url.pathname.startsWith("/project/checkout/"));
 

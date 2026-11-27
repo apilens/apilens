@@ -1,0 +1,6 @@
+/* A copyable code snippet; long lines scroll inside the block instead of widening the column. */
+.ins-code { min-width: 0; }
+.ins-code pre { overflow-x: auto; }
+.ins-code pre:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ins-snippets { display: grid; gap: 10px; }
+.ins-snippets > .ob-l { margin-bottom: 0; }

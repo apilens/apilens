@@ -35,12 +35,21 @@
 @media (max-width: 860px) { .org-search { width: 100%; } }
 
 /* Create an organization / project (/organizations/new, /org/<org>/projects/new): the settings
-   card, in a reading-width column, so creating one looks like editing one. */
-.org-page--form { max-width: calc(var(--page-narrow) + 2 * var(--page-gutter)); margin-inline: auto; }
+   card, in a form-width column. --page-narrow is for reading, far too wide for three fields, and
+   --surface-1 is five points off --bg, so the card needs --surface-2 to show an edge at all. */
+.org-page--form { max-width: calc(560px + 2 * var(--page-gutter)); margin-inline: auto; padding-top: var(--space-8); }
+.org-page--form .os-card { background: var(--surface-2); }
+.org-page--form .os-card__foot { background: var(--surface-1); }
+.org-page--form .ob-in { background: var(--bg); }
 .org-page--form .os-card__body > .ob-f:first-child { margin-top: 0; }
 .org-page--form select.ob-in { appearance: none; width: 100%; cursor: pointer; }
 .org-hint { margin: 8px 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .org-hint b { color: var(--ink-soft); font-weight: 500; }
 .org-hint .cp-link { margin-right: var(--space-2); }
+/* The address state is a state, which the colour-discipline rule allows: available reads green,
+   taken red (.org-bad), checking neutral. Scoped, so the v4 muting stands everywhere else. */
+.org-page--form .ob-in .r { color: var(--ok); }
+.org-muted { color: var(--ink-muted); }
+.org-bad { color: var(--error); }
 .org-envs { margin: 0 0 8px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .org-env { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border: 1px solid var(--control-border); border-radius: var(--radius-pill); font: 400 12px/18px var(--font-sans); color: var(--ink-soft); }

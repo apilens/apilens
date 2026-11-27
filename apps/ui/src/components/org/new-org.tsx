@@ -97,6 +97,7 @@ export function NewOrg({ host = "", owned = [] }: { host?: string; owned?: strin
             </label>
             <div className={`ob-in${taken ? " bad" : ""}`}>
               <ObIcon name="link" />
+              <span className="pre">{host ? `${host}/org/` : "/org/"}</span>
               <input
                 id="new-org-slug"
                 value={address}
@@ -107,14 +108,27 @@ export function NewOrg({ host = "", owned = [] }: { host?: string; owned?: strin
                 aria-invalid={taken}
                 aria-describedby="new-org-address"
               />
+              <span className="r" aria-live="polite">
+                {mine ? (
+                  <>
+                    <ObIcon name="done" />
+                    Yours
+                  </>
+                ) : status.kind === "available" ? (
+                  <>
+                    <ObIcon name="done" />
+                    Available
+                  </>
+                ) : status.kind === "checking" ? (
+                  <span className="org-muted">Checking…</span>
+                ) : taken ? (
+                  <span className="org-bad">Taken</span>
+                ) : null}
+              </span>
             </div>
             <p id="new-org-address" className="org-hint">
-            {host ? `${host}/org/` : "/org/"}
-            <b>{address || "your-organization"}</b>
-            {mine ? " · you already own this one" : null}
-            {status.kind === "available" ? " · available" : null}
-            {taken ? " · taken" : null}
-          </p>
+              Used in links and the CLI. It cannot be changed later.
+            </p>
             {taken && status.suggestions.length > 0 ? (
               <p className="org-hint">
                 Free:{" "}

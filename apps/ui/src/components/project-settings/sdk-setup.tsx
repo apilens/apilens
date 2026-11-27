@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type KeyboardEvent, useEffect, useId, useState, useTransition } from "react";
-import { CodeBlock } from "@/components/onboarding/install";
+import { CodeBlock } from "@/components/code-block";
 import { keysPath } from "@/lib/api-keys";
 import { formatAgo } from "@/lib/first-data";
 import type { IngestStatus } from "@/lib/identity";
@@ -19,7 +19,6 @@ import { RecordDeploys } from "../changes/record-deploys";
 import { PageHeader } from "../page-header";
 import "../org-settings/org-settings.css";
 import "../security/security.css";
-import "../onboarding/install.css";
 import "./sdk-setup.css";
 
 /** What the page loaded: each part is null when the API could not answer. */

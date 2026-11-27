@@ -103,6 +103,14 @@ let appId = "";
 
 test.describe.configure({ mode: "serial" });
 
+// Quarantined until plan B2. This spec needs a project with a known address, an ingest key and a
+// first request, and the nine-step onboarding used to hand it all three (the install screen showed
+// the key once, its invite step sent the teammate's invitation). Welcome creates the project as
+// `my-api` (or the next free address) and mints no key; the first-run guide in plan B2 does that.
+// The body is half-migrated: it asserts `/onboarding/welcome`, then walks the deleted nine-step
+// flow (organization, project, instrument, install, waiting). Rewrite it for plan B2.
+test.skip(true, "Needs an ingest key and a named project that onboarding no longer makes (plan B2's first-run guide mints the key); the body is half-migrated and still walks the deleted nine-step flow, so rewrite it for plan B2.");
+
 async function newPage(browser: Browser): Promise<[BrowserContext, Page]> {
   const context = await browser.newContext();
   return [context, await context.newPage()];
@@ -124,7 +132,7 @@ test("setup: an admin onboards a project with a first request and a teammate joi
 
   await page.goto("/sign-up");
   await signUp(page, ADMIN_EMAIL);
-  await at(page, "/onboarding/about");
+  await at(page, "/onboarding/welcome");
   await page.getByRole("button", { name: "Continue" }).click();
   const naming = page.getByRole("heading", { name: "Name your organization" });
   const separate = page.getByRole("link", { name: "Create a separate organization" });
@@ -175,7 +183,7 @@ test("setup: an admin onboards a project with a first request and a teammate joi
   await signUp(matePage, TEAMMATE_EMAIL);
   await at(matePage, link);
   await matePage.getByRole("button", { name: "Accept invitation" }).click();
-  await at(matePage, "/onboarding/about");
+  await at(matePage, "/onboarding/welcome");
   await matePage.getByRole("button", { name: /^Continue to / }).click();
   await at(matePage, new RegExp(`^/${SLUG}/`));
 });

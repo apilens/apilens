@@ -58,6 +58,21 @@ type fakeSSOUsers struct {
 	touched     []uuid.UUID
 	completed   []uuid.UUID
 	completeErr error
+	nameErr     error
+	nameCalls   int
+	names       map[uuid.UUID]string
+}
+
+func (f *fakeSSOUsers) SetNameIfEmpty(_ context.Context, id uuid.UUID, name string) error {
+	f.nameCalls++
+	if f.nameErr != nil {
+		return f.nameErr
+	}
+	if f.names == nil {
+		f.names = map[uuid.UUID]string{}
+	}
+	f.names[id] = name
+	return nil
 }
 
 func (f *fakeSSOUsers) CompleteOnboarding(_ context.Context, id uuid.UUID) error {
@@ -338,6 +353,20 @@ func TestSSOOnboardingSurvivesAFailedSave(t *testing.T) {
 	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
 	if res.AccessToken == "" || res.Next != "/" {
 		t.Fatalf("handoff = %+v", res)
+	}
+}
+
+func TestSSONameFailureDoesNotRefuseSignIn(t *testing.T) {
+	h := newSSOHarness(t)
+	h.users.nameErr = errors.New("db down")
+	f, _ := h.begin(t, "acme", "")
+	h.idp.Grant("c1", ssoGrant(f, "new@acme.example.com"))
+	res := h.handedOff(t, h.callback(t, "acme", url.Values{"code": {"c1"}, "state": {f.state}}))
+	if res.AccessToken == "" {
+		t.Fatalf("handoff = %+v", res)
+	}
+	if h.users.nameCalls != 1 {
+		t.Fatalf("SetNameIfEmpty calls = %d, want 1", h.users.nameCalls)
 	}
 }
 

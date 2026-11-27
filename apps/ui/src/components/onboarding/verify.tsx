@@ -17,6 +17,7 @@ import {
 } from "@/lib/email-verify";
 import { passkeyError, passkeysSupported, signInWithPasskey } from "@/lib/auth/passkeys";
 import { REMEMBER_PARAM, rememberFromParam } from "@/lib/keep-signed-in";
+import { recordEmailSignIn, rememberSignIn } from "@/lib/last-signin";
 import { rememberAccount } from "@/lib/remembered-account";
 import { KeepSignedIn } from "./keep-signed-in";
 import { BackNext, ObIcon, ObShell } from "./ob";
@@ -104,7 +105,7 @@ export function Verify() {
       next: verifyNext(asked),
     });
     if (res.kind === "signed_in" || res.kind === "2fa_required") {
-      if (signin) rememberAccount(email, "email");
+      if (signin) recordEmailSignIn(res.kind, email);
       router.replace(res.next);
       return; // keep the loading state until the next page replaces this one
     }
@@ -166,6 +167,7 @@ export function Verify() {
     const res = await signInWithPasskey({ mediation: "optional", email, next: asked, remember });
     if (res.ok) {
       rememberAccount(res.email ?? email, "passkey");
+      rememberSignIn("passkey", res.email ?? email);
       router.replace(res.next);
       return; // keep the loading state until the next page replaces this one
     }
@@ -215,8 +217,6 @@ export function Verify() {
           #incident · <b>47</b> messages · <b>0</b> answers
         </>
       }
-      progress={16.67}
-      step={signin ? undefined : 0}
       badge="mail"
       title="Check your inbox"
       lead={

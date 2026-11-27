@@ -125,7 +125,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
       }
     >
       <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
-      {/* "I’ll do this later" on the onboarding install step (#333) lands on the home view (#994), which can be this one. */}
+      {/* `?setup=later` shows the setup reminder on the home view (#994), which can be this one. */}
       {raw[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
       <TrafficView
         project={project}

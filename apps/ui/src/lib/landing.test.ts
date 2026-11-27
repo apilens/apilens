@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_VIEW } from "./data";
 import { ApiError, type ContextOrg, type UserContext } from "./identity";
-import { HOME_SCREEN_CHOICES, HOME_SCREEN_VIEW, homeView, landingFor, onboardingPath, orgLanding, projectHasData, sdkSetupPath } from "./landing";
+import { HOME_SCREEN_CHOICES, HOME_SCREEN_VIEW, homeView, landingAfterJoin, landingFor, onboardingPath, orgLanding, projectHasData, sdkSetupPath } from "./landing";
 
 class Redirect extends Error {
   constructor(readonly location: string) {
@@ -61,12 +61,9 @@ function ctx(over: Partial<UserContext> = {}, prefs: UserContext["user"]["prefer
 }
 
 describe("landingFor", () => {
-  it("sends a user without an organization to onboarding, resuming the stored step", () => {
-    expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: null, completed: false } }))).toBe(
-      "/onboarding/about",
-    );
-    expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }))).toBe(
-      "/onboarding/join",
+  it("sends a user without an organization to Welcome", () => {
+    expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "welcome", completed: false } }))).toBe(
+      "/onboarding/welcome",
     );
   });
 
@@ -106,8 +103,8 @@ describe("landingFor", () => {
     expect(landingFor(ctx({}, { home: "exceptions" }), false)).toBe("/project/billing/settings/sdk");
     expect(landingFor(ctx({ last_project_slug: null }), false)).toBe("/project/shop/settings/sdk");
     // The rule never overrides onboarding.
-    expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }), false)).toBe(
-      "/onboarding/join",
+    expect(landingFor(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "welcome", completed: false } }), false)).toBe(
+      "/onboarding/welcome",
     );
   });
 
@@ -118,8 +115,8 @@ describe("landingFor", () => {
 
   it("an organization without projects resumes onboarding, or opens its projects page once onboarded", () => {
     const empty = { ...ACME, projects: [] };
-    expect(landingFor(ctx({ orgs: [empty], last_project_slug: null, onboarding: { step: "create", completed: false } }))).toBe(
-      "/onboarding/create",
+    expect(landingFor(ctx({ orgs: [empty], last_project_slug: null, onboarding: { step: "welcome", completed: false } }))).toBe(
+      "/onboarding/welcome",
     );
     expect(landingFor(ctx({ orgs: [empty], last_project_slug: null }))).toBe("/org/acme");
   });
@@ -139,7 +136,7 @@ describe("orgLanding (/org)", () => {
   });
 
   it("sends a user without an organization to onboarding", () => {
-    expect(orgLanding(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }))).toBe("/onboarding/join");
+    expect(orgLanding(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "welcome", completed: false } }))).toBe("/onboarding/welcome");
   });
 });
 
@@ -158,13 +155,24 @@ describe("projectHasData", () => {
   });
 });
 
-describe("onboardingPath", () => {
-  it.each(["about", "join", "create", "project"])("%s has a page", (step) => {
-    expect(onboardingPath(step)).toBe(`/onboarding/${step}`);
+describe("landingAfterJoin", () => {
+  const orgWith = (projects: string[]): ContextOrg => ({
+    ...ACME,
+    projects: projects.map((slug, i) => ({ id: `p${i}`, slug, name: slug, environments: ["production"], app_count: 0, role: "editor" as const })),
   });
 
-  it.each([null, undefined, "", "../evil", "instrument"])("%j falls back to the first step", (step) => {
-    expect(onboardingPath(step)).toBe("/onboarding/about");
+  it("opens the joined organization's first project", () => {
+    expect(landingAfterJoin(orgWith(["payments", "shop"]))).toBe("/project/payments/traffic");
+  });
+
+  it("opens the organization itself when it has no project", () => {
+    expect(landingAfterJoin(orgWith([]))).toBe("/org/acme");
+  });
+});
+
+describe("onboardingPath", () => {
+  it("is the Welcome page", () => {
+    expect(onboardingPath()).toBe("/onboarding/welcome");
   });
 });
 
@@ -183,8 +191,8 @@ describe("/ (app/page.tsx)", () => {
   });
 
   it("signed in without an organization → onboarding at the stored step", async () => {
-    getContext.mockResolvedValue(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "join", completed: false } }));
-    await expect(Home()).rejects.toEqual(new Redirect("/onboarding/join"));
+    getContext.mockResolvedValue(ctx({ orgs: [], last_project_slug: null, onboarding: { step: "welcome", completed: false } }));
+    await expect(Home()).rejects.toEqual(new Redirect("/onboarding/welcome"));
     expect(getContext).toHaveBeenCalledWith("/");
   });
 

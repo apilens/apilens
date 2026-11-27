@@ -101,7 +101,7 @@ describe("legacyRedirect", () => {
       "/auth/callback",
       "/auth/2fa",
       "/invite/tok",
-      "/onboarding/about",
+      "/onboarding/welcome",
       "/sign-in",
       "/sign-up",
       "/verify",

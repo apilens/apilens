@@ -1,17 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { ApiKey } from "./identity";
 import {
   APP_NAME_COMMENT,
-  DEFAULT_POSTURE,
   KEY_PLACEHOLDER,
-  POSTURES,
   type Posture,
   appIdFor,
   appNameNote,
-  installKeyError,
-  postureOf,
-  privacyDocsUrl,
-  savedKeyState,
   sdkBaseUrl,
   snippetsFor,
 } from "./install";
@@ -94,77 +87,12 @@ describe("snippetsFor: the key", () => {
   });
 });
 
-describe("savedKeyState", () => {
-  const ID = "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f";
-  const NOW = Date.parse("2026-11-04T12:00:00Z");
-  const key = (over: Partial<ApiKey> = {}): ApiKey => ({
-    id: ID,
-    name: "Onboarding",
-    prefix: "apl_live_0123",
-    scopes: ["ingest"],
-    can_create_apps: true,
-    app_ids: null,
-    apps_seen: [],
-    last_used_at: null,
-    created_at: "2026-11-04T11:00:00Z",
-    expires_at: null,
-    revoked_at: null,
-    environments: null,
-    last_used_ip: null,
-    last_used_sdk: null,
-    rate_limit_per_minute: null,
-    rotated_from: null,
-    rotated_to: null,
-    ...over,
-  });
-
-  it("is none when no key was saved", () => {
-    expect(savedKeyState(undefined, [key()], NOW)).toEqual({ state: "none" });
-  });
-
-  it("knows only the prefix of a key still in use", () => {
-    expect(savedKeyState(ID, [key()], NOW)).toEqual({ state: "active", prefix: "apl_live_0123" });
-    expect(savedKeyState(ID, [key({ expires_at: "2026-12-01T00:00:00Z" })], NOW)).toEqual({ state: "active", prefix: "apl_live_0123" });
-  });
-
-  it("is gone when the key was revoked, expired or deleted", () => {
-    expect(savedKeyState(ID, [key({ revoked_at: "2026-11-04T11:30:00Z" })], NOW)).toEqual({ state: "gone" });
-    expect(savedKeyState(ID, [key({ expires_at: "2026-11-04T11:59:59Z" })], NOW)).toEqual({ state: "gone" });
-    expect(savedKeyState(ID, [], NOW)).toEqual({ state: "gone" });
-  });
-
-  it("is unknown when the keys could not be listed", () => {
-    expect(savedKeyState(ID, null, NOW)).toEqual({ state: "unknown" });
-  });
-});
-
-describe("installKeyError", () => {
-  it("answers a sentence per code", () => {
-    expect(installKeyError("forbidden")).toContain("permission");
-    expect(installKeyError("unavailable")).toContain("reach APILens");
-    expect(installKeyError("whatever")).toBe("We couldn’t create your key. Try again in a moment.");
-  });
-});
-
 describe("capture posture (#601)", () => {
   const sdk = (language: string, posture?: Posture) =>
     snippetsFor({ ...base, language, posture })
       .map((s) => s.code)
       .join("\n---\n");
   const ALL: Posture[] = ["metadata", "redacted", "full"];
-
-  it("offers metadata, redacted and full, each with a one-line consequence, metadata by default", () => {
-    expect(POSTURES.map((p) => p.id)).toEqual(ALL);
-    for (const p of POSTURES) expect(p.consequence).not.toContain("\n");
-    expect(DEFAULT_POSTURE).toBe("metadata");
-  });
-
-  it("reads only known postures from ?capture=", () => {
-    expect(postureOf("redacted")).toBe("redacted");
-    expect(postureOf(["full", "metadata"])).toBe("full");
-    expect(postureOf("everything")).toBeUndefined();
-    expect(postureOf(undefined)).toBeUndefined();
-  });
 
   it.each(ALL)("Python sets capture_profile=%s, the starter redaction list and the env-var form", (posture) => {
     const out = sdk("python", posture);
@@ -198,10 +126,5 @@ describe("capture posture (#601)", () => {
     expect(sdk("python")).toContain('capture_profile="metadata"');
     expect(sdk("node")).toContain('captureProfile: "metadata"');
     expect(sdk("java")).toContain("apilens.capture-profile=metadata");
-  });
-
-  it("links the docs' data privacy page at its capture profiles", () => {
-    expect(privacyDocsUrl("https://apilens.ai/docs")).toBe("https://apilens.ai/docs/getting-started/data-privacy#capture-profiles");
-    expect(privacyDocsUrl("https://docs.example.com/")).toBe("https://docs.example.com/getting-started/data-privacy#capture-profiles");
   });
 });

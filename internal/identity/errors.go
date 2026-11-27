@@ -75,6 +75,9 @@ const (
 	// CodeInviteEmailMismatch: the signed-in user's email differs from the
 	// address the invitation was sent to.
 	CodeInviteEmailMismatch ErrCode = "invite_email_mismatch"
+	// CodeInvitationNotPending: the signed-in user's own invitation was
+	// already accepted, was revoked or has expired.
+	CodeInvitationNotPending ErrCode = "invitation_not_pending"
 	// CodeOwnerTransferRequired: the user is the only owner of an
 	// organization and must transfer ownership before deleting the account.
 	CodeOwnerTransferRequired ErrCode = "owner_transfer_required"
@@ -204,6 +207,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeOAuthIdentityGone:     {http.StatusGone, "Connected account removed", "The connected account was already removed or is not on this account."},
 	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
 	CodeInviteEmailMismatch:   {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
+	CodeInvitationNotPending:  {http.StatusConflict, "Invitation not pending", "The invitation was already accepted, revoked or has expired."},
 	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},
 	CodeAlreadyEnabled:        {http.StatusConflict, "Already enabled", "Two-factor authentication is already enabled."},
 	CodeNotEnabled:            {http.StatusConflict, "Not enabled", "Two-factor authentication is not enabled."},

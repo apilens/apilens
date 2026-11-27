@@ -34,8 +34,8 @@ describe("verifyEmailCode", () => {
   });
 
   it("signs in to the server's next, never off-origin", async () => {
-    const ok = vi.fn<typeof fetch>(async () => json(200, { ok: true, next: "/onboarding/about" }));
-    expect(await verifyEmailCode(input, ok)).toEqual({ kind: "signed_in", next: "/onboarding/about" });
+    const ok = vi.fn<typeof fetch>(async () => json(200, { ok: true, next: "/onboarding/welcome" }));
+    expect(await verifyEmailCode(input, ok)).toEqual({ kind: "signed_in", next: "/onboarding/welcome" });
     const evil = vi.fn<typeof fetch>(async () => json(200, { ok: true, next: "//evil.example" }));
     expect(await verifyEmailCode({ ...input, next: "/orgs" }, evil)).toEqual({ kind: "signed_in", next: "/orgs" });
     const none = vi.fn<typeof fetch>(async () => json(200, { ok: true }));

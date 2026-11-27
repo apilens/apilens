@@ -50,7 +50,10 @@
 //   GET  /api/v1/projects/slug-available?slug=     shop, storefront, admin and created project slugs are
 //                                                  taken (with free suggestions); `race-lost` is available
 //   POST /api/v1/orgs/{slug}/projects              creates a project in an org the user belongs to (in their
-//                                                  context; viewers 403); slug_taken as for orgs (#331)
+//                                                  context; viewers 403); slug_taken as for orgs (#331).
+//                                                  In the organization `project-fails` it answers 500, and
+//                                                  in `every-address-taken` slug_taken for every address,
+//                                                  its own suggestion included
 //   POST /api/v1/users/me/email/change            `taken@example.com` answers email_taken
 //   POST /api/v1/users/me/email/confirm            code 123456 moves the email, anything else invalid_code
 //   DELETE /api/v1/users/me                        owner_transfer_required while the user is acme's only owner
@@ -69,7 +72,7 @@
 //                                                  digits), spaces and hyphens ignored, for an address that
 //                                                  called email/start in the last 15 minutes. Answers the
 //                                                  session bundle (next: the start's `next`, else
-//                                                  /onboarding/about); the Next.js Route Handler sets the
+//                                                  /onboarding/welcome); the Next.js Route Handler sets the
 //                                                  cookie. Single use; invalid_code (400) for a wrong code or
 //                                                  no outstanding code, code_expired (400), and the fifth
 //                                                  wrong code answers too_many_attempts (429) until a new
@@ -252,7 +255,7 @@
 //                                                  unless seeded; POST answers 422 for a private address
 //   POST /__fake/health-checks {checks, events?}   test hook: replaces shop's health checks and, by
 //                                                  check id, their failures
-//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?, extra?}
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?, extra?, invitations?, no_orgs?}
 //                                                  `extra: {members?, invitations?, sessions?}` adds that many
 //                                                  numbered @example.com rows to each list (paging tests);
 //                                                  test hook: a code whose bundle carries any `next`;
@@ -267,7 +270,16 @@
 //                                                  answer reauth_required until /auth/reauth/verify;
 //                                                  `joinable` [{slug, name, member_initials?, member_count?,
 //                                                  projects?: [slug]}] seeds the orgs they may join (#329);
-//                                                  `orgs` [{slug, name}] seeds orgs they own (#802)
+//                                                  `orgs` [{slug, name}] seeds orgs they own (#802);
+//                                                  `invitations` [{org_slug, org_name?, role?,
+//                                                  invited_by_name?, projects?: [slug]}] seeds the invitations
+//                                                  waiting for their address; `no_orgs` gives them no
+//                                                  organization at all, as a first sign-in has
+//   GET  /__fake/orgs-created                      test hook: the slugs of the organizations `POST /orgs` made,
+//                                                  seeded `orgs` included
+//   POST /__fake/invitations {id, state}          test hook: "revoked" drops that invitation (accepting it
+//                                                  then answers 404), anything else marks it accepted
+//                                                  (409 invitation_not_pending), as if done elsewhere
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //   GET  /api/v1/auth/invitations/{token}          invitation landing (#337): inv_globex (for
 //                                                  you@example.com), inv_other (another address),
@@ -278,6 +290,11 @@
 //                                                  invite_email_mismatch for inv_other
 //   GET  /api/v1/users/me/joinable-orgs            the organizations seeded as `joinable` for the user (#329),
 //                                                  minus those joined; none unless seeded
+//   GET  /api/v1/users/me/invitations              the invitations seeded as `invitations` for the user, minus
+//                                                  the accepted ones; none unless seeded
+//   POST /api/v1/users/me/invitations/{id}/accept  joins that invitation's organization with its projects
+//                                                  (it then shows in the context); 404 not_found for an
+//                                                  unknown id, 409 invitation_not_pending once accepted
 //   POST /api/v1/orgs/{slug}/join                  joins a seeded joinable org as a member (it then shows in
 //                                                  the context with its projects); 403 forbidden otherwise
 //   GET|PATCH|DELETE /api/v1/projects/shop         project settings (#805): the project; PATCH {name,
@@ -1089,6 +1106,10 @@ interface Seeds {
   joinable?: Record<string, unknown>[];
   /** Organizations the user owns, as if created through `POST /orgs` (#802). */
   orgs?: { slug: string; name: string }[];
+  /** Invitations waiting for the user's address, as Welcome lists them. */
+  invitations?: Record<string, unknown>[];
+  /** A brand-new user: no acme, no shop, as a first sign-in really is (the Welcome screen). */
+  noOrgs?: boolean;
 }
 
 /** An organization a fake user may join by verified email domain (#329). */
@@ -1103,6 +1124,50 @@ interface FakeJoinable {
 /** User id → the organizations they may join; user id → the slugs they joined. */
 const joinableByUser = new Map<string, FakeJoinable[]>();
 const joinedByUser = new Map<string, Set<string>>();
+
+/** A pending invitation to a fake user's own address, as `GET /users/me/invitations` lists it. */
+interface MyInvite {
+  id: string;
+  org_slug: string;
+  org_name: string;
+  role: string;
+  invited_by_name: string;
+  expires_at: string;
+  /** The organization's projects, once the invitation is accepted. */
+  projects: string[];
+  accepted: boolean;
+}
+/** User id → the invitations waiting for their address. */
+const myInvitesByUser = new Map<string, MyInvite[]>();
+/** Users seeded without an organization: a first sign-in, before Welcome. */
+const noOrgsUsers = new Set<string>();
+
+function seedMyInvite(input: Record<string, unknown>): MyInvite {
+  const slug = String(input.org_slug ?? "globex");
+  return {
+    id: typeof input.id === "string" ? input.id : randomUUID(),
+    org_slug: slug,
+    org_name: String(input.org_name ?? slug),
+    role: String(input.role ?? "member"),
+    invited_by_name: String(input.invited_by_name ?? "Olive Owner"),
+    expires_at: String(input.expires_at ?? new Date(Date.now() + 7 * 86_400_000).toISOString()),
+    projects: Array.isArray(input.projects) ? input.projects.map(String) : [],
+    accepted: false,
+  };
+}
+
+/** The organizations `id` joined by accepting an invitation, as the context lists them. */
+function invitedOrgsOf(id: string) {
+  const bySlug = new Map<string, MyInvite>();
+  for (const inv of myInvitesByUser.get(id) ?? []) if (inv.accepted) bySlug.set(inv.org_slug, inv);
+  return [...bySlug.values()].map((inv) => ({
+    id: `org_${inv.org_slug}`,
+    slug: inv.org_slug,
+    name: inv.org_name,
+    role: inv.role,
+    projects: inv.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"], app_count: 1, role: "editor" })),
+  }));
+}
 
 function seedJoinable(input: Record<string, unknown>): FakeJoinable {
   const slug = String(input.slug);
@@ -1188,6 +1253,8 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   apiKeys.set(id, seeds.apiKeys === "measured" ? measuredKeys() : (seeds.apiKeys ?? []).map(seedApiKey));
   if (seeds.sso) ssoByUser.set(id, ssoConnection(seeds.sso));
   joinableByUser.set(id, (seeds.joinable ?? []).map(seedJoinable));
+  myInvitesByUser.set(id, (seeds.invitations ?? []).map(seedMyInvite));
+  if (seeds.noOrgs) noOrgsUsers.add(id);
   for (const o of seeds.orgs ?? []) createdOrgs.set(o.slug, { id: `org_${randomUUID()}`, slug: o.slug, name: o.name, role: "owner", owner: id });
   return {
     access_token: access,
@@ -1214,14 +1281,9 @@ const profile = { ...PROFILE_DEFAULTS, pendingEmail: null as string | null };
 /** Each fake user's saved onboarding progress (#327): the step, answers and whether it is done. */
 const onboardingByUser = new Map<string, { step: string | null; completed: boolean; answers: Record<string, unknown> }>();
 const onboardingOf = (id: string) => onboardingByUser.get(id) ?? { step: null, completed: false, answers: {} };
-const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
+const ONBOARDING_ANSWERS: Record<string, RegExp> = {
   org_slug: /^([a-z0-9][a-z0-9-]{0,62})?$/,
   project_slug: /^([a-z0-9][a-z0-9-]{0,62})?$/,
-  language: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
-  runtime: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
-  method: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
-  invited: "count",
-  api_key_id: /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/,
 };
 
 /** Invitations by token (#337); every address is @example.com. */
@@ -1259,6 +1321,10 @@ const ORG_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const TAKEN_ORG_SLUGS = new Set(["acme", "beta", "globex", "admin", "apilens"]);
 /** Answers available to the check but slug_taken to the create: someone took it in between. */
 const RACE_SLUG = "race-lost";
+/** An organization whose `POST /orgs/{org}/projects` always answers 500, for the failed-project path. */
+const PROJECT_FAIL_ORG = "project-fails";
+/** An organization where every project address is taken, suggestions included: the retry fails too. */
+const PROJECT_TAKEN_ORG = "every-address-taken";
 const orgSlugTaken = (slug: string) => TAKEN_ORG_SLUGS.has(slug) || createdOrgs.has(slug) || slug === RACE_SLUG;
 const orgSlugSuggestions = (slug: string) => [`${slug}-hq`, `${slug}-2`, `${slug}-team`].filter((s) => !orgSlugTaken(s));
 /** Projects created through `POST /orgs/{slug}/projects` (#331), by slug. */
@@ -1304,18 +1370,23 @@ function context(id: string) {
       created_at: new Date().toISOString(),
     },
     orgs: [
-      {
-        id: "org_fake",
-        slug: "acme",
-        name: "Acme",
-        role,
-        projects: [...shopInContext(id), ...createdProjectsOf(id, "acme")],
-      },
+      ...(noOrgsUsers.has(id)
+        ? []
+        : [
+            {
+              id: "org_fake",
+              slug: "acme",
+              name: "Acme",
+              role,
+              projects: [...shopInContext(id), ...createdProjectsOf(id, "acme")],
+            },
+          ]),
       ...(joinedGlobex.has(id) ? [globexOf(id)] : []),
       ...createdOrgsOf(id),
       ...joinedOrgs(id),
+      ...invitedOrgsOf(id),
     ],
-    last_project_slug: "shop",
+    last_project_slug: noOrgsUsers.has(id) ? null : "shop",
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
     onboarding: { step: progress.step, completed: progress.completed },
     capabilities: {
@@ -1323,6 +1394,7 @@ function context(id: string) {
       ...(joinedGlobex.has(id) ? { storefront: capabilitiesFor("member") } : {}),
       ...(joinedCheckout.has(id) ? { checkout: capabilitiesFor("viewer") } : {}),
       ...Object.fromEntries(joinedOrgs(id).flatMap((o) => o.projects.map((p) => [p.slug, capabilitiesFor("member")]))),
+      ...Object.fromEntries(invitedOrgsOf(id).flatMap((o) => o.projects.map((p) => [p.slug, capabilitiesFor("member")]))),
     },
   };
 }
@@ -1507,7 +1579,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     emailCodes.delete(addr);
     // Every fake sign-in is a new user: with no `next`, onboarding, as identity does for a first sign-in.
-    const b = bundle(pending.next || "/onboarding/about");
+    const b = bundle(pending.next || "/onboarding/welcome");
     totps.set(b.access_token, { pending: null, secret: null, confirmedAt: null, backupCodes: new Set(), stale: false });
     return send(res, 200, b);
   }
@@ -1596,7 +1668,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return redirect(res, back.href);
     }
     // Every fake sign-in is a new user: identity sends them to onboarding unless `next` says otherwise.
-    const code = issueHandoff(st.next === "/" ? "/onboarding/about" : st.next);
+    const code = issueHandoff(st.next === "/" ? "/onboarding/welcome" : st.next);
     // Like identity, the handoff echoes the remember choice of the start URL.
     Object.assign(handoffs.get(code) as object, { remember: st.remember });
     return redirect(res, `${UI_URL}/auth/callback?${new URLSearchParams({ code })}`);
@@ -1698,6 +1770,28 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         })),
     );
   }
+  if (req.method === "GET" && path === "/api/v1/users/me/invitations") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    return send(
+      res,
+      200,
+      (myInvitesByUser.get(user) ?? [])
+        .filter((i) => !i.accepted)
+        .map(({ id, org_slug, org_name, role, invited_by_name, expires_at }) => ({ id, org_slug, org_name, role, invited_by_name, expires_at })),
+    );
+  }
+  const acceptMine = req.method === "POST" ? path.match(/^\/api\/v1\/users\/me\/invitations\/([^/]+)\/accept$/) : null;
+  if (acceptMine) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const inv = (myInvitesByUser.get(user) ?? []).find((i) => i.id === decodeURIComponent(acceptMine[1]));
+    // An invitation to another address, or none, is not found; one already used is not pending.
+    if (!inv) return problem(res, 404, "not_found");
+    if (inv.accepted) return problem(res, 409, "invitation_not_pending");
+    inv.accepted = true;
+    return send(res, 200, { id: `org_${inv.org_slug}`, slug: inv.org_slug, name: inv.org_name, role: inv.role, created_at: new Date().toISOString() });
+  }
   const joinPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/join$/);
   if (req.method === "POST" && joinPath) {
     const user = signedInUser(req);
@@ -1722,7 +1816,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       !Array.isArray(answers) &&
       Object.entries(answers).every(([k, v]) => {
         const rule = ONBOARDING_ANSWERS[k];
-        if (rule === "count") return Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1000;
         return rule !== undefined && typeof v === "string" && rule.test(v);
       });
     if (!valid) return problem(res, 422, "invalid_request");
@@ -1817,6 +1910,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!user) return problem(res, 401, "unauthenticated");
     const org = context(user).orgs.find((o) => o.slug === orgProjects[1]);
     if (!org || org.role === "viewer") return problem(res, 403, "forbidden");
+    if (org.slug === PROJECT_FAIL_ORG) return problem(res, 500, "internal_error");
+    if (org.slug === PROJECT_TAKEN_ORG) {
+      return send(res, 409, { status: 409, title: "slug_taken", code: "slug_taken", suggestions: ["first-free"] }, "application/problem+json");
+    }
     const { name, slug, environments = ["production"] } = await readBody(req);
     const label = typeof name === "string" ? name.trim() : "";
     const envs = Array.isArray(environments) ? [...new Set(environments)] : null;
@@ -2471,6 +2568,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     forgetSettings(String(b.method).toUpperCase(), String(b.path));
     return send(res, 204);
   }
+  if (req.method === "GET" && path === "/__fake/orgs-created") return send(res, 200, { orgs: [...createdOrgs.keys()] });
   if (req.method === "GET" && path === "/__fake/endpoint-reads") return send(res, 200, { reads: endpointReads });
   // An endpoint's settings for an app (#593): the defaults until saved; saving needs `capture.manage`.
   const settingsPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/endpoints\/([^/]+)\/([^/]+)\/settings$/);
@@ -3138,6 +3236,18 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return identities.length < before ? send(res, 204) : problem(res, 410, "oauth_identity_gone");
     }
   }
+  if (req.method === "POST" && path === "/__fake/invitations") {
+    // What someone else does to an invitation while Welcome is open: accepting it elsewhere, or
+    // revoking it. Either way the card on the screen is stale.
+    const { id, state } = await readBody(req);
+    for (const list of myInvitesByUser.values()) {
+      const at = list.findIndex((inv) => inv.id === id);
+      if (at < 0) continue;
+      if (state === "revoked") list.splice(at, 1);
+      else list[at].accepted = true;
+    }
+    return send(res, 200, { ok: true });
+  }
   if (req.method === "POST" && path === "/__fake/identities") {
     const body = await readBody(req);
     identities = Array.isArray(body.identities) ? (body.identities as Identity[]) : [];
@@ -3251,6 +3361,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       joinable,
       extra,
       orgs: seedOrgs,
+      invitations: seedInvites,
+      no_orgs: noOrgs,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded: Seeds = {
@@ -3261,6 +3373,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
       extra: typeof extra === "object" && extra !== null && !Array.isArray(extra) ? (extra as Seeds["extra"]) : undefined,
       orgs: Array.isArray(seedOrgs) ? (seedOrgs as { slug: string; name: string }[]) : [],
+      invitations: Array.isArray(seedInvites) ? (seedInvites as Record<string, unknown>[]) : [],
+      noOrgs: noOrgs === true,
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);

@@ -15,7 +15,7 @@ export default async function NewOrganizationPage() {
   // Someone with no organization at all belongs in onboarding, which creates
   // their first one; onboarding stays "not completed" for plenty of users who
   // are long past it, so having one is the test that matters.
-  if (context.orgs.length === 0) redirect(onboardingPath(context.onboarding?.step));
+  if (context.orgs.length === 0) redirect(onboardingPath());
   const owned = context.orgs.filter((o) => o.role === "owner").map((o) => o.slug);
   return (
     <AppShell context={context} account view="organizations">

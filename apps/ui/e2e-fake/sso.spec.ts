@@ -146,7 +146,7 @@ test("sign-up: an enforced domain replaces Continue with the org's SSO and sends
   await page.getByRole("link", { name: "Sign in" }).click();
   // An SSO user is already a member: they land in the app, not in onboarding.
   await page.waitForURL((url) => url.pathname !== "/sign-up" && !url.pathname.startsWith("/auth/"));
-  expect(new URL(page.url()).pathname).not.toBe("/onboarding/about");
+  expect(new URL(page.url()).pathname).not.toBe("/onboarding/welcome");
   expect(await sessionCookie(page)).toBeTruthy();
   expect(emailStarts).toHaveLength(0);
 });

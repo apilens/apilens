@@ -22,7 +22,7 @@ test("the organization menu leads to the create page, which creates one", async 
   await page.waitForURL((url) => url.pathname === "/organizations/new");
 
   await page.getByLabel("Organization name").fill("Side Project Labs");
-  await expect(page.getByText("side-project-labs")).toBeVisible();
+  await expect(page.getByLabel("Address")).toHaveValue("side-project-labs");
   const create = page.getByRole("button", { name: "Create organization" });
   await expect(create).toBeEnabled();
   await create.click();
@@ -49,7 +49,7 @@ test("the project menu leads to the create page, which creates one and opens it"
   await page.waitForURL((url) => url.pathname === "/org/acme/projects/new");
 
   await page.getByLabel("Project name").fill("Payments Service");
-  await expect(page.getByText("payments-service")).toBeVisible();
+  await expect(page.getByLabel("Address")).toHaveValue("payments-service");
   await expect(page.getByRole("listitem").filter({ hasText: "production" })).toBeVisible();
   const create = page.getByRole("button", { name: "Create project" });
   await expect(create).toBeEnabled();
@@ -61,7 +61,7 @@ test("the project menu leads to the create page, which creates one and opens it"
 test("an address another project holds is reported on the field", async ({ page }) => {
   await signIn(page, "/org/acme/projects/new");
   await page.getByLabel("Project name").fill("Shop");
-  await expect(page.getByText(/taken/)).toBeVisible();
+  await expect(page.getByText(/taken/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Create project" })).toBeDisabled();
 });
 

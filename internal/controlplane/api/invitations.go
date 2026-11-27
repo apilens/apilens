@@ -25,6 +25,10 @@ const (
 	// ProjectInvitationsPath lists the pending invitations that carry a
 	// role on a project.
 	ProjectInvitationsPath = ProjectPath + "/invitations"
+	// MyInvitationsPath lists the pending invitations to the signed-in
+	// user's verified address.
+	MyInvitationsPath      = server.APIPrefix + "/users/me/invitations"
+	AcceptMyInvitationPath = MyInvitationsPath + "/{id}/accept"
 )
 
 // InvitationService creates, lists, resends and revokes invitations;
@@ -35,6 +39,8 @@ type InvitationService interface {
 	ProjectPending(ctx context.Context, project uuid.UUID) ([]orgs.Invitation, error)
 	Resend(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) (orgs.Invitation, error)
 	Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error
+	Mine(ctx context.Context, user uuid.UUID) ([]orgs.MyInvitation, error)
+	AcceptMine(ctx context.Context, user, id uuid.UUID) (orgs.AcceptedInvitation, error)
 }
 
 // Inviter is the user who sent an invitation.
@@ -62,6 +68,16 @@ type Invitation struct {
 	CreatedAt     time.Time                `json:"created_at"`
 	ExpiresAt     time.Time                `json:"expires_at" doc:"When the emailed link stops working. A pending invitation past it can still be resent."`
 	ResentAt      *time.Time               `json:"resent_at" required:"true" nullable:"true" doc:"When the invitation was last resent; null if never."`
+}
+
+// MyInvitation is a pending invitation to the signed-in user's address.
+type MyInvitation struct {
+	ID            string    `json:"id" format:"uuid"`
+	OrgSlug       string    `json:"org_slug"`
+	OrgName       string    `json:"org_name"`
+	Role          string    `json:"role" enum:"admin,member,viewer" doc:"The role the user joins with."`
+	InvitedByName string    `json:"invited_by_name" doc:"Who sent the invitation (their name, or email when they have none); empty once their account is gone."`
+	ExpiresAt     time.Time `json:"expires_at"`
 }
 
 // InviteEntry is one address to invite.
@@ -111,6 +127,23 @@ type ListInvitationsOutput struct {
 type InvitationInput struct {
 	OrgSlugInput
 	ID string `path:"id" format:"uuid" doc:"The invitation id."`
+}
+
+// ListMyInvitationsOutput is the response of GET
+// /api/v1/users/me/invitations.
+type ListMyInvitationsOutput struct {
+	Body []MyInvitation
+}
+
+// MyInvitationInput names one of the signed-in user's invitations.
+type MyInvitationInput struct {
+	ID string `path:"id" format:"uuid" doc:"The invitation id."`
+}
+
+// AcceptMyInvitationOutput is the response of POST
+// /api/v1/users/me/invitations/{id}/accept.
+type AcceptMyInvitationOutput struct {
+	Body Org
 }
 
 // InvitationOutput is the response of POST
@@ -179,6 +212,27 @@ func (h *Invitations) Register(api huma.API) {
 	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), h.listProject)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "list-my-invitations",
+		Method:      http.MethodGet,
+		Path:        MyInvitationsPath,
+		Summary:     "List my invitations",
+		Description: "Lists the pending, unexpired invitations to the signed-in user's verified email address, newest first. An unverified email has none.",
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+	}, identity.CodeUnauthenticated, identity.CodeSessionExpired, identity.CodeInternal), h.listMine)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "accept-my-invitation",
+		Method:      http.MethodPost,
+		Path:        AcceptMyInvitationPath,
+		Summary:     "Accept one of my invitations",
+		Description: "Accepts the invitation like the emailed link does (membership, project roles and audit) and returns the organization with the user's role. " +
+			"An invitation to another address, or none, answers 404 `not_found`; one of the user's own that was already accepted, revoked or has expired answers 409 `invitation_not_pending`.",
+		Tags:     []string{server.TagOrganizations},
+		Security: security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeSessionExpired, identity.CodeNotFound, identity.CodeInvitationNotPending, identity.CodeInternal), h.acceptMine)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "resend-org-invitation",
 		Method:      http.MethodPost,
 		Path:        ResendInvitationPath,
@@ -213,6 +267,57 @@ func (h *Invitations) problem(ctx context.Context, op string, err error) error {
 		return identity.ErrRetryAfter(identity.CodeRateLimited, cooldown.RetryAfter)
 	case errors.Is(err, orgs.ErrInvalid):
 		return identity.Err(identity.CodeInvalidRequest)
+	default:
+		h.logger.ErrorContext(ctx, op, "error", err)
+		return identity.Err(identity.CodeInternal)
+	}
+}
+
+func (h *Invitations) listMine(ctx context.Context, _ *struct{}) (*ListMyInvitationsOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := h.svc.Mine(ctx, uid)
+	if err != nil {
+		return nil, h.mineProblem(ctx, "list my invitations", err)
+	}
+	out := &ListMyInvitationsOutput{Body: make([]MyInvitation, 0, len(list))}
+	for _, m := range list {
+		out.Body = append(out.Body, MyInvitation{
+			ID: m.ID.String(), OrgSlug: m.OrgSlug, OrgName: m.OrgName, Role: m.Role,
+			InvitedByName: m.InviterName, ExpiresAt: m.ExpiresAt.UTC(),
+		})
+	}
+	return out, nil
+}
+
+func (h *Invitations) acceptMine(ctx context.Context, in *MyInvitationInput) (*AcceptMyInvitationOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, identity.Err(identity.CodeInvalidRequest)
+	}
+	a, err := h.svc.AcceptMine(ctx, uid, id)
+	if err != nil {
+		return nil, h.mineProblem(ctx, "accept my invitation", err)
+	}
+	return &AcceptMyInvitationOutput{Body: toOrg(a.Org)}, nil
+}
+
+// mineProblem maps an error of the signed-in user's own invitations to a
+// problem.
+func (h *Invitations) mineProblem(ctx context.Context, op string, err error) error {
+	switch {
+	case errors.Is(err, orgs.ErrInvitationNotFound):
+		return identity.Err(identity.CodeNotFound)
+	case errors.Is(err, orgs.ErrInvitationNotPending):
+		return identity.Err(identity.CodeInvitationNotPending)
+	case errors.Is(err, orgs.ErrUserGone):
+		return identity.Err(identity.CodeSessionExpired)
 	default:
 		h.logger.ErrorContext(ctx, op, "error", err)
 		return identity.Err(identity.CodeInternal)

@@ -122,8 +122,6 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
           alert · error rate <b>31%</b>
         </>
       }
-      progress={0}
-      step={0}
       badge="user"
       title="Create your APILens account"
       lead="Free for 3 services. No card needed."

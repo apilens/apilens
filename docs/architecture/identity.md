@@ -594,13 +594,15 @@ Served by the identity role and authenticated with the session scheme
   Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
 - `PATCH /api/v1/users/me/onboarding` (`internal/identity/onboarding.go`)
-  saves onboarding progress so a refresh resumes: `step` replaces the stored
-  step, `answers` (`org_slug`, `project_slug`, `language`, `runtime`,
-  `method`, `invited`; other keys fail validation) is merged key by key into
+  saves onboarding progress: `step` replaces the stored step, `answers`
+  (`org_slug`, `project_slug`; other keys fail validation) is merged key by key into
   the stored `answers`, and `completed: true` stamps `completed_at` once
   (`false` reopens onboarding). The merge is one `UPDATE`, so concurrent saves
   never drop each other's answers. It returns
-  `{step, completed, completed_at, answers}`.
+  `{step, completed, completed_at, answers}`. The dashboard has one onboarding
+  screen, Welcome (`/onboarding/welcome`): the stored step is `welcome` until
+  it finishes onboarding (`done`, with `completed: true`); the dashboard
+  saves no other step.
 - `DELETE` soft-deletes the account: it is hidden at once (the email can sign
   up again), every session is revoked (reason `user_deleted`) and
   `delete_after` is set 30 days out, after which a purge job removes the row.
@@ -775,7 +777,8 @@ needs: `user` (the `/users/me` body), `orgs` (each with the user's `role` and
 the projects they can view, each with its environments and the user's
 effective project `role`), `last_project_slug` (the preference,
 or null when the user can no longer see that project), `onboarding`
-(`{step, completed}` read from the stored onboarding object) and
+(`{step, completed}` read from the stored onboarding object, `step` being
+`welcome` or `done`) and
 `capabilities`. It is four indexed queries in one read-only snapshot plus one
 SpiceDB `CheckBulkPermissions` call whatever the number of organizations and
 projects (under 50 ms for 10 × 10, asserted by an integration test).
@@ -897,6 +900,7 @@ Rules:
 | `oauth_identity_gone` | 410 Gone | This account was already disconnected. Refresh the page. |
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |
 | `invite_email_mismatch` | 403 Forbidden | This invitation was sent to a different email address. Sign in with that address. |
+| `invitation_not_pending` | 409 Conflict | This invitation was already accepted, revoked or has expired. |
 | `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |
 | `already_enabled` | 409 Conflict | Two-factor authentication is already on. |
 | `not_enabled` | 409 Conflict | Two-factor authentication is off. |

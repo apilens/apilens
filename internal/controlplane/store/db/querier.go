@@ -157,6 +157,8 @@ type Querier interface {
 	// pgx.ErrNoRows when the event is not a health check event or was deleted.
 	GetHealthCheckEventNotification(ctx context.Context, id uuid.UUID) (GetHealthCheckEventNotificationRow, error)
 	GetInvitation(ctx context.Context, arg GetInvitationParams) (Invitation, error)
+	// As GetInvitationByTokenHash, by id.
+	GetInvitationByID(ctx context.Context, id uuid.UUID) (GetInvitationByIDRow, error)
 	// Returns the row whatever its state, with its organization, so the caller
 	// can tell a pending invitation from an accepted, revoked or expired one.
 	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (GetInvitationByTokenHashRow, error)
@@ -293,6 +295,10 @@ type Querier interface {
 	// Which of the given projects are paused, since when and by whom.
 	ListPausedProjects(ctx context.Context, ids []uuid.UUID) ([]ListPausedProjectsRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
+	// The pending, unexpired invitations to an address (any letter case), newest
+	// first, with the organization and the inviting user's name and email (NULL
+	// when the inviter's account is gone).
+	ListPendingInvitationsForEmail(ctx context.Context, email string) ([]ListPendingInvitationsForEmailRow, error)
 	// ListPendingInvitations with the inviting user's email and name (NULL when
 	// the inviter's account is gone).
 	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)

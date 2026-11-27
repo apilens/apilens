@@ -48,24 +48,23 @@ func TestOnboardingPatch(t *testing.T) {
 
 	// Answers merge key by key: earlier ones survive.
 	code, got = patch(map[string]any{"step": "install", "answers": map[string]any{
-		"project_slug": "checkout", "language": "python", "runtime": "fastapi", "method": "sdk",
+		"project_slug": "checkout",
 	}})
 	if code != http.StatusOK || *got.Step != "install" || got.Answers.OrgSlug == nil || *got.Answers.OrgSlug != "acme" ||
-		*got.Answers.ProjectSlug != "checkout" || *got.Answers.Language != "python" || *got.Answers.Runtime != "fastapi" || *got.Answers.Method != "sdk" {
+		*got.Answers.ProjectSlug != "checkout" {
 		t.Fatalf("second patch = %d %+v", code, got)
 	}
 
 	// Answers alone leave the step; a changed answer replaces the old one.
-	code, got = patch(map[string]any{"answers": map[string]any{"language": "go", "invited": 3}})
-	if code != http.StatusOK || *got.Step != "install" || *got.Answers.Language != "go" || got.Answers.Invited == nil || *got.Answers.Invited != 3 {
+	code, got = patch(map[string]any{"answers": map[string]any{"project_slug": "billing"}})
+	if code != http.StatusOK || *got.Step != "install" || *got.Answers.ProjectSlug != "billing" {
 		t.Fatalf("answers-only patch = %d %+v", code, got)
 	}
 
 	// Concurrent patches of different answers lose nothing.
 	var wg sync.WaitGroup
 	for _, body := range []map[string]any{
-		{"answers": map[string]any{"runtime": "gin"}},
-		{"answers": map[string]any{"method": "otel"}},
+		{"answers": map[string]any{"project_slug": "gin"}},
 		{"step": "waiting"},
 	} {
 		wg.Add(1)
@@ -78,7 +77,7 @@ func TestOnboardingPatch(t *testing.T) {
 	}
 	wg.Wait()
 	answers, _ := stored()["answers"].(map[string]any)
-	if stored()["step"] != "waiting" || answers["runtime"] != "gin" || answers["method"] != "otel" || answers["org_slug"] != "acme" {
+	if stored()["step"] != "waiting" || answers["project_slug"] != "gin" || answers["org_slug"] != "acme" {
 		t.Fatalf("after concurrent patches: %v", stored())
 	}
 
@@ -111,9 +110,8 @@ func TestOnboardingPatch(t *testing.T) {
 		"unknown answer":    map[string]any{"answers": map[string]any{"email": "x@example.com"}},
 		"bad step":          map[string]any{"step": "Not A Step"},
 		"bad org slug":      map[string]any{"answers": map[string]any{"org_slug": "Acme Inc"}},
-		"bad language":      map[string]any{"answers": map[string]any{"language": "Py thon"}},
-		"negative invited":  map[string]any{"answers": map[string]any{"invited": -1}},
-		"fraction invited":  map[string]any{"answers": map[string]any{"invited": 1.5}},
+		"removed language":  map[string]any{"answers": map[string]any{"language": "python"}},
+		"removed invited":   map[string]any{"answers": map[string]any{"invited": 3}},
 		"string completed":  map[string]any{"completed": "yes"},
 		"answers not a map": map[string]any{"answers": "acme"},
 	} {
@@ -138,12 +136,12 @@ func TestOnboardingPatch(t *testing.T) {
 func TestOnboardingPatchKeepsDefaultStep(t *testing.T) {
 	f := setupMe(t)
 	u, auth := f.signIn(t, "fresh@example.com")
-	if _, err := f.pool.Exec(f.ctx, `UPDATE users SET onboarding = '{"step":"about"}' WHERE id = $1`, u.ID); err != nil {
+	if _, err := f.pool.Exec(f.ctx, `UPDATE users SET onboarding = '{"step":"welcome"}' WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	resp := f.api.Patch(OnboardingPath, auth, map[string]any{"answers": map[string]any{"org_slug": "acme"}})
 	var got Onboarding
-	if resp.Code != http.StatusOK || json.Unmarshal(resp.Body.Bytes(), &got) != nil || got.Step == nil || *got.Step != users.OnboardingStepAbout {
+	if resp.Code != http.StatusOK || json.Unmarshal(resp.Body.Bytes(), &got) != nil || got.Step == nil || *got.Step != users.OnboardingStepWelcome {
 		t.Fatalf("patch = %d %s", resp.Code, resp.Body.String())
 	}
 }

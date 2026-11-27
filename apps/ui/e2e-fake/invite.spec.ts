@@ -2,12 +2,12 @@
 // `inv_globex` invites you@example.com (the fake user) to Globex, whose one project is
 // `storefront`; `inv_other` invites another @example.com address; `inv_expired` has expired.
 // Both ways in are covered: a new account (sign up) and a device that remembers an account
-// (sign in). Invited users skip the organization and project steps after "about".
+// (sign in). An invited user lands on Welcome, which offers the organization they just joined.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
 const INVITE = "/invite/inv_globex";
-const ABOUT = "What should you see first?";
+const WELCOME = "Welcome to APILens";
 
 function githubButton(page: Page) {
   return page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ });
@@ -28,20 +28,19 @@ async function signIn(page: Page, next: string) {
   await page.waitForURL((url) => url.pathname === next);
 }
 
-/** After accepting: about (Account step), then straight into Globex's project. */
+/** After accepting: Welcome, which offers the organization just joined, then its project. */
 async function finishAsInvited(page: Page) {
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
-  await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
-  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Account");
+  await page.waitForURL((url) => url.pathname === "/onboarding/welcome");
+  await expect(page.getByRole("heading", { name: WELCOME })).toBeVisible();
   await page.getByRole("button", { name: "Continue to Globex" }).click();
   await page.waitForURL((url) => url.pathname.startsWith("/project/storefront/"));
 
   // Onboarding is finished: its pages send the user to their project now.
-  await page.goto("/onboarding/join");
+  await page.goto("/onboarding/welcome");
   await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));
 }
 
-test("new account: invitation → sign up → accept → about → the organization's project", async ({ page }) => {
+test("new account: invitation → sign up → accept → Welcome → the organization's project", async ({ page }) => {
   await page.goto(INVITE);
   await expect(page.getByRole("heading", { name: "Join Globex on APILens" })).toBeVisible();
   await expect(page.getByText("Olive Owner invited you to join Globex as a Member.")).toBeVisible();
@@ -61,7 +60,7 @@ test("new account: invitation → sign up → accept → about → the organizat
   await finishAsInvited(page);
 });
 
-test("remembered account: invitation → sign in → accept → about → the organization's project", async ({ page }) => {
+test("remembered account: invitation → sign in → accept → Welcome → the organization's project", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("apilens.remembered-account", JSON.stringify({ email: "you@example.com", at: Date.now() }));
   });

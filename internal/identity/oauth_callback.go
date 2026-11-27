@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -495,6 +496,11 @@ func (s *PGSignInUsers) FindOrCreateOAuth(ctx context.Context, ext ExternalIdent
 		user, created, err := s.users.FindOrCreateByVerifiedEmail(ctx, email, source)
 		if err != nil {
 			return db.User{}, false, err
+		}
+		if created {
+			if err := s.users.SetNameIfEmpty(ctx, user.ID, users.ProfileName(ext.Profile)); err != nil {
+				slog.WarnContext(ctx, "oauth: could not save profile name", "error", err, "user_id", user.ID.String())
+			}
 		}
 		now := time.Now()
 		_, err = s.q.CreateOAuthIdentity(ctx, db.CreateOAuthIdentityParams{

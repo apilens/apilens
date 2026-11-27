@@ -42,10 +42,10 @@ func TestDefaults(t *testing.T) {
 	if err := account.ValidatePreferences(prefs); err != nil {
 		t.Fatalf("default preferences invalid: %v", err)
 	}
-	if ob := DefaultOnboarding(); len(ob) != 1 || ob["step"] != "about" {
-		t.Fatalf("onboarding = %v, want {step: about}", ob)
+	if ob := DefaultOnboarding(); len(ob) != 1 || ob["step"] != OnboardingStepWelcome {
+		t.Fatalf("onboarding = %v, want {step: welcome}", ob)
 	}
-	if OnboardingPath != "/onboarding/about" {
+	if OnboardingPath != "/onboarding/welcome" {
 		t.Fatalf("OnboardingPath = %q", OnboardingPath)
 	}
 	// Each call returns a fresh map, so a caller cannot change the defaults.
@@ -118,5 +118,35 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("go.mod not found")
 		}
 		dir = parent
+	}
+}
+
+func TestProfileName(t *testing.T) {
+	for _, c := range []struct {
+		in   map[string]any
+		want string
+	}{
+		{map[string]any{"name": "  Ada Lovelace "}, "Ada Lovelace"},
+		{map[string]any{"name": "   "}, ""},
+		{map[string]any{"name": strings.Repeat("é", 101)}, ""},
+		{map[string]any{"name": 42}, ""},
+		{nil, ""},
+	} {
+		if got := ProfileName(c.in); got != c.want {
+			t.Errorf("ProfileName(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCleanName(t *testing.T) {
+	for in, want := range map[string]string{
+		"  Ada Lovelace ":        "Ada Lovelace",
+		"   ":                    "",
+		strings.Repeat("é", 100): strings.Repeat("é", 100),
+		strings.Repeat("é", 101): "",
+	} {
+		if got := CleanName(in); got != want {
+			t.Errorf("CleanName(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

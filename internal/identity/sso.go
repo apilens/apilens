@@ -83,6 +83,8 @@ type SSOUsers interface {
 	TouchLastLogin(ctx context.Context, user uuid.UUID) error
 	// CompleteOnboarding marks the user's onboarding done.
 	CompleteOnboarding(ctx context.Context, user uuid.UUID) error
+	// SetNameIfEmpty gives the user a name unless they already have one.
+	SetNameIfEmpty(ctx context.Context, user uuid.UUID, name string) error
 }
 
 // SSOMemberships adds the user of an SSO sign-in to the organization;
@@ -359,26 +361,29 @@ func (s *SSO) finish(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow, 
 	if st.Intent != OAuthIntentLogin {
 		return nil, failure(CodeInvalidRequest, "unsupported_intent", nil)
 	}
-	email, err := s.identify(ctx, conn, st, in.Code)
+	who, err := s.identify(ctx, conn, st, in.Code)
 	if err != nil {
 		return nil, err
 	}
-	return s.signInUser(ctx, conn, email, st)
+	return s.signInUser(ctx, conn, who, st)
 }
 
+// ssoIdentity is who the provider vouched for.
+type ssoIdentity struct{ Email, Name string }
+
 // identify exchanges code, verifies the id_token and returns its email,
-// which must be at one of the connection's domains.
-func (s *SSO) identify(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow, st OAuthState, code string) (string, error) {
+// which must be at one of the connection's domains, and its name claim.
+func (s *SSO) identify(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow, st OAuthState, code string) (ssoIdentity, error) {
 	if s.deps.Sealer == nil {
-		return "", failure(CodeInternal, "not_configured", errors.New("sso sealer not set"))
+		return ssoIdentity{}, failure(CodeInternal, "not_configured", errors.New("sso sealer not set"))
 	}
 	secret, err := OpenSSOClientSecret(s.deps.Sealer, conn.OrgID, conn.ClientSecretEnc)
 	if err != nil {
-		return "", failure(CodeInternal, "open_client_secret", err)
+		return ssoIdentity{}, failure(CodeInternal, "open_client_secret", err)
 	}
 	op, err := s.discover(ctx, conn.Issuer)
 	if err != nil {
-		return "", failure(CodeInternal, "provider_unavailable", err)
+		return ssoIdentity{}, failure(CodeInternal, "provider_unavailable", err)
 	}
 	cfg := oauth2.Config{
 		ClientID:     conn.ClientID,
@@ -392,56 +397,61 @@ func (s *SSO) identify(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow
 	if err != nil {
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) {
-			return "", failure(CodeOAuthStateMismatch, "exchange_rejected", err)
+			return ssoIdentity{}, failure(CodeOAuthStateMismatch, "exchange_rejected", err)
 		}
-		return "", failure(CodeInternal, "exchange", err)
+		return ssoIdentity{}, failure(CodeInternal, "exchange", err)
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	if raw == "" {
-		return "", failure(CodeOAuthStateMismatch, "missing_id_token", nil)
+		return ssoIdentity{}, failure(CodeOAuthStateMismatch, "missing_id_token", nil)
 	}
 	idt, err := op.Verifier(&oidc.Config{ClientID: conn.ClientID}).Verify(pctx, raw)
 	if err != nil {
-		return "", failure(CodeOAuthStateMismatch, "invalid_id_token", err)
+		return ssoIdentity{}, failure(CodeOAuthStateMismatch, "invalid_id_token", err)
 	}
 	if st.Nonce == "" || idt.Nonce != st.Nonce {
-		return "", failure(CodeOAuthStateMismatch, "nonce_mismatch", nil)
+		return ssoIdentity{}, failure(CodeOAuthStateMismatch, "nonce_mismatch", nil)
 	}
 	var c ssoClaims
 	if err := idt.Claims(&c); err != nil {
-		return "", failure(CodeOAuthStateMismatch, "invalid_id_token", err)
+		return ssoIdentity{}, failure(CodeOAuthStateMismatch, "invalid_id_token", err)
 	}
 	if c.EmailVerified != nil && !*c.EmailVerified {
-		return "", failure(CodeOAuthEmailUnverified, "email_unverified", nil)
+		return ssoIdentity{}, failure(CodeOAuthEmailUnverified, "email_unverified", nil)
 	}
 	if st.Reauth && (c.AuthTime == nil || s.now().Sub(time.Unix(*c.AuthTime, 0)) > OAuthStateTTL+reauthClockSkew) {
 		// The provider did not authenticate the user during this attempt.
-		return "", failure(CodeOAuthStateMismatch, "stale_auth_time", nil)
+		return ssoIdentity{}, failure(CodeOAuthStateMismatch, "stale_auth_time", nil)
 	}
 	addr, ok := NormalizeEmail(c.Email)
 	if !ok {
-		return "", failure(CodeOAuthEmailUnverified, "invalid_email", nil)
+		return ssoIdentity{}, failure(CodeOAuthEmailUnverified, "invalid_email", nil)
 	}
 	// The connection may only vouch for addresses at its own domains, never
 	// at a public mailbox provider: otherwise an organization's provider
 	// could sign in as any account.
 	domain := addr[strings.LastIndexByte(addr, '@')+1:]
 	if IsPublicEmailDomain(domain) || !slices.Contains(conn.Domains, domain) {
-		return "", failure(CodeForbidden, "email_domain_not_allowed", nil)
+		return ssoIdentity{}, failure(CodeForbidden, "email_domain_not_allowed", nil)
 	}
-	return addr, nil
+	return ssoIdentity{Email: addr, Name: c.Name}, nil
 }
 
 // signInUser finds or creates the user, adds them to the organization and
 // answers the session bundle or 2fa_required.
-func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow, email string, st OAuthState) (*SignInResponse, error) {
+func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow, who ssoIdentity, st OAuthState) (*SignInResponse, error) {
 	d := s.deps
 	if d.Users == nil || d.Memberships == nil || d.Sessions == nil || d.PreAuth == nil || d.Handoff == nil || d.Audit == nil {
 		return nil, failure(CodeInternal, "not_configured", errors.New("sso sign-in collaborators not set"))
 	}
-	user, _, err := d.Users.FindOrCreateSSO(ctx, email)
+	user, created, err := d.Users.FindOrCreateSSO(ctx, who.Email)
 	if err != nil {
 		return nil, failure(CodeInternal, "find_or_create_user", err)
+	}
+	if created {
+		if err := d.Users.SetNameIfEmpty(ctx, user.ID, users.CleanName(who.Name)); err != nil {
+			s.logger.WarnContext(ctx, "sso: could not save profile name", "error", err, "user_id", user.ID.String())
+		}
 	}
 	// Just-in-time membership: the provider vouched for an address at the
 	// organization's domain.
@@ -556,6 +566,11 @@ func (s *SSO) redirect(path string) *OAuthCallbackOutput {
 		CacheControl: "no-store",
 		Referrer:     "no-referrer",
 	}
+}
+
+// SetNameIfEmpty implements SSOUsers.
+func (s *PGSignInUsers) SetNameIfEmpty(ctx context.Context, user uuid.UUID, name string) error {
+	return s.users.SetNameIfEmpty(ctx, user, name)
 }
 
 // FindOrCreateSSO implements SSOUsers.

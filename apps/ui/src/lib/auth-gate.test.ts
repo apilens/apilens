@@ -23,7 +23,7 @@ describe("isPublicPath", () => {
     (path) => expect(isPublicPath(path, false)).toBe(true),
   );
 
-  it.each(["/", "/acme/incidents", "/onboarding/about", "/sign-in/x", "/verify/x", "/authx", "/invites", "/api/v1"])(
+  it.each(["/", "/acme/incidents", "/onboarding/welcome", "/sign-in/x", "/verify/x", "/authx", "/invites", "/api/v1"])(
     "%s needs a session",
     (path) => expect(isPublicPath(path, false)).toBe(false),
   );
@@ -48,11 +48,11 @@ describe("decide: signed out", () => {
     });
   });
 
-  it("onboarding pages go to sign-up, then the first onboarding step", () => {
-    for (const p of ["/onboarding", "/onboarding/about", "/onboarding/create"]) {
+  it("onboarding pages go to sign-up, then Welcome", () => {
+    for (const p of ["/onboarding", "/onboarding/welcome", "/onboarding/other"]) {
       expect(decide(req(p, { search: "?x=1" }))).toEqual({
         action: "redirect",
-        location: `/sign-up?next=${encodeURIComponent("/onboarding/about")}`,
+        location: `/sign-up?next=${encodeURIComponent("/onboarding/welcome")}`,
       });
     }
     expect(decide(req("/onboardingx"))).toEqual({

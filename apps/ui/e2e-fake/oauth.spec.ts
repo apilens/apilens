@@ -64,7 +64,7 @@ test("a new user from /sign-up goes to onboarding", async ({ page }) => {
   await page.goto("/sign-up");
   await providerButton(page, "GitHub").click();
   await page.getByRole("link", { name: "Authorize" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/about");
+  await page.waitForURL((url) => url.pathname === "/onboarding/welcome");
   expect(await sessionCookie(page)).toBeTruthy();
 });
 

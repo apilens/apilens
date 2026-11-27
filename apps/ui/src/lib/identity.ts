@@ -410,12 +410,6 @@ export interface OnboardingState {
 export interface OnboardingAnswers {
   org_slug?: string;
   project_slug?: string;
-  language?: string;
-  runtime?: string;
-  method?: string;
-  invited?: number;
-  /** Id of the ingest key the install step created (#333); the raw key is never saved. */
-  api_key_id?: string;
 }
 
 /** `PATCH /users/me/onboarding` (#327): omitted fields stay unchanged; answers merge key by key. */
@@ -794,6 +788,17 @@ export interface JoinableOrg {
   project_count: number;
   /** Initials of up to three members, owners first. */
   member_initials: string[];
+}
+
+/** `GET /users/me/invitations` item: a pending invitation to the signed-in user's verified address. */
+export interface MyInvitation {
+  id: string;
+  org_slug: string;
+  org_name: string;
+  role: "admin" | "member" | "viewer";
+  /** Who sent it (name, or email when they have none); empty once their account is gone. */
+  invited_by_name: string;
+  expires_at: string;
 }
 
 export interface CreateOrgRequest {
@@ -2699,6 +2704,10 @@ export function createClient(config: ClientConfig) {
     // Verified-domain join (#283): `forbidden` when the organization is missing or not joinable.
     listJoinableOrgs: (o: Authed) => request<JoinableOrg[] | null>("GET", "/users/me/joinable-orgs", o),
     joinOrg: (slug: string, o: Authed) => request<Org>("POST", `/orgs/${seg(slug)}/join`, o),
+    // Invitations to my address: `not_found` for someone else's, `invitation_not_pending` when already used.
+    listMyInvitations: (o: Authed) => request<MyInvitation[] | null>("GET", "/users/me/invitations", o),
+    acceptMyInvitation: (id: string, o: Authed) =>
+      request<Org>("POST", `/users/me/invitations/${seg(id)}/accept`, o),
 
     // api: organization SSO connection (#300) -----------------------------------------------
     getOrgSSO: (slug: string, o: Authed) => request<SSOConnection>("GET", `/orgs/${seg(slug)}/sso`, o),

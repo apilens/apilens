@@ -71,7 +71,7 @@ func TestGetMe(t *testing.T) {
 	svc := &fakeAccount{user: db.User{
 		ID: p.UserID, Email: "ada@example.com", Name: "Ada", CreatedAt: created,
 		Preferences: []byte(`{"home":"requests","theme":"dark","last_project_slug":"checkout"}`),
-		Onboarding:  []byte(`{"step":"about"}`),
+		Onboarding:  []byte(`{"step":"welcome"}`),
 	}}
 	api, _ := newTestAccount(t, svc, p)
 
@@ -86,7 +86,7 @@ func TestGetMe(t *testing.T) {
 	want := map[string]any{
 		"id": p.UserID.String(), "email": "ada@example.com", "email_verified": false, "name": "Ada", "avatar_url": "",
 		"preferences": map[string]any{"home": "requests", "last_project_slug": "checkout", "security_emails": true},
-		"onboarding":  map[string]any{"step": "about"},
+		"onboarding":  map[string]any{"step": "welcome"},
 		"created_at":  "2026-01-02T03:04:05Z",
 		"amr":         []any{"passkey"},
 	}

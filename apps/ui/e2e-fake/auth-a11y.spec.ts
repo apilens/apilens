@@ -56,6 +56,49 @@ for (const theme of THEMES) {
   }
 }
 
+// Welcome sits behind a session, so it is not in SCREENS: sign in through the fake handoff with
+// an invitation, a domain match and a new organization on offer, then check every state of it.
+test("Welcome: no serious axe violations in light and dark at 1440 and 390 px, form before the brand panel", async ({ page }) => {
+  test.setTimeout(120_000);
+  const res = await fetch(`${process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080"}/__fake/handoff`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      next: "/onboarding/welcome",
+      no_orgs: true,
+      invitations: [{ org_slug: "globex", org_name: "Globex", role: "admin", invited_by_name: "Olive Owner", projects: ["storefront"] }],
+      joinable: [{ slug: "initech", name: "Initech", member_count: 4, member_initials: ["PG", "BL"], projects: ["payments"] }],
+    }),
+  });
+  const { code } = (await res.json()) as { code: string };
+  await page.goto(`/auth/callback?code=${code}`);
+  const title = "Welcome to APILens";
+  await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible({ timeout: 20_000 });
+
+  for (const theme of THEMES) {
+    for (const width of WIDTHS) {
+      await page.evaluate((t) => localStorage.setItem("theme", t), theme);
+      await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
+      await page.reload();
+      await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      // Each pick changes what the form shows: an invitation, a domain match, then a new organization.
+      for (const pick of [page.getByTestId("welcome-org").first(), page.getByTestId("welcome-org").nth(1), page.getByTestId("welcome-create")]) {
+        await pick.click();
+        expect(await serious(page), `welcome (${theme}, ${width} px)`).toEqual([]);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `${theme}, ${width} px`).toBeLessThanOrEqual(width);
+    }
+  }
+
+  const order = await page.evaluate(() => {
+    const h1 = document.querySelector("h1");
+    const panel = document.querySelector(".ob-bp");
+    return !!h1 && !!panel && (h1.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  });
+  expect(order).toBe(true);
+});
+
 test("tab order reaches the form before the brand panel", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   for (const s of SCREENS) {
@@ -81,16 +124,19 @@ test("tab order reaches the form before the brand panel", async ({ page }) => {
   }
 });
 
-test("sign-in tab order: email, keep me signed in, Continue, then the other methods", async ({ page }) => {
+test("sign-in tab order: passkey, email, keep me signed in, Continue, then the other methods", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, "/sign-in", "Welcome back");
   await expect(page.getByLabel("Work email")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Passkey", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("checkbox", { name: /Keep me signed in/ })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Continue" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Passkey", exact: true })).toBeFocused();
+  await expect(page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ })).toBeFocused();
 });
 
 test("sign-in: a passkey autofill that cannot start says nothing", async ({ page }) => {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"math"
 	"net/http"
 	"time"
 
@@ -32,17 +31,12 @@ type OnboardingService interface {
 type OnboardingAnswers struct {
 	OrgSlug     *string `json:"org_slug,omitempty" pattern:"^([a-z0-9][a-z0-9-]{0,62})?$" doc:"Slug of the organization created or joined."`
 	ProjectSlug *string `json:"project_slug,omitempty" pattern:"^([a-z0-9][a-z0-9-]{0,62})?$" doc:"Slug of the first project."`
-	Language    *string `json:"language,omitempty" pattern:"^([a-z0-9][a-z0-9._+-]{0,31})?$" doc:"Language chosen to instrument, e.g. python."`
-	Runtime     *string `json:"runtime,omitempty" pattern:"^([a-z0-9][a-z0-9._+-]{0,31})?$" doc:"Framework or runtime, e.g. fastapi."`
-	Method      *string `json:"method,omitempty" pattern:"^([a-z0-9][a-z0-9._+-]{0,31})?$" doc:"Instrumentation method, e.g. sdk or otel."`
-	Invited     *int    `json:"invited,omitempty" minimum:"0" maximum:"1000" doc:"Number of teammates invited."`
-	APIKeyID    *string `json:"api_key_id,omitempty" pattern:"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$" doc:"Id of the ingest key the install step created; the raw key is never stored."`
 }
 
 // OnboardingPatchBody is the request body of PATCH
 // /api/v1/users/me/onboarding. Omitted fields stay unchanged.
 type OnboardingPatchBody struct {
-	Step      *string            `json:"step,omitempty" pattern:"^[a-z][a-z0-9_-]{0,31}$" doc:"The onboarding screen to resume at, e.g. project."`
+	Step      *string            `json:"step,omitempty" pattern:"^[a-z][a-z0-9_-]{0,31}$" doc:"The onboarding screen to resume at, e.g. welcome."`
 	Answers   *OnboardingAnswers `json:"answers,omitempty" doc:"Merged key by key into the stored answers; answers not sent stay unchanged."`
 	Completed *bool              `json:"completed,omitempty" doc:"true finishes onboarding (completed_at is set the first time); false reopens it."`
 }
@@ -84,7 +78,7 @@ func (o *OnboardingAPI) Register(api huma.API) {
 		Method:      http.MethodPatch,
 		Path:        OnboardingPath,
 		Summary:     "Save the signed-in user's onboarding progress",
-		Description: "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited, api_key_id), and `completed` finishes or reopens onboarding. " +
+		Description: "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug), and `completed` finishes or reopens onboarding. " +
 			"Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
 		Tags:     []string{server.TagUsers},
 		Security: []map[string][]string{{authn.SchemeSession: {}}},
@@ -101,15 +95,10 @@ func (o *OnboardingAPI) update(ctx context.Context, in *OnboardingPatchInput) (*
 		patch.Answers = map[string]any{}
 		for k, v := range map[string]*string{
 			account.AnswerOrgSlug: a.OrgSlug, account.AnswerProjectSlug: a.ProjectSlug,
-			account.AnswerLanguage: a.Language, account.AnswerRuntime: a.Runtime, account.AnswerMethod: a.Method,
-			account.AnswerAPIKeyID: a.APIKeyID,
 		} {
 			if v != nil {
 				patch.Answers[k] = *v
 			}
-		}
-		if a.Invited != nil {
-			patch.Answers[account.AnswerInvited] = *a.Invited
 		}
 	}
 	u, err := o.svc.UpdateOnboarding(ctx, p.UserID, patch)
@@ -160,14 +149,6 @@ func NewOnboardingState(raw []byte) Onboarding {
 	out.Answers = OnboardingAnswers{
 		OrgSlug:     str(account.AnswerOrgSlug),
 		ProjectSlug: str(account.AnswerProjectSlug),
-		Language:    str(account.AnswerLanguage),
-		Runtime:     str(account.AnswerRuntime),
-		Method:      str(account.AnswerMethod),
-		APIKeyID:    str(account.AnswerAPIKeyID),
-	}
-	if f, ok := stored.Answers[account.AnswerInvited].(float64); ok && f >= 0 && f <= math.MaxInt32 && f == math.Trunc(f) {
-		n := int(f)
-		out.Answers.Invited = &n
 	}
 	return out
 }

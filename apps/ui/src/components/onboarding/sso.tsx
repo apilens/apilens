@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { withRemember } from "@/lib/keep-signed-in";
+import { markPending } from "@/lib/last-signin";
 import {
   SSO_LOOKUP_FAILED,
   SSO_NEEDS_EMAIL,
@@ -76,6 +77,7 @@ export function useSSOLookup(email: string | null, next?: string) {
       if (!addr) return SSO_NEEDS_EMAIL;
       const res = await resolve(addr);
       if (res.kind === "match") {
+        markPending("sso");
         window.location.assign(withRemember(res.match.startUrl, keepSignedIn));
         return null;
       }
@@ -94,7 +96,7 @@ export function useSSOLookup(email: string | null, next?: string) {
  */
 export function SSOLink({ match, primary, remember = true }: { match: SSOMatch; primary?: boolean; remember?: boolean }) {
   return (
-    <a className={`ah-btn ${primary ? "ah-btn--primary" : "ah-btn--secondary"} au-btn-full`} href={withRemember(match.startUrl, remember)} data-sso={match.enforced ? "enforced" : "available"}>
+    <a className={`ah-btn ${primary ? "ah-btn--primary" : "ah-btn--secondary"} au-btn-full`} href={withRemember(match.startUrl, remember)} data-sso={match.enforced ? "enforced" : "available"} onClick={() => markPending("sso")}>
       <ObIcon name="lock" />
       {ssoLabel(match.orgName)}
     </a>
