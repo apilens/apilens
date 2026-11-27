@@ -1,15 +1,31 @@
 // Google and GitHub sign-in (#317) end to end against a fake identity and a fake OAuth provider
-// (e2e-fake/fake-identity.ts): the button navigates to identity's start URL, the provider consent
-// page sends the browser back through identity's callback to `/auth/callback?code=…`, and the UI
-// server redeems the code and seals the session cookie. Includes open redirects through `next`.
+// (e2e-fake/fake-identity.ts): identity's start URL sends the browser to the provider, the consent
+// page sends it back through identity's callback to `/auth/callback?code=…`, and the UI server
+// redeems the code and seals the session cookie. Includes open redirects through `next`.
+//
+// The sign-in and sign-up pages no longer offer these buttons, so each flow starts by navigating to
+// identity's start URL directly. What the buttons used to prove about that URL — its shape, and that
+// an off-origin `next` is dropped — is pinned in `src/lib/oauth.test.ts`; the round trip below is
+// what only a browser can show. The routes still answer, so the flow is still worth guarding.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
 const SESSION_COOKIE = "apilens_session";
 
-/** A provider button, found by its visible label. */
-function providerButton(page: Page, label: "GitHub" | "Google") {
-  return page.locator("a.ah-btn").filter({ hasText: new RegExp(`^${label}$`) });
+/** Identity's start endpoint, the URL the removed buttons pointed at (`oauthStartUrl`'s shape). */
+function startUrl(provider: "github" | "google", opts: { next?: string; remember?: boolean } = {}): string {
+  const q = new URLSearchParams();
+  if (opts.next) q.set("next", opts.next);
+  q.set("intent", "login");
+  q.set("remember", String(opts.remember ?? true));
+  return `${IDENTITY}/api/v1/auth/oauth/${provider}/start?${q}`;
+}
+
+/** Goes through the provider's consent page to the UI, as the button used to. */
+async function consent(page: Page, provider: "github" | "google", answer: "Authorize" | "Deny", opts: { next?: string; remember?: boolean } = {}) {
+  await page.goto(startUrl(provider, opts));
+  await expect(page.getByRole("heading", { name: `Fake ${provider} consent` })).toBeVisible();
+  await page.getByRole("link", { name: answer }).click();
 }
 
 async function sessionCookie(page: Page) {
@@ -26,17 +42,22 @@ async function handoffCode(next: string): Promise<string> {
   return ((await res.json()) as { code: string }).code;
 }
 
-for (const provider of ["GitHub", "Google"] as const) {
-  test(`${provider} on /sign-in signs in and lands on next`, async ({ page }) => {
-    await page.goto("/sign-in?next=%2Fproject%2Facme%2Frequests");
-    const button = providerButton(page, provider);
-    const href = new URL((await button.getAttribute("href")) ?? "");
-    expect(href.origin + href.pathname).toBe(`${IDENTITY}/api/v1/auth/oauth/${provider.toLowerCase()}/start`);
-    expect(Object.fromEntries(href.searchParams)).toEqual({ next: "/project/acme/requests", intent: "login", remember: "true" });
+// Review Focus: the product offers a passkey, SSO and an emailed code. A Google or GitHub button
+// reappearing on either page is a regression, not a feature — the stack is asserted present so a
+// page that failed to render cannot pass this by having no buttons at all.
+for (const path of ["/sign-in", "/sign-up"] as const) {
+  test(`${path} offers no Google or GitHub button`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.locator("a.ah-btn, button.ah-btn").filter({ hasText: /Continue with/ }).first()).toBeVisible();
+    await expect(page.locator('a[href*="/auth/oauth/"]')).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Google|GitHub/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Google|GitHub/ })).toHaveCount(0);
+  });
+}
 
-    await button.click();
-    await expect(page.getByRole("heading", { name: `Fake ${provider.toLowerCase()} consent` })).toBeVisible();
-    await page.getByRole("link", { name: "Authorize" }).click();
+for (const provider of ["github", "google"] as const) {
+  test(`${provider} signs in and lands on next`, async ({ page }) => {
+    await consent(page, provider, "Authorize", { next: "/project/acme/requests" });
 
     await page.waitForURL((url) => url.pathname === "/project/acme/requests");
     const cookie = await sessionCookie(page);
@@ -45,14 +66,8 @@ for (const provider of ["GitHub", "Google"] as const) {
   });
 }
 
-test("unticking keep me signed in gives a 24-hour session", async ({ page }) => {
-  await page.goto("/sign-in?next=%2Fproject%2Facme%2Frequests");
-  await page.getByRole("checkbox", { name: /Keep me signed in/ }).uncheck();
-  const button = providerButton(page, "GitHub");
-  expect(new URL((await button.getAttribute("href")) ?? "").searchParams.get("remember")).toBe("false");
-
-  await button.click();
-  await page.getByRole("link", { name: "Authorize" }).click();
+test("remember=false gives a 24-hour session", async ({ page }) => {
+  await consent(page, "github", "Authorize", { next: "/project/acme/requests", remember: false });
   await page.waitForURL((url) => url.pathname === "/project/acme/requests");
   const cookie = await sessionCookie(page);
   const left = (cookie?.expires ?? 0) - Date.now() / 1000;
@@ -60,18 +75,14 @@ test("unticking keep me signed in gives a 24-hour session", async ({ page }) => 
   expect(left).toBeLessThan(24 * 3600 + 300);
 });
 
-test("a new user from /sign-up goes to onboarding", async ({ page }) => {
-  await page.goto("/sign-up");
-  await providerButton(page, "GitHub").click();
-  await page.getByRole("link", { name: "Authorize" }).click();
+test("a new user with no next goes to onboarding", async ({ page }) => {
+  await consent(page, "github", "Authorize");
   await page.waitForURL((url) => url.pathname === "/onboarding/welcome");
   expect(await sessionCookie(page)).toBeTruthy();
 });
 
 test("declining consent lands on /sign-in with the error, signed out", async ({ page }) => {
-  await page.goto("/sign-in");
-  await providerButton(page, "Google").click();
-  await page.getByRole("link", { name: "Deny" }).click();
+  await consent(page, "google", "Deny");
   await page.waitForURL((url) => url.pathname === "/sign-in" && url.searchParams.get("error") === "oauth_denied");
   expect(await sessionCookie(page)).toBeUndefined();
 });
@@ -94,13 +105,6 @@ test("a used handoff code cannot sign in twice", async ({ page }) => {
 
 test.describe("open redirects through next", () => {
   for (const next of ["//evil.example/x", "/\\evil.example/x", "https://evil.example/x", "javascript:alert(1)"]) {
-    test(`the buttons drop next=${next}`, async ({ page }) => {
-      await page.goto(`/sign-in?${new URLSearchParams({ next })}`);
-      const href = new URL((await providerButton(page, "GitHub").getAttribute("href")) ?? "");
-      expect(href.origin).toBe(IDENTITY);
-      expect(href.searchParams.has("next")).toBe(false);
-    });
-
     test(`the callback ignores a handoff next=${next}`, async ({ page }) => {
       const code = await handoffCode(next);
       await page.goto(`/auth/callback?${new URLSearchParams({ code, next })}`);
